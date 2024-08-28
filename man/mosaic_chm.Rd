@@ -38,6 +38,8 @@ c(10, 10).}
 results. Default is NULL.}
 
 \item{mask_soil}{Is \code{mask} representing a soil mask (eg., removing plants)? Default is TRUE.}
+
+\item{verbose}{Return the progress messages. Default is TRUE.}
 }
 \value{
 A \code{SpatRaster} object with three layers: \code{dtm} (digital terrain
