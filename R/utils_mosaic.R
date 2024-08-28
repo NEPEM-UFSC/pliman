@@ -612,7 +612,7 @@ mosaic_analyze <- function(mosaic,
       stop("Only `segment_plot` OR `segment_individuals` can be used", call. = FALSE)
     }
     if(verbose){
-      message("\014","\nExtracting data from block", j, "\n")
+      message("\014","\nExtracting data from block ", j, "\n")
     }
     if(inherits(created_shapes[[j]]$geometry, "sfc_POLYGON") & nrow(sf::st_coordinates(created_shapes[[j]]$geometry[[1]])) == 5 & grid[[j]]){
       plot_grid <- created_shapes[[j]]
@@ -663,13 +663,13 @@ mosaic_analyze <- function(mosaic,
                                             force_df = TRUE,
                                             progress = FALSE)
         covered_area <-
-          dplyr::bind_rows(
-            lapply(seq_along(tmp), function(i){
-              data.frame(covered_area = sum(na.omit(tmp[[i]])[, 2]),
-                         plot_area = sum(tmp[[i]][, 2])) |>
-                dplyr::mutate(coverage = covered_area / plot_area)
-            })
-          )
+          purrr::map_dfr(tmp, function(x){
+            data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
+                       plot_area = sum(x[, "coverage_area"]))
+          }) |>
+          dplyr::mutate(coverage = covered_area / plot_area)
+
+
         plot_grid <- dplyr::bind_cols(plot_grid, covered_area)
         if(simplify){
           plot_grid <- plot_grid |> sf::st_simplify(preserveTopology = TRUE)
@@ -886,14 +886,14 @@ mosaic_analyze <- function(mosaic,
                                             coverage_area = TRUE,
                                             force_df = TRUE,
                                             progress = FALSE)
+
+
         covered_area <-
-          dplyr::bind_rows(
-            lapply(seq_along(tmp), function(i){
-              data.frame(covered_area = sum(na.omit(tmp[[i]])[, 2]))
-            })
-          )|>
-          dplyr::mutate(plot_area = as.numeric(sf::st_area(plot_grid)),
-                        coverage = covered_area / plot_area)
+          purrr::map_dfr(tmp, function(x){
+            data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
+                       plot_area = sum(x[, "coverage_area"]))
+          }) |>
+          dplyr::mutate(coverage = covered_area / plot_area)
         plot_grid <- dplyr::bind_cols(plot_grid, covered_area)
         if(simplify){
           plot_grid <- plot_grid |> sf::st_simplify(preserveTopology = TRUE)
@@ -1713,6 +1713,7 @@ mosaic_view <- function(mosaic,
 #'  * For `mosaic_input()`, a file path to the raster to imported, a matrix,
 #'    array or a list of `SpatRaster` objects.
 #'  * For `mosaic_export()`, an `SpatRaster` object.
+#' @param mosaic_pattern A pattern name to import multiple mosaics into a list.
 #' @param info Print the mosaic informations (eg., CRS, extend). Defaults to `TRUE`
 #' @param check_16bits Checks if mosaic has maximum value in the 16-bits format
 #'   (65535), and replaces it by NA. Defaults to `FALSE`.
@@ -3111,6 +3112,7 @@ sentinel_to_tif <- function(layers = NULL,
 #' @param mask (optional) A `SpatRaster` object used to mask the CHM and volume
 #'   results. Default is NULL.
 #' @param mask_soil Is `mask` representing a soil mask (eg., removing plants)? Default is TRUE.
+#' @param verbose Return the progress messages. Default is TRUE.
 #'
 #' @return A `SpatRaster` object with three layers: `dtm` (digital terrain
 #'   model), `height` (canopy height model), and `volume`.
@@ -3342,8 +3344,8 @@ mosaic_chm_extract <- function(chm, shapefile){
                                          progress = FALSE)
     covered_area <-
       purrr::map_dfr(area, function(x){
-        data.frame(covered_area = sum(na.omit(x)[, 2]),
-                   plot_area = sum(x[, 2]))
+        data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
+                   plot_area = sum(x[, "coverage_area"]))
       }) |>
       dplyr::mutate(coverage = covered_area / plot_area)
   } else{
