@@ -49,7 +49,7 @@ The development version of `pliman` can be installed from
 [pak](https://github.com/r-lib/pak) package:
 
 ``` r
-pak::pkg_install("TiagoOlivoto/pliman")
+pak::pkg_install("NEPEM-UFSC/pliman")
 ```
 
 *Note*: If you are a Windows user, you should also first download and
@@ -292,7 +292,7 @@ measure_disease(img = img,
 ``` r
 sev$severity
 #    healthy symptomatic
-# 1 92.62721    7.372791
+# 1 92.63213    7.367868
 ```
 
 ## Interactive disease measurements
@@ -327,7 +327,7 @@ Please, support this project by citing it in your publications!
   789-798. doi:10.1111/2041-210X.13803
   <https://doi.org/10.1111/2041-210X.13803>.
 
-Uma entrada BibTeX para usuários(as) de LaTeX é
+A BibTeX entry for LaTeX users is
 
   @Article{,
     title = {Lights, camera, pliman! An R package for plant image analysis},
