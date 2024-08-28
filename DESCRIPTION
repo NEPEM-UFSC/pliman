@@ -1,0 +1,54 @@
+Package: pliman
+Title: Tools for Plant Image Analysis
+Version: 2.1.0.9000
+Authors@R: 
+    person("Tiago", "Olivoto", , "tiagoolivoto@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-0241-9636"))
+Description: Tools for single or batch image manipulation and analysis as
+    described by Olivoto (2022) <doi:10.1111/2041-210X.13803> that can be
+    used to quantify plant leaf area, assess disease severity, count
+    objects, obtain shape measures, object landmarks, and compute
+    Elliptical Fourier Analysis of the object outline, as described by
+    Claude (2008) <doi:10.1007/978-0-387-77789-4>. Additionally, the
+    package includes tools for analyzing RGB, multispectral, or hyperspectral 
+    orthomosaics, which enables high throughput field phenotyping using UVAs- 
+    or satelite-based imagery.
+License: GPL (>= 3)
+URL: https://tiagoolivoto.github.io/pliman/, https://github.com/TiagoOlivoto/pliman
+BugReports: https://github.com/TiagoOlivoto/pliman/issues
+Depends: 
+    R (>= 4.1)
+Imports: 
+    doFuture,
+    dplyr,
+    exactextractr,
+    fields,
+    foreach,
+    future,
+    methods,
+    Rcpp,
+    sf,
+    terra,
+    tidyr
+Suggests: 
+    BiocManager,
+    EBImage,
+    knitr,
+    leafem (>= 0.2.0),
+    leaflet (>= 2.1.2),
+    mapedit (>= 0.6.0),
+    mapview (>= 2.11.0),
+    plimanshiny,
+    rmarkdown,
+    rstudioapi,
+    pak
+LinkingTo: 
+    Rcpp,
+    RcppArmadillo
+Remotes: TiagoOlivoto/plimanshiny
+biocViews:
+Encoding: UTF-8
+Language: en-US
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1

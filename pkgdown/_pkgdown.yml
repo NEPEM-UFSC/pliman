@@ -1,0 +1,248 @@
+url: https://tiagoolivoto.github.io/pliman/
+
+home:
+  title: pliman
+  description: Tools for Plant Image Analysis
+
+template:
+  bootstrap: 5
+  params:
+    ganalytics: G-VWN5YL53DP
+  bslib:
+    primary: "#0054AD"
+    border-radius: 0.5rem
+    btn-border-radius: 0.25rem
+
+toc:
+  depth: 3
+
+authors:
+  Tiago Olivoto:
+    href: https://olivoto.netlify.app/
+
+navbar:
+  title: "sparklyr"
+  type: inverse
+  left:
+    - icon: fa-home
+      text: "Home"
+      href: index.html
+    - text: "Examples"
+      menu:
+      - text: "Image indexes"
+        href: articles/indexes.html
+      - text: "Image manipulation"
+        href: articles/manipulation.html
+      - text: "Image segmentation"
+        href: articles/segmentation.html
+      - text: "Polygons"
+        href: articles/polygons.html
+      - text: "Analyze objects in an image"
+        href: articles/analyze_objects.html
+      - text: "Measure leaf area"
+        href: articles/leaf_area.html
+      - text: "Phytopatometry"
+        href: articles/phytopatometry.html
+    - text: "Functions"
+      href: reference/index.html
+    - text: News
+      menu:
+      - text: Package news
+        href: news/index.html
+      - text: Blog posts
+        href: https://olivoto.netlify.app/
+    - text: More
+      menu:
+      - text: Code of Conduct
+        href: CODE_OF_CONDUCT.html
+      - text: Contributing
+        href: CONTRIBUTING.html
+      - text: Issues
+        href: ISSUE_TEMPLATE.html
+      - text: Support
+        href: SUPPORT.html
+      - text: Licence
+        href: LICENSE.html
+  right:
+    - icon: "fab fa-researchgate fa-2x"
+      href: https://www.researchgate.net/profile/Tiago_Olivoto2
+    - icon: "fa-github fa-2x"
+      href: https://github.com/TiagoOlivoto
+    - icon: "fab fa-twitter fa-2x"
+      href: https://twitter.com/tolivoto
+    - icon: "fab fa-mendeley fa-2x"
+      href: https://www.mendeley.com/profiles/tiago-olivoto/
+
+
+reference:
+  - title: "Image operations"
+    desc: "Import, show and export images"
+    contents:
+      - as_image
+      - utils_image
+      - image_combine
+      - image_create
+      - image_expand
+      - image_square
+      - image_thinning_guo_hall
+
+  - title: "Image transformation"
+    desc: "Performs spatial transformations such as rotation, reflection, and resizing"
+    contents:
+      - utils_transform
+      - apply_fun_to_imgs
+
+  - title: "Utilities for files"
+    desc: "Provides utilities for manipulating files"
+    contents:
+      - utils_file
+      - pipe
+      - leading_zeros
+
+  - title: "Utilities for shape files"
+    desc: "Provides utilities for creating and analyzing image shape files"
+    contents:
+      - analyze_objects_shp
+      - measure_disease_shp
+      - prepare_to_shp
+      - image_shp
+      - image_align
+      - object_mark
+      - object_map
+      - plot.image_shp
+
+
+  - title: "Utilities for image resolution and color space"
+    desc: "Provides utilities for conversions between size (cm) and resolution (dpi) "
+    contents:
+      - utils_dpi
+      - utils_colorspace
+
+  - title: "Utilities for shapes"
+    desc: "Provides utilities for construction of know shapes such as circles, squares, triangles, rectangles, and polygons. Several `poly_*` functions are provided to handle polygons' coordinates"
+    contents:
+      - utils_polygon
+      - utils_polygon_plot
+      - utils_shapes
+      - plot_lw
+      - poly_apex_base_angle
+      - poly_width_at
+      - poly_pcv
+
+  - title: "Utilities for mosaics"
+    desc: "Provides utilities for analysis of mosaics class 'SpatRaster' containing RGB or multispectral (RGB + RE + NIR) bands."
+    contents:
+      - mosaic_crop
+      - mosaic_export
+      - mosaic_index
+      - mosaic_input
+      - mosaic_prepare
+      - mosaic_to_pliman
+      - mosaic_to_rgb
+      - mosaic_view
+
+  - title: "Utilities for image points"
+    desc: "Opens an iterative section to count objects, extract pixel intensity and create image palettes manually. "
+    contents:
+      - utils_pick
+
+
+  - title: "Image segmentation"
+    desc: "Performs image segmentation based on indexes such as RGB bands or vegetation indexes "
+    contents:
+      - image_augment
+      - image_binary
+      - image_index
+      - utils_indexes
+      - palettes
+      - dist_transform
+      - dist_transform
+      - image_segment
+      - image_segment_kmeans
+      - image_segment_manual
+      - image_segment_mask
+      - image_to_mat
+      - make_brush
+      - make_mask
+      - otsu
+      - plot_index
+      - plot_index_shp
+      - pixel_index
+      - watershed2
+      - plot.image_index
+
+
+
+  - title: "Elliptical Fourier Analysis"
+    desc: "Utilities for landmarks extraction and Elliptical Fourier Analysis"
+    contents:
+    - efourier
+    - efourier_coefs
+    - efourier_error
+    - efourier_inv
+    - efourier_norm
+    - efourier_power
+    - efourier_shape
+    - ellipse
+    - landmarks
+    - landmarks_add
+    - landmarks_angle
+    - landmarks_dist
+    - landmarks_regradi
+    - calibrate
+    - contours
+
+
+  - title: "Analyze objects"
+    desc: "Analyze objects in an image"
+    contents:
+      - analyze_objects
+      - utils_measures
+      - pliman_images
+      - utils_objects
+      - object_split_shp
+      - object_to_color
+      - plot.anal_obj
+      - summary_index
+      - utils_polygon
+      - object_split
+      - object_edge
+      - object_export
+      - object_export_shp
+      - object_label
+      - object_rgb
+      - pixel_index
+
+
+  - title: "Symptomatic area"
+    desc: "Calculates the percentage of symptomatic leaf area based in a sample or entire leaf based on provided color palettes samples"
+    contents:
+      - measure_disease
+      - measure_disease_iter
+      - measure_disease_byl
+      - sad
+
+
+  - title: "Misc"
+    desc: "Miscellaneous Functions"
+    contents:
+      - separate_col
+      - custom_palette
+      - utils_pca
+      - utils_rows_cols
+      - utils_stats
+      - utils_wd
+      - random_color
+      - ggplot_color
+      - get_pliman_viewer
+      - set_pliman_viewer
+
+  - title: "Iterative visualization"
+    desc: "Tools to plot images and create polygons, points, and lines using mapview and mapedit packages."
+    contents:
+      - image_prepare
+      - image_view
+      - pliman_viewer
+
+
+

@@ -1,0 +1,121 @@
+---
+title: "Measure leaf area using leaf images"
+author: "Tiago Olivoto"
+date: "`r Sys.Date()`"
+always_allow_html: yes
+output: rmarkdown::html_vignette
+fig_caption: yes
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  rmarkdown.html_vignette.check_title = FALSE,
+  fig.width = 7
+)
+```
+
+# Getting started
+
+We can use `analyze_objects()` to compute object features such as area, perimeter, radius, etc. This can be used, for example, to compute leaf area.
+Let's compute the leaf area of `leaves` with `analyze_objects()`. First, we use `image_segmentation()` to identify candidate indexes to segment foreground (leaves) from background.
+
+```{r leaf3, fig.width=10, fig.height=8 }
+library(pliman)
+path <- "https://raw.githubusercontent.com/TiagoOlivoto/images/master/pliman"
+leaves <- 
+  image_import("leaves2.jpg",
+               path = path,
+               plot = TRUE)
+
+
+```
+
+```{r leaf4, fig.width=8, fig.height=8}
+image_index(leaves)
+```
+
+`B` (Blue) and `NB` (Normalized Blue) are two possible candidates to segment the leaves from the background. We will use the `NB` index here (default option in `analyze_objects()`). The measurement of the leaf area in this approach can be done in two main ways: 1) using an object of known area, and 2) knowing the image resolution in dpi (dots per inch).
+
+
+### Using an object of known area
+
+- Count the number of objects (leaves in this case)
+
+Here, we use the argument `marker = "id"` of the function `analyze_objects()` to obtain the identification of each object (leaf), allowing for further adjustment of the leaf area.
+
+```{r leaf5, fig.width=10, fig.height=8}
+count <- analyze_objects(leaves, marker = "id")
+
+```
+
+Note that "holes" in some leaves resulted in the segmentation of one leaf in more than one object (e.g., 5, 8, 22, 25, 18, 28). This will not affect the total leaf area, but the area of individual leaves and the average leaf area. This can be solved by either setting the argument `fill_hull = TRUE` or `watershed = FALSE` (To don't implement the watershed-based object segmentation). Let's see how much better we can go.
+
+```{r leaf6, fig.width=10, fig.height=8}
+count <-
+  analyze_objects(leaves,
+                  marker = "id",
+                  fill_hull = TRUE)
+```
+
+Almost there! Due to the morphology of the leaf composed by objects 2 and 23, it was segmented into two objects. This can be solved by setting the argument `object_size = "large"` that will change the default (medium) values for `tolerance` and `extension` arguments.
+
+```{r leaf7, fig.width=10, fig.height=8}
+count <-
+  analyze_objects(leaves,
+                  marker = "id",
+                  fill_hull = TRUE,
+                  object_size = "large")
+
+```
+
+When the objects are not touching each other, the argument `watershed = FALSE` would be a better option.
+
+```{r leaf8, fig.width=10, fig.height=8}
+analyze_objects(leaves,
+                watershed = FALSE)
+
+```
+
+And here we are! Now, all leaves were identified correctly, but all measures were given in pixel units. The next step is to convert these measures to metric units.
+
+
+- Convert the leaf area by the area of the known object
+
+The function `get_measures()` is used to adjust the leaf area using object 10, a square with a side of 5 cm (25 cm$^2$).
+
+```{r leaf9, fig.width=10, fig.height=8}
+area <-
+  get_measures(count,
+               id = 11,
+               area ~ 25)
+# plot the area to the segmented image
+image_segment(leaves, index = "NB", verbose = FALSE)
+plot_measures(area,
+              measure = "area",
+              col = "red") # default is "white"
+
+
+```
+
+
+### knowing the image resolution in dpi (dots per inch)
+When the image resolution is known, the measures in pixels obtained with `analyze_objects()` are corrected by the image resolution. The function `dpi()` can be used to compute the dpi of an image, provided that the size of any object is known. See the [dpi](#dpi) section for more details. In this case, the estimated resolution considering the calibration of object 10 was ~50.5 DPIs. We inform this value in the `dpi` argument of `get_measures()`.
+
+```{r leaf10}
+area2 <- get_measures(count, dpi = 50.5)
+plot(leaves)
+plot_measures(area2,
+              measure = "area",
+              vjust = -60,
+              col = "gray") # default is "white"
+```
+
+# <i class="fas fa-scroll"></i> A little bit more!
+
+<!-- inicio font awesome -->
+<script src="https://kit.fontawesome.com/1f72d6921a.js" crossorigin="anonymous"></script>
+
+> At [this link](https://tiagoolivoto.github.io/paper_pliman/code.html) you will find more examples on how to use {pliman} to analyze plant images. Source code and images can be downloaded [here](https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip). You can also find a talk (Portuguese language) about {pliman} [here](https://www.youtube.com/watch?v=ElvUVlPocgA). <i class="far fa-lightbulb"></i>Lights, <i class="fas fa-camera"></i>camera, {pliman}!
+
