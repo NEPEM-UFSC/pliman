@@ -85,6 +85,10 @@ help_centdist <- function(data) {
     .Call(`_pliman_help_centdist`, data)
 }
 
+help_centdist2 <- function(data) {
+    .Call(`_pliman_help_centdist2`, data)
+}
+
 help_rotate <- function(polygon, angle) {
     .Call(`_pliman_help_rotate`, polygon, angle)
 }
