@@ -105,6 +105,50 @@ NumericVector help_centdist(NumericMatrix data) {
 }
 
 
+arma::vec centmass(const arma::mat& coords) {
+  arma::vec center(2);
+  center.fill(0);
+  double area = 0;
+  int n = coords.n_rows;
+  for (int i = 0; i < n; i++) {
+    double x1 = coords(i, 0);
+    double y1 = coords(i, 1);
+    double x2 = coords((i + 1) % n, 0);
+    double y2 = coords((i + 1) % n, 1);
+    double a = x1 * y2 - x2 * y1;
+    area += a;
+    center(0) += (x1 + x2) * a;
+    center(1) += (y1 + y2) * a;
+  }
+  area /= 2;
+  center /= 6 * area;
+  return center;
+}
+
+// [[Rcpp::export]]
+NumericVector help_centdist2(NumericMatrix data) {
+  int n = data.nrow();
+  NumericVector distances(n);
+
+  // Convert NumericMatrix to arma::mat
+  arma::mat coords(data.begin(), data.nrow(), data.ncol(), false);
+
+  // Calculate the center of mass using help_mc
+  arma::vec center_of_mass = centmass(coords);
+
+  // Calculate Euclidean distances from each point to the center of mass
+  for (int i = 0; i < n; i++) {
+    double dist = 0;
+    for (int j = 0; j < data.ncol(); j++) {
+      dist += pow(data(i, j) - center_of_mass[j], 2);
+    }
+    distances[i] = sqrt(dist);
+  }
+
+  return distances;
+}
+
+
 
 // [[Rcpp::export]]
 NumericMatrix help_rotate(NumericMatrix polygon, double angle) {

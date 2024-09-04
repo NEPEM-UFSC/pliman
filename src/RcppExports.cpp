@@ -274,6 +274,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// help_centdist2
+NumericVector help_centdist2(NumericMatrix data);
+RcppExport SEXP _pliman_help_centdist2(SEXP dataSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type data(dataSEXP);
+    rcpp_result_gen = Rcpp::wrap(help_centdist2(data));
+    return rcpp_result_gen;
+END_RCPP
+}
 // help_rotate
 NumericMatrix help_rotate(NumericMatrix polygon, double angle);
 RcppExport SEXP _pliman_help_rotate(SEXP polygonSEXP, SEXP angleSEXP) {
@@ -475,6 +486,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},
     {"_pliman_help_centdist", (DL_FUNC) &_pliman_help_centdist, 1},
+    {"_pliman_help_centdist2", (DL_FUNC) &_pliman_help_centdist2, 1},
     {"_pliman_help_rotate", (DL_FUNC) &_pliman_help_rotate, 2},
     {"_pliman_help_align", (DL_FUNC) &_pliman_help_align, 1},
     {"_pliman_help_lw", (DL_FUNC) &_pliman_help_lw, 1},

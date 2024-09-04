@@ -28,8 +28,14 @@
 #' alignment to the y-axis (with poly_align()). The length is defined as the
 #' range along the x-axis, and the width is defined as the range on the y-axis.
 #'
-#'    - `poly_mass()` Computes the center of mass of a polygon given by the
-#' vertices in the vectors in `x`.
+#' - `poly_mass()` Computes the center of mass (centroid) of a polygon given by
+#' the vertices in the vectors x and y using the following formulas:
+#'
+#' \deqn{C_x = \frac{1}{6A} \sum_{i=1}^{n} (x_i + x_{i+1}) (x_i y_{i+1} - x_{i+1} y_i)}
+#' \deqn{C_y = \frac{1}{6A} \sum_{i=1}^{n} (y_i + y_{i+1}) (x_i y_{i+1} - x_{i+1} y_i)} where `C_x` and `C_y` are the coordinates of the center of mass, `A` is the
+#' area of the polygon computed by the Shoelace formula, `x` and `y` are the
+#' coordinates that form the corners of the polygon, and `n` is the number of
+#' coordinates.
 #'
 #'    - `poly_solidity()` Computes the solidity of a shape as the ratio of
 #' the shape area and the convex hull area.
@@ -43,6 +49,9 @@
 #'
 #'    - `poly_centdist()` Computes the Euclidean distance between every point on
 #' the perimeter and the centroid of the object.
+#'
+#'    - `poly_centdist_mass()` Computes the Euclidean distance between every point on
+#' the perimeter and the center of mass of the object.
 #'
 #'    - `poly_perimeter()` Computes the perimeter of a polygon given by the
 #' vertices in the vectors x and y.
@@ -386,6 +395,17 @@ poly_centdist <- function(x) {
     lapply(x, help_centdist)
   } else{
     help_centdist(x)
+  }
+}
+
+#' @name utils_polygon
+#' @export
+# Computes the euclidean distance between every points and the centroid
+poly_centdist_mass <- function(x) {
+  if (inherits(x, "list")) {
+    lapply(x, help_centdist2)
+  } else{
+    help_centdist2(x)
   }
 }
 

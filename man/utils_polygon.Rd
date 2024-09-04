@@ -14,6 +14,7 @@
 \alias{poly_slide}
 \alias{poly_distpts}
 \alias{poly_centdist}
+\alias{poly_centdist_mass}
 \alias{poly_perimeter}
 \alias{poly_rotate}
 \alias{poly_align}
@@ -61,6 +62,8 @@ poly_slide(x, fp = 1)
 poly_distpts(x)
 
 poly_centdist(x)
+
+poly_centdist_mass(x)
 
 poly_perimeter(x)
 
@@ -172,11 +175,23 @@ law of cosines.
 \item \code{poly_lw()} Returns the length and width of a polygon based on its
 alignment to the y-axis (with poly_align()). The length is defined as the
 range along the x-axis, and the width is defined as the range on the y-axis.
-\item \code{poly_mass()} Computes the center of mass of a polygon given by the
-vertices in the vectors in \code{x}.
+}
+}
+\itemize{
+\item \code{poly_mass()} Computes the center of mass (centroid) of a polygon given by
+the vertices in the vectors x and y using the following formulas:
+}
+
+\deqn{C_x = \frac{1}{6A} \sum_{i=1}^{n} (x_i + x_{i+1}) (x_i y_{i+1} - x_{i+1} y_i)}
+\deqn{C_y = \frac{1}{6A} \sum_{i=1}^{n} (y_i + y_{i+1}) (x_i y_{i+1} - x_{i+1} y_i)} where \code{C_x} and \code{C_y} are the coordinates of the center of mass, \code{A} is the
+area of the polygon computed by the Shoelace formula, \code{x} and \code{y} are the
+coordinates that form the corners of the polygon, and \code{n} is the number of
+coordinates.
+\itemize{
 \item \code{poly_solidity()} Computes the solidity of a shape as the ratio of
 the shape area and the convex hull area.
 }
+\itemize{
 \item Perimeter measures
 \itemize{
 \item \code{poly_slide()} Slides the coordinates of a polygon given by the vertices
@@ -185,6 +200,8 @@ in the vectors x and y so that the id-th point becomes the first one.
 of a polygon given by the vertices in the vectors x and y.
 \item \code{poly_centdist()} Computes the Euclidean distance between every point on
 the perimeter and the centroid of the object.
+\item \code{poly_centdist_mass()} Computes the Euclidean distance between every point on
+the perimeter and the center of mass of the object.
 \item \code{poly_perimeter()} Computes the perimeter of a polygon given by the
 vertices in the vectors x and y.
 \item \code{poly_caliper()} Computes the caliper (also called the Feret's diameter)

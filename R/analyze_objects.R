@@ -923,25 +923,41 @@ analyze_objects <- function(img,
         } else{
           # correct the measures based on larger or smaller objects
 
-          if(!is.null(foreground) && !is.null(background) | isTRUE(pick_palettes)){
+          if((!is.null(foreground) && !is.null(background)) | isTRUE(pick_palettes)){
 
             if(isTRUE(pick_palettes)){
+              viewopt <- c("base", "mapview")
+              viewopt <- viewopt[pmatch(viewer[[1]], viewopt)]
+
               if(interactive()){
-                plot(img)
-                message("Use the first mouse button to pick up BACKGROUND colors. Press Est to exit")
+                if(viewopt == "base"){
+                  plot(img)
+                }
+                if(viewopt == "base"){
+                  message("Use the first mouse button to pick up BACKGROUND colors. Press Est to exit")
+                }
                 background <- pick_palette(img,
                                            r = 5,
                                            verbose = FALSE,
                                            palette  = FALSE,
                                            plot = FALSE,
-                                           col = "blue")
-                message("Use the first mouse button to pick up FOREGROUND colors. Press Est to exit")
+                                           col = "blue",
+                                           title = "Use the first mouse button to pick up BACKGROUND colors. Click 'Done' to finish",
+                                           viewer = viewer)
+                if(viewopt != "base"){
+                  image_view(img[1:10, 1:10,], edit = TRUE)
+                }
+                if(viewopt == "base"){
+                  message("Use the first mouse button to pick up FOREGROUND colors. Press Est to exit")
+                }
                 foreground <- pick_palette(img,
                                            r = 5,
                                            verbose = FALSE,
                                            palette  = FALSE,
                                            plot = FALSE,
-                                           col = "salmon")
+                                           col = "salmon",
+                                           title = "Use the first mouse button to pick up FOREGROUND colors. Click 'Done' to finish",
+                                           viewer = viewer)
               }
             }
 
@@ -1062,12 +1078,20 @@ analyze_objects <- function(img,
 
           if(isTRUE(reference_larger)){
             id_ref <- which.max(shape$area)
+            pix_ref <- which(nmask == id_ref)
+            img@.Data[,,1][pix_ref] <- 1
+            img@.Data[,,2][pix_ref] <- 0
+            img@.Data[,,3][pix_ref] <- 0
             npix_ref <- shape[id_ref, 4]
             shape <- shape[-id_ref,]
             shape <- shape[shape$area > mean(shape$area) * lower_noise, ]
           } else{
             shape <- shape[shape$area > mean(shape$area) * lower_noise, ]
             id_ref <- which.min(shape$area)
+            pix_ref <- which(nmask == id_ref)
+            img@.Data[,,1][pix_ref] <- 1
+            img@.Data[,,2][pix_ref] <- 0
+            img@.Data[,,3][pix_ref] <- 0
             npix_ref <- shape[id_ref, 4]
             shape <- shape[-id_ref,]
           }
