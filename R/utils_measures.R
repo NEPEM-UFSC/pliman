@@ -895,7 +895,7 @@ compute_measures <- function(mask,
                              haralick =  FALSE,
                              har_nbins = 32,
                              har_scales = 1,
-                             har_band = 1){
+                             har_band = "GRAY"){
   ocont <- EBImage::ocontour(mask)
   shape <-
     cbind(features_moment(ocont),
@@ -968,12 +968,22 @@ compute_measures <- function(mask,
                      "coverage")]
   colnames(shape) <- names_measures()
   if(isTRUE(haralick)){
-    hal <- data.frame(
-      EBImage::computeFeatures.haralick(mask,
-                                        img[,,har_band],
-                                        haralick.nbins = har_nbins,
-                                        haralick.scales = har_scales)
-    )
+    if(har_band == "GRAY"){
+      hal <- data.frame(
+        EBImage::computeFeatures.haralick(mask,
+                                          0.299 * img[,,1] + 0.587 * img[,,2] + 0.114 * img[,,3] ,
+                                          haralick.nbins = har_nbins,
+                                          haralick.scales = har_scales)
+      )
+    } else{
+      hal <- data.frame(
+        EBImage::computeFeatures.haralick(mask,
+                                          img[,,har_band],
+                                          haralick.nbins = har_nbins,
+                                          haralick.scales = har_scales)
+      )
+    }
+
     shape <- cbind(shape, hal[valid, ])
     colnames(shape) <- c(names_measures(), har_names())
   }
