@@ -116,7 +116,7 @@ image_view <- function(img,
         ) +
           mapview::mapview(sf_df,
                            map.types = "OpenStreetMap",
-                           # col.regions = color_regions,
+                           col.regions = color_regions,
                            zcol = attribute,
                            legend = TRUE,
                            alpha.regions = alpha,
