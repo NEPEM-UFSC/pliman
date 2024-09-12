@@ -95,7 +95,8 @@
 #'  repeated every two pixels or 10 pixels. By default, the Haralick features
 #'  are computed with the R band. To chance this default, use the argument
 #'  `har_band`. For example, `har_band = 2` will compute the features with the
-#'  green band.
+#'  green band. Additionaly, har_band = "GRAY" can be used. In this case, a
+#'  grayscale (0.299 * R + 0.587 * G + 0.114 * B) is used.
 #'
 #'   - If `efourier = TRUE` is used, an Elliptical Fourier Analysis (Kuhl and
 #'  Giardina, 1982) is computed for each object contour using [efourier()].
@@ -215,7 +216,7 @@
 #'@param har_scales A integer vector indicating the number of scales to use to
 #'  compute the Haralick features. See Details.
 #'@param har_band The band to compute the Haralick features (1 = R, 2 = G, 3 =
-#'  B). Defaults to 1.
+#'  B). Defaults to 1. Other allowed value is `har_band = "GRAY"`.
 #' @param pcv Computes the Perimeter Complexity Value? Defaults to `FALSE`.
 #' @param pcv_niter An integer specifying the number of smoothing iterations for
 #'   computing the  Perimeter Complexity Value. Defaults to 100.
@@ -574,6 +575,7 @@ analyze_objects <- function(img,
                             nir = 5,
                             object_index = NULL,
                             pixel_level_index = FALSE,
+                            pixel_result_file = FALSE,
                             return_mask = FALSE,
                             efourier = FALSE,
                             nharm = 10,
@@ -1213,29 +1215,16 @@ analyze_objects <- function(img,
         obj_rgb <- object_rgb(img, data_mask)
         obj_rgb <- subset(obj_rgb, id %in% shape$id)
         obj_rgb <- cbind(obj_rgb, rgb_to_hsb(obj_rgb[, 2:4]))
-        # indexes by id
-        tmp <-
-          by(obj_rgb,
-             INDICES = obj_rgb$id,
-             FUN = function(x){
-               data.frame(
-                 do.call(cbind,
-                         lapply(seq_along(ind_formula), function(i){
-                           data.frame(transform(x, index = eval(parse(text = ind_formula[i])))[,ncol(obj_rgb)+1])
-                         })
-                 )
-               )
-             }
-          )
-        tmp <-
-          do.call(rbind,
-                  lapply(tmp, data.frame)
-          )
+        # Use by to calculate indexes directly and aggregate later
+        tmp <- by(obj_rgb, obj_rgb$id, FUN = function(x) {
+          sapply(ind_formula, function(formula) eval(parse(text = formula), envir = x))
+        })
+
+        tmp <- do.call(rbind, tmp)
         colnames(tmp) <- ind_name
         obj_rgb <- cbind(obj_rgb, tmp)
-        indexes <- data.frame(cbind(id = obj_rgb$id, tmp))
-        colnames(indexes) <- c("id", ind_name)
-        indexes <- aggregate(. ~ id, indexes, mean, na.rm = TRUE)
+        indexes <- aggregate(. ~ id, obj_rgb[, c("id", ind_name)], mean, na.rm = TRUE)
+        rm(tmp)
         if(isFALSE(pixel_level_index)){
           obj_rgb <- NULL
         }
