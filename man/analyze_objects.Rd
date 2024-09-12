@@ -52,6 +52,7 @@ analyze_objects(
   nir = 5,
   object_index = NULL,
   pixel_level_index = FALSE,
+  pixel_result_file = FALSE,
   return_mask = FALSE,
   efourier = FALSE,
   nharm = 10,
@@ -226,7 +227,7 @@ Haralick matrix. Defaults to 32. See Details}
 compute the Haralick features. See Details.}
 
 \item{har_band}{The band to compute the Haralick features (1 = R, 2 = G, 3 =
-B). Defaults to 1.}
+B). Defaults to 1. Other allowed value is \code{har_band = "GRAY"}.}
 
 \item{pcv}{Computes the Perimeter Complexity Value? Defaults to \code{FALSE}.}
 
@@ -619,7 +620,8 @@ possible to identify textures with different scales, e.g., a texture that is
 repeated every two pixels or 10 pixels. By default, the Haralick features
 are computed with the R band. To chance this default, use the argument
 \code{har_band}. For example, \code{har_band = 2} will compute the features with the
-green band.
+green band. Additionaly, har_band = "GRAY" can be used. In this case, a
+grayscale (0.299 * R + 0.587 * G + 0.114 * B) is used.
 \item If \code{efourier = TRUE} is used, an Elliptical Fourier Analysis (Kuhl and
 Giardina, 1982) is computed for each object contour using \code{\link[=efourier]{efourier()}}.
 \item If \code{veins = TRUE} (experimental), vein features are computed. This will call

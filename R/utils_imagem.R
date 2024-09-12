@@ -2967,6 +2967,10 @@ image_to_mat <- function(img,
 #' @param colorspace The color space to produce the clusters. Defaults to `rgb`.
 #'   If `hsb`, the color space is first converted from RGB > HSB before k-means
 #'   algorithm be applied.
+#' @param remove_bg Remove background from the color palette? Defaults to
+#'   `FALSE`.
+#' @param index An image index used to remove the background, passed to
+#'   [image_binary()].
 #' @param parallel If TRUE processes the images asynchronously (in parallel) in
 #'   separate R sessions running in the background on the same machine.
 #' @param return_pal Return the color palette image? Defaults to `FALSE`.
@@ -2994,6 +2998,8 @@ image_palette <- function (img,
                            npal = 5,
                            proportional = TRUE,
                            colorspace = c("rgb", "hsb"),
+                           remove_bg = FALSE,
+                           index = "B",
                            plot = TRUE,
                            save_image = FALSE,
                            prefix = "proc_",
@@ -3023,7 +3029,6 @@ image_palette <- function (img,
   help_pal <- function(img, npal, proportional, colorspace, plot, save_image, prefix){
     if(is.character(img)){
       all_files <- sapply(list.files(diretorio_original), file_name)
-      # check_names_dir(img, all_files, diretorio_original)
       imag <- list.files(diretorio_original, pattern = paste0("^",img, "\\."))
       name_ori <- file_name(imag)
       extens_ori <- file_extension(imag)
@@ -3035,6 +3040,14 @@ image_palette <- function (img,
     if(!colorspace[[1]]  %in% c("rgb", "hsb")){
       warning("`colorspace` must be one of 'rgb' or 'hsb'. Setting to 'rgb'", call. = FALSE)
       colorspace <- "rgb"
+    }
+    # remove BG if needed
+    if(remove_bg){
+      mask <- image_binary(img, index = "B-R", opening = 5, plot = FALSE, verbose = FALSE)[[1]]
+      ID <- which(mask == FALSE)
+      img@.Data[,,1][ID] <- NA
+      img@.Data[,,2][ID] <- NA
+      img@.Data[,,3][ID] <- NA
     }
     nc <- ncol(img)
     nr <- nrow(img)
@@ -3094,6 +3107,7 @@ image_palette <- function (img,
     } else{
       props <-
         imb |>
+        dplyr::filter(!is.na(cluster)) |>
         dplyr::group_by(cluster) |>
         dplyr::summarise(
           n = dplyr::n(),
@@ -3972,3 +3986,60 @@ prepare_to_shp <- function(img,
   invisible(cropped)
 }
 
+#' Add Alpha Layer to an RGB Image
+#'
+#' This function adds an alpha (transparency) layer to an RGB image using the EBImage package.
+#' The alpha layer can be specified as a single numeric value for uniform transparency
+#' or as a matrix/array matching the dimensions of the image for varying transparency.
+#'
+#' @param img An RGB image of class `Image` from the EBImage package. The image must be in RGB format (color mode 2).
+#' @param mask A numeric value or matrix/array specifying the alpha layer:
+#'     * If `mask` is a single numeric value, it sets a uniform transparency level (0 for fully transparent, 1 for fully opaque).
+#'     * If `mask` is a matrix or array, it must have the same dimensions as the image channels, allowing for varying transparency.
+#'
+#' @return An `Image` object with an added alpha layer, maintaining the RGBA format.
+#'
+#' @examples
+#' \dontrun{
+#' # Load the EBImage package
+#' library(pliman)
+#'
+#' # Load a sample RGB image
+#' img <- image_pliman("soybean_touch.jpg")
+#'
+#' # 50% transparency
+#' image_alpha(img, 0.5) |> plot()
+#'
+#' # transparent background
+#' mask <- image_binary(img, "NB")[[1]]
+#' img_tb <- image_alpha(img, mask)
+#' plot(img_tb)
+#'
+#' }
+#'
+#' @export
+#'
+image_alpha <- function(img, mask) {
+  # Check if the input image is an RGB image
+  if (colorMode(img) != 2) {
+    stop("Input image must be in RGB format.")
+  }
+  r <- img[,,1]
+  g <- img[,,2]
+  b <- img[,,3]
+  EBImage::colorMode(r) <- "Grayscale"
+  EBImage::colorMode(g) <- "Grayscale"
+  EBImage::colorMode(b) <- "Grayscale"
+  if (is.numeric(mask) && length(mask) == 1) {
+    alpha_layer <- array(mask, dim = dim(r))
+  }
+  # If mask is a matrix or array, ensure it matches the image dimensions
+  else if (all(dim(mask) == dim(r))) {
+    alpha_layer <- array(as.numeric(mask), dim = dim(img)[1:2])
+  } else {
+    stop("Mask must be either a single numeric value or a matrix with the same dimensions as the image channels.")
+  }
+  img_with_alpha <- EBImage::combine(r, g, b, alpha_layer)
+  colorMode(img_with_alpha) <- "Color"
+  return(img_with_alpha)
+}

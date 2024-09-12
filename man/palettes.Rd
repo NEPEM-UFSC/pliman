@@ -11,6 +11,8 @@ image_palette(
   npal = 5,
   proportional = TRUE,
   colorspace = c("rgb", "hsb"),
+  remove_bg = FALSE,
+  index = "B",
   plot = TRUE,
   save_image = FALSE,
   prefix = "proc_",
@@ -41,6 +43,12 @@ the number of pixels in the image? Defaults to \code{TRUE}.}
 \item{colorspace}{The color space to produce the clusters. Defaults to \code{rgb}.
 If \code{hsb}, the color space is first converted from RGB > HSB before k-means
 algorithm be applied.}
+
+\item{remove_bg}{Remove background from the color palette? Defaults to
+\code{FALSE}.}
+
+\item{index}{An image index used to remove the background, passed to
+\code{\link[=image_binary]{image_binary()}}.}
 
 \item{plot}{Plot the generated palette? Defaults to \code{TRUE}.}
 
