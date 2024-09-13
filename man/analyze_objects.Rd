@@ -52,7 +52,6 @@ analyze_objects(
   nir = 5,
   object_index = NULL,
   pixel_level_index = FALSE,
-  pixel_result_file = FALSE,
   return_mask = FALSE,
   efourier = FALSE,
   nharm = 10,
