@@ -227,7 +227,6 @@ get_measures <- function(object,
 
   if("img" %in% names(res)){
     if(!inherits(object, "plm_disease_byl") & !inherits(object, "anal_obj")){
-
       # bind object_index, if it exists
       if(!is.null(object$object_index)){
         if(ncol(object$object_index) < 4){
@@ -268,7 +267,7 @@ get_measures <- function(object,
                 })
         )
       names(smr) <- c("n", "area_sum", "area_mean", "area_sd",  names(res[6:ncol(res)]))
-      smr$img <- paste0("img", unique(res$img))
+      smr$img <- object$count$Image
       smr <- smr[,c(ncol(smr), 1:ncol(smr)-1)]
       smr$area_sd[is.na(smr$area_sd)] <- 0
       merg <- smr

@@ -4021,7 +4021,7 @@ prepare_to_shp <- function(img,
 #'
 image_alpha <- function(img, mask) {
   # Check if the input image is an RGB image
-  if (colorMode(img) != 2) {
+  if (EBImage::colorMode(img) != 2) {
     stop("Input image must be in RGB format.")
   }
   r <- img[,,1]
@@ -4040,6 +4040,6 @@ image_alpha <- function(img, mask) {
     stop("Mask must be either a single numeric value or a matrix with the same dimensions as the image channels.")
   }
   img_with_alpha <- EBImage::combine(r, g, b, alpha_layer)
-  colorMode(img_with_alpha) <- "Color"
+  EBImage::colorMode(img_with_alpha) <- "Color"
   return(img_with_alpha)
 }
