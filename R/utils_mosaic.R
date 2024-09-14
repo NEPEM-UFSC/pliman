@@ -487,15 +487,16 @@ mosaic_analyze <- function(mosaic,
   } else{
     if(inherits(shapefile, "list")){
       created_shapes <- lapply(shapefile, function(x){
-        # x[, "geometry"]
         x
       })
     } else{
       if(inherits(shapefile, "SpatVector")){
         created_shapes <- sf::st_as_sf(shapefile) |> sf_to_polygon()
       }
-      created_shapes <- list(shapefile |> sf_to_polygon())
-      names(created_shapes) <- paste(1:length(created_shapes))
+      if(!"block" %in% colnames(shapefile)){
+        stop("`block` and `plot_id` must be in the column names of shapefile")
+      }
+      created_shapes <- split(shapefile, shapefile$block)
     }
     if(crop_to_shape_ext){
       ress <- terra::res(mosaic)
@@ -919,10 +920,10 @@ mosaic_analyze <- function(mosaic,
         extends <- terra::ext(mind_temp)
         dmask[is.na(dmask) == TRUE] <- 1
         if(is.numeric(opening[j]) & opening[j] > 0){
-          dmask <- image_opening(dmask, opening[j])
+          dmask <- image_opening(dmask, size = opening[j])
         }
         if(is.numeric(closing[j]) & closing[j] > 0){
-          dmask <- image_closing(dmask, closing[j])
+          dmask <- image_closing(dmask, size = closing[j])
         }
         if(!isFALSE(filter[j]) & filter[j] > 1){
           dmask <- EBImage::medianFilter(dmask, filter[j])
@@ -1109,9 +1110,19 @@ mosaic_analyze <- function(mosaic,
       dplyr::mutate(plot_area = sf::st_area(geometry)) |>
       as.data.frame(check.names = FALSE) |>
       dplyr::select(block, plot_id, row, column, plot_area)
+
     # compute coverage area
+    result_plot_summ <- do.call(rbind, lapply(summres, function(x){x}))
+    if(!"row" %in% colnames(result_plot_summ)){
+      result_plot_summ <-
+        result_plot_summ |>
+        dplyr::mutate(row = 1,
+                      column = 1,
+                      .after = plot_id)
+    }
+
     result_plot_summ <-
-      do.call(rbind, lapply(summres, function(x){x})) |>
+      result_plot_summ |>
       dplyr::left_join(plot_area, by = dplyr::join_by(block, plot_id, row, column)) |>
       dplyr::mutate(coverage = as.numeric(area_sum / plot_area), .after = area) |>
       dplyr::left_join(results |>   dplyr::select(block, plot_id, row, column, geometry),
