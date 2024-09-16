@@ -1637,7 +1637,11 @@ image_create <- function(color,
 #'   image.
 #' @param fill_hull Fill holes in the objects? Defaults to `FALSE`.
 #'
-#' @param opening,closing,filter **Morphological operations (brush size)**
+#' @param erode,dilate,opening,closing,filter **Morphological operations (brush size)**
+#'  * `dilate` puts the mask over every background pixel, and sets it to
+#'  foreground if any of the pixels covered by the mask is from the foreground.
+#'  * `erode` puts the mask over every foreground pixel, and sets it to
+#'  background if any of the pixels covered by the mask is from the background.
 #'  * `opening` performs an erosion followed by a dilation. This helps to
 #'   remove small objects while preserving the shape and size of larger objects.
 #'  * `closing` performs a dilatation followed by an erosion. This helps to
@@ -1694,6 +1698,8 @@ image_binary <- function(img,
                          has_white_bg = FALSE,
                          resize = FALSE,
                          fill_hull = FALSE,
+                         erode = FALSE,
+                         dilate = FALSE,
                          opening = FALSE,
                          closing = FALSE,
                          filter = FALSE,
@@ -1734,6 +1740,8 @@ image_binary <- function(img,
                        resize,
                        fill_hull,
                        filter,
+                       erode,
+                       dilate,
                        closing,
                        opening,
                        re,
@@ -1760,6 +1768,8 @@ image_binary <- function(img,
                     resize,
                     fill_hull,
                     filter,
+                    erode,
+                    dilate,
                     closing,
                     opening,
                     re,
@@ -1776,6 +1786,8 @@ image_binary <- function(img,
                         fill_hull,
                         threshold,
                         filter,
+                        erode,
+                        dilate,
                         closing,
                         opening){
       # adapted from imagerExtra  https://bit.ly/3Wp4pwv
@@ -1830,6 +1842,12 @@ image_binary <- function(img,
       if(isTRUE(fill_hull)){
         imgs <- EBImage::fillHull(imgs)
       }
+      if(is.numeric(erode) & erode > 0){
+        imgs <- image_erode(imgs, size = erode)
+      }
+      if(is.numeric(dilate) & dilate > 0){
+        imgs <- image_dilate(imgs, size = dilate)
+      }
       if(is.numeric(opening) & opening > 0){
         imgs <- image_opening(imgs, size = opening)
       }
@@ -1848,6 +1866,8 @@ image_binary <- function(img,
                    fill_hull,
                    threshold,
                    filter,
+                   erode,
+                   dilate,
                    closing,
                    opening)
     if(plot == TRUE){
@@ -2255,6 +2275,8 @@ image_segment <- function(img,
                           na_background = FALSE,
                           has_white_bg = FALSE,
                           fill_hull = FALSE,
+                          erode = FALSE,
+                          dilate = FALSE,
                           opening = FALSE,
                           closing = FALSE,
                           filter = FALSE,
@@ -2283,10 +2305,10 @@ image_segment <- function(img,
       }
       res <-
         foreach::foreach(i = seq_along(img)) %dofut%{
-          image_segment(img[[i]], index, r, g, b, re, nir, threshold, k, windowsize, col_background, has_white_bg, fill_hull, opening, closing, filter,invert, plot = plot, nrow, ncol)
+          image_segment(img[[i]], index, r, g, b, re, nir, threshold, k, windowsize, col_background, has_white_bg, fill_hull, erode, dilate, opening, closing, filter,invert, plot = plot, nrow, ncol)
         }
     } else{
-      res <- lapply(img, image_segment, index, r, g, b, re, nir, threshold, k, windowsize, col_background, has_white_bg, fill_hull, opening, closing, filter, invert, plot = plot, nrow, ncol)
+      res <- lapply(img, image_segment, index, r, g, b, re, nir, threshold, k, windowsize, col_background, has_white_bg, fill_hull, erode, dilate, opening, closing, filter, invert, plot = plot, nrow, ncol)
     }
     invisible(structure(res, class = "segment_list"))
   } else{
@@ -2339,6 +2361,8 @@ image_segment <- function(img,
                           has_white_bg = has_white_bg,
                           resize = FALSE,
                           fill_hull = fill_hull,
+                          erode = erode,
+                          dilate = dilate,
                           opening = opening,
                           closing = closing,
                           filter = filter,
@@ -3803,6 +3827,8 @@ help_binary <- function(img,
                         has_white_bg = FALSE,
                         resize = FALSE,
                         fill_hull = FALSE,
+                        erode = FALSE,
+                        dilate = FALSE,
                         opening = FALSE,
                         closing = FALSE,
                         filter = FALSE,
@@ -3813,6 +3839,8 @@ help_binary <- function(img,
                       invert,
                       fill_hull,
                       threshold,
+                      erode,
+                      dilate,
                       opening,
                       closing,
                       filter){
@@ -3867,6 +3895,12 @@ help_binary <- function(img,
     if(isTRUE(fill_hull)){
       imgs <- EBImage::fillHull(imgs)
     }
+    if(is.numeric(erode) & erode > 0){
+      imgs <- image_erode(imgs, size = erode)
+    }
+    if(is.numeric(dilate) & dilate > 0){
+      imgs <- image_dilate(imgs, size = dilate)
+    }
     if(is.numeric(opening) & opening > 0){
       imgs <- image_opening(imgs, size = opening)
     }
@@ -3884,6 +3918,8 @@ help_binary <- function(img,
                      invert,
                      fill_hull,
                      threshold,
+                     erode,
+                     dilate,
                      opening,
                      closing,
                      filter)

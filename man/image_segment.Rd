@@ -20,6 +20,8 @@ image_segment(
   na_background = FALSE,
   has_white_bg = FALSE,
   fill_hull = FALSE,
+  erode = FALSE,
+  dilate = FALSE,
   opening = FALSE,
   closing = FALSE,
   filter = FALSE,
