@@ -56,6 +56,19 @@ higher.}
 adaptive thresholding. By default it is set to \code{1/3 * minxy}, where
 \code{minxy} is the minimum dimension of the image (in pixels).}
 
+\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
+\itemize{
+\item \code{opening} performs an erosion followed by a dilation. This helps to
+remove small objects while preserving the shape and size of larger objects.
+\item \code{closing} performs a dilatation followed by an erosion. This helps to
+fill small holes while preserving the shape and size of larger objects.
+\item \code{filter} performs median filtering in the binary image. Provide a positive
+integer > 1 to indicate the size of the median filtering. Higher values are
+more efficient to remove noise in the background but can dramatically impact
+the perimeter of objects, mainly for irregular perimeters such as leaves
+with serrated edges.
+}}
+
 \item{watershed}{If \code{TRUE} (default) performs watershed-based object
 detection. This will detect objects even when they are touching one other.
 If \code{FALSE}, all pixels for each connected set of foreground pixels are set

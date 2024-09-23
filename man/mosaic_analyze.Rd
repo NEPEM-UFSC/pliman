@@ -185,6 +185,19 @@ for more details.}
 Otsu's method is used to reduce the grayscale image to a binary image. If a
 numeric value is provided, this value will be used as a threshold.}
 
+\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
+\itemize{
+\item \code{opening} performs an erosion followed by a dilation. This helps to
+remove small objects while preserving the shape and size of larger objects.
+\item \code{closing} performs a dilatation followed by an erosion. This helps to
+fill small holes while preserving the shape and size of larger objects.
+\item \code{filter} performs median filtering in the binary image. Provide a positive
+integer > 1 to indicate the size of the median filtering. Higher values are
+more efficient to remove noise in the background but can dramatically impact
+the perimeter of objects, mainly for irregular perimeters such as leaves
+with serrated edges.
+}}
+
 \item{lower_noise}{To prevent noise from affecting the image analysis, objects
 with lesser than 10\% of the mean area of all objects are removed
 (\code{lower_noise = 0.1}). Increasing this value will remove larger noises (such

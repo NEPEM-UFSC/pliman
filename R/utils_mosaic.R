@@ -1097,7 +1097,7 @@ mosaic_analyze <- function(mosaic,
           dplyr::group_by(plot_id) |>
           dplyr::summarise(area_sum = sum(area, na.rm = TRUE),
                            n = length(area),
-                           dplyr::across(dplyr::where(is.numeric), \(x){mean(x, na.rm = TRUE)})
+                           dplyr::across(where(is.numeric), \(x){mean(x, na.rm = TRUE)})
           ) |>
           dplyr::mutate(block = blockid[i], .before = 1) |>
           dplyr::ungroup() |>
@@ -1199,7 +1199,7 @@ mosaic_analyze <- function(mosaic,
         sf::st_drop_geometry() |>
         tidyr::unnest(cols = data) |>
         dplyr::group_by(block, plot_id, row, column) |>
-        dplyr::summarise(dplyr::across(dplyr::where(is.numeric), \(x){mean(x, na.rm = TRUE)}), .groups = "drop") |>
+        dplyr::summarise(dplyr::across(where(is.numeric), \(x){mean(x, na.rm = TRUE)}), .groups = "drop") |>
         dplyr::left_join(dfplot |> dplyr::select(block, plot_id, row, column, geometry),
                          by = dplyr::join_by(block, plot_id, row, column)) |>
         sf::st_sf()
@@ -3145,7 +3145,6 @@ sentinel_to_tif <- function(layers = NULL,
 #' calculated by multiplying the CHM by the pixel size. The results are
 #' optionally masked using the provided `mask`.
 #'
-#' @importFrom fields Krig Tps
 #' @export
 
 mosaic_chm <- function(dsm,
@@ -3156,6 +3155,9 @@ mosaic_chm <- function(dsm,
                        mask = NULL,
                        mask_soil = TRUE,
                        verbose = TRUE){
+  # Check if fields is installed
+  check_and_install_package("fields")
+
   sampp <- NULL
   ch1 <- !inherits(dsm,"SpatRaster") || !terra::nlyr(dsm) == 1 || terra::is.bool(dsm) || is.list(dsm)
   if(ch1){

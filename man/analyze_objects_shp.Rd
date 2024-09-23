@@ -106,6 +106,19 @@ If \code{FALSE}, all pixels for each connected set of foreground pixels are set
 to a unique object. This is faster but is not able to segment touching
 objects.}
 
+\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
+\itemize{
+\item \code{opening} performs an erosion followed by a dilation. This helps to
+remove small objects while preserving the shape and size of larger objects.
+\item \code{closing} performs a dilatation followed by an erosion. This helps to
+fill small holes while preserving the shape and size of larger objects.
+\item \code{filter} performs median filtering in the binary image. Provide a positive
+integer > 1 to indicate the size of the median filtering. Higher values are
+more efficient to remove noise in the background but can dramatically impact
+the perimeter of objects, mainly for irregular perimeters such as leaves
+with serrated edges.
+}}
+
 \item{object_size}{Argument to control control the watershed segmentation.
 See \code{\link[=analyze_objects]{analyze_objects()}} for more details.}
 

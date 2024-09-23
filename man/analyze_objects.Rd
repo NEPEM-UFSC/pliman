@@ -249,12 +249,8 @@ the background. IMPORTANT: Objects touching each other can be combined into
 one single object, which may underestimate the number of objects in an
 image.}
 
-\item{erode, dilate, opening, closing, filter}{\strong{Morphological operations (brush size)}
+\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
 \itemize{
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
 \item \code{opening} performs an erosion followed by a dilation. This helps to
 remove small objects while preserving the shape and size of larger objects.
 \item \code{closing} performs a dilatation followed by an erosion. This helps to
@@ -264,10 +260,7 @@ integer > 1 to indicate the size of the median filtering. Higher values are
 more efficient to remove noise in the background but can dramatically impact
 the perimeter of objects, mainly for irregular perimeters such as leaves
 with serrated edges.
-}
-
-Hierarchically, the operations are performed as opening > closing > filter.
-The value declared in each argument will define the brush size.}
+}}
 
 \item{invert}{Inverts the binary image if desired. This is useful to process
 images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}
