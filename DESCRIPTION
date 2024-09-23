@@ -22,7 +22,6 @@ Imports:
     doFuture,
     dplyr,
     exactextractr,
-    fields,
     foreach,
     future,
     methods,
@@ -34,6 +33,7 @@ Imports:
 Suggests: 
     BiocManager,
     EBImage,
+    fields,
     knitr,
     leafem (>= 0.2.0),
     leaflet (>= 2.1.2),

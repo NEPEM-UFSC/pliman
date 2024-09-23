@@ -839,3 +839,37 @@ compute_outsize <- function(pct) {
   }
   return(outsize)
 }
+
+check_and_install_package <- function(pkg, reason = NULL) {
+  # Reason is optional and can describe why the package is needed
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+
+    # Construct the message for the package requirement
+    package_message <- paste0("Package {", pkg, "} is required", if (!is.null(reason)) paste0(" to ", reason), " but is not available.")
+
+    if (interactive()) {
+      # Interactive mode: ask the user if they want to install the package
+      inst <- menu(
+        choices = c("Yes", "No"),
+        title = paste0(package_message, "\nDo you want to install it now?")
+      )
+
+      if (inst == 1) {  # If the user selects "Yes"
+        message("Installing '", pkg, "' package...")
+        install.packages(pkg, quiet = TRUE)
+
+        if (requireNamespace(pkg, quietly = TRUE)) {
+          message("Package '", pkg, "' successfully installed.")
+        } else {
+          stop("Package '", pkg, "' installation failed. Please try again.")
+        }
+      } else {
+        message("You chose not to install '", pkg, "'. The feature depending on this package will not be available.")
+      }
+
+    } else {
+      # Non-interactive mode: stop with an error message
+      stop(package_message, " Please install it manually: install.packages('", pkg, "')")
+    }
+  }
+}

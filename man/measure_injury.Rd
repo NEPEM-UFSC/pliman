@@ -57,6 +57,19 @@ default (not inverted), and the segmentation of objects from the reference
 is performed by inverting the selection (selecting pixels higher than the
 threshold).}
 
+\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
+\itemize{
+\item \code{opening} performs an erosion followed by a dilation. This helps to
+remove small objects while preserving the shape and size of larger objects.
+\item \code{closing} performs a dilatation followed by an erosion. This helps to
+fill small holes while preserving the shape and size of larger objects.
+\item \code{filter} performs median filtering in the binary image. Provide a positive
+integer > 1 to indicate the size of the median filtering. Higher values are
+more efficient to remove noise in the background but can dramatically impact
+the perimeter of objects, mainly for irregular perimeters such as leaves
+with serrated edges.
+}}
+
 \item{plot}{Show image after processing?}
 
 \item{dir_original}{The directory containing the original and processed

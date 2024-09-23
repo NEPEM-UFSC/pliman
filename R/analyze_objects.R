@@ -127,6 +127,16 @@
 #'  respectively (optional). If a chacarceter is used (eg., `foreground =
 #'  "fore"`), the function will search in the current working directory a valid
 #'  image named "fore".
+#' @param opening,closing,filter **Morphological operations (brush size)**
+#'  * `opening` performs an erosion followed by a dilation. This helps to
+#'   remove small objects while preserving the shape and size of larger objects.
+#'  * `closing` performs a dilatation followed by an erosion. This helps to
+#'   fill small holes while preserving the shape and size of larger objects.
+#'  * `filter` performs median filtering in the binary image. Provide a positive
+#'  integer > 1 to indicate the size of the median filtering. Higher values are
+#'  more efficient to remove noise in the background but can dramatically impact
+#'  the perimeter of objects, mainly for irregular perimeters such as leaves
+#'  with serrated edges.
 #' @param pick_palettes  Logical argument indicating wheater the user needs to
 #'   pick up the color palettes for foreground and background for the image. If
 #'   `TRUE` [pick_palette()] will be called internally so that the user can sample

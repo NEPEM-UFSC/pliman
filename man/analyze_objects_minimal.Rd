@@ -146,6 +146,19 @@ the background. IMPORTANT: Objects touching each other can be combined into
 one single object, which may underestimate the number of objects in an
 image.}
 
+\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
+\itemize{
+\item \code{opening} performs an erosion followed by a dilation. This helps to
+remove small objects while preserving the shape and size of larger objects.
+\item \code{closing} performs a dilatation followed by an erosion. This helps to
+fill small holes while preserving the shape and size of larger objects.
+\item \code{filter} performs median filtering in the binary image. Provide a positive
+integer > 1 to indicate the size of the median filtering. Higher values are
+more efficient to remove noise in the background but can dramatically impact
+the perimeter of objects, mainly for irregular perimeters such as leaves
+with serrated edges.
+}}
+
 \item{invert}{Inverts the binary image if desired. This is useful to process
 images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}
 is use, \code{invert} can be declared as a logical vector of length 2 (eg.,
