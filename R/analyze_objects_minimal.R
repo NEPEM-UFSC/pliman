@@ -32,6 +32,8 @@ analyze_objects_minimal <- function(img,
                                     opening = FALSE,
                                     closing = FALSE,
                                     filter = FALSE,
+                                    erode = FALSE,
+                                    dilate = FALSE,
                                     invert = FALSE,
                                     object_size = "medium",
                                     index = "NB",
@@ -91,7 +93,7 @@ analyze_objects_minimal <- function(img,
              paste0("./", dir_processed))
   }
   help_count <-
-    function(img, fill_hull, threshold, opening, closing, filter, tolerance, extension,  plot,
+    function(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
              show_original,  marker, marker_col, marker_size,
              save_image, prefix, dir_original, dir_processed, verbose,
              col_background, col_foreground, lower_noise){
@@ -122,6 +124,8 @@ analyze_objects_minimal <- function(img,
                               opening = opening,
                               closing = closing,
                               filter = filter,
+                              erode = erode,
+                              dilate = dilate,
                               resize = FALSE)
           if(isTRUE(watershed)){
             parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
@@ -172,6 +176,8 @@ analyze_objects_minimal <- function(img,
                         opening = opening,
                         closing = closing,
                         filter = filter,
+                        erode = erode,
+                        dilate = dilate,
                         r = r,
                         g = g,
                         b = b,
@@ -203,6 +209,8 @@ analyze_objects_minimal <- function(img,
                         opening = opening,
                         closing = closing,
                         filter = filter,
+                        erode = erode,
+                        dilate = dilate,
                         invert = invert2)
           mask <- img_bf
           pix_ref <- which(img4 != 1)
@@ -255,6 +263,8 @@ analyze_objects_minimal <- function(img,
                         opening = opening,
                         closing = closing,
                         filter = filter,
+                        erode = erode,
+                        dilate = dilate,
                         invert = invert,
                         fill_hull = fill_hull)
           ID <-  which(mask == 1) # IDs for foreground
@@ -453,7 +463,7 @@ analyze_objects_minimal <- function(img,
     }
 
   if(missing(pattern)){
-    help_count(img, fill_hull, threshold, opening, closing, filter, tolerance, extension,  plot,
+    help_count(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
                show_original,  marker, marker_col, marker_size,
                save_image, prefix, dir_original, dir_processed, verbose,
                col_background, col_foreground, lower_noise)
@@ -486,7 +496,7 @@ analyze_objects_minimal <- function(img,
       results <-
         foreach::foreach(i = seq_along(names_plant)) %dofut%{
           help_count(names_plant[i],
-                     fill_hull, threshold, opening, closing, filter, tolerance, extension,  plot,
+                     fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
                      show_original,  marker, marker_col, marker_size,
                      save_image, prefix, dir_original, dir_processed, verbose,
                      col_background, col_foreground, lower_noise)

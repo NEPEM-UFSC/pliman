@@ -220,6 +220,8 @@ measure_disease <- function(img,
                             opening = c(10, 0),
                             closing = c(0, 0),
                             filter = c(0, 0),
+                            erode = c(0,0),
+                            dilate = c(0, 0),
                             parallel = FALSE,
                             workers = NULL,
                             resize = FALSE,
@@ -467,6 +469,12 @@ measure_disease <- function(img,
           if(is.numeric(filter[[1]]) & filter[[1]] > 1){
             plant_background <- EBImage::medianFilter(plant_background, size = filter[[1]])
           }
+          if(is.numeric(erode[[1]]) & erode[[1]] > 1){
+            plant_background <- image_erode(plant_background, erode[[1]])
+          }
+          if(is.numeric(dilate[[1]]) & dilate[[1]] > 1){
+            plant_background <- image_dilate(plant_background, dilate[[1]])
+          }
           plant_background[plant_background == 1] <- 2
           sadio_sintoma <-
             transform(rbind(sadio[sample(1:nrow(sadio)),][1:nsample,],
@@ -504,6 +512,12 @@ measure_disease <- function(img,
           }
           if(is.numeric(filter[[2]]) & filter[[2]] > 1){
             leaf_sympts <- EBImage::medianFilter(leaf_sympts, size = filter[[2]])
+          }
+          if(is.numeric(erode[[2]]) & erode[[2]] > 1){
+            leaf_sympts <- image_erode(leaf_sympts, erode[[1]])
+          }
+          if(is.numeric(dilate[[2]]) & dilate[[2]] > 1){
+            leaf_sympts <- image_dilate(leaf_sympts, dilate[[1]])
           }
           ifelse(watershed == FALSE,
                  nmask <- EBImage::bwlabel(leaf_sympts),
@@ -588,7 +602,9 @@ measure_disease <- function(img,
                               fill_hull = fill_hull,
                               opening = opening[[1]],
                               closing = closing[[1]],
-                              filter = filter[[1]])
+                              filter = filter[[1]],
+                              erode = erode[[1]],
+                              dilate = dilate[[1]])
 
           img <- seg
         }
@@ -611,6 +627,8 @@ measure_disease <- function(img,
                             opening = opening[[2]],
                             closing = closing[[2]],
                             filter = filter[[2]],
+                            erode = erode[[2]],
+                            dilate = dilate[[2]],
                             threshold = my_thresh2,
                             invert = invert2,
                             has_white_bg = has_white_bg,
@@ -943,6 +961,8 @@ measure_disease_iter <- function(img,
                                  opening = c(10, 0),
                                  closing = c(0, 0),
                                  filter = c(0, 0),
+                                 erode = c(0, 0),
+                                 dilate = c(0, 0),
                                  show = "rgb",
                                  index = "NGRDI",
                                  ...){

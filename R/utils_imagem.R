@@ -2211,19 +2211,6 @@ plot.image_index <- function(x,
 #'   objects that have, for example, a white background. In such cases, the
 #'   background will not be considered for the threshold computation.
 #' @param fill_hull Fill holes in the objects? Defaults to `FALSE`.
-#' @param opening,closing,filter **Morphological operations (brush size)**
-#'  * `opening` performs an erosion followed by a dilation. This helps to
-#'   remove small objects while preserving the shape and size of larger objects.
-#'  * `closing` performs a dilatation followed by an erosion. This helps to
-#'   fill small holes while preserving the shape and size of larger objects.
-#'  * `filter` performs median filtering in the binary image. Provide a positive
-#'  integer > 1 to indicate the size of the median filtering. Higher values are
-#'  more efficient to remove noise in the background but can dramatically impact
-#'  the perimeter of objects, mainly for irregular perimeters such as leaves
-#'  with serrated edges.
-#'
-#'   Hierarchically, the operations are performed as opening > closing > filter.
-#'   The value declared in each argument will define the brush size.
 #' @param invert Inverts the binary image, if desired. For
 #'   `image_segmentation_iter()` use a vector with the same length of `nseg`.
 #' @param plot Show image after processing?
@@ -2640,6 +2627,7 @@ image_segment_iter <- function(img,
 #'
 #' Segments image objects using clustering by the k-means clustering algorithm
 #' @inheritParams image_segment
+#' @inheritParams analyze_objects
 #' @param img An `Image` object.
 #' @param bands A numeric integer/vector indicating the RGB band used in the
 #'   segmentation. Defaults to `1:3`, i.e., all the RGB bands are used.
@@ -2671,6 +2659,8 @@ image_segment_kmeans <-   function (img,
                                     opening = FALSE,
                                     closing = FALSE,
                                     filter = FALSE,
+                                    erode = FALSE,
+                                    dilate = FALSE,
                                     fill_hull = FALSE,
                                     plot = TRUE){
   imm <- img@.Data[, , bands]
@@ -2699,6 +2689,12 @@ image_segment_kmeans <-   function (img,
   }
   if(is.numeric(opening) & opening > 0){
     LIST <- lapply(LIST, image_opening, size = opening)
+  }
+  if(is.numeric(erode) & erode > 0){
+    LIST <- lapply(LIST, image_erode, size = erode)
+  }
+  if(is.numeric(dilate) & dilate > 0){
+    LIST <- lapply(LIST, image_dilate, size = dilate)
   }
   if(is.numeric(closing) & closing > 0){
     LIST <- lapply(LIST, image_closing, size = closing)
@@ -3774,6 +3770,8 @@ help_segment <- function(img,
                          opening = FALSE,
                          closing = FALSE,
                          filter = FALSE,
+                         dilate = FALSE,
+                         erode = FALSE,
                          invert = FALSE){
   img2 <- help_binary(img,
                       index = index,
@@ -3791,6 +3789,8 @@ help_segment <- function(img,
                       opening = opening,
                       closing = closing,
                       filter = filter,
+                      dilate = dilate,
+                      erode = erode,
                       invert = invert)
   ID <- which(img2@.Data == FALSE)
   if(dim(img)[3] == 3){

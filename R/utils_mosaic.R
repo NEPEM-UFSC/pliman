@@ -378,6 +378,8 @@ mosaic_analyze <- function(mosaic,
                            opening = FALSE,
                            closing = FALSE,
                            filter = FALSE,
+                           erode = FALSE,
+                           dilate = FALSE,
                            lower_noise = 0.15,
                            lower_size = NULL,
                            upper_size = NULL,
@@ -413,7 +415,6 @@ mosaic_analyze <- function(mosaic,
   }
   if(terra::crs(mosaic) == ""){
     terra::crs(mosaic) <- terra::crs("EPSG:4326")
-    # terra::ext(mosaic) <- c(0, 1, 0, 1)
   }
   nlyrs <- terra::nlyr(mosaic)
   if(verbose){
@@ -535,6 +536,8 @@ mosaic_analyze <- function(mosaic,
   opening <- validate_and_replicate(opening, created_shapes)
   closing <- validate_and_replicate(closing, created_shapes)
   filter <- validate_and_replicate(filter, created_shapes)
+  erode <- validate_and_replicate(erode, created_shapes)
+  dilate <- validate_and_replicate(dilate, created_shapes)
   grid <- validate_and_replicate(grid, created_shapes)
   lower_noise <- validate_and_replicate(lower_noise, created_shapes)
 
@@ -696,6 +699,12 @@ mosaic_analyze <- function(mosaic,
         }
         dmask <- EBImage::Image(matrix(mask, ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
         dmask[is.na(dmask) == TRUE] <- 1
+        if(is.numeric(erode[j]) & erode[j] > 0){
+          dmask <- image_erode(dmask, size = erode[j])
+        }
+        if(is.numeric(dilate[j]) & dilate[j] > 0){
+          dmask <- image_dilate(dmask, size = dilate[j])
+        }
         if(is.numeric(opening[j]) & opening[j] > 0){
           dmask <- image_opening(dmask, size = opening[j])
         }
@@ -919,6 +928,12 @@ mosaic_analyze <- function(mosaic,
         dmask <- EBImage::Image(matrix(matrix(mask), ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
         extends <- terra::ext(mind_temp)
         dmask[is.na(dmask) == TRUE] <- 1
+        if(is.numeric(erode[j]) & erode[j] > 0){
+          dmask <- image_erode(dmask, size = erode[j])
+        }
+        if(is.numeric(dilate[j]) & dilate[j] > 0){
+          dmask <- image_dilate(dmask, size = dilate[j])
+        }
         if(is.numeric(opening[j]) & opening[j] > 0){
           dmask <- image_opening(dmask, size = opening[j])
         }
