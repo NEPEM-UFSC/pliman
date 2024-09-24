@@ -12,6 +12,8 @@ image_segment_kmeans(
   opening = FALSE,
   closing = FALSE,
   filter = FALSE,
+  erode = FALSE,
+  dilate = FALSE,
   fill_hull = FALSE,
   plot = TRUE
 )
@@ -27,8 +29,12 @@ segmentation. Defaults to \code{1:3}, i.e., all the RGB bands are used.}
 \item{invert}{Invert the segmentation? Defaults to \code{FALSE}. If \code{TRUE} the
 binary matrix is inverted.}
 
-\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
+\item{erode, dilate, opening, closing, filter}{\strong{Morphological operations (brush size)}
 \itemize{
+\item \code{dilate} puts the mask over every background pixel, and sets it to
+foreground if any of the pixels covered by the mask is from the foreground.
+\item \code{erode} puts the mask over every foreground pixel, and sets it to
+background if any of the pixels covered by the mask is from the background.
 \item \code{opening} performs an erosion followed by a dilation. This helps to
 remove small objects while preserving the shape and size of larger objects.
 \item \code{closing} performs a dilatation followed by an erosion. This helps to

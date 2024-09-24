@@ -127,7 +127,11 @@
 #'  respectively (optional). If a chacarceter is used (eg., `foreground =
 #'  "fore"`), the function will search in the current working directory a valid
 #'  image named "fore".
-#' @param opening,closing,filter **Morphological operations (brush size)**
+#' @param opening,closing,filter,erode,dilate **Morphological operations (brush size)**
+#'  * `dilate` puts the mask over every background pixel, and sets it to
+#'  foreground if any of the pixels covered by the mask is from the foreground.
+#'  * `erode` puts the mask over every foreground pixel, and sets it to
+#'  background if any of the pixels covered by the mask is from the background.
 #'  * `opening` performs an erosion followed by a dilation. This helps to
 #'   remove small objects while preserving the shape and size of larger objects.
 #'  * `closing` performs a dilatation followed by an erosion. This helps to

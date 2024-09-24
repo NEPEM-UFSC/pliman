@@ -14,6 +14,8 @@ measure_disease(
   opening = c(10, 0),
   closing = c(0, 0),
   filter = c(0, 0),
+  erode = c(0, 0),
+  dilate = c(0, 0),
   parallel = FALSE,
   workers = NULL,
   resize = FALSE,
@@ -64,6 +66,8 @@ measure_disease_iter(
   opening = c(10, 0),
   closing = c(0, 0),
   filter = c(0, 0),
+  erode = c(0, 0),
+  dilate = c(0, 0),
   show = "rgb",
   index = "NGRDI",
   ...
@@ -87,6 +91,26 @@ processed. For example, if \code{pattern = "im"} all images that the name
 matches the pattern (e.g., img1.-, image1.-, im2.-) will be analyzed.
 Providing any number as pattern (e.g., \code{pattern = "1"}) will select
 images that are named as 1.-, 2.-, and so on.}
+
+\item{erode, dilate, opening, closing, filter}{\strong{Morphological operations (brush size)}
+\itemize{
+\item \code{dilate} puts the mask over every background pixel, and sets it to
+foreground if any of the pixels covered by the mask is from the foreground.
+\item \code{erode} puts the mask over every foreground pixel, and sets it to
+background if any of the pixels covered by the mask is from the background.
+\item \code{opening} performs an erosion followed by a dilation. This helps to
+remove small objects while preserving the shape and size of larger objects.
+\item \code{closing} performs a dilatation followed by an erosion. This helps to
+fill small holes while preserving the shape and size of larger objects.
+\item \code{filter} performs median filtering in the binary image. Provide a positive
+integer > 1 to indicate the size of the median filtering. Higher values are
+more efficient to remove noise in the background but can dramatically impact
+the perimeter of objects, mainly for irregular perimeters such as leaves
+with serrated edges.
+}
+
+Hierarchically, the operations are performed as opening > closing > filter.
+The value declared in each argument will define the brush size.}
 
 \item{parallel}{Processes the images asynchronously (in parallel) in separate
 R sessions running in the background on the same machine. It may speed up

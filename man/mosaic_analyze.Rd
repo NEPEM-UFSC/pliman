@@ -45,6 +45,8 @@ mosaic_analyze(
   opening = FALSE,
   closing = FALSE,
   filter = FALSE,
+  erode = FALSE,
+  dilate = FALSE,
   lower_noise = 0.15,
   lower_size = NULL,
   upper_size = NULL,
@@ -185,8 +187,12 @@ for more details.}
 Otsu's method is used to reduce the grayscale image to a binary image. If a
 numeric value is provided, this value will be used as a threshold.}
 
-\item{opening, closing, filter}{\strong{Morphological operations (brush size)}
+\item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush size)}
 \itemize{
+\item \code{dilate} puts the mask over every background pixel, and sets it to
+foreground if any of the pixels covered by the mask is from the foreground.
+\item \code{erode} puts the mask over every foreground pixel, and sets it to
+background if any of the pixels covered by the mask is from the background.
 \item \code{opening} performs an erosion followed by a dilation. This helps to
 remove small objects while preserving the shape and size of larger objects.
 \item \code{closing} performs a dilatation followed by an erosion. This helps to
