@@ -21,6 +21,8 @@
 #'   271–272.
 #' @export
 #'
+#'
+#'
 #' @examples
 #' library(pliman)
 #' img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
