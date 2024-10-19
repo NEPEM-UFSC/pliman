@@ -525,23 +525,39 @@ check_ebi <- function(){
     }
   }
 }
-check_plimanshiny <- function(){
-  if(!requireNamespace("plimanshiny", quietly = TRUE)) {
-    if(interactive() == TRUE){
-      inst <-
-        switch(menu(c("Yes", "No"), title = "The package {plimanshiny} is required to run pliman::run_app() but is not installed.\nDo you want to install it now?"),
-               "yes", "no")
-      if(inst == "yes"){
-        if(!requireNamespace("pak", quietly = TRUE)) {
-          install.packages("pak", quiet = TRUE)
+check_pkg <- function(pkg){
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    if (interactive()) {
+      inst <- switch(
+        menu(c("Yes", "No"), title = paste0("Package ", pkg, " is needed but is not available. Do you want to install it now?")),
+        1, 2
+      )
+      if (inst == 1) {
+        if (!requireNamespace("pak", quietly = TRUE)) {
+          message("Installing the 'pak' package for improved package installation...")
+          tryCatch(
+            install.packages("pak", quiet = TRUE),
+            error = function(e) {
+              stop("Failed to install 'pak'. Please install it manually.")
+            }
+          )
         }
-        pak::pak("TiagoOlivoto/plimanshiny")
-      } else{
-        message("To use `pliman::run_app()`, first install {plimanshiny} following the directions at ")
+        tryCatch(
+          pak::pak(pkg),
+          error = function(e) {
+            stop(paste0("Failed to install the package '", pkg, "'. Please try installing it manually."))
+          }
+        )
+        message(paste0("Package '", pkg, "' has been successfully installed."))
+      } else {
+        message("Package installation skipped. Nothing done.")
       }
+    } else {
+      stop(paste0("Package '", pkg, "' is needed but is not available. Please install it manually."))
     }
   }
 }
+
 
 # correct coordinates in analyze_objects_shp()
 correct_coords <- function(coords, nrowimg, ncolimg, nrow, ncol){
@@ -807,24 +823,6 @@ open_wd <- function(path = getwd()){
   }
 }
 
-#' Shiny UI for pliman package
-#'
-#' run_app calls plimanshiny::run_app() that will starts the Shiny interface of
-#' the pliman package
-#'
-#' @export
-#'
-#' @examples
-#' if(interactive()){
-#' library(pliman)
-#' run_app()
-#' }
-#'
-#'
-run_app <- function(){
-  check_plimanshiny()
-  plimanshiny::run_app()
-}
 
 parse_formula <- function(formula, valid_indices) {
   eval(parse(text = sprintf("function(%s) %s", paste0(toupper(names(valid_indices)), collapse = ", "), formula)))
