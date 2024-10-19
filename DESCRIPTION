@@ -42,7 +42,6 @@ Suggests:
     mapedit (>= 0.6.0),
     mapview (>= 2.11.0),
     pak,
-    plimanshiny,
     rmarkdown,
     rstudioapi
 LinkingTo: 

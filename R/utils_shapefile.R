@@ -693,16 +693,18 @@ shapefile_edit <- function(shapefile,
 #'
 #' @export
 #' @examples
+#' \dontrun{
 #' library(pliman)
 #'
-#' path_shp <- paste0(image_pliman(), "/shp_soy.rds")
+#' path_shp <- paste0(image_pliman(), "/soy_shape.rds")
 #' shp <- shapefile_input(path_shp)
 #' shapefile_measures(shp)
+#' }
 #'
 #'
 
 shapefile_measures <- function(shp) {
-
+  check_pkg("lwgeom")
   # Get the number of points and their coordinates
   npoints <- sf::st_coordinates(shp) |> nrow()
   coords <- sf::st_coordinates(shp)[, 1:2]
