@@ -16,8 +16,8 @@ Description: Tools for both single and batch image manipulation and
     multispectral, and hyperspectral orthomosaics. This functionality
     facilitates field phenotyping using UAV- or satellite-based imagery.
 License: GPL (>= 3)
-URL: https://tiagoolivoto.github.io/pliman/, https://github.com/NEPEM-UFSC/pliman
-BugReports: https://github.com/NEPEM-UFSC/pliman/issues
+URL: https://nepem-ufsc.github.io/pliman/, https://github.com/nepem-ufsc//pliman
+BugReports: https://github.com/nepem-ufsc//pliman/issues
 Depends: 
     R (>= 4.1)
 Imports: 
