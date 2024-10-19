@@ -45,13 +45,14 @@ NULL
 
 
 .onAttach <- function(libname, pkgname) {
-  vers <-  "2.1.0"
-  packageStartupMessage("|==========================================================|")
-  packageStartupMessage("| Tools for Plant Image Analysis (pliman ", vers,  ")            |")
-  packageStartupMessage("| Author: Tiago Olivoto                                    |")
-  packageStartupMessage("| Type `citation('pliman')` to know how to cite pliman     |")
-  packageStartupMessage("| Visit 'http://bit.ly/pkg_pliman' for a complete tutorial |")
-  packageStartupMessage("|==========================================================|")
+  vers <-  "3.0.0"
+  packageStartupMessage("|======================================================|")
+  packageStartupMessage("| Welcome to the pliman package (version ", vers, ")!       |")
+  packageStartupMessage("| Developed collaboratively by NEPEM - nepemufsc.com   |")
+  packageStartupMessage("| Group lead: Prof. Tiago Olivoto                      |")
+  packageStartupMessage("| For citation: type `citation('pliman')`              |")
+  packageStartupMessage("| We welcome your feedback and suggestions!            |")
+  packageStartupMessage("|======================================================|")
   check_ebi()
   check_mapview()
 }

@@ -38,10 +38,8 @@ image_combine(img, healthy, symptoms, background, ncol = 4)
 Sample palettes can be created by manually sampling small areas of representative images and producing a composite image that represents each of the desired classes (background, healthy, and symptomatic tissues). Another approach is to use the `image_palette()` function to generate sample color palettes.
 
 ```{r}
-pals <- image_palette(img, npal = 8)
-image_combine(pals$palette_list)
-# to extract the color palettes, use the object
-plot(pals$palette_list[[1]])
+pals <- image_palette(img, npal = 8, return_pal = TRUE)
+image_combine(pals$palette_list, ncol = 4)
 ```
 
 ```{r disease2, fig.width=10, fig.height=7}
@@ -119,7 +117,7 @@ img <- image_pliman("sev_leaf.jpg", plot = TRUE)
 measure_disease_iter(img, viewer = "mapview")
 ```
 
-![](https://tiagoolivoto.github.io/pliman_tut/imgs/gif_severity.gif)
+![](https://nepem-ufsc.github.io/pliman_tut/imgs/gif_severity.gif)
 
 # <i class="fas fa-scroll"></i> A little bit more!
 
@@ -128,4 +126,4 @@ measure_disease_iter(img, viewer = "mapview")
 ```{=html}
 <script src="https://kit.fontawesome.com/1f72d6921a.js" crossorigin="anonymous"></script>
 ```
-> At [this link](https://tiagoolivoto.github.io/paper_pliman/code.html) you will find more examples on how to use {pliman} to analyze plant images. Source code and images can be downloaded [here](https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip). You can also find a talk (Portuguese language) about {pliman} [here](https://www.youtube.com/watch?v=ElvUVlPocgA). <i class="far fa-lightbulb"></i>Lights, <i class="fas fa-camera"></i>camera, {pliman}!
+> At [this link](https://nepem-ufsc.github.io/paper_pliman/code.html) you will find more examples on how to use {pliman} to analyze plant images. Source code and images can be downloaded [here](https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip). You can also find a talk (Portuguese language) about {pliman} [here](https://www.youtube.com/watch?v=ElvUVlPocgA). <i class="far fa-lightbulb"></i>Lights, <i class="fas fa-camera"></i>camera, {pliman}!

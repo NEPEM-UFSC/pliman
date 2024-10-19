@@ -1,0 +1,229 @@
+---
+title: "High Throughput Phenotyping"
+author: "Tiago Olivoto"
+date: "`r Sys.Date()`"
+always_allow_html: yes
+output: rmarkdown::html_vignette
+fig_caption: yes
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  rmarkdown.html_vignette.check_title = FALSE
+)
+```
+
+# Analyzing Orthomosaics
+In this section, we demonstrate how to use `shapefile_build()` to construct a shapefile and `mosaic_analyze()` to count, measure, and extract image indexes at block, plot, and individual levels using an orthomosaic from a lettuce trial, as described in [this paper](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0274731). By setting `segment_individuals = TRUE`, a detailed analysis is performed at the individual level, allowing the counting and measuring of plants within plots. 
+
+## Shapefiles
+Constructing a shapefile is not mandatory, since `mosaic_analyze()` will call `shapefile_build()` internally. However, if you need a shapefile for further analysis, you can construct it as follows:
+
+```{r eval=FALSE}
+library(pliman)
+# Load the orthomosaic
+path <- paste0(image_pliman(), "/lettuce.tif")
+mosaic <- mosaic_input(path)
+
+# Define corners for 6 plots (top left -> top right -> bottom right -> bottom left -> top left)
+shape <- shapefile_build(mosaic,
+                         layout = "lrtb",   # Default layout option
+                         r = 1, g = 2, b = 3,
+                         ncol = 3,
+                         nrow = 2)
+```
+
+## Counting and Measuring Plants Within Plots
+
+```{r eval = FALSE}
+library(pliman)
+# Load the orthomosaic (small example)
+mosaic <- mosaic_input(paste0(image_pliman(), "/lettuce.tif"))
+shapefile <- shapefile_input(paste0(image_pliman(), "/lettuce.rds"))
+indexes <- c("NGRDI", "GLI", "BGI")
+
+# Analyze and segment individual plants within plots
+an <- mosaic_analyze(
+  mosaic = mosaic,
+  r = 1, g = 2, b = 3,
+  shapefile = shapefile,
+  plot_index = indexes,
+  segment_individuals = TRUE,
+  segment_index = "GLI",
+  attribute = "coverage"
+) 
+
+# Visualize results
+mosaic_plot_rgb(mosaic)
+shapefile_plot(an$result_indiv, add = TRUE, col = "forestgreen")
+an$result_plot_summ
+```
+
+
+## Canopy Coverage and Multispectral Indexes
+
+This example uses an orthomosaic to calculate the GLI and NGRDI indexes for a small example of soybean field. In addition to compute the indexes, the plot is also segmented using the `GLI` index, and the canopy coverage is shown in an interactive map.
+
+```{r}
+library(pliman)
+# Load multispectral data
+mosaic <- mosaic_input(paste0(image_pliman(), "/soy_ortho.tif"))
+# Load corresponding shapefile
+shp <- shapefile_input(paste0(image_pliman(), "/soy_shape.rds"))
+
+# Measure shapefile attributes
+shapefile_measures(shp)
+mosaic_plot_rgb(mosaic)
+shapefile_plot(shp, add = TRUE)
+
+# Compute GLI index and segment the plots
+ind <- mosaic_index(mosaic, index = "GLI")
+seg <- mosaic_segment(mosaic, index = "GLI")
+mosaic_plot(seg)
+
+# Further analysis using mosaic_analyze
+res <- mosaic_analyze(
+  mosaic = mosaic,
+  shapefile = shp,
+  plot_index = c("GLI", "NGRDI"),
+  segment_plot = TRUE,
+  segment_index = "GLI",
+  attribute = "coverage"
+)
+
+res$map_plot
+res$result_plot
+```
+
+
+## Multispectral Indexes
+
+In this section, we use a multispectral orthomosaic to compute indexes such as NDVI, EVI, and NDRE. You can download the [orthomosaic](https://github.com/TiagoOlivoto/images/raw/master/pliman/NDSU/ndsu.tif?raw=true) to reproduce the example.
+
+```{r eval=FALSE}
+library(pliman)
+set_wd_here() # Set the directory to the file location
+mosaic <- mosaic_input("https://github.com/TiagoOlivoto/images/raw/master/pliman/NDSU/ndsu.tif?raw=true")
+mosaic_index(mosaic, "NDVI", r = 3, nir = 5)
+
+res <- mosaic_analyze(
+  b = 1,
+  g = 2,
+  r = 3,
+  re = 4,
+  nir = 5,
+  mosaic,
+  nrow = 6,  # Use 6 if you want to analyze in a single block
+  ncol = 15,
+  segment_plot = TRUE,
+  segment_index = "NDVI", 
+  plot_index = c("NDVI", "EVI", "NDRE"), 
+  summarize_fun = c("min", "mean", "max"),
+  attribute = "coverage"
+)
+
+res$map_plot
+```
+
+
+## Canopy Height Models
+
+A Canopy Height Model (CHM) represents the height of vegetation or structures above the ground surface, making it a crucial tool for analyzing vegetation structure and biomass. It is derived by subtracting a Digital Terrain Model (DTM), which shows the bare earth surface, from a Digital Surface Model (DSM), which captures the elevation of all surface objects,like plants. By comparing these two models, the CHM provides detailed insights into the height of vegetation, enabling accurate assessments of canopy cover and plant growth in agricultural or forested landscapes.
+
+### DSM and DTM are available
+```{r}
+# Load corresponding DSM and DTM files
+dsm <- mosaic_input(paste0(image_pliman(), "/soy_dsm.tif"))
+dtm <- mosaic_input(paste0(image_pliman(), "/soy_dtm.tif"))
+
+# Visualize DSM and DTM
+mask <- mosaic_plot(c(dsm, dtm))
+shp <- shapefile_input(paste0(image_pliman(), "/soy_shape.rds"))
+
+# Compute canopy height model (CHM)
+res <- mosaic_chm(dsm, dtm)
+
+# Extract canopy height values
+chmvals <- mosaic_chm_extract(res, shp)
+
+# Visualize the CHM with a color palette
+bm <- mosaic_view(dsm, color_regions = custom_palette(c("#8B4513", "#B2DF8A", "forestgreen"), n = 10))
+bm + shapefile_view(chmvals, attribute = "q90")
+```
+
+### Building DTM from DSM
+pliman also provides an option to derive the DTM from DSM using a moving window.
+
+
+```{r}
+# Interpolate DTM using a moving window
+res2 <- mosaic_chm(dsm, window_size = c(2, 2))
+
+# Visualize CHM
+mosaic_plot(res2$chm)
+
+# Extract CHM values
+chmvals2 <- mosaic_chm_extract(res2, shp)
+
+# Compare original and interpolated CHM
+bm + shapefile_view(chmvals2, attribute = "q90")
+
+# Plot comparison
+plot(chmvals$q90, chmvals2$q90)
+abline(a = 0, b = 1)
+```
+
+
+## Counting and Measuring Distance Between Plants
+
+This example uses an RGB orthomosaic from a rice field dataset. You can download the [rice field mosaic](https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif?raw=true) to follow the tutorial.
+
+```{r eval=FALSE}
+library(pliman)
+set_wd_here() # Set the working directory
+mosaic <- mosaic_input("rice_ex.tif")
+
+# Analyze and segment individual plants
+res <- mosaic_analyze(mosaic,
+                      r = 1, g = 2, b = 3,
+                      segment_individuals = TRUE,
+                      segment_index = "(G-B)/(G+B-R)",
+                      filter = 4,
+                      nrow = 8,
+                      map_individuals = TRUE)
+
+# Display individual plant areas using color scale
+```
+
+![](https://github.com/TiagoOlivoto/images/blob/master/pliman/analise_rice.gif?raw=true)
+
+
+## Using an External Shapefile
+
+External shapefiles can be used for analysis. Download the [mosaic](https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif?raw=true) and [shapefile](https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex_shp.rds?raw=true) for this example.
+
+```{r eval=FALSE}
+library(pliman)
+set_wd_here() # Set the working directory
+
+# Import the mosaic and shapefile
+mosaic <- mosaic_input("rice_ex.tif")
+shapefile <- shapefile_input("rice_ex_shp.rds")
+
+# Analyze mosaic using the external shapefile
+res <- mosaic_analyze(mosaic,
+                      r = 1, g = 2, b = 3,
+                      shapefile = shapefile,
+                      segment_individuals = TRUE,
+                      segment_index = "(G-B)/(G+B-R)",
+                      filter = 4,
+                      map_individuals = TRUE)
+
+# View distances between individuals and plot-level results
+str(res$result_individ_map)
+str(res$result_plot_summ)
+str(res$result_indiv)
+```
+

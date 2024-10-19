@@ -1901,7 +1901,7 @@ image_binary <- function(img,
 #'
 #' `image_index()` Builds image indexes using Red, Green, Blue, Red-Edge, and
 #' NIR bands. See [this
-#' page](https://tiagoolivoto.github.io/pliman/articles/indexes.html) for a
+#' page](https://nepem-ufsc.github.io/pliman/articles/indexes.html) for a
 #' detailed list of available indexes.
 #'
 #'
@@ -3990,15 +3990,18 @@ help_imageindex <- function(img,
 #' @export
 #'
 #' @examples
+#' \donttest{
+#' library(pliman)
 #' img <-
 #' as_image(rnorm(150 * 150 * 3),
 #'          dim = c(150, 150, 3),
 #'          colormode = 'Color')
 #' plot(img)
+#' }
 as_image <- function(data, ...){
+  check_ebi()
   EBImage::Image(data, ...)
 }
-
 
 #' Prepare images to analyze_objects_shp()
 #'

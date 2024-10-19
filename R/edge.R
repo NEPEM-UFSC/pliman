@@ -33,6 +33,7 @@ object_edge <- function(img,
                         threshold = "Otsu",
                         thinning = FALSE,
                         plot = TRUE){
+  check_ebi()
   gray <- image_index(img,
                       "GRAY",
                       plot = FALSE,

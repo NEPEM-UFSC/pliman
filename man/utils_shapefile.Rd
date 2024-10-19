@@ -7,7 +7,13 @@
 \alias{shapefile_view}
 \title{Import/export shapefiles.}
 \usage{
-shapefile_input(shapefile, info = TRUE, as_sf = TRUE, ...)
+shapefile_input(
+  shapefile,
+  info = TRUE,
+  as_sf = TRUE,
+  multilinestring = FALSE,
+  ...
+)
 
 shapefile_export(shapefile, filename, ...)
 
@@ -19,11 +25,11 @@ shapefile_view(
 )
 }
 \arguments{
-\item{shapefile}{For \code{shapefile_input()}, character (filename),  or an object that can be
+\item{shapefile}{For \code{shapefile_input()}, character (filename), or an object that can be
 coerced to a SpatVector, such as an \code{sf} (simple features) object. See
 \code{\link[terra:vect]{terra::vect()}} for more details.
 
-For \code{shapefile_export()}, \code{SpatVector} or an \code{sf} object to be exported as
+For \code{shapefile_export()}, a \code{SpatVector} or an \code{sf} object to be exported as
 a shapefile.}
 
 \item{info}{Logical value indicating whether to print information about the
@@ -31,6 +37,9 @@ imported shapefile (default is \code{TRUE}).}
 
 \item{as_sf}{Logical value indicating whether to convert the imported
 shapefile to an \code{sf} object (default is \code{TRUE}).}
+
+\item{multilinestring}{Logical value indicating whether to cast polygon geometries
+to \code{MULTILINESTRING} geometries (default is \code{FALSE}).}
 
 \item{...}{Additional arguments to be passed to \code{\link[terra:vect]{terra::vect()}}
 (\code{shapefile_input()}), \code{\link[terra:writeVector]{terra::writeVector()}} (\code{shapefile_export()}) or
@@ -53,10 +62,11 @@ the imported shapefile.
 }
 \description{
 \itemize{
-\item \code{shapefile_input()} creates or importes a shapefile and optionally convert
-it to an \code{sf} object.
-\item \code{shapefile_export()} exports an object (\code{sf} or \code{SpatVector}) to a file
-\item \code{shapefile_view()} is a simple wrapper around mapview() to plot a shapefile.
+\item \code{shapefile_input()} creates or imports a shapefile and optionally converts
+it to an \code{sf} object. It can also cast \code{POLYGON} or \code{MULTIPOLYGON} geometries
+to \code{MULTILINESTRING} if required.
+\item \code{shapefile_export()} exports an object (\code{sf} or \code{SpatVector}) to a file.
+\item \code{shapefile_view()} is a simple wrapper around \code{mapview()} to plot a shapefile.
 }
 }
 \examples{

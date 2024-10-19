@@ -32,7 +32,7 @@ A list with the objects:
 \itemize{
 \item \code{cum_power}, a \code{data.frame} object with the accumulated power depending on
 the number of harmonics
-\item 
+\item \code{min_harm} The minimum number of harmonics to achieve a given power.
 }
 }
 \description{

@@ -19,9 +19,12 @@ An \code{Image} object.
 This function is a simple wrapper around \code{\link[EBImage:Image]{EBImage::Image()}}.
 }
 \examples{
+\donttest{
+library(pliman)
 img <-
 as_image(rnorm(150 * 150 * 3),
          dim = c(150, 150, 3),
          colormode = 'Color')
 plot(img)
+}
 }

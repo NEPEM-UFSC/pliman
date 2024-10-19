@@ -63,8 +63,8 @@ soy <- image_pliman("soybean_touch.jpg")
 
 ```{r segmentation2, fig.width=10, fig.height=5}
 # Compute the indexes
-# Only show the first 8 to reduce the image size
-indexes <- image_index(soy, index = pliman_indexes()[1:9], plot = FALSE)
+# Only show the first 6 to reduce the image size
+indexes <- image_index(soy, index = pliman_indexes_rgb()[1:6], plot = FALSE)
 
 # Create a raster plot with the RGB values
 plot(indexes)
@@ -160,5 +160,5 @@ image_binary(soy,
 <!-- inicio font awesome -->
 <script src="https://kit.fontawesome.com/1f72d6921a.js" crossorigin="anonymous"></script>
 
-> At [this link](https://tiagoolivoto.github.io/paper_pliman/code.html) you will find more examples on how to use {pliman} to analyze plant images. Source code and images can be downloaded [here](https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip). You can also find a talk (Portuguese language) about {pliman} [here](https://www.youtube.com/watch?v=ElvUVlPocgA). <i class="far fa-lightbulb"></i>Lights, <i class="fas fa-camera"></i>camera, {pliman}!
+> At [this link](https://nepem-ufsc.github.io/paper_pliman/code.html) you will find more examples on how to use {pliman} to analyze plant images. Source code and images can be downloaded [here](https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip). You can also find a talk (Portuguese language) about {pliman} [here](https://www.youtube.com/watch?v=ElvUVlPocgA). <i class="far fa-lightbulb"></i>Lights, <i class="fas fa-camera"></i>camera, {pliman}!
 
