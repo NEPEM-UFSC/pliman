@@ -1,357 +1,153 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/404.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/analyze_objects.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/indexes.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/leaf_area.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/manipulation.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/phytopatometry.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/pliman_start.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/polygons.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/articles/segmentation.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/authors.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/CODE_OF_CONDUCT.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/CONTRIBUTING.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/LICENSE.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/news/index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/analyze_objects.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/analyze_objects_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/apply_fun_to_imgs.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/as_image.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/calibrate.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/contours.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/custom_palette.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/dist_transform.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/efourier.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/efourier_coefs.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/efourier_error.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/efourier_inv.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/efourier_norm.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/efourier_power.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/efourier_shape.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/ellipse.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/get_pliman_viewer.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/ggplot_color.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_align.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_augment.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_binary.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_combine.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_create.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_expand.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_prepare.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_prepare_mv.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_segment.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_segment_kmeans.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_segment_manual.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_segment_mask.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_square.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_thinning_guo_hall.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_to_mat.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/image_view.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/landmarks.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/landmarks_add.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/landmarks_angle.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/landmarks_dist.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/landmarks_regradi.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/leading_zeros.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/make_brush.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/make_mask.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/measure_disease.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/measure_disease_byl.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/measure_disease_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/mosaic_crop.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/mosaic_index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/mosaic_input.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/mosaic_prepare.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/mosaic_to_pliman.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/mosaic_to_rgb.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/mosaic_view.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_edge.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_export.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_export_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_label.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_map.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_mark.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_rgb.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_split.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_split_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/object_to_color.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/otsu.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/palettes.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/pipe.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/pixel_index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/pliman_images.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/pliman_viewer.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/plot.image_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/plot_index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/plot_index_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/plot_lw.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/poly_apex_base_angle.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/poly_pcv.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/poly_width_at.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/prepare_to_shp.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/random_color.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/sad.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/separate_col.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/set_pliman_viewer.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/summary_index.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_colorspace.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_dpi.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_file.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_image.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_indexes.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_measures.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_objects.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_pca.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_pick.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_polygon.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_polygon_plot.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_rows_cols.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_shapes.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_stats.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_transform.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/utils_wd.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/reference/watershed2.html</loc>
-  </url>
-  <url>
-    <loc>https://tiagoolivoto.github.io/pliman/SUPPORT.html</loc>
-  </url>
+<urlset xmlns = 'http://www.sitemaps.org/schemas/sitemap/0.9'>
+<url><loc>https://nepem-ufsc.github.io/pliman/404.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/analyze_objects.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/htp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/indexes.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/leaf_area.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/manipulation.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/phytopatometry.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/pliman_start.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/polygons.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/articles/segmentation.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/authors.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/CODE_OF_CONDUCT.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/CONTRIBUTING.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/LICENSE.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/news/index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/analyze_objects.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/analyze_objects_minimal.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/analyze_objects_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/apply_fun_to_imgs.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/as_image.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/calibrate.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/contours.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/custom_palette.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/dist_transform.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_coefs.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_error.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_inv.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_norm.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_power.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_shape.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/ellipse.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/get_pliman_viewer.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/ggplot_color.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_align.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_alpha.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_augment.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_binary.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_combine.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_create.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_expand.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_import_inter.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_prepare.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_prepare_mv.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_segment.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_segment_kmeans.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_segment_manual.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_segment_mask.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_square.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_thinning_guo_hall.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_to_mat.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_view.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/landmarks.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/landmarks_add.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/landmarks_angle.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/landmarks_dist.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/landmarks_regradi.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/leading_zeros.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/make_brush.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/make_mask.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/measure_disease.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/measure_disease_byl.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/measure_disease_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/measure_injury.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_aggregate.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_analyze.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_analyze_iter.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_chm.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_chm_extract.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_crop.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_draw.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_epsg.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_extract.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_hist.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_index2.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_input.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_interpolate.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_lonlat2epsg.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_plot.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_plot_rgb.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_prepare.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_project.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_resample.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_segment.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_segment_pick.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_to_pliman.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_to_rgb.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_view.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_edge.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_export.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_export_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_label.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_map.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_mark.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_rgb.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_split.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_split_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_to_color.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/otsu.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/palettes.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/pipe.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/pixel_index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/pliman_images.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/pliman_indexes_ican_compute.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/pliman_viewer.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/plot.image_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_id.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_index_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_lw.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/poly_apex_base_angle.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/poly_pcv.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/poly_width_at.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/prepare_to_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/random_color.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/run_app.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/sad.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/sentinel_to_tif.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/separate_col.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/set_pliman_viewer.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_build.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_edit.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_measures.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_plot.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/summary_index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_colorspace.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_dpi.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_file.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_image.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_indexes.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_measures.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_objects.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_pca.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_pick.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_polygon.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_polygon_plot.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_rows_cols.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_shapefile.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_shapes.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_stats.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_transform.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_wd.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/watershed2.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/SUPPORT.html</loc></url>
 </urlset>
+

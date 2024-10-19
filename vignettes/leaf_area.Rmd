@@ -45,7 +45,7 @@ image_index(leaves)
 
 Here, we use the argument `marker = "id"` of the function `analyze_objects()` to obtain the identification of each object (leaf), allowing for further adjustment of the leaf area.
 
-```{r leaf5, fig.width=10, fig.height=8}
+```{r leaf5, fig.width=10, fig.height=8, alt}
 count <- analyze_objects(leaves, marker = "id")
 
 ```
@@ -117,5 +117,5 @@ plot_measures(area2,
 <!-- inicio font awesome -->
 <script src="https://kit.fontawesome.com/1f72d6921a.js" crossorigin="anonymous"></script>
 
-> At [this link](https://tiagoolivoto.github.io/paper_pliman/code.html) you will find more examples on how to use {pliman} to analyze plant images. Source code and images can be downloaded [here](https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip). You can also find a talk (Portuguese language) about {pliman} [here](https://www.youtube.com/watch?v=ElvUVlPocgA). <i class="far fa-lightbulb"></i>Lights, <i class="fas fa-camera"></i>camera, {pliman}!
+> At [this link](https://nepem-ufsc.github.io/paper_pliman/code.html) you will find more examples on how to use {pliman} to analyze plant images. Source code and images can be downloaded [here](https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip). You can also find a talk (Portuguese language) about {pliman} [here](https://www.youtube.com/watch?v=ElvUVlPocgA). <i class="far fa-lightbulb"></i>Lights, <i class="fas fa-camera"></i>camera, {pliman}!
 

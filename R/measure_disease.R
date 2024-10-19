@@ -262,7 +262,7 @@ measure_disease <- function(img,
                             dir_original = NULL,
                             dir_processed = NULL,
                             verbose = TRUE){
-  # check_ebi()
+  check_ebi()
   if(!missing(img) & !missing(pattern)){
     stop("Only one of `img` or `pattern` arguments can be used.", call. = FALSE)
   }

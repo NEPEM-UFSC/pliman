@@ -5,7 +5,6 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<meta name="description" content="pliman">
 <title>Analyzing objects in an image • pliman</title>
 <!-- favicons --><link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
@@ -14,16 +13,11 @@
 <link rel="apple-touch-icon" type="image/png" sizes="76x76" href="../apple-touch-icon-76x76.png">
 <link rel="apple-touch-icon" type="image/png" sizes="60x60" href="../apple-touch-icon-60x60.png">
 <script src="../deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<link href="../deps/bootstrap-5.2.2/bootstrap.min.css" rel="stylesheet">
-<script src="../deps/bootstrap-5.2.2/bootstrap.bundle.min.js"></script><!-- Font Awesome icons --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/css/all.min.css" integrity="sha256-mmgLkCYLUQbXn0B1SRqzHar6dCnv9oZFPEC1g1cwlkk=" crossorigin="anonymous">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/css/v4-shims.min.css" integrity="sha256-wZjR52fzng1pJHwx4aV2AO3yyTOXrcDW7jBpJtTwVxw=" crossorigin="anonymous">
-<!-- bootstrap-toc --><script src="https://cdn.jsdelivr.net/gh/afeld/bootstrap-toc@v1.0.1/dist/bootstrap-toc.min.js" integrity="sha256-4veVQbu7//Lk5TSmc7YV48MxtMy98e26cf5MrgZYnwo=" crossorigin="anonymous"></script><!-- headroom.js --><script src="https://cdnjs.cloudflare.com/ajax/libs/headroom/0.11.0/headroom.min.js" integrity="sha256-AsUX4SJE1+yuDu5+mAVzJbuYNPHj/WroHuZ8Ir/CkE0=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/headroom/0.11.0/jQuery.headroom.min.js" integrity="sha256-ZX/yNShbjqsohH1k95liqY9Gd8uOiE1S4vZc+9KQ1K4=" crossorigin="anonymous"></script><!-- clipboard.js --><script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.6/clipboard.min.js" integrity="sha256-inc5kl9MA1hkeYUt+EC3BhlIgyp/2jDIyBLS6k3UxPI=" crossorigin="anonymous"></script><!-- search --><script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.4.6/fuse.js" integrity="sha512-zv6Ywkjyktsohkbp9bb45V6tEMoWhzFzXis+LrMehmJZZSys19Yxf1dopHx7WzIKxr5tK2dVcYmaCk2uqdjF4A==" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/autocomplete.js/0.38.0/autocomplete.jquery.min.js" integrity="sha512-GU9ayf+66Xx2TmpxqJpliWbT5PiGYxpaG8rfnBEk1LL8l1KGkRShhngwdXK1UgqhAzWpZHSiYPc09/NwDQIGyg==" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mark.js/8.11.1/mark.min.js" integrity="sha512-5CYOlHXGh6QpOFA/TeTylKLWfB3ftPsde7AnmhuitiTX4K5SqCLBeKro6sPS8ilsz1Q4NRx3v8Ko2IBiszzdww==" crossorigin="anonymous"></script><!-- pkgdown --><script src="../pkgdown.js"></script><meta property="og:title" content="Analyzing objects in an image">
-<meta property="og:description" content="pliman">
-<meta property="og:image" content="https://tiagoolivoto.github.io/pliman/logo.png">
-<!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
-<script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
-<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-<![endif]--><!-- Global site tag (gtag.js) - Google Analytics --><script async src="https://www.googletagmanager.com/gtag/js?id=G-VWN5YL53DP"></script><script>
+<link href="../deps/bootstrap-5.3.1/bootstrap.min.css" rel="stylesheet">
+<script src="../deps/bootstrap-5.3.1/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.4.2/css/all.min.css" rel="stylesheet">
+<link href="../deps/font-awesome-6.4.2/css/v4-shims.min.css" rel="stylesheet">
+<script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><meta property="og:title" content="Analyzing objects in an image">
+<!-- Global site tag (gtag.js) - Google Analytics --><script async src="https://www.googletagmanager.com/gtag/js?id=G-VWN5YL53DP"></script><script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
@@ -33,94 +27,63 @@
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
-    
 
-    <nav class="navbar fixed-top navbar-inverse navbar-expand-lg bg-light"><div class="container">
-    
+
+    <nav class="navbar navbar-expand-lg fixed-top bg-light" data-bs-theme="inverse" aria-label="Site navigation"><div class="container">
+
     <a class="navbar-brand me-2" href="../index.html">pliman</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">2.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">3.0.0</small>
 
-    
+
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
 
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto">
-<li class="nav-item">
-  <a class="nav-link" href="../index.html">
-    <span class="fa fa-home"></span>
-     
-    Home
-  </a>
-</li>
+<li class="nav-item"><a class="nav-link" href="../index.html"><span class="fa fa-home"></span> Home</a></li>
 <li class="active nav-item dropdown">
-  <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false" aria-haspopup="true" id="dropdown-examples">Examples</a>
-  <div class="dropdown-menu" aria-labelledby="dropdown-examples">
-    <a class="dropdown-item" href="../articles/indexes.html">Image indexes</a>
-    <a class="dropdown-item" href="../articles/manipulation.html">Image manipulation</a>
-    <a class="dropdown-item" href="../articles/segmentation.html">Image segmentation</a>
-    <a class="dropdown-item" href="../articles/polygons.html">Polygons</a>
-    <a class="dropdown-item" href="../articles/analyze_objects.html">Analyze objects in an image</a>
-    <a class="dropdown-item" href="../articles/leaf_area.html">Measure leaf area</a>
-    <a class="dropdown-item" href="../articles/phytopatometry.html">Phytopatometry</a>
-  </div>
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-examples" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Examples</button>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-examples">
+<li><a class="dropdown-item" href="../articles/indexes.html">Image indexes</a></li>
+    <li><a class="dropdown-item" href="../articles/manipulation.html">Image manipulation</a></li>
+    <li><a class="dropdown-item" href="../articles/segmentation.html">Image segmentation</a></li>
+    <li><a class="dropdown-item" href="../articles/polygons.html">Polygons</a></li>
+    <li><a class="dropdown-item" href="../articles/analyze_objects.html">Analyze objects in an image</a></li>
+    <li><a class="dropdown-item" href="../articles/leaf_area.html">Measure leaf area</a></li>
+    <li><a class="dropdown-item" href="../articles/phytopatometry.html">Phytopatometry</a></li>
+    <li><a class="dropdown-item" href="../articles/htp.html">High Throughput Phenotyping</a></li>
+  </ul>
 </li>
-<li class="nav-item">
-  <a class="nav-link" href="../reference/index.html">Functions</a>
+<li class="nav-item"><a class="nav-link" href="../reference/index.html">Functions</a></li>
+<li class="nav-item dropdown">
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-news" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">News</button>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-news">
+<li><a class="dropdown-item" href="../news/index.html">Package news</a></li>
+    <li><a class="external-link dropdown-item" href="https://olivoto.netlify.app/">Blog posts</a></li>
+  </ul>
 </li>
 <li class="nav-item dropdown">
-  <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false" aria-haspopup="true" id="dropdown-news">News</a>
-  <div class="dropdown-menu" aria-labelledby="dropdown-news">
-    <a class="dropdown-item" href="../news/index.html">Package news</a>
-    <a class="external-link dropdown-item" href="https://olivoto.netlify.app/">Blog posts</a>
-  </div>
-</li>
-<li class="nav-item dropdown">
-  <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false" aria-haspopup="true" id="dropdown-more">More</a>
-  <div class="dropdown-menu" aria-labelledby="dropdown-more">
-    <a class="dropdown-item" href="../CODE_OF_CONDUCT.html">Code of Conduct</a>
-    <a class="dropdown-item" href="../CONTRIBUTING.html">Contributing</a>
-    <a class="dropdown-item" href="../ISSUE_TEMPLATE.html">Issues</a>
-    <a class="dropdown-item" href="../SUPPORT.html">Support</a>
-    <a class="dropdown-item" href="../LICENSE.html">Licence</a>
-  </div>
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-more" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">More</button>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-more">
+<li><a class="dropdown-item" href="../CODE_OF_CONDUCT.html">Code of Conduct</a></li>
+    <li><a class="dropdown-item" href="../CONTRIBUTING.html">Contributing</a></li>
+    <li><a class="dropdown-item" href="../ISSUE_TEMPLATE.html">Issues</a></li>
+    <li><a class="dropdown-item" href="../SUPPORT.html">Support</a></li>
+    <li><a class="dropdown-item" href="../LICENSE.html">Licence</a></li>
+  </ul>
 </li>
       </ul>
-<form class="form-inline my-2 my-lg-0" role="search">
-        <input type="search" class="form-control me-sm-2" aria-label="Toggle navigation" name="search-input" data-search-index="../search.json" id="search-input" placeholder="Search for" autocomplete="off">
-</form>
-
-      <ul class="navbar-nav">
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://www.researchgate.net/profile/Tiago_Olivoto2">
-    <span class="fab fa fab fa-researchgate fa-2x"></span>
-     
-  </a>
-</li>
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://github.com/TiagoOlivoto">
-    <span class="fa fa-github fa-2x"></span>
-     
-  </a>
-</li>
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://twitter.com/tolivoto">
-    <span class="fab fa fab fa-twitter fa-2x"></span>
-     
-  </a>
-</li>
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://www.mendeley.com/profiles/tiago-olivoto/">
-    <span class="fab fa fab fa-mendeley fa-2x"></span>
-     
-  </a>
-</li>
+<ul class="navbar-nav">
+<li class="nav-item"><a class="external-link nav-link" href="https://www.researchgate.net/profile/Tiago_Olivoto2"><span class="fa fab fa-researchgate fa-2x"></span></a></li>
+<li class="nav-item"><a class="external-link nav-link" href="https://github.com/TiagoOlivoto"><span class="fa fa-github fa-2x"></span></a></li>
+<li class="nav-item"><a class="external-link nav-link" href="https://twitter.com/tolivoto"><span class="fa fab fa-twitter fa-2x"></span></a></li>
+<li class="nav-item"><a class="external-link nav-link" href="https://www.mendeley.com/profiles/tiago-olivoto/"><span class="fa fab fa-mendeley fa-2x"></span></a></li>
       </ul>
 </div>
 
-    
+
   </div>
 </nav><div class="container template-article">
 
@@ -133,9 +96,9 @@
                         <h4 data-toc-skip class="author">Tiago
 Olivoto</h4>
             
-            <h4 data-toc-skip class="date">2023-10-22</h4>
+            <h4 data-toc-skip class="date">2024-10-19</h4>
       
-      <small class="dont-index">Source: <a href="https://github.com/TiagoOlivoto/pliman/blob/HEAD/vignettes/analyze_objects.Rmd" class="external-link"><code>vignettes/analyze_objects.Rmd</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/NEPEM-UFSC/pliman/blob/HEAD/vignettes/analyze_objects.Rmd" class="external-link"><code>vignettes/analyze_objects.Rmd</code></a></small>
       <div class="d-none name"><code>analyze_objects.Rmd</code></div>
     </div>
 
@@ -150,13 +113,14 @@ objects in an image. Let us start with a simple example with the image
 page</a>. To facilitate the image importation from this folder, a helper
 function <code><a href="../reference/utils_image.html">image_pliman()</a></code> is used.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/TiagoOlivoto/pliman" class="external-link">pliman</a></span><span class="op">)</span></span>
-<span><span class="co">#&gt; |==========================================================|</span></span>
-<span><span class="co">#&gt; | Tools for Plant Image Analysis (pliman 2.1.0)            |</span></span>
-<span><span class="co">#&gt; | Author: Tiago Olivoto                                    |</span></span>
-<span><span class="co">#&gt; | Type `citation('pliman')` to know how to cite pliman     |</span></span>
-<span><span class="co">#&gt; | Visit 'http://bit.ly/pkg_pliman' for a complete tutorial |</span></span>
-<span><span class="co">#&gt; |==========================================================|</span></span>
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://tiagoolivoto.github.io/pliman/" class="external-link">pliman</a></span><span class="op">)</span></span>
+<span><span class="co">#&gt; |======================================================|</span></span>
+<span><span class="co">#&gt; | Welcome to the pliman package (version 3.0.0)!       |</span></span>
+<span><span class="co">#&gt; | Developed collaboratively by NEPEM - nepemufsc.com   |</span></span>
+<span><span class="co">#&gt; | Group lead: Prof. Tiago Olivoto                      |</span></span>
+<span><span class="co">#&gt; | For citation: type `citation('pliman')`              |</span></span>
+<span><span class="co">#&gt; | We welcome your feedback and suggestions!            |</span></span>
+<span><span class="co">#&gt; |======================================================|</span></span>
 <span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"objects_300dpi.jpg"</span>, plot <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
 <p><img src="analyze_objects_files/figure-html/unnamed-chunk-2-1.png" width="960"></p>
 <p>The above image was produced with Microsoft PowerPoint. It has a
@@ -313,11 +277,13 @@ object 2 (20 cm).</p>
 <p>If the image resolution is known, all the measures will be adjusted
 according to this resolution. Let us to see a numerical example with
 <code><a href="../reference/utils_dpi.html">pixels_to_cm()</a></code>. This function converts the number of pixels
-(<span class="math inline">\(px\)</span>) to cm, considering the image
-resolution in <span class="math inline">\(dpi\)</span>, as follows:
-<span class="math inline">\(cm = px \times (2.54/dpi)\)</span>. Since we
-know the number of pixels of the larger square, its perimeter in cm is
-given by</p>
+(<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>p</mi><mi>x</mi></mrow><annotation encoding="application/x-tex">px</annotation></semantics></math>)
+to cm, considering the image resolution in
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi><mi>p</mi><mi>i</mi></mrow><annotation encoding="application/x-tex">dpi</annotation></semantics></math>,
+as follows:
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>c</mi><mi>m</mi><mo>=</mo><mi>p</mi><mi>x</mi><mo>×</mo><mrow><mo stretchy="true" form="prefix">(</mo><mn>2.54</mn><mi>/</mi><mi>d</mi><mi>p</mi><mi>i</mi><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">cm = px \times (2.54/dpi)</annotation></semantics></math>.
+Since we know the number of pixels of the larger square, its perimeter
+in cm is given by</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># number of pixels for the highest square perimeter</span></span>
 <span><span class="va">ls_px</span> <span class="op">&lt;-</span> <span class="va">img_res</span><span class="op">$</span><span class="va">results</span><span class="op">$</span><span class="va">perimeter</span><span class="op">[</span><span class="fl">1</span><span class="op">]</span></span>
@@ -381,9 +347,15 @@ based on color indexes.</p>
 <span><span class="fu"><a href="../reference/image_combine.html">image_combine</a></span><span class="op">(</span><span class="va">soy</span>, <span class="va">grain</span>, <span class="va">background</span>, ncol <span class="op">=</span> <span class="fl">3</span><span class="op">)</span></span></code></pre></div>
 <p><img src="analyze_objects_files/figure-html/unnamed-chunk-9-1.png" width="960"></p>
 <p>The function <code><a href="../reference/analyze_objects.html">analyze_objects()</a></code> segment the image using
-as default the normalized blue index, as follows <span class="math inline">\(NB = (B/(R+G+B))\)</span>, where <span class="math inline">\(R\)</span>, <span class="math inline">\(G\)</span>, and <span class="math inline">\(B\)</span> are the red, green, and blue bands.
-Objects are count and the segmented objects are colored with random
-permutations.</p>
+as default the normalized blue index, as follows
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mi>B</mi><mo>=</mo><mrow><mo stretchy="true" form="prefix">(</mo><mi>B</mi><mi>/</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>R</mi><mo>+</mo><mi>G</mi><mo>+</mo><mi>B</mi><mo stretchy="true" form="postfix">)</mo></mrow><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex">NB = (B/(R+G+B))</annotation></semantics></math>,
+where
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>R</mi><annotation encoding="application/x-tex">R</annotation></semantics></math>,
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>G</mi><annotation encoding="application/x-tex">G</annotation></semantics></math>,
+and
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>B</mi><annotation encoding="application/x-tex">B</annotation></semantics></math>
+are the red, green, and blue bands. Objects are count and the segmented
+objects are colored with random permutations.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">count2</span> <span class="op">&lt;-</span> </span>
 <span>  <span class="fu"><a href="../reference/analyze_objects.html">analyze_objects</a></span><span class="op">(</span><span class="va">soy</span>,</span>
@@ -572,8 +544,9 @@ genetics, environment, and G×E. &lt;em&gt;New Phytologist&lt;/em&gt;, 225(5),
 <span><span class="co">#&gt;   ..$ 1: int [1:641, 1:2] 634 634 633 633 632 631 631 630 630 629 ...</span></span>
 <span><span class="co">#&gt;   ..$ 2: int [1:806, 1:2] 144 144 144 143 143 142 142 142 141 141 ...</span></span>
 <span><span class="co">#&gt;   ..$ 3: int [1:982, 1:2] 395 395 395 394 394 394 394 394 394 394 ...</span></span>
-<span><span class="co">#&gt;  $ parms           :List of 1</span></span>
-<span><span class="co">#&gt;   ..$ index: chr "NB"</span></span>
+<span><span class="co">#&gt;  $ parms           :List of 2</span></span>
+<span><span class="co">#&gt;   ..$ index       : chr "NB"</span></span>
+<span><span class="co">#&gt;   ..$ object_index: NULL</span></span>
 <span><span class="co">#&gt;  - attr(*, "class")= chr "anal_obj"</span></span></code></pre></div>
 <p>Three key measures (in pixel units) are:</p>
 <ol style="list-style-type: decimal">
@@ -586,9 +559,8 @@ genetics, environment, and G×E. &lt;em&gt;New Phytologist&lt;/em&gt;, 225(5),
 </ol>
 <p>Using these measures, circularity and solidity are computed as shown
 in (Gupta et al, 2020).</p>
-<p><span class="math display">\[ circularity = 4\pi(area /
-perimeter^2)\]</span></p>
-<p><span class="math display">\[solidity = area / area\_ch\]</span></p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>c</mi><mi>i</mi><mi>r</mi><mi>c</mi><mi>u</mi><mi>l</mi><mi>a</mi><mi>r</mi><mi>i</mi><mi>t</mi><mi>y</mi><mo>=</mo><mn>4</mn><mi>π</mi><mrow><mo stretchy="true" form="prefix">(</mo><mi>a</mi><mi>r</mi><mi>e</mi><mi>a</mi><mi>/</mi><mi>p</mi><mi>e</mi><mi>r</mi><mi>i</mi><mi>m</mi><mi>e</mi><mi>t</mi><mi>e</mi><msup><mi>r</mi><mn>2</mn></msup><mo stretchy="true" form="postfix">)</mo></mrow></mrow><annotation encoding="application/x-tex"> circularity = 4\pi(area / perimeter^2)</annotation></semantics></math></p>
+<p><math display="block" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>s</mi><mi>o</mi><mi>l</mi><mi>i</mi><mi>d</mi><mi>i</mi><mi>t</mi><mi>y</mi><mo>=</mo><mi>a</mi><mi>r</mi><mi>e</mi><mi>a</mi><mi>/</mi><mi>a</mi><mi>r</mi><mi>e</mi><mi>a</mi><mi>_</mi><mi>c</mi><mi>h</mi></mrow><annotation encoding="application/x-tex">solidity = area / area\_ch</annotation></semantics></math></p>
 <p>Circularity is influenced by serrations and lobing. Solidity is
 sensitive to leaves with deep lobes, or with a distinct petiole, and can
 be used to distinguish leaves lacking such structures. Unlike
@@ -604,7 +576,7 @@ follows:</p>
 <span>  <span class="fu"><a href="../reference/utils_objects.html">object_contour</a></span><span class="op">(</span><span class="va">potato</span>,</span>
 <span>                 watershed <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>                 plot <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">potato</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rspatial.github.io/terra/reference/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">potato</span><span class="op">)</span></span>
 <span><span class="fu"><a href="../reference/utils_polygon_plot.html">plot_contour</a></span><span class="op">(</span><span class="va">cont</span>, col <span class="op">=</span> <span class="st">"red"</span>, lwd <span class="op">=</span> <span class="fl">3</span><span class="op">)</span></span></code></pre></div>
 <p><img src="analyze_objects_files/figure-html/cont-1.png" width="960"></p>
 </div>
@@ -616,7 +588,7 @@ coordinate points for each object contour that can be further used to
 obtain the convex hull with <code><a href="../reference/utils_polygon.html">conv_hull()</a></code>.</p>
 <div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">conv</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/utils_polygon.html">conv_hull</a></span><span class="op">(</span><span class="va">cont</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">potato</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rspatial.github.io/terra/reference/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">potato</span><span class="op">)</span></span>
 <span><span class="fu"><a href="../reference/utils_polygon_plot.html">plot_contour</a></span><span class="op">(</span><span class="va">conv</span>, col <span class="op">=</span> <span class="st">"red"</span>, lwd <span class="op">=</span> <span class="fl">3</span><span class="op">)</span></span></code></pre></div>
 <p><img src="analyze_objects_files/figure-html/conv-1.png" width="960"></p>
 </div>
@@ -637,34 +609,34 @@ obtain the convex hull with <code><a href="../reference/utils_polygon.html">conv
 <span><span class="va">df_cont</span> <span class="op">&lt;-</span></span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/base/do.call.html" class="external-link">do.call</a></span><span class="op">(</span><span class="va">rbind</span>,</span>
 <span>          <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">cont</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">i</span><span class="op">)</span><span class="op">{</span></span>
-<span>            <span class="fu"><a href="https://rdrr.io/r/base/transform.html" class="external-link">transform</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/as.data.frame.html" class="external-link">as.data.frame</a></span><span class="op">(</span><span class="va">cont</span><span class="op">[[</span><span class="va">i</span><span class="op">]</span><span class="op">]</span><span class="op">)</span>, object <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">cont</span><span class="op">[</span><span class="va">i</span><span class="op">]</span><span class="op">)</span><span class="op">)</span></span>
+<span>            <span class="fu"><a href="https://rdrr.io/r/base/transform.html" class="external-link">transform</a></span><span class="op">(</span><span class="fu"><a href="https://rspatial.github.io/terra/reference/as.data.frame.html" class="external-link">as.data.frame</a></span><span class="op">(</span><span class="va">cont</span><span class="op">[[</span><span class="va">i</span><span class="op">]</span><span class="op">]</span><span class="op">)</span>, object <span class="op">=</span> <span class="fu"><a href="https://rspatial.github.io/terra/reference/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">cont</span><span class="op">[</span><span class="va">i</span><span class="op">]</span><span class="op">)</span><span class="op">)</span></span>
 <span>          <span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">df_conv</span> <span class="op">&lt;-</span>  </span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/base/do.call.html" class="external-link">do.call</a></span><span class="op">(</span><span class="va">rbind</span>,</span>
 <span>          <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">conv</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">i</span><span class="op">)</span><span class="op">{</span></span>
-<span>            <span class="fu"><a href="https://rdrr.io/r/base/transform.html" class="external-link">transform</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/as.data.frame.html" class="external-link">as.data.frame</a></span><span class="op">(</span><span class="va">conv</span><span class="op">[[</span><span class="va">i</span><span class="op">]</span><span class="op">]</span><span class="op">)</span>, object <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">conv</span><span class="op">[</span><span class="va">i</span><span class="op">]</span><span class="op">)</span><span class="op">)</span></span>
+<span>            <span class="fu"><a href="https://rdrr.io/r/base/transform.html" class="external-link">transform</a></span><span class="op">(</span><span class="fu"><a href="https://rspatial.github.io/terra/reference/as.data.frame.html" class="external-link">as.data.frame</a></span><span class="op">(</span><span class="va">conv</span><span class="op">[[</span><span class="va">i</span><span class="op">]</span><span class="op">]</span><span class="op">)</span>, object <span class="op">=</span> <span class="fu"><a href="https://rspatial.github.io/terra/reference/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">conv</span><span class="op">[</span><span class="va">i</span><span class="op">]</span><span class="op">)</span><span class="op">)</span></span>
 <span>          <span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
 <span></span>
 <span><span class="co"># plot the objects</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/grDevices/palette.html" class="external-link">palette</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"red"</span>,<span class="st">"blue"</span>,<span class="st">"green"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/with.html" class="external-link">with</a></span><span class="op">(</span><span class="va">df_cont</span>,</span>
-<span>     <span class="fu"><a href="https://rdrr.io/pkg/terra/man/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">V1</span>, <span class="va">V2</span>, </span>
+<span>     <span class="fu"><a href="https://rspatial.github.io/terra/reference/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">V1</span>, <span class="va">V2</span>, </span>
 <span>          cex <span class="op">=</span> <span class="fl">0.5</span>,</span>
 <span>          col <span class="op">=</span> <span class="va">object</span>,</span>
 <span>          xlab <span class="op">=</span> <span class="cn">NA</span>,</span>
 <span>          ylab <span class="op">=</span> <span class="cn">NA</span>,</span>
 <span>          axes <span class="op">=</span> <span class="cn">F</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/with.html" class="external-link">with</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/subset.html" class="external-link">subset</a></span><span class="op">(</span><span class="va">df_conv</span>, <span class="va">object</span> <span class="op">==</span> <span class="fl">1</span><span class="op">)</span>,</span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/with.html" class="external-link">with</a></span><span class="op">(</span><span class="fu"><a href="https://rspatial.github.io/terra/reference/subset.html" class="external-link">subset</a></span><span class="op">(</span><span class="va">df_conv</span>, <span class="va">object</span> <span class="op">==</span> <span class="fl">1</span><span class="op">)</span>,</span>
 <span>     <span class="fu"><a href="https://rdrr.io/r/graphics/polygon.html" class="external-link">polygon</a></span><span class="op">(</span><span class="va">V1</span>, <span class="va">V2</span>, </span>
 <span>             col <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/grDevices/rgb.html" class="external-link">rgb</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">0</span>, <span class="fl">0</span>, <span class="fl">0.2</span><span class="op">)</span>,</span>
 <span>             border <span class="op">=</span> <span class="cn">NA</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/with.html" class="external-link">with</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/subset.html" class="external-link">subset</a></span><span class="op">(</span><span class="va">df_conv</span>, <span class="va">object</span> <span class="op">==</span> <span class="fl">2</span><span class="op">)</span>,</span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/with.html" class="external-link">with</a></span><span class="op">(</span><span class="fu"><a href="https://rspatial.github.io/terra/reference/subset.html" class="external-link">subset</a></span><span class="op">(</span><span class="va">df_conv</span>, <span class="va">object</span> <span class="op">==</span> <span class="fl">2</span><span class="op">)</span>,</span>
 <span>     <span class="fu"><a href="https://rdrr.io/r/graphics/polygon.html" class="external-link">polygon</a></span><span class="op">(</span><span class="va">V1</span>, <span class="va">V2</span>, </span>
 <span>             col <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/grDevices/rgb.html" class="external-link">rgb</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">0</span>, <span class="fl">1</span>, <span class="fl">0.2</span><span class="op">)</span>,</span>
 <span>             border <span class="op">=</span> <span class="cn">NA</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/with.html" class="external-link">with</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/subset.html" class="external-link">subset</a></span><span class="op">(</span><span class="va">df_conv</span>, <span class="va">object</span> <span class="op">==</span> <span class="fl">3</span><span class="op">)</span>,</span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/with.html" class="external-link">with</a></span><span class="op">(</span><span class="fu"><a href="https://rspatial.github.io/terra/reference/subset.html" class="external-link">subset</a></span><span class="op">(</span><span class="va">df_conv</span>, <span class="va">object</span> <span class="op">==</span> <span class="fl">3</span><span class="op">)</span>,</span>
 <span>     <span class="fu"><a href="https://rdrr.io/r/graphics/polygon.html" class="external-link">polygon</a></span><span class="op">(</span><span class="va">V1</span>, <span class="va">V2</span>, </span>
 <span>             col <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/grDevices/rgb.html" class="external-link">rgb</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">1</span>, <span class="fl">0</span>, <span class="fl">0.2</span><span class="op">)</span>,</span>
 <span>             border <span class="op">=</span> <span class="cn">NA</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
@@ -718,7 +690,7 @@ can be controlled explicitly with the argument <code>workers</code>.</p>
 </h2>
 <!-- inicio font awesome -->
 <script src="https://kit.fontawesome.com/1f72d6921a.js" crossorigin="anonymous"></script><blockquote>
-<p>At <a href="https://tiagoolivoto.github.io/paper_pliman/code.html" class="external-link">this
+<p>At <a href="https://nepem-ufsc.github.io/paper_pliman/code.html" class="external-link">this
 link</a> you will find more examples on how to use {pliman} to analyze
 plant images. Source code and images can be downloaded <a href="https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip" class="external-link">here</a>.
 You can also find a talk (Portuguese language) about {pliman} <a href="https://www.youtube.com/watch?v=ElvUVlPocgA" class="external-link">here</a>.
@@ -727,28 +699,26 @@ You can also find a talk (Portuguese language) about {pliman} <a href="https://w
 </blockquote>
 </div>
 
-  </main><aside class="col-md-3"><nav id="toc"><h2>On this page</h2>
+  </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>
 </div>
 
 
 
     <footer><div class="pkgdown-footer-left">
-  <p></p>
-<p>Developed by <a href="https://olivoto.netlify.app/" class="external-link">Tiago Olivoto</a>.</p>
+  <p>Developed by <a href="https://olivoto.netlify.app/" class="external-link">Tiago Olivoto</a>.</p>
 </div>
 
 <div class="pkgdown-footer-right">
-  <p></p>
-<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.7.</p>
+  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.1.1.</p>
 </div>
 
     </footer>
 </div>
 
-  
 
-  
+
+
 
   </body>
 </html>

@@ -5,7 +5,6 @@
 <meta charset="utf-8">
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<meta name="description" content="pliman">
 <title>Image segmentation with pliman • pliman</title>
 <!-- favicons --><link rel="icon" type="image/png" sizes="16x16" href="../favicon-16x16.png">
 <link rel="icon" type="image/png" sizes="32x32" href="../favicon-32x32.png">
@@ -14,16 +13,11 @@
 <link rel="apple-touch-icon" type="image/png" sizes="76x76" href="../apple-touch-icon-76x76.png">
 <link rel="apple-touch-icon" type="image/png" sizes="60x60" href="../apple-touch-icon-60x60.png">
 <script src="../deps/jquery-3.6.0/jquery-3.6.0.min.js"></script><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-<link href="../deps/bootstrap-5.2.2/bootstrap.min.css" rel="stylesheet">
-<script src="../deps/bootstrap-5.2.2/bootstrap.bundle.min.js"></script><!-- Font Awesome icons --><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/css/all.min.css" integrity="sha256-mmgLkCYLUQbXn0B1SRqzHar6dCnv9oZFPEC1g1cwlkk=" crossorigin="anonymous">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.12.1/css/v4-shims.min.css" integrity="sha256-wZjR52fzng1pJHwx4aV2AO3yyTOXrcDW7jBpJtTwVxw=" crossorigin="anonymous">
-<!-- bootstrap-toc --><script src="https://cdn.jsdelivr.net/gh/afeld/bootstrap-toc@v1.0.1/dist/bootstrap-toc.min.js" integrity="sha256-4veVQbu7//Lk5TSmc7YV48MxtMy98e26cf5MrgZYnwo=" crossorigin="anonymous"></script><!-- headroom.js --><script src="https://cdnjs.cloudflare.com/ajax/libs/headroom/0.11.0/headroom.min.js" integrity="sha256-AsUX4SJE1+yuDu5+mAVzJbuYNPHj/WroHuZ8Ir/CkE0=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/headroom/0.11.0/jQuery.headroom.min.js" integrity="sha256-ZX/yNShbjqsohH1k95liqY9Gd8uOiE1S4vZc+9KQ1K4=" crossorigin="anonymous"></script><!-- clipboard.js --><script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.6/clipboard.min.js" integrity="sha256-inc5kl9MA1hkeYUt+EC3BhlIgyp/2jDIyBLS6k3UxPI=" crossorigin="anonymous"></script><!-- search --><script src="https://cdnjs.cloudflare.com/ajax/libs/fuse.js/6.4.6/fuse.js" integrity="sha512-zv6Ywkjyktsohkbp9bb45V6tEMoWhzFzXis+LrMehmJZZSys19Yxf1dopHx7WzIKxr5tK2dVcYmaCk2uqdjF4A==" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/autocomplete.js/0.38.0/autocomplete.jquery.min.js" integrity="sha512-GU9ayf+66Xx2TmpxqJpliWbT5PiGYxpaG8rfnBEk1LL8l1KGkRShhngwdXK1UgqhAzWpZHSiYPc09/NwDQIGyg==" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mark.js/8.11.1/mark.min.js" integrity="sha512-5CYOlHXGh6QpOFA/TeTylKLWfB3ftPsde7AnmhuitiTX4K5SqCLBeKro6sPS8ilsz1Q4NRx3v8Ko2IBiszzdww==" crossorigin="anonymous"></script><!-- pkgdown --><script src="../pkgdown.js"></script><meta property="og:title" content="Image segmentation with pliman">
-<meta property="og:description" content="pliman">
-<meta property="og:image" content="https://tiagoolivoto.github.io/pliman/logo.png">
-<!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
-<script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
-<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-<![endif]--><!-- Global site tag (gtag.js) - Google Analytics --><script async src="https://www.googletagmanager.com/gtag/js?id=G-VWN5YL53DP"></script><script>
+<link href="../deps/bootstrap-5.3.1/bootstrap.min.css" rel="stylesheet">
+<script src="../deps/bootstrap-5.3.1/bootstrap.bundle.min.js"></script><link href="../deps/font-awesome-6.4.2/css/all.min.css" rel="stylesheet">
+<link href="../deps/font-awesome-6.4.2/css/v4-shims.min.css" rel="stylesheet">
+<script src="../deps/headroom-0.11.0/headroom.min.js"></script><script src="../deps/headroom-0.11.0/jQuery.headroom.min.js"></script><script src="../deps/bootstrap-toc-1.0.1/bootstrap-toc.min.js"></script><script src="../deps/clipboard.js-2.0.11/clipboard.min.js"></script><script src="../deps/search-1.0.0/autocomplete.jquery.min.js"></script><script src="../deps/search-1.0.0/fuse.min.js"></script><script src="../deps/search-1.0.0/mark.min.js"></script><!-- pkgdown --><script src="../pkgdown.js"></script><meta property="og:title" content="Image segmentation with pliman">
+<!-- Global site tag (gtag.js) - Google Analytics --><script async src="https://www.googletagmanager.com/gtag/js?id=G-VWN5YL53DP"></script><script>
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
@@ -33,94 +27,63 @@
 </head>
 <body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
-    
 
-    <nav class="navbar fixed-top navbar-inverse navbar-expand-lg bg-light"><div class="container">
-    
+
+    <nav class="navbar navbar-expand-lg fixed-top bg-light" data-bs-theme="inverse" aria-label="Site navigation"><div class="container">
+
     <a class="navbar-brand me-2" href="../index.html">pliman</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">2.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">3.0.0</small>
 
-    
+
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>
 
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto">
-<li class="nav-item">
-  <a class="nav-link" href="../index.html">
-    <span class="fa fa-home"></span>
-     
-    Home
-  </a>
-</li>
+<li class="nav-item"><a class="nav-link" href="../index.html"><span class="fa fa-home"></span> Home</a></li>
 <li class="active nav-item dropdown">
-  <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false" aria-haspopup="true" id="dropdown-examples">Examples</a>
-  <div class="dropdown-menu" aria-labelledby="dropdown-examples">
-    <a class="dropdown-item" href="../articles/indexes.html">Image indexes</a>
-    <a class="dropdown-item" href="../articles/manipulation.html">Image manipulation</a>
-    <a class="dropdown-item" href="../articles/segmentation.html">Image segmentation</a>
-    <a class="dropdown-item" href="../articles/polygons.html">Polygons</a>
-    <a class="dropdown-item" href="../articles/analyze_objects.html">Analyze objects in an image</a>
-    <a class="dropdown-item" href="../articles/leaf_area.html">Measure leaf area</a>
-    <a class="dropdown-item" href="../articles/phytopatometry.html">Phytopatometry</a>
-  </div>
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-examples" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Examples</button>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-examples">
+<li><a class="dropdown-item" href="../articles/indexes.html">Image indexes</a></li>
+    <li><a class="dropdown-item" href="../articles/manipulation.html">Image manipulation</a></li>
+    <li><a class="dropdown-item" href="../articles/segmentation.html">Image segmentation</a></li>
+    <li><a class="dropdown-item" href="../articles/polygons.html">Polygons</a></li>
+    <li><a class="dropdown-item" href="../articles/analyze_objects.html">Analyze objects in an image</a></li>
+    <li><a class="dropdown-item" href="../articles/leaf_area.html">Measure leaf area</a></li>
+    <li><a class="dropdown-item" href="../articles/phytopatometry.html">Phytopatometry</a></li>
+    <li><a class="dropdown-item" href="../articles/htp.html">High Throughput Phenotyping</a></li>
+  </ul>
 </li>
-<li class="nav-item">
-  <a class="nav-link" href="../reference/index.html">Functions</a>
+<li class="nav-item"><a class="nav-link" href="../reference/index.html">Functions</a></li>
+<li class="nav-item dropdown">
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-news" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">News</button>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-news">
+<li><a class="dropdown-item" href="../news/index.html">Package news</a></li>
+    <li><a class="external-link dropdown-item" href="https://olivoto.netlify.app/">Blog posts</a></li>
+  </ul>
 </li>
 <li class="nav-item dropdown">
-  <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false" aria-haspopup="true" id="dropdown-news">News</a>
-  <div class="dropdown-menu" aria-labelledby="dropdown-news">
-    <a class="dropdown-item" href="../news/index.html">Package news</a>
-    <a class="external-link dropdown-item" href="https://olivoto.netlify.app/">Blog posts</a>
-  </div>
-</li>
-<li class="nav-item dropdown">
-  <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" role="button" aria-expanded="false" aria-haspopup="true" id="dropdown-more">More</a>
-  <div class="dropdown-menu" aria-labelledby="dropdown-more">
-    <a class="dropdown-item" href="../CODE_OF_CONDUCT.html">Code of Conduct</a>
-    <a class="dropdown-item" href="../CONTRIBUTING.html">Contributing</a>
-    <a class="dropdown-item" href="../ISSUE_TEMPLATE.html">Issues</a>
-    <a class="dropdown-item" href="../SUPPORT.html">Support</a>
-    <a class="dropdown-item" href="../LICENSE.html">Licence</a>
-  </div>
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-more" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">More</button>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-more">
+<li><a class="dropdown-item" href="../CODE_OF_CONDUCT.html">Code of Conduct</a></li>
+    <li><a class="dropdown-item" href="../CONTRIBUTING.html">Contributing</a></li>
+    <li><a class="dropdown-item" href="../ISSUE_TEMPLATE.html">Issues</a></li>
+    <li><a class="dropdown-item" href="../SUPPORT.html">Support</a></li>
+    <li><a class="dropdown-item" href="../LICENSE.html">Licence</a></li>
+  </ul>
 </li>
       </ul>
-<form class="form-inline my-2 my-lg-0" role="search">
-        <input type="search" class="form-control me-sm-2" aria-label="Toggle navigation" name="search-input" data-search-index="../search.json" id="search-input" placeholder="Search for" autocomplete="off">
-</form>
-
-      <ul class="navbar-nav">
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://www.researchgate.net/profile/Tiago_Olivoto2">
-    <span class="fab fa fab fa-researchgate fa-2x"></span>
-     
-  </a>
-</li>
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://github.com/TiagoOlivoto">
-    <span class="fa fa-github fa-2x"></span>
-     
-  </a>
-</li>
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://twitter.com/tolivoto">
-    <span class="fab fa fab fa-twitter fa-2x"></span>
-     
-  </a>
-</li>
-<li class="nav-item">
-  <a class="external-link nav-link" href="https://www.mendeley.com/profiles/tiago-olivoto/">
-    <span class="fab fa fab fa-mendeley fa-2x"></span>
-     
-  </a>
-</li>
+<ul class="navbar-nav">
+<li class="nav-item"><a class="external-link nav-link" href="https://www.researchgate.net/profile/Tiago_Olivoto2"><span class="fa fab fa-researchgate fa-2x"></span></a></li>
+<li class="nav-item"><a class="external-link nav-link" href="https://github.com/TiagoOlivoto"><span class="fa fa-github fa-2x"></span></a></li>
+<li class="nav-item"><a class="external-link nav-link" href="https://twitter.com/tolivoto"><span class="fa fab fa-twitter fa-2x"></span></a></li>
+<li class="nav-item"><a class="external-link nav-link" href="https://www.mendeley.com/profiles/tiago-olivoto/"><span class="fa fab fa-mendeley fa-2x"></span></a></li>
       </ul>
 </div>
 
-    
+
   </div>
 </nav><div class="container template-article">
 
@@ -133,9 +96,9 @@
                         <h4 data-toc-skip class="author">Tiago
 Olivoto</h4>
             
-            <h4 data-toc-skip class="date">2023-10-22</h4>
+            <h4 data-toc-skip class="date">2024-10-19</h4>
       
-      <small class="dont-index">Source: <a href="https://github.com/TiagoOlivoto/pliman/blob/HEAD/vignettes/segmentation.Rmd" class="external-link"><code>vignettes/segmentation.Rmd</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/NEPEM-UFSC/pliman/blob/HEAD/vignettes/segmentation.Rmd" class="external-link"><code>vignettes/segmentation.Rmd</code></a></small>
       <div class="d-none name"><code>segmentation.Rmd</code></div>
     </div>
 
@@ -175,27 +138,27 @@ based on the RGB and their normalized values. Users can also provide
 their own index by explicitly providing the formula. e.g.,
 <code>index = "R-B"</code>.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://github.com/TiagoOlivoto/pliman" class="external-link">pliman</a></span><span class="op">)</span></span>
-<span><span class="co">#&gt; |==========================================================|</span></span>
-<span><span class="co">#&gt; | Tools for Plant Image Analysis (pliman 2.1.0)            |</span></span>
-<span><span class="co">#&gt; | Author: Tiago Olivoto                                    |</span></span>
-<span><span class="co">#&gt; | Type `citation('pliman')` to know how to cite pliman     |</span></span>
-<span><span class="co">#&gt; | Visit 'http://bit.ly/pkg_pliman' for a complete tutorial |</span></span>
-<span><span class="co">#&gt; |==========================================================|</span></span>
+<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://tiagoolivoto.github.io/pliman/" class="external-link">pliman</a></span><span class="op">)</span></span>
+<span><span class="co">#&gt; |======================================================|</span></span>
+<span><span class="co">#&gt; | Welcome to the pliman package (version 3.0.0)!       |</span></span>
+<span><span class="co">#&gt; | Developed collaboratively by NEPEM - nepemufsc.com   |</span></span>
+<span><span class="co">#&gt; | Group lead: Prof. Tiago Olivoto                      |</span></span>
+<span><span class="co">#&gt; | For citation: type `citation('pliman')`              |</span></span>
+<span><span class="co">#&gt; | We welcome your feedback and suggestions!            |</span></span>
+<span><span class="co">#&gt; |======================================================|</span></span>
 <span><span class="va">soy</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"soybean_touch.jpg"</span><span class="op">)</span></span></code></pre></div>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># Compute the indexes</span></span>
-<span><span class="co"># Only show the first 8 to reduce the image size</span></span>
-<span><span class="va">indexes</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/image_index.html">image_index</a></span><span class="op">(</span><span class="va">soy</span>, index <span class="op">=</span> <span class="fu"><a href="../reference/utils_indexes.html">pliman_indexes</a></span><span class="op">(</span><span class="op">)</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">9</span><span class="op">]</span>, plot <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span><span class="co"># Only show the first 6 to reduce the image size</span></span>
+<span><span class="va">indexes</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/image_index.html">image_index</a></span><span class="op">(</span><span class="va">soy</span>, index <span class="op">=</span> <span class="fu"><a href="../reference/utils_indexes.html">pliman_indexes_rgb</a></span><span class="op">(</span><span class="op">)</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">6</span><span class="op">]</span>, plot <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
 <span></span>
 <span><span class="co"># Create a raster plot with the RGB values</span></span>
-<span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">indexes</span><span class="op">)</span></span>
-<span><span class="co">#&gt; Using downsample = 0 so that the number of rendered pixels approximates the `max_pixels`</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rspatial.github.io/terra/reference/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">indexes</span><span class="op">)</span></span></code></pre></div>
 <p><img src="segmentation_files/figure-html/segmentation2-1.png" width="960"></p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span></span>
 <span><span class="co"># Create a density plot with the RGB values</span></span>
-<span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">indexes</span>, type <span class="op">=</span> <span class="st">"density"</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rspatial.github.io/terra/reference/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">indexes</span>, type <span class="op">=</span> <span class="st">"density"</span><span class="op">)</span></span></code></pre></div>
 <p><img src="segmentation_files/figure-html/segmentation2-2.png" width="960"></p>
 <p>In this example, we can see the distribution of the RGB values (first
 row) and the normalized RGB values (second row). The two peaks represent
@@ -214,7 +177,7 @@ function can be used as input in the function
 <code class="sourceCode R"><span><span class="va">segmented</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/image_segment.html">image_segment</a></span><span class="op">(</span><span class="va">soy</span>, index <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"R, G, B, NR, NG, NB"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p><img src="segmentation_files/figure-html/segmentation3-1.png" width="960"></p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/pkg/terra/man/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">segmented</span><span class="op">$</span><span class="va">NB</span><span class="op">)</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="fu"><a href="https://rspatial.github.io/terra/reference/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">segmented</span><span class="op">$</span><span class="va">NB</span><span class="op">)</span></span></code></pre></div>
 <p><img src="segmentation_files/figure-html/segmentation3-2.png" width="960"></p>
 <p>It seems that the <code>"NB"</code> index provided better
 segmentation. <code>"R"</code> and <code>"NR"</code> resulted in an
@@ -262,8 +225,12 @@ as follows</p>
 <p>It can be observed that 30.28% of the original image were
 characterized as symptoms (both necrosis and chlorosis). Of out this
 (symptomatic area), 25.92% are necrotic areas. So 7.85% of the total
-area were considered as necrotic areas (30.288 <span class="math inline">\(\times\)</span> 0.2592 or 103464/1317600 <span class="math inline">\(\times\)</span> 100) and 22.43% (30.28 - 7.85 or
-(399075 - 103464) / 1317600 <span class="math inline">\(\times\)</span>
+area were considered as necrotic areas (30.288
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>×</mi><annotation encoding="application/x-tex">\times</annotation></semantics></math>
+0.2592 or 103464/1317600
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>×</mi><annotation encoding="application/x-tex">\times</annotation></semantics></math>
+100) and 22.43% (30.28 - 7.85 or (399075 - 103464) / 1317600
+<math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>×</mi><annotation encoding="application/x-tex">\times</annotation></semantics></math>
 100) were considered as chlorotic areas.</p>
 <p>Users can use the argument <code>threshold</code> to controls how
 segmentation is made. By default (<code>threshold = "Otsu"</code>), a
@@ -333,7 +300,7 @@ size.</p>
 </h2>
 <!-- inicio font awesome -->
 <script src="https://kit.fontawesome.com/1f72d6921a.js" crossorigin="anonymous"></script><blockquote>
-<p>At <a href="https://tiagoolivoto.github.io/paper_pliman/code.html" class="external-link">this
+<p>At <a href="https://nepem-ufsc.github.io/paper_pliman/code.html" class="external-link">this
 link</a> you will find more examples on how to use {pliman} to analyze
 plant images. Source code and images can be downloaded <a href="https://github.com/TiagoOlivoto/paper_pliman/archive/refs/heads/master.zip" class="external-link">here</a>.
 You can also find a talk (Portuguese language) about {pliman} <a href="https://www.youtube.com/watch?v=ElvUVlPocgA" class="external-link">here</a>.
@@ -341,28 +308,26 @@ You can also find a talk (Portuguese language) about {pliman} <a href="https://w
 <i class="fas fa-camera"></i>camera, {pliman}!</p>
 </blockquote>
 </div>
-  </main><aside class="col-md-3"><nav id="toc"><h2>On this page</h2>
+  </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>
 </div>
 
 
 
     <footer><div class="pkgdown-footer-left">
-  <p></p>
-<p>Developed by <a href="https://olivoto.netlify.app/" class="external-link">Tiago Olivoto</a>.</p>
+  <p>Developed by <a href="https://olivoto.netlify.app/" class="external-link">Tiago Olivoto</a>.</p>
 </div>
 
 <div class="pkgdown-footer-right">
-  <p></p>
-<p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.0.7.</p>
+  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.1.1.</p>
 </div>
 
     </footer>
 </div>
 
-  
 
-  
+
+
 
   </body>
 </html>

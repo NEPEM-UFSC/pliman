@@ -1,4 +1,4 @@
-url: https://tiagoolivoto.github.io/pliman/
+url: https://nepem-ufsc.github.io/pliman/
 
 home:
   title: pliman
@@ -43,6 +43,8 @@ navbar:
         href: articles/leaf_area.html
       - text: "Phytopatometry"
         href: articles/phytopatometry.html
+      - text: "High Throughput Phenotyping"
+        href: articles/htp.html
     - text: "Functions"
       href: reference/index.html
     - text: News
@@ -80,11 +82,13 @@ reference:
     contents:
       - as_image
       - utils_image
+      - image_import_inter
       - image_combine
       - image_create
       - image_expand
       - image_square
       - image_thinning_guo_hall
+      - image_alpha
 
   - title: "Image transformation"
     desc: "Performs spatial transformations such as rotation, reflection, and resizing"
@@ -129,17 +133,49 @@ reference:
       - poly_width_at
       - poly_pcv
 
-  - title: "Utilities for mosaics"
-    desc: "Provides utilities for analysis of mosaics class 'SpatRaster' containing RGB or multispectral (RGB + RE + NIR) bands."
+  - title: "Utilities for orthomosaics"
+    desc: "Provides utilities for analysis of mosaics class 'SpatRaster' containing RGB or multispectral (RGB, RE, NIR, SWIR, and TIR) bands."
     contents:
+      - mosaic_analyze
+      - mosaic_analyze_iter
+      - mosaic_chm
+      - mosaic_chm_extract
+      - mosaic_extract
+      - mosaic_hist
+      - mosaic_index2
+      - mosaic_interpolate
+      - mosaic_lonlat2epsg
+      - mosaic_plot
+      - mosaic_plot_rgb
+      - mosaic_draw
+      - mosaic_epsg
       - mosaic_crop
+      - mosaic_aggregate
       - mosaic_export
       - mosaic_index
       - mosaic_input
       - mosaic_prepare
+      - mosaic_project
+      - mosaic_resample
       - mosaic_to_pliman
       - mosaic_to_rgb
       - mosaic_view
+      - mosaic_segment
+      - mosaic_segment_pick
+      - pliman_indexes_ican_compute
+      - sentinel_to_tif
+      - run_app
+
+  - title: "Utilities for shapefiles"
+    desc: "Provides utilities for creating and manipulating shapefiles."
+    contents:
+      - shapefile_plot
+      - utils_shapefile
+      - shapefile_build
+      - shapefile_edit
+      - shapefile_measures
+      - plot_id
+
 
   - title: "Utilities for image points"
     desc: "Opens an iterative section to count objects, extract pixel intensity and create image palettes manually. "
@@ -197,7 +233,9 @@ reference:
     desc: "Analyze objects in an image"
     contents:
       - analyze_objects
+      - analyze_objects_minimal
       - utils_measures
+      - measure_injury
       - pliman_images
       - utils_objects
       - object_split_shp

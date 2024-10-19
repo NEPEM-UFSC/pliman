@@ -1,16 +1,16 @@
-pandoc: 3.1.1
-pkgdown: 2.0.7
+pandoc: '3.2'
+pkgdown: 2.1.1
 pkgdown_sha: ~
 articles:
   analyze_objects: analyze_objects.html
+  htp: htp.html
   indexes: indexes.html
   leaf_area: leaf_area.html
   manipulation: manipulation.html
   phytopatometry: phytopatometry.html
   polygons: polygons.html
   segmentation: segmentation.html
-last_built: 2023-10-23T01:52Z
+last_built: 2024-10-19T15:18Z
 urls:
-  reference: https://tiagoolivoto.github.io/pliman/reference
-  article: https://tiagoolivoto.github.io/pliman/articles
-
+  reference: https://nepem-ufsc.github.io/pliman/reference
+  article: https://nepem-ufsc.github.io/pliman/articles

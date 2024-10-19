@@ -75,6 +75,7 @@ measure_disease_byl <- function(img,
                                 show_features = FALSE,
                                 verbose = TRUE,
                                 ...){
+  check_ebi()
 
   if(is.null(dir_original)){
     diretorio_original <- paste("./", sep = "")

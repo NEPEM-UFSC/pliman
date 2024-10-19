@@ -588,7 +588,7 @@ efourier_coefs <- function(x){
 #' @return A list with the objects:
 #' * `cum_power`, a `data.frame` object with the accumulated power depending on
 #'  the number of harmonics
-#' *
+#' * `min_harm` The minimum number of harmonics to achieve a given power.
 #' @details Adapted from Claude (2008). pp. 229.
 #' @references Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,
 #' Springer 316 pp.

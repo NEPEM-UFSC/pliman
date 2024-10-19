@@ -501,25 +501,27 @@ shapefile_plot <- function(shapefile, ...){
 #' Import/export shapefiles.
 #' @description
 #'
-#' * `shapefile_input()` creates or importes a shapefile and optionally convert
-#'  it to an `sf` object.
-#' * `shapefile_export()` exports an object (`sf` or `SpatVector`) to a file
-#' * `shapefile_view()` is a simple wrapper around mapview() to plot a shapefile.
+#' * `shapefile_input()` creates or imports a shapefile and optionally converts
+#'  it to an `sf` object. It can also cast `POLYGON` or `MULTIPOLYGON` geometries
+#'  to `MULTILINESTRING` if required.
+#' * `shapefile_export()` exports an object (`sf` or `SpatVector`) to a file.
+#' * `shapefile_view()` is a simple wrapper around `mapview()` to plot a shapefile.
+#'
 #' @name utils_shapefile
 #'
-#' @param shapefile
-#'
-#'   For `shapefile_input()`, character (filename),  or an object that can be
+#' @param shapefile For `shapefile_input()`, character (filename), or an object that can be
 #'   coerced to a SpatVector, such as an `sf` (simple features) object. See
 #'   [terra::vect()] for more details.
 #'
-#'   For `shapefile_export()`, `SpatVector` or an `sf` object to be exported as
+#'   For `shapefile_export()`, a `SpatVector` or an `sf` object to be exported as
 #'   a shapefile.
 #'
 #' @param info Logical value indicating whether to print information about the
 #'   imported shapefile (default is `TRUE`).
 #' @param as_sf Logical value indicating whether to convert the imported
 #'   shapefile to an `sf` object (default is `TRUE`).
+#' @param multilinestring Logical value indicating whether to cast polygon geometries
+#'   to `MULTILINESTRING` geometries (default is `FALSE`).
 #' @param filename The path to the output shapefile.
 #' @param attribute The attribute to be shown in the color key. It must be a
 #'   variable present in `shapefile`.
@@ -546,6 +548,7 @@ shapefile_plot <- function(shapefile, ...){
 shapefile_input <- function(shapefile,
                             info = TRUE,
                             as_sf = TRUE,
+                            multilinestring = FALSE,
                             ...) {
   create_shp <- function(shapefile, info, as_sf, ...){
     shp <- terra::vect(shapefile, ...)
@@ -558,6 +561,9 @@ shapefile_input <- function(shapefile,
     }
     if (as_sf) {
       shp <- sf::st_as_sf(shp)
+      if(multilinestring){
+        shp <- sf::st_cast(shp, "MULTILINESTRING")
+      }
     }
     return(shp)
   }
@@ -660,4 +666,76 @@ shapefile_edit <- function(shapefile,
     edited <- mapedit::editFeatures(shapefile)
   }
   return(edited)
+}
+
+#' Extract geometric measures from a shapefile object
+#'
+#' `shapefile_measures()` calculates key geometric measures such as the number
+#' of points, area, perimeter, width, height, and centroid coordinates for a
+#' given shapefile (polygon) object.
+#'
+#' @param shp An `sf` object representing the shapefile. It should contain
+#'   polygonal geometries for which the measures will be calculated.
+#'
+#' @return A modified `sf` object with added columns for:
+#' - `xcoord`: The x-coordinate of the centroid.
+#' - `ycoord`: The y-coordinate of the centroid.
+#' - `area`: The area of the polygon (in square units).
+#' - `perimeter`: The perimeter of the polygon (in linear units).
+#' - `width`: The calculated width based on sequential distances between points.
+#' - `height`: The calculated height based on sequential distances between points.
+#'
+#' @details
+#' This function processes a single or multi-polygon `sf` object and computes
+#' geometric properties. It calculates distances between points, extracts the
+#' centroid coordinates, and computes the area and perimeter of the polygons.
+#' The width and height are derived from sequential distances between points.
+#'
+#' @export
+#' @examples
+#' library(pliman)
+#'
+#' path_shp <- paste0(image_pliman(), "/shp_soy.rds")
+#' shp <- shapefile_input(path_shp)
+#' shapefile_measures(shp)
+#'
+#'
+
+shapefile_measures <- function(shp) {
+
+  # Get the number of points and their coordinates
+  npoints <- sf::st_coordinates(shp) |> nrow()
+  coords <- sf::st_coordinates(shp)[, 1:2]
+
+  # Calculate distances between points
+  dists <- suppressWarnings(as.matrix(sf::st_distance(sf::st_cast(shp[1, ], "POINT")$geometry)))
+
+  # Sequential distances between points
+  seq_dists <- c()
+  for (i in 1:(ncol(dists) - 1)) {
+    seq_dists <- c(seq_dists, dists[i, i + 1])
+  }
+
+  # Calculate perimeter and area
+  perim <- sf::st_perimeter(shp)
+  area <- sf::st_area(shp)
+
+  # Extract width and height (second and first distances)
+  wid <- round(seq_dists[2], 3)
+  hei <- round(seq_dists[1], 3)
+
+  # Calculate the centroid and add measurements
+  coords <- sf::st_centroid(shp) |> sf::st_coordinates()
+  measures <-
+    shp |>
+    dplyr::mutate(
+      xcoord = coords[, 1],
+      ycoord = coords[, 2],
+      area = as.numeric(area),
+      perimeter = as.numeric(perim),
+      width = wid,
+      height = hei,
+      .before = geometry
+    )
+  return(measures)
 }

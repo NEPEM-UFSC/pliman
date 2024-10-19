@@ -629,6 +629,7 @@ analyze_objects <- function(img,
                             dir_original = NULL,
                             dir_processed = NULL,
                             verbose = TRUE){
+  check_ebi()
   lower_noise <- ifelse(isTRUE(reference_larger), lower_noise * 3, lower_noise)
   if(!object_size %in% c("small", "medium", "large", "elarge")){
     stop("'object_size' must be one of 'small', 'medium', 'large', or 'elarge'")
