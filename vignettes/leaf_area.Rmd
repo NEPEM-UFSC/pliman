@@ -45,7 +45,7 @@ image_index(leaves)
 
 Here, we use the argument `marker = "id"` of the function `analyze_objects()` to obtain the identification of each object (leaf), allowing for further adjustment of the leaf area.
 
-```{r leaf5, fig.width=10, fig.height=8, alt}
+```{r leaf5, fig.width=10, fig.height=8}
 count <- analyze_objects(leaves, marker = "id")
 
 ```

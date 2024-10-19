@@ -51,11 +51,11 @@ install.packages("pliman")
 ```
 
 The development version of `pliman` can be installed from
-[GitHub](https://github.com/TiagoOlivoto/pliman) using the
+[GitHub](https://github.com/nepem-ufsc/pliman) using the
 [pak](https://github.com/r-lib/pak) package:
 
 ``` r
-pak::pkg_install("NEPEM-UFSC/pliman")
+pak::pkg_install("nepem-ufsc/pliman")
 ```
 
 *Note*: If you are a Windows user, you should also first download and
