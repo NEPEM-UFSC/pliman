@@ -6,12 +6,13 @@ home:
 
 template:
   bootstrap: 5
-  params:
-    ganalytics: G-VWN5YL53DP
+  bootswatch: minty
+  light-switch: true
+  theme-dark: gruvbox-dark
   bslib:
-    primary: "#0054AD"
     border-radius: 0.5rem
     btn-border-radius: 0.25rem
+    danger: "#A6081A"
 
 toc:
   depth: 3
@@ -29,20 +30,24 @@ navbar:
       href: index.html
     - text: "Examples"
       menu:
-      - text: "Image indexes"
-        href: articles/indexes.html
+      - text: "Image analysis"
+      - text: -------
       - text: "Image manipulation"
         href: articles/manipulation.html
+      - text: "Image indexes"
+        href: articles/indexes.html
       - text: "Image segmentation"
         href: articles/segmentation.html
       - text: "Polygons"
         href: articles/polygons.html
-      - text: "Analyze objects in an image"
+      - text: "Image analysis"
         href: articles/analyze_objects.html
       - text: "Measure leaf area"
         href: articles/leaf_area.html
+      - text: -------
       - text: "Phytopatometry"
         href: articles/phytopatometry.html
+      - text: -------
       - text: "High Throughput Phenotyping"
         href: articles/htp.html
     - text: "Functions"
@@ -65,16 +70,6 @@ navbar:
         href: SUPPORT.html
       - text: Licence
         href: LICENSE.html
-  right:
-    - icon: "fab fa-researchgate fa-2x aria-label"
-      href: https://www.researchgate.net/profile/Tiago_Olivoto2
-    - icon: "fa-github fa-2x"
-      href: https://github.com/TiagoOlivoto
-    - icon: "fab fa-twitter fa-2x"
-      href: https://twitter.com/tolivoto
-    - icon: "fab fa-mendeley fa-2x"
-      href: https://www.mendeley.com/profiles/tiago-olivoto/
-
 
 reference:
   - title: "Image operations"

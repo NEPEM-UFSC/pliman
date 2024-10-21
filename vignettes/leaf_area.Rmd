@@ -2,10 +2,9 @@
 title: "Measure leaf area using leaf images"
 author: "Tiago Olivoto"
 date: "`r Sys.Date()`"
-always_allow_html: yes
-output: rmarkdown::html_vignette
 fig_caption: yes
 ---
+
 
 ```{r, include = FALSE}
 knitr::opts_chunk$set(

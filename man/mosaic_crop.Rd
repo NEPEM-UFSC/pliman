@@ -12,6 +12,7 @@ mosaic_crop(
   re = 4,
   nir = 5,
   shapefile = NULL,
+  buffer = 0,
   show = c("rgb", "index"),
   index = "R",
   max_pixels = 5e+05,
@@ -31,6 +32,9 @@ band numbers if the index is computed using the band name.}
 
 \item{shapefile}{An optional \code{SpatVector}, that can be created with
 \code{\link[=shapefile_input]{shapefile_input()}}.}
+
+\item{buffer}{A buffering factor to be used when a shapefile is used to crop
+the mosaic.}
 
 \item{show}{The display option for the map view. Options are "rgb" for RGB
 view and "index" for index view.}

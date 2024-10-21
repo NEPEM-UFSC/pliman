@@ -550,6 +550,14 @@ shapefile_input <- function(shapefile,
                             as_sf = TRUE,
                             multilinestring = FALSE,
                             ...) {
+  # Check if shapefile is a URL and download it
+  if (is.character(shapefile) && grepl("^http", shapefile)) {
+    check_pkg("curl")
+    temp_shapefile <- tempfile(fileext = ".rds")
+    curl::curl_download(shapefile, temp_shapefile)
+    shapefile <- temp_shapefile
+  }
+
   create_shp <- function(shapefile, info, as_sf, ...){
     shp <- terra::vect(shapefile, ...)
     if (terra::crs(shp) == "") {
@@ -578,6 +586,9 @@ shapefile_input <- function(shapefile,
 #' @name utils_shapefile
 #' @export
 shapefile_export <- function(shapefile, filename, ...) {
+  if (inherits(shapefile, "list")) {
+    shapefile <- shapefile_input(shapefile, info = FALSE)
+  }
   if (!inherits(shapefile, "SpatVector")) {
     shapefile <- try(terra::vect(shapefile))
   }
@@ -593,6 +604,16 @@ shapefile_view <- function(shapefile,
                            attribute = NULL,
                            color_regions = custom_palette(c("red", "yellow", "forestgreen")),
                            ...){
+  if(!is.null(attribute) && attribute == "plot_id"){
+    if(inherits(shapefile, "list")){
+      shapefile <-
+        lapply(shapefile, function(x){
+          x |> dplyr::mutate(plot_id = as.numeric(gsub("\\D", "", plot_id)))
+        })
+    } else{
+      shapefile <- shapefile |> dplyr::mutate(plot_id = as.numeric(gsub("\\D", "", plot_id)))
+    }
+  }
   suppressWarnings(
     mapview::mapview(shapefile,
                      zcol = attribute,
@@ -674,7 +695,7 @@ shapefile_edit <- function(shapefile,
 #' of points, area, perimeter, width, height, and centroid coordinates for a
 #' given shapefile (polygon) object.
 #'
-#' @param shp An `sf` object representing the shapefile. It should contain
+#' @param shapefile An `sf` object representing the shapefile. It should contain
 #'   polygonal geometries for which the measures will be calculated.
 #'
 #' @return A modified `sf` object with added columns for:
@@ -703,38 +724,36 @@ shapefile_edit <- function(shapefile,
 #'
 #'
 
-shapefile_measures <- function(shp) {
+shapefile_measures <- function(shapefile) {
   check_pkg("lwgeom")
+  if (inherits(shapefile, "list")) {
+    shapefile <- shapefile_input(shapefile, info = FALSE)
+  }
   # Get the number of points and their coordinates
-  npoints <- sf::st_coordinates(shp) |> nrow()
-  coords <- sf::st_coordinates(shp)[, 1:2]
+  npoints <- sf::st_coordinates(shapefile) |> nrow()
+  coords <- sf::st_coordinates(shapefile)[, 1:2]
 
   # Calculate distances between points
-  dists <- suppressWarnings(as.matrix(sf::st_distance(sf::st_cast(shp[1, ], "POINT")$geometry)))
+  dists <- suppressWarnings(as.matrix(sf::st_distance(sf::st_cast(shapefile[1, ], "POINT")$geometry)))
 
   # Sequential distances between points
   seq_dists <- c()
   for (i in 1:(ncol(dists) - 1)) {
     seq_dists <- c(seq_dists, dists[i, i + 1])
   }
-
-  # Calculate perimeter and area
-  perim <- sf::st_perimeter(shp)
-  area <- sf::st_area(shp)
-
   # Extract width and height (second and first distances)
   wid <- round(seq_dists[2], 3)
   hei <- round(seq_dists[1], 3)
 
   # Calculate the centroid and add measurements
-  coords <- sf::st_centroid(shp) |> sf::st_coordinates()
+  coords <- suppressWarnings(sf::st_centroid(shapefile))|> sf::st_coordinates()
   measures <-
-    shp |>
+    shapefile |>
     dplyr::mutate(
       xcoord = coords[, 1],
       ycoord = coords[, 2],
-      area = as.numeric(area),
-      perimeter = as.numeric(perim),
+      area = as.numeric(sf::st_area(shapefile)),
+      perimeter = as.numeric(sf::st_perimeter(shapefile)),
       width = wid,
       height = hei,
       .before = geometry

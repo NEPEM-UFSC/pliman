@@ -1,6 +1,6 @@
 validate_and_replicate <- function(argument, created_shapes) {
   if (length(argument) != length(created_shapes)) {
-    warning(paste0("`", deparse(substitute(argument)), "` must have length 1 or ", length(created_shapes), " (the number of drawn polygons)."))
+    warning(paste0("`", deparse(substitute(argument)), "` must have length 1 or ", length(created_shapes), " (the number of drawn polygons)."), call. = FALSE)
   }
   if (length(argument) == 1 & length(created_shapes) != 1) {
     argument <- rep(argument, length(created_shapes))
@@ -1104,19 +1104,32 @@ mosaic_analyze <- function(mosaic,
   if(any(segment_individuals)){
     result_indiv <- do.call(rbind, result_indiv)
     blockid <- unique(result_indiv$block)
+
+
     summres <-
       lapply(1:length(blockid), function(i){
+        # Retain geometry column separately
+        nonndata <-
+          result_indiv |>
+          dplyr::filter(block == blockid[i]) |>
+          sf::st_drop_geometry() |>
+          dplyr::select(plot_id, !where(is.numeric), - block) |>
+          dplyr::group_by(plot_id) |>
+          dplyr::slice(1)
+
         result_indiv |>
           dplyr::filter(block == blockid[i]) |>
           as.data.frame() |>
           dplyr::group_by(plot_id) |>
-          dplyr::summarise(area_sum = sum(area, na.rm = TRUE),
-                           n = length(area),
-                           dplyr::across(where(is.numeric), \(x){mean(x, na.rm = TRUE)})
+          dplyr::summarise(
+            area_sum = sum(area, na.rm = TRUE),
+            n = length(area),
+            dplyr::across(where(is.numeric), ~ mean(.x, na.rm = TRUE))
           ) |>
           dplyr::mutate(block = blockid[i], .before = 1) |>
           dplyr::ungroup() |>
-          dplyr::relocate(n, .after = plot_id)
+          dplyr::relocate(n, .after = plot_id) |>   # Join the geometry column back
+          dplyr::left_join(nonndata, by = "plot_id")
       })
     names(summres) <- blockid
     # compute plot area
@@ -2065,6 +2078,8 @@ mosaic_plot_rgb <- function(mosaic, ...){
 #'   band numbers if the index is computed using the band name.
 #' @param shapefile An optional `SpatVector`, that can be created with
 #'   [shapefile_input()].
+#' @param buffer A buffering factor to be used when a shapefile is used to crop
+#'   the mosaic.
 #' @param ... Additional arguments passed to [mosaic_view()].
 #'
 #' @return A cropped version of `mosaic` based on the user-defined selection.
@@ -2088,6 +2103,7 @@ mosaic_crop <- function(mosaic,
                         re = 4,
                         nir = 5,
                         shapefile = NULL,
+                        buffer = 0,
                         show = c("rgb", "index"),
                         index = "R",
                         max_pixels = 500000,
@@ -2121,7 +2137,7 @@ mosaic_crop <- function(mosaic,
     }
     cropped <- terra::crop(mosaic, grids)
   } else{
-    cropped <- terra::crop(mosaic, shapefile)
+    cropped <- terra::crop(mosaic, shapefile |> terra::vect() |> terra::buffer(buffer))
   }
   invisible(cropped)
 

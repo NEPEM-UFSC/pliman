@@ -4,10 +4,10 @@
 \alias{shapefile_measures}
 \title{Extract geometric measures from a shapefile object}
 \usage{
-shapefile_measures(shp)
+shapefile_measures(shapefile)
 }
 \arguments{
-\item{shp}{An \code{sf} object representing the shapefile. It should contain
+\item{shapefile}{An \code{sf} object representing the shapefile. It should contain
 polygonal geometries for which the measures will be calculated.}
 }
 \value{

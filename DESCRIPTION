@@ -34,6 +34,7 @@ Imports:
     tidyr
 Suggests: 
     BiocManager,
+    curl,
     EBImage,
     fields,
     knitr,
