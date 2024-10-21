@@ -2,11 +2,10 @@
 title: "Analyzing objects in an image"
 author: "Tiago Olivoto"
 date: "`r Sys.Date()`"
-always_allow_html: yes
-output:
-  html_document:
-    df_print: paged
-fig_caption: yes
+vignette: >
+  %\VignetteIndexEntry{quarto vignettes}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r, include = FALSE}
