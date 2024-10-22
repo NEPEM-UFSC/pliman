@@ -10,7 +10,7 @@ knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
   rmarkdown.html_vignette.check_title = FALSE,
-  fig.width = 10,
+  fig.width = 8,
   fig.height = 6
 )
 ```
