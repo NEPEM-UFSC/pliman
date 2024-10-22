@@ -91,7 +91,6 @@ reference:
       - utils_transform
       - apply_fun_to_imgs
 
-
   - title: "Utilities for files"
     desc: "Provides utilities for manipulating files"
     contents:
