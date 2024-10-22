@@ -45,9 +45,14 @@
     <li><a class="dropdown-item" href="../SUPPORT.html">Support</a></li>
     <li><a class="dropdown-item" href="../LICENSE.html">Licence</a></li>
   </ul></li>
-      </ul><ul class="navbar-nav"><li class="nav-item"><a class="external-link nav-link" href="https://www.researchgate.net/profile/Tiago_Olivoto2"><span class="fa aria fab fa-researchgate fa-2x aria-label"></span></a></li>
-<li class="nav-item"><a class="external-link nav-link" href="https://github.com/TiagoOlivoto"><span class="fa fa-github fa-2x"></span></a></li>
-<li class="nav-item"><a class="external-link nav-link" href="https://twitter.com/tolivoto"><span class="fa fab fa-x-twitter fa-2x"></span></a></li>
+      </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
+ <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
+<li class="nav-item dropdown">
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-lightswitch" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true" aria-label="Light switch"><span class="fa fa-sun"></span></button>
+  <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="dropdown-lightswitch"><li><button class="dropdown-item" data-bs-theme-value="light"><span class="fa fa-sun"></span> Light</button></li>
+    <li><button class="dropdown-item" data-bs-theme-value="dark"><span class="fa fa-moon"></span> Dark</button></li>
+    <li><button class="dropdown-item" data-bs-theme-value="auto"><span class="fa fa-adjust"></span> Auto</button></li>
+  </ul></li>
       </ul></div>
 
 
@@ -166,13 +171,13 @@ a <code>SpatRaster</code> object to a file.</p></li>
 <span class="r-in"><span><span class="fu">mosaic_export</span><span class="op">(</span><span class="va">rast</span>, <span class="va">f</span>, overwrite<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> Exporting the mosaic using datatype = INT1U</span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">list.files</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "Rf4ff070841d3"                         </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "Rf2c301cf1631"                         </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [2] "bslib-4f8e14c0a81b0845d4ecb194b87ef82d"</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [3] "downlit"                               </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [4] "file4ff034001da5"                      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [5] "file4ff047fd5a71"                      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [6] "file4ff04f74bfb"                       </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [7] "file4ff05cc17015"                      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [4] "file2c301ba5641b"                      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [5] "file2c301e4f21b9"                      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [6] "file2c3041dc28ba"                      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [7] "file2c305ca283e"                       </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [8] "test.tif"                              </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [9] "test.tif.aux.xml"                      </span>
 <span class="r-in"><span></span></span>
