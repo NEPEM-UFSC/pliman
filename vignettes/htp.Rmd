@@ -16,9 +16,6 @@ knitr::opts_chunk$set(
 ```
 
 
-# Similar tools
-
-This material will focus on the {pliman} R packages. However, this is not the only tool available for high-throughput phenotyping (HTP) in R. I highly recommend exploring the pioneering R package [FIELDimageR](https://github.com/OpenDroneMap/FIELDimageR), as well as its complementary extensions [FIELDimageR-Extra](https://github.com/filipematias23/FIELDimageR.Extra) and [FIELDimageR-QGIS](https://github.com/filipematias23/FIELDimageR-QGIS), which offer additional functionalities for enhanced HTP analysis.
 
 
 ## R packages
@@ -671,3 +668,7 @@ points(p2$x, p2$y, pch = 16,  cex = 2, col = "red")
 ```
 
 
+
+## Similar tools
+
+This material will focus on the {pliman} R packages. However, this is not the only tool available for high-throughput phenotyping (HTP) in R. I highly recommend exploring the pioneering R package [FIELDimageR](https://github.com/OpenDroneMap/FIELDimageR), as well as its complementary extensions [FIELDimageR-Extra](https://github.com/filipematias23/FIELDimageR.Extra) and [FIELDimageR-QGIS](https://github.com/filipematias23/FIELDimageR-QGIS), which offer additional functionalities for enhanced HTP analysis.
