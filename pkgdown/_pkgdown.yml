@@ -135,6 +135,7 @@ reference:
       - mosaic_analyze_iter
       - mosaic_chm
       - mosaic_chm_extract
+      - mosaic_chm_mask
       - mosaic_extract
       - mosaic_hist
       - mosaic_index2
@@ -168,6 +169,8 @@ reference:
       - shapefile_build
       - shapefile_edit
       - shapefile_measures
+      - shapefile_interpolate
+      - shapefile_surface
       - plot_id
 
 
