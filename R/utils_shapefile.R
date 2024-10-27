@@ -382,15 +382,15 @@ shapefile_build <- function(mosaic,
     mosaiccr <- mosaic
   }
   # check the parameters
-  nrow <- validate_and_replicate2(nrow, cpoints)
-  ncol <- validate_and_replicate2(ncol, cpoints)
-  layout <- validate_and_replicate2(layout, cpoints)
-  buffer_col <- validate_and_replicate2(buffer_col, cpoints)
-  buffer_row <- validate_and_replicate2(buffer_row, cpoints)
-  plot_width <- validate_and_replicate2(plot_width, cpoints)
-  plot_height <- validate_and_replicate2(plot_height, cpoints)
-  serpentine <- validate_and_replicate2(serpentine, cpoints)
-  grid <- validate_and_replicate2(grid, cpoints)
+  nrow <- validate_and_replicate2(nrow, cpoints, verbose = verbose)
+  ncol <- validate_and_replicate2(ncol, cpoints, verbose = verbose)
+  layout <- validate_and_replicate2(layout, cpoints, verbose = verbose)
+  buffer_col <- validate_and_replicate2(buffer_col, cpoints, verbose = verbose)
+  buffer_row <- validate_and_replicate2(buffer_row, cpoints, verbose = verbose)
+  plot_width <- validate_and_replicate2(plot_width, cpoints, verbose = verbose)
+  plot_height <- validate_and_replicate2(plot_height, cpoints, verbose = verbose)
+  serpentine <- validate_and_replicate2(serpentine, cpoints, verbose = verbose)
+  grid <- validate_and_replicate2(grid, cpoints, verbose = verbose)
 
   # check the created shapes?
   if(verbose){
@@ -522,6 +522,10 @@ shapefile_plot <- function(shapefile, ...){
 #'   shapefile to an `sf` object (default is `TRUE`).
 #' @param multilinestring Logical value indicating whether to cast polygon geometries
 #'   to `MULTILINESTRING` geometries (default is `FALSE`).
+#' @param type A character string specifying whether to visualize the shapefile
+#'   as `"shape"` or as `"centroid"`. Partial matching is allowed. If set to
+#'   `"centroid"`, the function will convert the shapefile's geometry to
+#'   centroids before displaying. Defaults to `"shape"`.
 #' @param filename The path to the output shapefile.
 #' @param attribute The attribute to be shown in the color key. It must be a
 #'   variable present in `shapefile`.
@@ -602,8 +606,14 @@ shapefile_export <- function(shapefile, filename, ...) {
 #' @export
 shapefile_view <- function(shapefile,
                            attribute = NULL,
+                           type = c("shape", "centroid"),
                            color_regions = custom_palette(c("red", "yellow", "forestgreen")),
                            ...){
+  type <- match.arg(type, choices = c("shape", "centroid"))
+  # Example usage of the checked 'type'
+  if (type == "centroid") {
+    shapefile <- suppressWarnings(sf::st_centroid(shapefile))
+  }
   if(!is.null(attribute) && attribute == "plot_id"){
     if(inherits(shapefile, "list")){
       shapefile <-
@@ -760,3 +770,96 @@ shapefile_measures <- function(shapefile) {
     )
   return(measures)
 }
+
+#' Interpolate values at specific points based on coordinates and a target variable
+#'
+#' This function interpolates values at specified points using x, y coordinates and a target variable
+#' from a shapefile. It supports "Kriging" and "Tps" interpolation methods.
+#'
+#' @param shapefile An sf object containing the x, y, and target variable (z)
+#'   columns. It is highly recommended to use `shapefile_measures()` to obtain
+#'   this data.
+#' @param z A string specifying the name of the column in the shapefile that
+#'   contains the target variable to be interpolated.
+#' @param x A string specifying the name of the column containing x-coordinates.
+#'   Default is 'x'.
+#' @param y A string specifying the name of the column containing y-coordinates.
+#'   Default is 'y'.
+#' @param interpolation A character vector specifying the interpolation method.
+#'   Options are "Kriging" or "Tps".
+#' @param verbose Logical; if TRUE, progress messages will be displayed.
+#'
+#' @return A vector of interpolated values at the specified points.
+#' @export
+shapefile_interpolate <- function(shapefile,
+                                  z,
+                                  x = 'x',
+                                  y = 'y',
+                                  interpolation = c("Kriging", "Tps"),
+                                  verbose = FALSE) {
+
+  check_and_install_package("fields")
+
+  # Validate shapefile input
+  if (!all(c(x, y, z) %in% names(shapefile))) {
+    stop("The shapefile must contain the specified x, y, and z columns")
+  }
+
+  # Extract coordinates and values from shapefile object
+  xy <- cbind(shapefile[[x]], shapefile[[y]])
+  values <- shapefile[[z]]  # The target variable to be interpolated
+
+  if (verbose){
+    message("Interpolating the points using ", interpolation[[1]], "...")
+  }
+
+  # Perform interpolation
+  if (interpolation[[1]] == "Kriging") {
+    fit <- suppressMessages(suppressWarnings(fields::Krig(xy, values, aRange = 20)))
+  } else if (interpolation[[1]] == "Tps") {
+    fit <- suppressMessages(suppressWarnings(fields::Tps(xy, values)))
+  } else {
+    stop("Invalid interpolation method. Choose 'Kriging' or 'Tps'.")
+  }
+  return(fit)
+}
+
+#' Generate a spatial surface plot based on interpolated values
+#'
+#' This function creates a surface plot from an interpolated spatial model, with options to customize
+#' plot appearance, grid resolution, and color palette.
+#'
+#' @param model An interpolated spatial object (e.g., from `shapefile_interpolate()`) containing the data for plotting.
+#' @param curve Logical; if TRUE, a contour plot is generated (`type = "C"`), otherwise an image plot (`type = "I"`). Default is TRUE.
+#' @param nx Integer; the number of grid cells in the x-direction. Default is 300.
+#' @param ny Integer; the number of grid cells in the y-direction. Default is 300.
+#' @param xlab Character; label for the x-axis. Default is "Longitude (UTM)".
+#' @param ylab Character; label for the y-axis. Default is "Latitude (UTM)".
+#' @param col A color palette function for the surface plot. Default is a custom palette from dark red to yellow to forest green.
+#' @param ... Additional parameters to pass to `fields::surface`.
+#'
+#' @return A surface plot showing spatially interpolated data.
+#' @export
+
+shapefile_surface <- function(model,
+                              curve = TRUE,
+                              nx = 300,
+                              ny = 300,
+                              xlab = "Longitude (UTM)",
+                              ylab = "Latitude (UTM)",
+                              col = custom_palette(c("darkred", "yellow", "forestgreen"), n = 100),
+                              ...) {
+
+  check_and_install_package("fields")
+
+  # Generate the surface plot
+  fields::surface(model,
+                  type = ifelse(curve, "C", "I"), # "C" for contour, "I" for image plot
+                  nx = nx,
+                  ny = ny,
+                  xlab = xlab,
+                  ylab = ylab,
+                  col = col,
+                  ...)
+}
+

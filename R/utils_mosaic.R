@@ -1,5 +1,5 @@
-validate_and_replicate <- function(argument, created_shapes) {
-  if (length(argument) != length(created_shapes)) {
+validate_and_replicate <- function(argument, created_shapes, verbose = TRUE) {
+  if ((length(argument) != length(created_shapes)) & verbose) {
     warning(paste0("`", deparse(substitute(argument)), "` must have length 1 or ", length(created_shapes), " (the number of drawn polygons)."), call. = FALSE)
   }
   if (length(argument) == 1 & length(created_shapes) != 1) {
@@ -7,8 +7,8 @@ validate_and_replicate <- function(argument, created_shapes) {
   }
   return(argument)
 }
-validate_and_replicate2 <- function(argument, created_shapes) {
-  if (!is.null(argument) & (length(argument) != nrow(created_shapes))) {
+validate_and_replicate2 <- function(argument, created_shapes, verbose = TRUE) {
+  if ((!is.null(argument) & (length(argument) != nrow(created_shapes)))  & verbose) {
     warning(paste0("`", deparse(substitute(argument)), "` must have length 1 or ", nrow(created_shapes), " (the number of drawn polygons)."), call. = FALSE)
   }
   if (length(argument) == 1 & nrow(created_shapes) != 1) {
@@ -402,7 +402,11 @@ mosaic_analyze <- function(mosaic,
     plot_index <- segment_index
   }
   if(!is.null(indexes)){
-    plot_index <- names(indexes)
+    if(!inherits(indexes, "SpatRaster")){
+      stop("Object `indexes` must be an object of class `SpatRaster`.")
+    } else{
+      plot_index <- names(indexes)
+    }
   }
   if(!is.null(plot_index) & is.null(segment_index)){
     segment_index <- plot_index[[1]]
@@ -526,32 +530,32 @@ mosaic_analyze <- function(mosaic,
       mosaiccr <- mosaic
     }
   }
-  segment_plot <- validate_and_replicate(segment_plot, created_shapes)
-  segment_individuals <- validate_and_replicate(segment_individuals, created_shapes)
-  threshold <- validate_and_replicate(threshold, created_shapes)
-  watershed <- validate_and_replicate(watershed, created_shapes)
-  segment_index <- validate_and_replicate(segment_index, created_shapes)
-  invert <- validate_and_replicate(invert, created_shapes)
-  includeopt <- validate_and_replicate(includeopt, created_shapes)
-  opening <- validate_and_replicate(opening, created_shapes)
-  closing <- validate_and_replicate(closing, created_shapes)
-  filter <- validate_and_replicate(filter, created_shapes)
-  erode <- validate_and_replicate(erode, created_shapes)
-  dilate <- validate_and_replicate(dilate, created_shapes)
-  grid <- validate_and_replicate(grid, created_shapes)
-  lower_noise <- validate_and_replicate(lower_noise, created_shapes)
+  segment_plot <- validate_and_replicate(segment_plot, created_shapes, verbose = verbose)
+  segment_individuals <- validate_and_replicate(segment_individuals, created_shapes, verbose = verbose)
+  threshold <- validate_and_replicate(threshold, created_shapes, verbose = verbose)
+  watershed <- validate_and_replicate(watershed, created_shapes, verbose = verbose)
+  segment_index <- validate_and_replicate(segment_index, created_shapes, verbose = verbose)
+  invert <- validate_and_replicate(invert, created_shapes, verbose = verbose)
+  includeopt <- validate_and_replicate(includeopt, created_shapes, verbose = verbose)
+  opening <- validate_and_replicate(opening, created_shapes, verbose = verbose)
+  closing <- validate_and_replicate(closing, created_shapes, verbose = verbose)
+  filter <- validate_and_replicate(filter, created_shapes, verbose = verbose)
+  erode <- validate_and_replicate(erode, created_shapes, verbose = verbose)
+  dilate <- validate_and_replicate(dilate, created_shapes, verbose = verbose)
+  grid <- validate_and_replicate(grid, created_shapes, verbose = verbose)
+  lower_noise <- validate_and_replicate(lower_noise, created_shapes, verbose = verbose)
 
   if(!is.null(lower_size)){
-    lower_size <- validate_and_replicate(lower_size, created_shapes)
+    lower_size <- validate_and_replicate(lower_size, created_shapes, verbose = verbose)
   }
   if(!is.null(upper_size)){
-    upper_size <- validate_and_replicate(upper_size, created_shapes)
+    upper_size <- validate_and_replicate(upper_size, created_shapes, verbose = verbose)
   }
   if(!is.null(topn_lower)){
-    topn_lower <- validate_and_replicate(topn_lower, created_shapes)
+    topn_lower <- validate_and_replicate(topn_lower, created_shapes, verbose = verbose)
   }
   if(!is.null(topn_upper)){
-    topn_upper <- validate_and_replicate(topn_upper, created_shapes)
+    topn_upper <- validate_and_replicate(topn_upper, created_shapes, verbose = verbose)
   }
   #
 
@@ -699,6 +703,9 @@ mosaic_analyze <- function(mosaic,
         }
         dmask <- EBImage::Image(matrix(mask, ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
         dmask[is.na(dmask) == TRUE] <- 1
+        if(!isFALSE(filter[j]) & filter[j] > 1){
+          dmask <- EBImage::medianFilter(dmask, filter[j])
+        }
         if(is.numeric(erode[j]) & erode[j] > 0){
           dmask <- image_erode(dmask, size = erode[j])
         }
@@ -710,9 +717,6 @@ mosaic_analyze <- function(mosaic,
         }
         if(is.numeric(closing[j]) & closing[j] > 0){
           dmask <- image_closing(dmask, size = closing[j])
-        }
-        if(!isFALSE(filter[j]) & filter[j] > 1){
-          dmask <- EBImage::medianFilter(dmask, filter[j])
         }
         if(watershed[j]){
           dmask <- EBImage::watershed(EBImage::distmap(dmask), tolerance = tolerance, ext = extension)
@@ -928,6 +932,9 @@ mosaic_analyze <- function(mosaic,
         dmask <- EBImage::Image(matrix(matrix(mask), ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
         extends <- terra::ext(mind_temp)
         dmask[is.na(dmask) == TRUE] <- 1
+        if(!isFALSE(filter[j]) & filter[j] > 1){
+          dmask <- EBImage::medianFilter(dmask, filter[j])
+        }
         if(is.numeric(erode[j]) & erode[j] > 0){
           dmask <- image_erode(dmask, size = erode[j])
         }
@@ -939,9 +946,6 @@ mosaic_analyze <- function(mosaic,
         }
         if(is.numeric(closing[j]) & closing[j] > 0){
           dmask <- image_closing(dmask, size = closing[j])
-        }
-        if(!isFALSE(filter[j]) & filter[j] > 1){
-          dmask <- EBImage::medianFilter(dmask, filter[j])
         }
         if(watershed[j]){
           dmask <- EBImage::watershed(EBImage::distmap(dmask), tolerance = tolerance, ext = extension)
@@ -3406,6 +3410,33 @@ mosaic_chm_extract <- function(chm, shapefile){
     dplyr::relocate(unique_id, block, plot_id, row, column, x, y, .before = 1)
   return(dftmp)
 }
+
+
+#' Apply a height mask to CHM data
+#'
+#' This function applies a mask to a Canopy Height Model (CHM) by selecting
+#' areas with heights that are above a specified `lower` threshold and,
+#' optionally, below an `upper` threshold.
+#'
+#' @param chm A list or object containing CHM data with a `height` field,
+#'   typically in a `chm` slot.
+#' @param lower A numeric value specifying the lower height threshold. All
+#'   heights greater than this value are retained.
+#' @param upper An optional numeric value specifying the upper height threshold.
+#'   If provided, only heights between `lower` and `upper` are retained.
+#'
+#' @return An `SpatRaster` (mask).
+#' @export
+#'
+mosaic_chm_mask <- function(chm, lower, upper = NULL){
+  if(is.null(upper)){
+    chm$chm$height > lower
+  } else {
+    chm$chm$height > lower & chm$chm$height < upper
+  }
+}
+
+
 #' Determine EPSG Code for a Mosaic
 #'
 #' This function calculates the EPSG code for a given mosaic based on its

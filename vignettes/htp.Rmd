@@ -669,6 +669,97 @@ points(p2$x, p2$y, pch = 16,  cex = 2, col = "red")
 
 
 
+## Handling complex backgrounds
+### Challenges
+Threshold-based methods often struggle with complex backgrounds typical of field experiments, where diverse soil types, colors, and textures introduce considerable variability. This variability reduces the contrast between plants and soil, complicating the computation of vegetation indexes in orthomosaics. When soil and plant pixels have similar reflectance values, thresholding fails to separate them accurately, leading to erroneous plant segmentation, which in turn affects vegetation index calculations, plant measurements, and analytical outputs.
+
+For instance, in this section, we use an orthomosaic from a citrus field with complex soil backgrounds, generously provided by [Lucas Côrredo-UFV](https://daa.ufv.br/lucas-de-paula-corredo/), to illustrate the limitations of threshold-based segmentation and how they can be overcome using simple alternatives that are not based on complex machine learning-based methods.
+
+
+
+```{r}
+url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/citrus/"
+mosaic <-    mosaic_input(paste0(url, "citrus_mos.tif"), info = FALSE)
+shp <- shapefile_input(paste0(url, "citrus_shp.rds"), info = FALSE)
+bm <- mosaic_view(mosaic, r = 1, g = 2, b = 3, max_pixels = 4e6)
+bm
+```
+
+If you take a closer look at the orthomosaic, you'll notice that the soil background is complex, with varying colors and textures that make it challenging to separate from the plants. This complexity poses a significant challenge for threshold-based segmentation methods, which rely on clear distinctions between plants and soil to accurately identify and measure vegetation indexes. Early in this material we've seen that the GLI index is a good option to segment plants from soil. However, in this case, segmentation using threshold-based methods may not be effective due to the complex background.
+
+```{r}
+seg <- mosaic_segment(mosaic, index = "GLI", r = 1, g = 2, b = 3)
+mosaic_plot(seg)
+```
+
+The segmentation results indicate that the threshold-based method struggles to distinguish plants from soil, resulting in inaccurate plant identification and measurements. This challenge highlights the need for alternative methods capable of handling complex backgrounds more effectively.
+
+### When vegetation indexes are insufficient
+
+Threshold-based methods often fail to distinguish plants from soil, making it necessary to explore strategies beyond vegetation indexes. A more robust approach involves using machine learning, particularly deep learning models, to enhance plant segmentation and analysis in orthomosaics. These models can identify intricate patterns and features, offering superior differentiation between plants and soil compared to traditional methods. However, such models have not yet been integrated into pliman 3.0. So, how can we enhance segmentation with simpler approaches? The solution lies in leveraging a 3D perspective with a Canopy Height Model (CHM).
+
+### Do we really need AI-based models?
+
+If a digital surface model (DSM) is available, it can significantly enhance plant segmentation by adding valuable information about object heights within the orthomosaic. By using the `mosaic_chm()` function, a Canopy Height Model (CHM) can be generated to segment plants based on height, rather than color. This approach often isolates plants from soil more effectively, even in complex backgrounds, and offers a simpler, non-AI solution to segmentation challenges.
+
+```{r}
+dsm <- mosaic_input(paste0(url, "citrus_dsm.tif"), info = FALSE)
+chm <- mosaic_chm(dsm, window_size = c(3, 3), verbose = FALSE)
+mosaic_plot(chm$chm$height)
+
+# create a mask, retaining only pixels between 1 and 5 meters
+mask <- mosaic_chm_mask(chm, lower = 0.5, upper = 8)
+mosaic_plot(mask)
+```
+
+
+Great advance! Now, we have a mask that retains only pixels between 0.5 and 8 meters in height, effectively isolating the plants from the soil. This mask can be now used in `mosaic_analyze()` to segment the plants and calculate vegetation indexes more accurately.
+
+
+
+```{r}
+# Analyze the segmented mosaic data
+mos <- mosaic_analyze(
+  mosaic = mosaic,                # The input mosaic image file for analysis.
+  basemap = bm,                   # The basemap to overlay the mosaic on for visualization.
+  r = 1, g = 2, b = 3,            # Specify the red, green, and blue channels in the mosaic.
+  mask = mask,                    # Apply the mask created previously to isolate plants based on height.
+  shapefile = shp,                # Shapefile to outline regions or zones of interest within the mosaic.
+  segment_individuals = TRUE,     # Enable segmentation to distinguish individual plants within the masked area.
+  plot_index = c("NGRDI", "GLI"), # Vegetation indexes to compute for each plant
+  filter = 5,                     # Size of the filter applied to reduce noise and improve segmentation.
+  opening = 5,                    # Apply morphological opening to remove small objects or smooth boundaries.
+  watershed = FALSE               # Disable watershed algorithm here as it’s unnecessary for this segmentation.
+)
+
+# Summary
+mos$result_plot_summ
+
+```
+
+### Results an indivual level
+
+The identified plants are displayed on the map, color-coded by their mean NGRDI (Normalized Green-Red Difference Index) values. This visualization highlights plant distribution and relative health across the field, making it easier to identify variations in vegetation index values and assess plant vigor.
+
+
+```{r}
+mos$map_indiv
+
+```
+
+The results show that the CHM-based segmentation method effectively isolates plants from the soil, providing accurate plant identification and measurements. This approach offers a simple yet powerful alternative to threshold-based methods, demonstrating the value of leveraging 3D information to enhance plant segmentation in orthomosaics.
+
+Below, we explore the individual plant data to gain deeper insights into plant health across the field. 
+
+```{r}
+coords <- shapefile_measures(mos$result_indiv)
+model <- shapefile_interpolate(coords, z = "mean.NGRDI", interpolation  ="Tps")
+shapefile_surface(model)
+
+```
+
+
+
 ## Similar tools
 
 This material will focus on the {pliman} R packages. However, this is not the only tool available for high-throughput phenotyping (HTP) in R. I highly recommend exploring the pioneering R package [FIELDimageR](https://github.com/OpenDroneMap/FIELDimageR), as well as its complementary extensions [FIELDimageR-Extra](https://github.com/filipematias23/FIELDimageR.Extra) and [FIELDimageR-QGIS](https://github.com/filipematias23/FIELDimageR-QGIS), which offer additional functionalities for enhanced HTP analysis.

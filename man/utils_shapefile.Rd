@@ -20,6 +20,7 @@ shapefile_export(shapefile, filename, ...)
 shapefile_view(
   shapefile,
   attribute = NULL,
+  type = c("shape", "centroid"),
   color_regions = custom_palette(c("red", "yellow", "forestgreen")),
   ...
 )
@@ -49,6 +50,11 @@ to \code{MULTILINESTRING} geometries (default is \code{FALSE}).}
 
 \item{attribute}{The attribute to be shown in the color key. It must be a
 variable present in \code{shapefile}.}
+
+\item{type}{A character string specifying whether to visualize the shapefile
+as \code{"shape"} or as \code{"centroid"}. Partial matching is allowed. If set to
+\code{"centroid"}, the function will convert the shapefile's geometry to
+centroids before displaying. Defaults to \code{"shape"}.}
 
 \item{color_regions}{The color palette to represent \code{attribute}.}
 }
