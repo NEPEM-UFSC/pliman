@@ -28,7 +28,9 @@ navbar:
     - icon: fa-home
       text: "Home"
       href: index.html
-    - text: "Examples"
+    - text: "Reference"
+      href: reference/index.html
+    - text: "Articles"
       menu:
       - text: "Image analysis"
       - text: -------
@@ -50,8 +52,6 @@ navbar:
       - text: -------
       - text: "High Throughput Phenotyping"
         href: articles/htp.html
-    - text: "Functions"
-      href: reference/index.html
     - text: News
       menu:
       - text: Package news
@@ -156,6 +156,7 @@ reference:
       - mosaic_to_pliman
       - mosaic_to_rgb
       - mosaic_view
+      - mosaic_vectorize
       - mosaic_segment
       - mosaic_segment_pick
       - pliman_indexes_ican_compute

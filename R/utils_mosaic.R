@@ -144,6 +144,18 @@ idw_interpolation <- function(mosaic, points){
   terra::resample(new_ras, mosaic)
 }
 
+# Helper function to check and align DSM with mosaic
+align_dsm <- function(dsm, mosaic) {
+  # Check if extent, resolution, and CRS match
+  if (!terra::ext(dsm) == terra::ext(mosaic) ||
+      !all(terra::res(dsm) == terra::res(mosaic)) ||
+      !terra::crs(dsm) == terra::crs(mosaic)) {
+    message("Adjusting DSM to match mosaic extent, resolution, and CRS.")
+    # Align DSM to match the mosaic properties
+    dsm <- terra::resample(dsm, mosaic, method = "lanczos")
+  }
+  return(dsm)
+}
 
 #' Mosaic interpolation
 #'
@@ -256,6 +268,16 @@ mosaic_interpolate <- function(mosaic, points, method = c("bilinear", "loess", "
 #'   (eg., plants) interactively by picking samples from background and
 #'   foreground using [mosaic_segment_pick()]
 #' @param mask An optional mask (SpatRaster) to mask the mosaic.
+#' @param dsm A SpatRaster object representing the digital surface model. Must
+#'   be a single-layer raster. If a DSM is informed, a mask will be derived from
+#'   it using [mosaic_chm_mask()].
+#' @param dsm_lower A numeric value specifying the lower height threshold. All
+#'   heights greater than this value are retained.
+#' @param dsm_upper An optional numeric value specifying the upper height
+#'   threshold. If provided, only heights between lower and upper are retained.
+#' @param dsm_window_size An integer (meters) specifying the window size (rows
+#'   and columns, respectively) for creating a DTM using a moving window.
+#'   Default is c(5, 5).
 #' @param simplify Removes vertices in polygons to form simpler shapes. The
 #'   function implementation uses the Douglas–Peucker algorithm using
 #'   [sf::st_simplify()] for simplification.
@@ -365,6 +387,10 @@ mosaic_analyze <- function(mosaic,
                            segment_individuals = FALSE,
                            segment_pick = FALSE,
                            mask = NULL,
+                           dsm = NULL,
+                           dsm_lower = 0.2,
+                           dsm_upper = NULL,
+                           dsm_window_size = c(5, 5),
                            simplify = FALSE,
                            map_individuals = FALSE,
                            map_direction = c("horizontal", "vertical"),
@@ -396,6 +422,13 @@ mosaic_analyze <- function(mosaic,
                            quantiles = c(0, 1),
                            plot = TRUE,
                            verbose = TRUE){
+  if(!is.null(dsm)){
+    dsm <- align_dsm(dsm, mosaic)
+    if(verbose){
+      message("\014","\nCreating the mask based on the digital surface model...\n")
+    }
+    mask <- mosaic_chm_mask(dsm, lower = dsm_lower, upper = dsm_upper, window_size = dsm_window_size)
+  }
   includeopt <- c("intersect", "covered", "overlap", "centroid")
   includeopt <- includeopt[sapply(include_if, function(x){pmatch(x, includeopt)})]
   if(is.null(plot_index) & !is.null(segment_index)){
@@ -3186,12 +3219,12 @@ mosaic_chm <- function(dsm,
                        dtm = NULL,
                        points = NULL,
                        interpolation = c("Tps", "Kriging"),
-                       window_size = c(10, 10),
+                       window_size = c(5, 5),
                        mask = NULL,
                        mask_soil = TRUE,
                        verbose = TRUE){
   # Check if fields is installed
-  check_and_install_package("fields")
+  # check_and_install_package("fields")
 
   sampp <- NULL
   ch1 <- !inherits(dsm,"SpatRaster") || !terra::nlyr(dsm) == 1 || terra::is.bool(dsm) || is.list(dsm)
@@ -3300,10 +3333,11 @@ mosaic_chm <- function(dsm,
       stop("dtm must be single-layer SpatRaster objects")
     }
     if((terra::ext(dsm) != terra::ext(dtm)) || (terra::ncell(dtm) != terra::ncell(dsm))){
+      message("\014","\nPutting dtm and dsm in the same resolution...\n")
       dtm <- terra::resample(dtm, dsm)
     }
     if(verbose){
-      message("\014","\nBuilding the digital terrain model...\n")
+      message("\014","\nBuilding the canopy height model...\n")
     }
     chm <- dsm - dtm
     gc()
@@ -3414,21 +3448,33 @@ mosaic_chm_extract <- function(chm, shapefile){
 
 #' Apply a height mask to CHM data
 #'
-#' This function applies a mask to a Canopy Height Model (CHM) by selecting
-#' areas with heights that are above a specified `lower` threshold and,
+#' This function applies a height-based mask to a Canopy Height Model (CHM),
+#' focusing on areas with heights above a specified `lower` threshold and,
 #' optionally, below an `upper` threshold.
 #'
-#' @param chm A list or object containing CHM data with a `height` field,
-#'   typically in a `chm` slot.
+#' The `mosaic_chm` function, used internally, generates the DTM from the DSM by
+#' downsampling and smoothing raster data, applying a moving window to extract
+#' minimum values and then interpolating the results. The CHM is computed as the
+#' height difference between the DSM and DTM. This function calculates and
+#' applies a mask based on height thresholds.
+#'
+#' @inheritParams mosaic_chm
 #' @param lower A numeric value specifying the lower height threshold. All
 #'   heights greater than this value are retained.
 #' @param upper An optional numeric value specifying the upper height threshold.
 #'   If provided, only heights between `lower` and `upper` are retained.
 #'
-#' @return An `SpatRaster` (mask).
+#' @return An `SpatRaster` object representing the masked CHM.
 #' @export
 #'
-mosaic_chm_mask <- function(chm, lower, upper = NULL){
+mosaic_chm_mask <- function(dsm,
+                            lower,
+                            upper = NULL,
+                            window_size = c(5, 5),
+                            interpolation = "Tps"){
+  chm <- mosaic_chm(dsm,
+                    window_size = window_size,
+                    verbose = FALSE)
   if(is.null(upper)){
     chm$chm$height > lower
   } else {
@@ -3572,9 +3618,116 @@ mosaic_extract <- function(mosaic,
   if(inherits(shapefile, "SpatVector")){
     shapefile <- sf::st_as_sf(shapefile)
   }
-  exactextractr::exact_extract(mosaic,
-                               shapefile,
-                               fun = fun,
-                               force_df = TRUE,
-                               ...)
+  results <-
+    exactextractr::exact_extract(mosaic,
+                                 shapefile,
+                                 fun = fun,
+                                 force_df = TRUE,
+                                 ...)
+  sf::st_as_sf(dplyr::bind_cols(results, shapefile)) |> dplyr::relocate(unique_id:diam_max, .before = 1)
+}
+
+#' Vectorize a `SpatRaster` mask to an `sf` object
+#'
+#' Converts a raster mask into a vectorized `sf` object, with various options
+#' for morphological operations and filtering.
+#'
+#' @inheritParams mosaic_analyze
+#' @param aggregate The size as a fraction (percentage) of the input image size.
+#'   Either a scalar (eg., 50), or a length-two numeric vector. In the last,
+#'   different percentage reduction/expansion can be used for columns, and rows,
+#'   respectively.
+#' @param fill_hull Fill holes in the binary image? Defaults to `FALSE`.
+#' @return An `sf` object containing vectorized features from the raster mask,
+#'   with added area measurements.
+#' @export
+#' @examples
+#' library(pliman)
+#' mask <- image_pliman("mask.tif")
+#' shp <- mosaic_vectorize(mask, watershed = FALSE)
+#' mosaic_plot(mask)
+#' shapefile_plot(shp, add = TRUE, lwd = 3)
+#'
+#'
+mosaic_vectorize <- function(mask,
+                             aggregate = NULL,
+                             watershed = TRUE,
+                             tolerance = 1,
+                             extension = 1,
+                             opening = FALSE,
+                             closing = FALSE,
+                             filter = FALSE,
+                             erode = FALSE,
+                             dilate = FALSE,
+                             fill_hull = FALSE,
+                             lower_size = NULL,
+                             upper_size = NULL,
+                             topn_lower = NULL,
+                             topn_upper = NULL){
+  if(!is.null(aggregate)){
+    mask <- mosaic_aggregate(mask, aggregate)
+  }
+  dmask <- EBImage::Image(matrix(matrix(mask), ncol = nrow(mask), nrow = ncol(mask)))
+  extends <- terra::ext(mask)
+  dmask[is.na(dmask) == TRUE] <- 0
+  if(!isFALSE(fill_hull)){
+    dmask <- EBImage::fillHull(dmask)
+  }
+  if(!isFALSE(filter) & filter > 1){
+    dmask <- EBImage::medianFilter(dmask, filter)
+  }
+  if(is.numeric(erode) & erode > 0){
+    dmask <- image_erode(dmask, size = erode)
+  }
+  if(is.numeric(dilate) & dilate > 0){
+    dmask <- image_dilate(dmask, size = dilate)
+  }
+  if(is.numeric(opening) & opening > 0){
+    dmask <- image_opening(dmask, size = opening)
+  }
+  if(is.numeric(closing) & closing > 0){
+    dmask <- image_closing(dmask, size = closing)
+  }
+  if(watershed){
+    dmask <- EBImage::watershed(EBImage::distmap(dmask), tolerance = tolerance, ext = extension)
+  } else{
+    dmask <- EBImage::bwlabel(dmask)
+  }
+  conts <- EBImage::ocontour(dmask)
+  conts <- conts[sapply(conts, nrow) > 2]
+  resx <- terra::res(mask)[1]
+  resy <- terra::res(mask)[1]
+  sf_df <- sf::st_sf(
+    geometry = lapply(conts, function(x) {
+      tmp <- x + 1
+      tmp[, 2] <-  extends[3] + (nrow(mask) - tmp[, 2]) * resy
+      tmp[, 1] <- extends[1] + tmp[, 1] * resy
+      geometry = sf::st_polygon(list(as.matrix(tmp |> poly_close())))
+    }),
+    data = data.frame(unique_id = paste0(1:length(conts))),
+    crs = terra::crs(mask)
+  )
+  addmeasures <-
+    do.call(rbind,
+            lapply(1:nrow(sf_df), function(i){
+              compute_measures_mosaic(as.matrix(sf_df$geometry[[i]]))
+            }))
+  gridindiv <- cbind(sf_df, addmeasures)
+
+  if(!is.null(lower_size) & !is.null(topn_lower) | !is.null(upper_size) & !is.null(topn_upper)){
+    stop("Only one of 'lower_*' or 'topn_*' can be used.")
+  }
+  if(!is.null(lower_size)){
+    gridindiv <- gridindiv[gridindiv$area > lower_size, ]
+  }
+  if(!is.null(upper_size)){
+    gridindiv <- gridindiv[gridindiv$area < upper_size, ]
+  }
+  if(!is.null(topn_lower)){
+    gridindiv <- gridindiv[order(gridindiv$area),][1:topn_lower,]
+  }
+  if(!is.null(topn_upper)){
+    gridindiv <- gridindiv[order(gridindiv$area, decreasing = TRUE),][1:topn_upper,]
+  }
+  return(gridindiv)
 }

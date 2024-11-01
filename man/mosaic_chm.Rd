@@ -9,7 +9,7 @@ mosaic_chm(
   dtm = NULL,
   points = NULL,
   interpolation = c("Tps", "Kriging"),
-  window_size = c(10, 10),
+  window_size = c(5, 5),
   mask = NULL,
   mask_soil = TRUE,
   verbose = TRUE

@@ -28,9 +28,10 @@ extract the raw results at pixel level."><meta property="og:image" content="http
 
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="nav-item"><a class="nav-link" href="../index.html"><span class="fa fa-home"></span> Home</a></li>
+<li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item dropdown">
-  <button class="nav-link dropdown-toggle" type="button" id="dropdown-examples" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Examples</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-examples"><li><h6 class="dropdown-header" data-toc-skip>Image analysis</h6></li>
+  <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><h6 class="dropdown-header" data-toc-skip>Image analysis</h6></li>
     <li><hr class="dropdown-divider"></li>
     <li><a class="dropdown-item" href="../articles/manipulation.html">Image manipulation</a></li>
     <li><a class="dropdown-item" href="../articles/indexes.html">Image indexes</a></li>
@@ -43,7 +44,6 @@ extract the raw results at pixel level."><meta property="og:image" content="http
     <li><hr class="dropdown-divider"></li>
     <li><a class="dropdown-item" href="../articles/htp.html">High Throughput Phenotyping</a></li>
   </ul></li>
-<li class="active nav-item"><a class="nav-link" href="../reference/index.html">Functions</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-news" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">News</button>
   <ul class="dropdown-menu" aria-labelledby="dropdown-news"><li><a class="dropdown-item" href="../news/index.html">Package news</a></li>
@@ -117,6 +117,10 @@ extract the raw results at pixel level.</p>
 <span>  segment_individuals <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  segment_pick <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  mask <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  dsm <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  dsm_lower <span class="op">=</span> <span class="fl">0.2</span>,</span>
+<span>  dsm_upper <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  dsm_window_size <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">5</span>, <span class="fl">5</span><span class="op">)</span>,</span>
 <span>  simplify <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  map_individuals <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  map_direction <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"horizontal"</span>, <span class="st">"vertical"</span><span class="op">)</span>,</span>
@@ -264,6 +268,28 @@ foreground using <code><a href="mosaic_segment_pick.html">mosaic_segment_pick()<
 
 <dt id="arg-mask">mask<a class="anchor" aria-label="anchor" href="#arg-mask"></a></dt>
 <dd><p>An optional mask (SpatRaster) to mask the mosaic.</p></dd>
+
+
+<dt id="arg-dsm">dsm<a class="anchor" aria-label="anchor" href="#arg-dsm"></a></dt>
+<dd><p>A SpatRaster object representing the digital surface model. Must
+be a single-layer raster. If a DSM is informed, a mask will be derived from
+it using <code><a href="mosaic_chm_mask.html">mosaic_chm_mask()</a></code>.</p></dd>
+
+
+<dt id="arg-dsm-lower">dsm_lower<a class="anchor" aria-label="anchor" href="#arg-dsm-lower"></a></dt>
+<dd><p>A numeric value specifying the lower height threshold. All
+heights greater than this value are retained.</p></dd>
+
+
+<dt id="arg-dsm-upper">dsm_upper<a class="anchor" aria-label="anchor" href="#arg-dsm-upper"></a></dt>
+<dd><p>An optional numeric value specifying the upper height
+threshold. If provided, only heights between lower and upper are retained.</p></dd>
+
+
+<dt id="arg-dsm-window-size">dsm_window_size<a class="anchor" aria-label="anchor" href="#arg-dsm-window-size"></a></dt>
+<dd><p>An integer (meters) specifying the window size (rows
+and columns, respectively) for creating a DTM using a moving window.
+Default is c(5, 5).</p></dd>
 
 
 <dt id="arg-simplify">simplify<a class="anchor" aria-label="anchor" href="#arg-simplify"></a></dt>

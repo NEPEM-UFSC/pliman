@@ -4,23 +4,44 @@
 \alias{mosaic_chm_mask}
 \title{Apply a height mask to CHM data}
 \usage{
-mosaic_chm_mask(chm, lower, upper = NULL)
+mosaic_chm_mask(
+  dsm,
+  lower,
+  upper = NULL,
+  window_size = c(5, 5),
+  interpolation = "Tps"
+)
 }
 \arguments{
-\item{chm}{A list or object containing CHM data with a \code{height} field,
-typically in a \code{chm} slot.}
+\item{dsm}{A \code{SpatRaster} object representing the digital surface model. Must
+be a single-layer raster.}
 
 \item{lower}{A numeric value specifying the lower height threshold. All
 heights greater than this value are retained.}
 
 \item{upper}{An optional numeric value specifying the upper height threshold.
 If provided, only heights between \code{lower} and \code{upper} are retained.}
+
+\item{window_size}{An integer  (meters) specifying the window size (rows and
+columns, respectively) for creating a DTM using a moving window. Default is
+c(10, 10).}
+
+\item{interpolation}{(optional) A character string specifying the
+interpolation method to use when \code{points} are provided. Options are
+"Kriging" (default) or "Tps" (Thin Plate Spline).}
 }
 \value{
-An \code{SpatRaster} (mask).
+An \code{SpatRaster} object representing the masked CHM.
 }
 \description{
-This function applies a mask to a Canopy Height Model (CHM) by selecting
-areas with heights that are above a specified \code{lower} threshold and,
+This function applies a height-based mask to a Canopy Height Model (CHM),
+focusing on areas with heights above a specified \code{lower} threshold and,
 optionally, below an \code{upper} threshold.
+}
+\details{
+The \code{mosaic_chm} function, used internally, generates the DTM from the DSM by
+downsampling and smoothing raster data, applying a moving window to extract
+minimum values and then interpolating the results. The CHM is computed as the
+height difference between the DSM and DTM. This function calculates and
+applies a mask based on height thresholds.
 }
