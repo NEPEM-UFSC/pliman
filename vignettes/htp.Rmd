@@ -16,25 +16,39 @@ knitr::opts_chunk$set(
 ```
 
 
+## Introduction
+
+The two main function families in pliman —`shapefile_*()` and `mosaic_*()`— serve as the foundation for high-throughput phenotyping (HTP) analysis.  The `shapefile_build()` function is central for constructing shapefiles, offering customizable layouts and export options that allow users to tailor shapefiles to diverse experimental designs and field layouts, enhancing the relevance and reproducibility of the data collected.
+
+Following shapefile creation, the `mosaic_*()` family is pivotal for performing mosaic analysis —a process that includes calculating vegetation indices, segmenting plant canopies, and visualizing plant-level data. The `mosaic_analyze()` function, in particular, automates the extraction of detailed phenotypic information, making it easy to capture metrics on plant health, spatial distribution, and structure across fields. Through practical examples, users learn to leverage this function for automating plant-level data extraction, thus boosting the efficiency and depth of HTP workflows. 
+
+> All shapefiles and orthomosaics used in this vignette are publicly available [here](https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman),  ensuring reproducibility and allowing users to follow along with each example. Since the data is accessed remotely, an active internet connection is required to run the examples. Alternatively, you can download the entire repository and modify the code to import the files from a local source, making it more convenient for offline use and adaptable to different working environments.
 
 
 ## R packages
-```{r}
+```{r warning=FALSE}
 library(dplyr)
 library(ggplot2)
 library(pliman)
 ```
 
-## Building shapefiles
+## Shapefiles
+### Building
 
 Shapefiles are a widely used format in geographic information systems (GIS) for representing vector data such as points, lines, and polygons. They are essential in spatial analysis and can store information about geographical features and their attributes. There are three main geometry types.
 
-- Points: Represent specific locations (e.g., control points, cities).
-- Lines: Represent linear features (e.g., roads, rivers).
-- Polygons: Represent areas (e.g., boundaries of regions or land parcels).
+- **Points**: Represent specific locations (e.g., control points, cities).
+- **Lines**: Represent linear features (e.g., roads, rivers).
+- **Polygons**: Represent areas (e.g., boundaries of regions or land parcels).
 
 
-Below, we will explore how the shapefile_build() function works, which is the key function for constructing shapefiles. By default, calling `shapefile_build(mosaic, ...)` opens an interactive session where you can define the corners of your region of interest (ROI) in the following sequence: **top left -> top right -> bottom right -> bottom left -> back to top left** to close the polygon.
+Below, we explore how the` shapefile_build()` function works for constructing shapefiles. By default, calling `shapefile_build(mosaic, ...)` allows the creation of either rectangular grids (defined by rows and columns) or custom, free-form shapes, providing flexibility for different experimental designs.
+
+To create a rectangular grid, you define the corners of your region of interest (ROI) in this sequence: **top left → top right → bottom right → bottom left → back to top left** to close the polygon. If more than four points are provided, the function will interpret them as vertices of a free-form shape, constructing a customized polygon that precisely fits your specified boundaries. This flexibility makes `shapefile_build()` a versatile tool, allowing users to adapt their shapefile structures to match complex field layouts or specific plot arrangements.
+
+```{r}
+
+```
 
 For the purpose of this example, we will use a predefined shapefile containing control points to demonstrate the process, ensuring reproducibility and allowing you to follow along with the output.
 
@@ -100,9 +114,7 @@ The `layout` argument specifies the orientation of the layout and is a character
 * 'rlbt': Right to Left, Bottom to Top
 
 
-The `serpentine` argument determines whether a serpentine layout is applied. When set to `TRUE`, items in alternating rows or columns will be placed in reverse order, creating a "zig-zag" pattern. By default, serpentine is set to `FALSE`, which means the layout follows the specified direction without altering the order in alternating rows or columns.
-
-Let's build a Shiny app to demonstrate how these two arguments interact and affect the layout:
+The `serpentine` argument determines whether a serpentine layout is applied. When set to `TRUE`, items in alternating rows or columns will be placed in reverse order, creating a "zig-zag" pattern. By default, serpentine is set to `FALSE`, which means the layout follows the specified direction without altering the order in alternating rows or columns. Copy and run the following code to build a Shiny app to demonstrate how these two arguments interact and affect the layout:
 
 
 ```{r}
@@ -220,7 +232,7 @@ shinyApp(ui = ui, server = server)
 ```
 
 
-## Exporting shapefiles
+### Exporting
 
 When working with spatial data in R, two common file formats are `.shp` (shapefiles) and `.rds` (R serialized files). A shapefile is a standard format in Geographic Information Systems (GIS) for storing spatial vector data (points, lines, polygons) and can be imported in any GIS software, like QGIS. Despite the name, a shapefile is not a single file but a collection of related files:
 
@@ -243,7 +255,7 @@ shapefile_export(shp, "shape_shp.shp")
 ```
 
 
-## Importing shapefiles
+### Importing shapefiles
 
 You can import previously saved shapefiles using the `shapefile_input()` function. This function supports both `.rds` files and `.shp` files, whether they were exported using `shapefile_export()` or created in other software.
 
@@ -256,7 +268,7 @@ shp <- shapefile_input("shape_rds.rds")
 
 
 
-## Exploring the potentialities of `mosaic_analyze()`
+## Exploring the `mosaic_analyze()` function
 
 `mosaic_analyze()` is the cornerstone function in pliman for **high-throughput phenotyping**. It enables users to efficiently process orthomosaics and extract a wealth of data from satellite or drone imagery with just a few lines of code. In most cases, all you need is an orthomosaic (or even a `.jpg` image from a cellphone) and the right function parameters to unlock its full potential.
 
@@ -317,7 +329,7 @@ bm <- mosaic_view(mos,
 bm + shapefile_view(shp, attribute = "p", color_regions = ggplot_color(3))
 ```
 
-
+### Analyzing the mosaic
 There function `mosaic_analyze()` is all you need now. The vegetation indexes computed for each plant are defined in the object `indexes`. Here, the Normalized Green Red Difference Index (NGRDI), Green Leaf Index (GLI), and Blue Green Index (BGI) are used. You can find a list with all build-in vegetation indexes in pliman [here](https://nepem-ufsc.github.io/pliman/articles/indexes.html#rgb-color-space).
 
 By setting `segment_individuals = TRUE`, `mosaic_analyze()` shifts its focus to the individual plant level. Using a threshold-based segmentation method, it isolates each plant within a plot, enabling precise counting and measurement, provided that a higher contrast between plant and soi. While the function can also handle complex backgrounds with additional arguments, that's not the focus here. Instead, the power of this approach lies in its ability to break down each plot into individual components, providing a detailed analysis of plant morphology, size, and distribution. This transforms high-throughput phenotyping by moving from a broad plot-level perspective to an in-depth examination of each plant, unlocking a new level of precision and insight.
@@ -530,14 +542,16 @@ bm + shapefile_view(chmvals, attribute = "coverage")
 
 
 ### Building DTM from DSM
-In field experiments, the Digital Terrain Model (DTM) is frequently obtained before sowing and represents the bare soil. But, if we could derivate DTM from DSM?. If a DTM is not provided, `mosaic_chm()` will try to derive DTM from DSM using an strategy  window size to interpolate the DTM. We'll then compare the resulting Canopy Height Model (CHM) with the original CHM derived from the provided DTM.
+In field experiments, the Digital Terrain Model (DTM) is frequently obtained before sowing and represents the bare soil. But, if we could derivate DTM from DSM? If a DTM is not provided, `mosaic_chm()` will derive DTM from DSM using an interpolation strategy.
 
 ```{r }
 # Interpolate DTM using a moving window
-res2 <- mosaic_chm(dsm,
-                   mask = msk,
-                   window_size = c(4, 4),
-                   mask_soil = FALSE)
+res2 <- mosaic_chm(
+  dsm,
+  mask = msk,
+  window_size = c(4, 4),
+  mask_soil = FALSE
+)
 
 # Extract CHM values
 chmvals2 <- mosaic_chm_extract(res2, shp) 
@@ -578,7 +592,7 @@ res <-
 
 pal <- c( "#fde725", "#5ec962", "#21918c", "#3b528b", "#440154")
 p1 <- shapefile_view(res$result_plot_summ, attribute = "cv", color_regions = pal)
-p2 <- shapefile_view(res$result_indiv, attribute = "area")
+p2 <- shapefile_view(res$result_indiv, type = "centroid", attribute = "area")
 
 (bm + p1) | p2
 
@@ -631,7 +645,7 @@ Below, we’ll explore two contrasting plots to demonstrate how this information
 ```{r}
 
 library(dplyr)
-par(mfrow = c(1, 2))
+par(mfrow = c(2, 1))
 p1 <- 
   res$result_indiv |> 
   filter(plot_id == "P0184")
@@ -640,6 +654,7 @@ p1 <-
 p1plot <- 
   res$result_plot_summ |> 
   filter(plot_id == "P0184")
+
 plot1 <- mosaic_crop(mos, shapefile = p1plot, buffer = 0.2)
 coords <- p1[, c("x", "y")] |> sf::st_drop_geometry() |> arrange(x)
 mosaic_plot_rgb(plot1, main = "P0184: Average distance: 0.243 m; CV: 14.1%")
@@ -671,9 +686,10 @@ points(p2$x, p2$y, pch = 16,  cex = 2, col = "red")
 
 ## Handling complex backgrounds
 ### Challenges
+
 Threshold-based methods often struggle with complex backgrounds typical of field experiments, where diverse soil types, colors, and textures introduce considerable variability. This variability reduces the contrast between plants and soil, complicating the computation of vegetation indexes in orthomosaics. When soil and plant pixels have similar reflectance values, thresholding fails to separate them accurately, leading to erroneous plant segmentation, which in turn affects vegetation index calculations, plant measurements, and analytical outputs.
 
-For instance, in this section, we use an orthomosaic from a citrus field with complex soil backgrounds, generously provided by [Lucas Côrredo-UFV](https://daa.ufv.br/lucas-de-paula-corredo/), to illustrate the limitations of threshold-based segmentation and how they can be overcome using simple alternatives that are not based on complex machine learning-based methods.
+For instance, in this section, we use an orthomosaic from a field with complex soil backgrounds, generously provided by [Lucas Côrredo-UFV](https://daa.ufv.br/lucas-de-paula-corredo/), to illustrate the limitations of threshold-based segmentation and how they can be overcome using simple alternatives that are not based on complex machine learning-based methods.
 
 
 
@@ -681,7 +697,7 @@ For instance, in this section, we use an orthomosaic from a citrus field with co
 url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/citrus/"
 mosaic <-    mosaic_input(paste0(url, "citrus_mos.tif"), info = FALSE)
 shp <- shapefile_input(paste0(url, "citrus_shp.rds"), info = FALSE)
-bm <- mosaic_view(mosaic, r = 1, g = 2, b = 3, max_pixels = 4e6)
+bm <- mosaic_view(mosaic, r = 1, g = 2, b = 3, max_pixels = 5e6)
 bm
 ```
 
@@ -700,36 +716,44 @@ Threshold-based methods often fail to distinguish plants from soil, making it ne
 
 ### Do we really need AI-based models?
 
-If a digital surface model (DSM) is available, it can significantly enhance plant segmentation by adding valuable information about object heights within the orthomosaic. By using the `mosaic_chm()` function, a Canopy Height Model (CHM) can be generated to segment plants based on height, rather than color. This approach often isolates plants from soil more effectively, even in complex backgrounds, and offers a simpler, non-AI solution to segmentation challenges.
+To improve plant segmentation, incorporating a digital surface model (DSM) can be highly effective, as it provides valuable height information for objects within the orthomosaic. The `mosaic_chm_mask()` function allows generating a mask from a Canopy Height Model (CHM) derived using the `mosaic_chm()` function. This mask enables segmentation based on plant height instead of relying solely on color, which can more precisely distinguish plants from soil, particularly in complex backgrounds. This method offers a straightforward, non-AI solution for overcoming segmentation challenges, delivering enhanced plant isolation without the need for machine learning algorithms, mainly for examples like this, where the orange trees are relatively tall, facilitating the separation between plants and soil.
 
 ```{r}
 dsm <- mosaic_input(paste0(url, "citrus_dsm.tif"), info = FALSE)
-chm <- mosaic_chm(dsm, window_size = c(3, 3), verbose = FALSE)
-mosaic_plot(chm$chm$height)
-
 # create a mask, retaining only pixels between 1 and 5 meters
-mask <- mosaic_chm_mask(chm, lower = 0.5, upper = 8)
+
+mask <- mosaic_chm_mask(
+  dsm = dsm,
+  window_size = c(3, 3),  # Window size for interpolating the DTM
+  lower = 0.5,            # Lower limit for the mask (height)
+  upper = 3               # Upper limit for the mask (height)
+)
+
 mosaic_plot(mask)
 ```
 
 
-Great advance! Now, we have a mask that retains only pixels between 0.5 and 8 meters in height, effectively isolating the plants from the soil. This mask can be now used in `mosaic_analyze()` to segment the plants and calculate vegetation indexes more accurately.
+Great advance! Now, we have a mask that retains only pixels between 0.5 and 3 meters in height, effectively isolating the plants from the soil. This mask can be now used in `mosaic_analyze()` to segment the plants and calculate vegetation indexes more accurately.
 
 
 
 ```{r}
 # Analyze the segmented mosaic data
 mos <- mosaic_analyze(
-  mosaic = mosaic,                # The input mosaic image file for analysis.
-  basemap = bm,                   # The basemap to overlay the mosaic on for visualization.
-  r = 1, g = 2, b = 3,            # Specify the red, green, and blue channels in the mosaic.
-  mask = mask,                    # Apply the mask created previously to isolate plants based on height.
-  shapefile = shp,                # Shapefile to outline regions or zones of interest within the mosaic.
-  segment_individuals = TRUE,     # Enable segmentation to distinguish individual plants within the masked area.
+  mosaic = mosaic,                # The input mosaic
+  basemap = bm,                   # The basemap for visualization.
+  r = 1, g = 2, b = 3,            # Specify the red, green, and blue channels
+  mask = mask,                    # Apply the mask created previously
+  # dsm = dsm,                    # or directly use the DSM
+  # dsm_lower = 0.5,              # or directly use the DSM
+  # dsm_upper = 3,                # or directly use the DSM
+  #dsm_window_size = c(3, 3)      # or directly use the DSM
+  shapefile = shp,                # Shapefile to outline regions of interest
+  segment_individuals = TRUE,     # Enable segmentation
   plot_index = c("NGRDI", "GLI"), # Vegetation indexes to compute for each plant
-  filter = 5,                     # Size of the filter applied to reduce noise and improve segmentation.
-  opening = 5,                    # Apply morphological opening to remove small objects or smooth boundaries.
-  watershed = FALSE               # Disable watershed algorithm here as it’s unnecessary for this segmentation.
+  lower_noise = 0,                # Avoid removing small plants
+  filter = 10,                    # Size of the filter applied to reduce noise
+  watershed = FALSE               # Disable watershed algorithm
 )
 
 # Summary
@@ -737,29 +761,96 @@ mos$result_plot_summ
 
 ```
 
-### Results an indivual level
 
-The identified plants are displayed on the map, color-coded by their mean NGRDI (Normalized Green-Red Difference Index) values. This visualization highlights plant distribution and relative health across the field, making it easier to identify variations in vegetation index values and assess plant vigor.
+The identified plants are displayed on the map, color-coded by their mean NGRDI (Normalized Green-Red Difference Index) values. Thias visualization highlights plant distribution and relative health across the field, making it easier to identify variations in vegetation index values and assess plant vigor.
 
 
 ```{r}
-mos$map_indiv
+bm +
+  shapefile_view(mos$result_indiv[-1, ],
+                 attribute = "diam_mean",
+                 alpha.regions = 0.6)
 
 ```
 
 The results show that the CHM-based segmentation method effectively isolates plants from the soil, providing accurate plant identification and measurements. This approach offers a simple yet powerful alternative to threshold-based methods, demonstrating the value of leveraging 3D information to enhance plant segmentation in orthomosaics.
 
-Below, we explore the individual plant data to gain deeper insights into plant health across the field. 
+Below, we explore the individual plant data to gain deeper insights into plant health across the field.
 
 ```{r}
-coords <- shapefile_measures(mos$result_indiv)
-model <- shapefile_interpolate(coords, z = "mean.NGRDI", interpolation  ="Tps")
-shapefile_surface(model)
+coords <- shapefile_measures(mos$result_indiv[-1, ])
+model <- shapefile_interpolate(coords, z = "mean.NGRDI")
+mosaic_plot_rgb(mosaic)
 
+```
+
+
+
+### Vectorizing field masks
+
+In this section, we use another orthomosaic from citrus field provided by [Lucas Côrredo-UFV](https://daa.ufv.br/lucas-de-paula-corredo/). This dataset includes both RGB and multispectral indices, as well as a mask derived from the digital surface model, enhancing our ability to differentiate features in the field.
+
+
+```{r}
+url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/multispec/"
+rgb <- mosaic_input(paste0(url, "citrus_rgb.tif"), info = FALSE)
+mes <- mosaic_input(paste0(url, "citrus_ms.tif"), info = FALSE)
+mask <- mosaic_input(paste0(url, "citrus_mask.tif"), info = FALSE)
+
+mosaic_plot_rgb(rgb)
+mosaic_plot(mask)
+
+
+```
+
+
+In this section, we take a different approach from the previous example, using the mask file to create an sf object that allows vegetation index extraction at the individual level. Specifically, we will vectorize the raster mask using the `mosaic_vectorize()` function.
+
+The `mosaic_vectorize()` function converts a raster mask (`SpatRaster` object) into a vectorized `sf` object, with customizable options for morphological operations and filtering to enhance object detection and segmentation. The function includes an option for watershed segmentation, which, if enabled, applies watershed-based segmentation to distinguish touching objects, like the needed in this case.
+
+Morphological operations (`opening`, `closing`, `filter`, `erode`, `dilate`) allow further customization, helping to refine the mask by removing noise, filling small gaps, or smoothing object edges. The `lower_size` and `upper_size` arguments allow size-based filtering, while `topn_lower` and `topn_upper` select objects based on their area.
+
+Through these settings, `mosaic_vectorize()` enables  vectorization tailored to individual vegetation elements, optimizing extraction of vegetation indices at the plant level. Let's vectorize the binary mask using `filter = 10` to remove some noises and `erode = 10` to erode 10 pixels from the edges of each object to avoid edge effects
+
+
+```{r}
+bm <- mosaic_view(rgb,
+                  r = 1, g = 2, b = 3,
+                  max_pixels = 5e6)
+
+# Vectorize the shapefile
+shp <- mosaic_vectorize(mask, 
+                        filter = 10,
+                        erode = 15)
+bm + shapefile_view(shp)
+
+
+```
+
+
+With the shapefile representing individual plants, we can now extract vegetation indices at the plant level. Instead of applying `mosaic_analyze()`, we’ll use `mosaic_index()` to compute specific multispectral indices.
+
+```{r}
+
+vind <-
+  mosaic_index(mes,
+               index = c("RDVI", "NDVI"),
+               b = 1,
+               r = 2,
+               nir = 3,
+               re = 4)
+
+results <- mosaic_extract(vind, shp)
+
+# overlay the shapefile to the basemap
+bm + shapefile_view(
+  results,
+  attribute = "median.NDVI"
+)
 ```
 
 
 
 ## Similar tools
 
-This material will focus on the {pliman} R packages. However, this is not the only tool available for high-throughput phenotyping (HTP) in R. I highly recommend exploring the pioneering R package [FIELDimageR](https://github.com/OpenDroneMap/FIELDimageR), as well as its complementary extensions [FIELDimageR-Extra](https://github.com/filipematias23/FIELDimageR.Extra) and [FIELDimageR-QGIS](https://github.com/filipematias23/FIELDimageR-QGIS), which offer additional functionalities for enhanced HTP analysis.
+This material is focused on the {pliman} R packages. However, this is not the only tool available for high-throughput phenotyping (HTP) in R. I highly recommend exploring the pioneering R package [FIELDimageR](https://github.com/OpenDroneMap/FIELDimageR), as well as its complementary extensions [FIELDimageR-Extra](https://github.com/filipematias23/FIELDimageR.Extra), and [FIELDimageR-QGIS](https://github.com/filipematias23/FIELDimageR-QGIS), which offer additional functionalities for enhanced HTP analysis for non-R users.

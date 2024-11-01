@@ -32,6 +32,10 @@ mosaic_analyze(
   segment_individuals = FALSE,
   segment_pick = FALSE,
   mask = NULL,
+  dsm = NULL,
+  dsm_lower = 0.2,
+  dsm_upper = NULL,
+  dsm_window_size = c(5, 5),
   simplify = FALSE,
   map_individuals = FALSE,
   map_direction = c("horizontal", "vertical"),
@@ -140,6 +144,20 @@ a watershed-based segmentation will be performed.}
 foreground using \code{\link[=mosaic_segment_pick]{mosaic_segment_pick()}}}
 
 \item{mask}{An optional mask (SpatRaster) to mask the mosaic.}
+
+\item{dsm}{A SpatRaster object representing the digital surface model. Must
+be a single-layer raster. If a DSM is informed, a mask will be derived from
+it using \code{\link[=mosaic_chm_mask]{mosaic_chm_mask()}}.}
+
+\item{dsm_lower}{A numeric value specifying the lower height threshold. All
+heights greater than this value are retained.}
+
+\item{dsm_upper}{An optional numeric value specifying the upper height
+threshold. If provided, only heights between lower and upper are retained.}
+
+\item{dsm_window_size}{An integer (meters) specifying the window size (rows
+and columns, respectively) for creating a DTM using a moving window.
+Default is c(5, 5).}
 
 \item{simplify}{Removes vertices in polygons to form simpler shapes. The
 function implementation uses the Douglas–Peucker algorithm using
