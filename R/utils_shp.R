@@ -450,6 +450,7 @@ image_align <- function(img,
                         align = c("vertical", "horizontal"),
                         viewer = get_pliman_viewer(),
                         plot = TRUE){
+  check_ebi()
   alignopt <- c("vertical", "horizontal")
   alignopt <- alignopt[pmatch(align[1], alignopt)]
   vieweropt <- c("base", "mapview")

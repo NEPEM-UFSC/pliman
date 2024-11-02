@@ -20,6 +20,7 @@
 watershed2 <- function(binary,
                        dist_thresh = 0.75,
                        plot = TRUE){
+  check_ebi()
   dt <- help_dist_transform(1 - binary)
   sure_fg <- dt > dist_thresh * max(dt)
   markers <- EBImage::bwlabel(sure_fg)
