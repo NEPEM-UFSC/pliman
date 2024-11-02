@@ -30,7 +30,3 @@ platform-specific file selection mechanisms.
 \seealso{
 \code{\link[=image_import]{image_import()}}
 }
-\keyword{file}
-\keyword{import}
-\keyword{interactive}
-\keyword{windows}
