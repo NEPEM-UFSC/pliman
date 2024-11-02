@@ -30,8 +30,7 @@ Imports:
     purrr,
     Rcpp,
     sf,
-    terra,
-    tidyr
+    terra
 Suggests: 
     BiocManager,
     curl,
@@ -44,7 +43,8 @@ Suggests:
     mapview (>= 2.11.0),
     pak,
     rmarkdown,
-    rstudioapi
+    rstudioapi,
+    tidyr
 LinkingTo: 
     Rcpp,
     RcppArmadillo

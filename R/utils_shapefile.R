@@ -556,7 +556,7 @@ shapefile_input <- function(shapefile,
                             ...) {
   # Check if shapefile is a URL and download it
   if (is.character(shapefile) && grepl("^http", shapefile)) {
-    check_pkg("curl")
+    check_and_install_package("curl")
     temp_shapefile <- tempfile(fileext = ".rds")
     curl::curl_download(shapefile, temp_shapefile)
     shapefile <- temp_shapefile
@@ -582,9 +582,9 @@ shapefile_input <- function(shapefile,
 
   if(inherits(shapefile, "list")){
     shapes <- do.call(rbind, lapply(shapefile, function(x){x}))
-    create_shp(shapes, info, as_sf, ...)
+    create_shp(shapes, info, as_sf, ...) |> add_missing_columns()
   } else{
-    create_shp(shapefile, info, as_sf, ...)
+    create_shp(shapefile, info, as_sf, ...) |> add_missing_columns()
   }
 }
 #' @name utils_shapefile
@@ -735,7 +735,7 @@ shapefile_edit <- function(shapefile,
 #'
 
 shapefile_measures <- function(shapefile) {
-  check_pkg("lwgeom")
+  check_and_install_package("lwgeom")
   if (inherits(shapefile, "list")) {
     shapefile <- shapefile_input(shapefile, info = FALSE)
   }
