@@ -314,6 +314,7 @@ image_input <- function(img, ...){
 #' @export
 #' @name utils_image
 image_pliman <- function(img, plot = FALSE){
+  check_ebi()
   path <- system.file("tmp_images", package = "pliman")
   files <- list.files(path)
   if(!missing(img)){
