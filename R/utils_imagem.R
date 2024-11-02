@@ -352,22 +352,27 @@ image_pliman <- function(img, plot = FALSE){
 #'
 #' @export
 #'
-#' @importFrom utils choose.files Filters
+#' @importFrom utils choose.files
 #'
 #' @keywords file import windows interactive
 image_import_inter <- function(){
   if(interactive()){
     if(.Platform$OS.type == "windows"){
+      filters <- matrix(c("PNG Files", "*.png", "JPEG Files", "*.jpeg;*.jpg"),
+                        ncol = 2, byrow = TRUE,
+                        dimnames = list(NULL, c("Description", "Extension")))
+
       files <- choose.files(caption = "Select image(s) to import",
-                            filters = Filters[c("png", "jpeg", "jpeg"),])
+                            filters = filters)
       return(image_import(files))
     } else{
-      warning("'image_import_inter() only works on a Windows OS.")
+      warning("'image_import_inter()' only works on a Windows OS.")
     }
   } else{
-    warning("An interactive session is needed to run 'image_import_inter()' ")
+    warning("An interactive session is needed to run 'image_import_inter()'")
   }
 }
+
 
 
 
