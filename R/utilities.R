@@ -808,14 +808,13 @@ compute_outsize <- function(pct) {
 
 add_missing_columns <- function(data) {
   if(inherits(data, "data.frame")){
-    data <-
-      data  |>
+    data <- data %>%
       mutate(
-        unique_id = ifelse("unique_id" %in% names(data), unique_id, dplyr::row_number()),
-        block = ifelse("block" %in% names(data), block, "B01"),
-        plot_id = ifelse("plot_id" %in% names(data), plot_id, "P0001"),
-        row = ifelse("row" %in% names(data), row, 1),
-        column = ifelse("column" %in% names(data), column, 1),
+        unique_id = if (!"unique_id" %in% names(data)) dplyr::row_number() else unique_id,
+        block = if (!"block" %in% names(data)) "B01" else block,
+        plot_id = if (!"plot_id" %in% names(data)) paste0("P", leading_zeros(unique_id, 4)) else plot_id,
+        row = if (!"row" %in% names(data)) 1 else row,
+        column = if (!"column" %in% names(data)) 1 else column,
         .before = 1
       )
   }
