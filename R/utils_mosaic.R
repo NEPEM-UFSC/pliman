@@ -1259,6 +1259,7 @@ mosaic_analyze <- function(mosaic,
       }
     }
     if(is.null(summarize_fun)){
+      check_and_install_package("tidyr")
       dfplot <-
         dfplot |>
         sf::st_drop_geometry() |>

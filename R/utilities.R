@@ -461,13 +461,13 @@ progress <- function(min = 0,
                      time = Sys.time()){
   # Adapted from https://stackoverflow.com/a/26920123/15245107
   invisible(list(min = min,
-              max = max,
-              leftd = leftd,
-              rightd = rightd,
-              char = char,
-              style = style,
-              width = width,
-              time = time))
+                 max = max,
+                 leftd = leftd,
+                 rightd = rightd,
+                 char = char,
+                 style = style,
+                 width = width,
+                 time = time))
 }
 run_progress <- function(pb,
                          actual,
@@ -522,38 +522,6 @@ check_ebi <- function(){
       } else{
         message("To use {pliman}, first install {EBImage} following the directions at 'https://bioconductor.org/packages/EBImage'")
       }
-    }
-  }
-}
-check_pkg <- function(pkg){
-  if (!requireNamespace(pkg, quietly = TRUE)) {
-    if (interactive()) {
-      inst <- switch(
-        menu(c("Yes", "No"), title = paste0("Package ", pkg, " is needed but is not available. Do you want to install it now?")),
-        1, 2
-      )
-      if (inst == 1) {
-        if (!requireNamespace("pak", quietly = TRUE)) {
-          message("Installing the 'pak' package for improved package installation...")
-          tryCatch(
-            install.packages("pak", quiet = TRUE),
-            error = function(e) {
-              stop("Failed to install 'pak'. Please install it manually.")
-            }
-          )
-        }
-        tryCatch(
-          pak::pak(pkg),
-          error = function(e) {
-            stop(paste0("Failed to install the package '", pkg, "'. Please try installing it manually."))
-          }
-        )
-        message(paste0("Package '", pkg, "' has been successfully installed."))
-      } else {
-        message("Package installation skipped. Nothing done.")
-      }
-    } else {
-      stop(paste0("Package '", pkg, "' is needed but is not available. Please install it manually."))
     }
   }
 }
@@ -836,6 +804,22 @@ compute_outsize <- function(pct) {
     outsize[i] <- paste0(pct[[i]], "%")
   }
   return(outsize)
+}
+
+add_missing_columns <- function(data) {
+  if(inherits(data, "data.frame")){
+    data <-
+      data  |>
+      mutate(
+        unique_id = ifelse("unique_id" %in% names(data), unique_id, dplyr::row_number()),
+        block = ifelse("block" %in% names(data), block, "B01"),
+        plot_id = ifelse("plot_id" %in% names(data), plot_id, "P0001"),
+        row = ifelse("row" %in% names(data), row, 1),
+        column = ifelse("column" %in% names(data), column, 1),
+        .before = 1
+      )
+  }
+  return(data)
 }
 
 check_and_install_package <- function(pkg, reason = NULL) {
