@@ -351,10 +351,6 @@ image_pliman <- function(img, plot = FALSE){
 #'
 #'
 #' @export
-#'
-#' @importFrom utils choose.files
-#'
-#' @keywords file import windows interactive
 image_import_inter <- function(){
   if(interactive()){
     if(.Platform$OS.type == "windows"){
@@ -366,7 +362,10 @@ image_import_inter <- function(){
                             filters = filters)
       return(image_import(files))
     } else{
-      warning("'image_import_inter()' only works on a Windows OS.")
+      # For non-Windows systems, we can use file.choose() or another alternative
+      message("Please select the image(s) to import.")
+      files <- file.choose() # For single file selection. Use alternatives for multiple files.
+      return(image_import(files))
     }
   } else{
     warning("An interactive session is needed to run 'image_import_inter()'")
