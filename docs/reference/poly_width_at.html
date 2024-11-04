@@ -135,16 +135,18 @@ points below the specified heights for that single polygon.</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="va">cont</span> <span class="op">&lt;-</span> <span class="va">contours</span><span class="op">[[</span><span class="fl">2</span><span class="op">]</span><span class="op">]</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+<span class="r-in"><span><span class="va">cont</span> <span class="op">&lt;-</span> <span class="va">contours</span><span class="op">[[</span><span class="fl">2</span><span class="op">]</span><span class="op">]</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_polygon</a></span><span class="op">(</span><span class="va">cont</span> <span class="op">|&gt;</span> <span class="fu"><a href="utils_polygon.html">conv_hull</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="utils_polygon.html">poly_align</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="poly_width_at-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="co">#  width below 5th, 25th, 50th, 75th, and 95th percentiles of the length</span></span></span>
 <span class="r-in"><span><span class="va">wd</span> <span class="op">&lt;-</span> <span class="fu">poly_width_at</span><span class="op">(</span><span class="va">cont</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">wd</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1]  87 356 386 268  93</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># width along the height</span></span></span>
 <span class="r-in"><span><span class="fu">poly_width_at</span><span class="op">(</span><span class="va">cont</span>, at <span class="op">=</span> <span class="st">"height"</span>, plot <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-plt img"><img src="poly_width_at-1.png" alt="" width="700" height="433"></span>
 <span class="r-plt img"><img src="poly_width_at-2.png" alt="" width="700" height="433"></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>    [1]   2   7  10  11  12  13  15  17  17  19  20  21  23  24  25  26  28  28</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>   [19]  30  32  32  34  35  36  37  39  41  41  43  44  45  46  48  49  50  52</span>
@@ -201,24 +203,8 @@ points below the specified heights for that single polygon.</p>
 <span class="r-out co"><span class="r-pr">#&gt;</span>  [937] 283 282 282 281 280 280 280 280 279 278 278 277 277 277 275 275 275 275</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>  [955] 274 273 273 272 272 272 271 270 270 270 269 268 268 267 267 267 267 265</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>  [973] 265 265 264 264 263 262 262 262 262 260 260 260 259 259 258 258 257 257</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [991] 257 255 255 255 254 253 253 253 252 252 251 250 250 250 248 248 248 248</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1009] 247 246 246 245 245 244 244 243 243 242 241 241 241 239 239 239 239 237</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1027] 237 237 235 235 235 234 233 233 233 231 231 231 230 229 229 228 227 227</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1045] 227 226 225 225 224 224 223 222 222 221 220 220 219 218 218 218 216 216</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1063] 215 214 214 213 213 212 211 211 209 209 209 208 207 206 206 205 204 204</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1081] 203 202 202 201 200 199 199 199 197 197 196 195 195 194 194 192 192 192</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1099] 190 190 189 189 188 187 187 185 185 185 184 183 182 182 181 180 180 179</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1117] 178 178 177 176 175 175 175 173 173 172 171 170 170 169 168 168 166 166</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1135] 166 164 164 162 162 162 160 160 159 158 158 157 156 155 155 154 153 152</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1153] 151 151 150 149 149 147 147 146 145 145 144 143 142 141 140 140 139 138</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1171] 138 136 136 135 134 133 133 132 131 130 129 129 127 127 126 125 125 124</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1189] 123 122 122 120 120 118 118 118 116 116 115 114 113 113 112 111 111 109</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1207] 109 107 107 106 105 104 104 103 102 102 100 100  99  98  97  96  95  95</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1225]  93  93  92  91  90  89  88  87  87  85  85  83  83  82  81  80  80  78</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1243]  78  77  76  75  74  73  72  72  70  70  68  68  67  65  64  64  62  61</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1261]  61  59  58  56  56  55  53  53  51  50  48  48  46  44  44  42  40  39</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1279]  38  37  35  34  33  31  29  29  26  14</span>
-<span class="r-in"><span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [991] 257 255 255 255 254 253 253 253 252 252</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [ reached getOption("max.print") -- omitted 288 entries ]</span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

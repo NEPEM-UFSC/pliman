@@ -1083,6 +1083,7 @@ plot_ellipse <- function(object,
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' cont <- contours[[2]]
 #' plot_polygon(cont |> conv_hull() |> poly_align())
 #' #  width below 5th, 25th, 50th, 75th, and 95th percentiles of the length
@@ -1092,11 +1093,13 @@ plot_ellipse <- function(object,
 #' # width along the height
 #' poly_width_at(cont, at = "height", plot = TRUE)
 #'
+#' }
 #'
 poly_width_at <- function(x,
                           at = c(0.05, 0.25, 0.5, 0.75, 0.95),
                           unify = FALSE,
                           plot = FALSE){
+  check_ebi()
   if(!is.numeric(at) && any(at != "height")){
     warning("`at` must be one of 'height' or a numeric vector in the range 0-1.")
   }
