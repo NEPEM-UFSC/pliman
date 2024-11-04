@@ -124,7 +124,7 @@ background. Then, a new image is created for each single object. A list of
 images is returned.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("la_leaves.jpg", plot = TRUE)
 imgs <- object_split(img) # set to NULL to use 50\% of the cores

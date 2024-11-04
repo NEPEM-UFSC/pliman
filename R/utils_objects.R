@@ -73,7 +73,7 @@
 #' object.
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' # Get the object's (leaves) identification
@@ -459,7 +459,7 @@ object_id <- function(img,
 #' @seealso [analyze_objects()], [image_binary()]
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' imgs <- object_split(img) # set to NULL to use 50% of the cores
@@ -568,7 +568,7 @@ object_split <- function(img,
 #'
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' imgs <- image_augment(img, type = "return", times = 4)
@@ -783,7 +783,7 @@ image_augment <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg")
 #' object_export(img,
@@ -1049,7 +1049,7 @@ object_export <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' # segment the objects using the "B" (blue) band (default)
@@ -1092,7 +1092,7 @@ object_rgb <- function(img, labels){
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' img2 <- object_to_color(img, index = "G-R")

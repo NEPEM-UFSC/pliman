@@ -18,7 +18,7 @@ package, determines which bands are used in each index equation, and checks
 which indexes can be computed based on the provided available bands.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 available_bands <- c("R", "G")
 computable_indexes <- pliman_indexes_ican_compute(available_bands)

@@ -21,7 +21,7 @@ A \code{NULL} object
 Create a histogram of the values of a \code{SpatRaster}.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 mosaic_hist(r)

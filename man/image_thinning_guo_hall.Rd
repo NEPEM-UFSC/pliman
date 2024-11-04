@@ -43,7 +43,7 @@ This function performs the Guo-Hall thinning algorithm (Guo and Hall, 1989)
 on a binary image or a list of binary images.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("potato_leaves.jpg", plot = TRUE)
 image_thinning_guo_hall(img, index = "R", plot = TRUE)

@@ -51,7 +51,7 @@ polygons and unify = TRUE, the function returns a vector of the number of
 points below the specified heights for that single polygon.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 cont <- contours[[2]]
 plot_polygon(cont |> conv_hull() |> poly_align())
 #  width below 5th, 25th, 50th, 75th, and 95th percentiles of the length

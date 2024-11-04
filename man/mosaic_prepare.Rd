@@ -75,7 +75,7 @@ The resulting object is an object of class \code{Image} that can be further
 analyzed.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 mosaic_prepare(mosaic)

@@ -116,7 +116,7 @@ statistic for each object.
 }
 \examples{
 
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 # Load a raster showing the elevation of Luxembourg
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))

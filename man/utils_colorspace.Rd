@@ -47,7 +47,7 @@ details.
 }
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 rgb_to_lab(img)

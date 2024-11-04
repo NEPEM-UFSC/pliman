@@ -29,7 +29,7 @@ A \code{NULL} object
 Plot the values of a SpatRaster
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 mosaic_plot(r)

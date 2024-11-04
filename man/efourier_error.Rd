@@ -51,7 +51,7 @@ addition of successive contributing harmonics indicated in the argument
 \code{nharm}.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 ef <-
   contours[[1]] |>

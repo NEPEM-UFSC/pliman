@@ -63,7 +63,7 @@ interest in the plot space. Then, given \code{nrow} and \code{ncol}, a grid is d
 and the objects' coordinates are returned.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg")
 shape <- image_shp(flax, nrow = 3, ncol = 5)

@@ -44,7 +44,7 @@ can be used for image analysis in \code{pliman}. Note that if a large
 memory usage.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 # Convert a mosaic raster to an Image object
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))

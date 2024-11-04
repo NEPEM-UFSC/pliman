@@ -47,7 +47,7 @@ Computes Elliptical Fourier Analysis of closed outlines based on \code{x} and
 Adapted from Claude (2008). pp. 222-223.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 leaf1 <- contours[[4]]
 plot_polygon(leaf1)

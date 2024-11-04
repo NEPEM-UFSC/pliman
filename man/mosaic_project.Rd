@@ -21,7 +21,7 @@ A raster object representing the projected mosaic.
 This function projects a given mosaic to a specified CRS.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(terra)
 library(pliman)
 

@@ -67,7 +67,7 @@ background)
 Segments image objects using clustering by the k-means clustering algorithm
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 img <- image_pliman("la_leaves.jpg", plot = TRUE)
 seg <- image_segment_kmeans(img)
 seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)

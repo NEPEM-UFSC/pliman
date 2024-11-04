@@ -91,7 +91,7 @@ number of sections is set up to 30\% of available cores.}
 to the RGB values.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 pal <- image_palette(img, npal = 5)

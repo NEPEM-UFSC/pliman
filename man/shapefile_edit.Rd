@@ -40,7 +40,7 @@ This function allows you to interactively edit features in a shapefile using
 the mapedit package.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 shp <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 edited <- shapefile_edit(shp)

@@ -59,7 +59,7 @@ Fourier
 Adapted from Claude (2008). pp. 223.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 # approximation of the third leaf's perimeter
 # 4 harmonics

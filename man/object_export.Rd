@@ -161,7 +161,7 @@ processing is performed by declaring a file name pattern that matches the
 images within the working directory.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("potato_leaves.jpg")
 object_export(img,

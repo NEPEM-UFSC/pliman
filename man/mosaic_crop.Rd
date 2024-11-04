@@ -68,7 +68,7 @@ from the input mosaic and returned as a new \code{SpatRaster} object. If
 \code{shapefile}.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 # Load a raster showing the elevation of Luxembourg
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))

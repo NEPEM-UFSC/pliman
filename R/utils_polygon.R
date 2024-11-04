@@ -180,7 +180,7 @@
 
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' # A 2 x 2 square
 #' df <- draw_square(side = 2)
@@ -1083,7 +1083,7 @@ plot_ellipse <- function(object,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' cont <- contours[[2]]
 #' plot_polygon(cont |> conv_hull() |> poly_align())
 #' #  width below 5th, 25th, 50th, 75th, and 95th percentiles of the length
@@ -1172,7 +1172,7 @@ poly_width_at <- function(x,
 #' the median pixel index, and the maximum pixel index.
 #' @importFrom stats median
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' leaf <- image_pliman("sev_leaf.jpg")
 #' bin <- image_binary(leaf, "NB")[[1]]
@@ -1235,7 +1235,7 @@ pixel_index <- function(bin,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' # a matrix of coordinates
 #' angls <- poly_apex_base_angle(contours[[2]])
@@ -1333,7 +1333,7 @@ poly_apex_base_angle <- function(x,
 #'   complexity values for each polygon.
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' set.seed(20)
 #' shp <- efourier_shape(npoints = 1000)

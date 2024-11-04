@@ -95,7 +95,7 @@ an image index that can be either an RGB-based index or a multispectral
 index, if a multispectral mosaic is provided.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 # Load a raster showing the elevation of Luxembourg
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))

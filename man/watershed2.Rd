@@ -23,7 +23,7 @@ objects, since it doesn't consider both 'extension' and 'tolerance' arguments
 of \code{\link[EBImage:watershed]{EBImage::watershed()}}.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 binary <- image_binary(img, "B")[[1]]

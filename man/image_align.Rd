@@ -52,7 +52,7 @@ rotated accordingly using the \code{image_rotate} function. The function returns
 the aligned image object.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 aligned <- image_align(flax)

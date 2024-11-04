@@ -320,7 +320,7 @@ This makes the inclusion ambiguous (i.e., an object can be included in more
 than one plot).
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 url <- "https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"
 mosaic <- mosaic_input(url)

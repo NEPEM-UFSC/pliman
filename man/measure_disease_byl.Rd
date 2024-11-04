@@ -181,7 +181,7 @@ with \code{\link[=object_split]{object_split()}} and then, \code{\link[=measure_
 leaves.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 sev <-

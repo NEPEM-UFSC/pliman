@@ -30,7 +30,7 @@
 #' @return An `sf` object, the same object returned by [mapedit::editMap()].
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' # Example usage:
 #' img <- image_pliman("sev_leaf.jpg")
 #' image_view(img)
@@ -277,7 +277,7 @@ custom_palette <- function(colors = c("yellow", "#53CC67", "#009B95", "#00588B",
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' # Example usage:
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
@@ -524,7 +524,7 @@ plot_index <- function(img = NULL,
 #'
 #' @examples
 #' # Example usage:
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' img <- image_pliman("mult_leaves.jpg")
 #' image_prepare(img, viewer = "mapview")
 #'}

@@ -111,7 +111,7 @@ current plot. The object identification (\code{"id"}) is drawn by default.
 }
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("objects_300dpi.jpg")
 plot(img)

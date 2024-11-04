@@ -37,7 +37,7 @@
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' sev <-
 #' measure_disease(pattern = "sev_leaf",

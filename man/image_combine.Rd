@@ -36,7 +36,7 @@ A grid with the images in \code{...}
 Combines several images to a grid
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img1 <- image_pliman("sev_leaf.jpg")
 img2 <- image_pliman("sev_leaf_nb.jpg")

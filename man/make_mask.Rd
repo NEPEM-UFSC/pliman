@@ -32,7 +32,7 @@ arguments.  The size of the brush must be smaller or equal to the smaller
 dimension of \code{image}.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 img <- image_pliman("soybean_touch.jpg")
 make_mask(img, brush = make_brush(size = 201))
 make_mask(img,

@@ -12,7 +12,7 @@
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' binary <- image_binary(img, "B")[[1]]
@@ -47,7 +47,7 @@ watershed2 <- function(binary,
 #'   to the nearest background points
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' binary <- image_binary(img, "B")[[1]]
@@ -72,7 +72,7 @@ dist_transform <- function(binary){
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' img <- image_pliman("soybean_touch.jpg")
 #' # segment the objects using the "B" (blue) band.
 #' object_label(img, index = "B")
@@ -182,7 +182,7 @@ object_label <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' img <- image_pliman("soybean_touch.jpg")
 #' thresh <- otsu(img@.Data[,,3])
 #' plot(img[,,3] < thresh)

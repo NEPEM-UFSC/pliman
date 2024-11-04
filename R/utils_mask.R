@@ -14,7 +14,7 @@
 #' @importFrom graphics image
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' make_brush(size = 51) |> image()
 #' make_brush(size = 51, shape = "diamond") |> image()
 #' }
@@ -53,7 +53,7 @@ make_brush <- function(size,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' img <- image_pliman("soybean_touch.jpg")
 #' make_mask(img, brush = make_brush(size = 201))
 #' make_mask(img,
@@ -113,7 +113,7 @@ make_mask <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' img <- image_pliman("soybean_touch.jpg")
 #' plot(img)
 #' image_segment_mask(img, size = 601)

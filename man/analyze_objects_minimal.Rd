@@ -289,7 +289,7 @@ are recognized.}
 A lighter option to \code{\link[=analyze_objects]{analyze_objects()}}
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
@@ -297,7 +297,7 @@ obj$statistics
 
 }
 
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")
