@@ -16,7 +16,7 @@ object_mark(object, col = "white")
 Marks the coordinates of objects in an \code{anal_obj} object on a plot.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 res <-

@@ -47,7 +47,7 @@ PCV provides a relative measure of complexity by considering both the
 magnitude and spread of the variations in the contour shape after smoothing.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 set.seed(20)
 shp <- efourier_shape(npoints = 1000)

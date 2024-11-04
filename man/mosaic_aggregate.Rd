@@ -31,7 +31,7 @@ Aggregate a SpatRaster to create a new SpatRaster with a lower resolution
 https://gdal.org/programs/gdal_translate.html
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 library(terra)
 r <- rast()

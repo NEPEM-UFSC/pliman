@@ -36,7 +36,7 @@
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #'library(pliman)
 #'img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 #'sev <-

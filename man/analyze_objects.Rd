@@ -645,7 +645,7 @@ be adjusted with the \code{width_at_percentiles} argument.
 }
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
@@ -678,7 +678,7 @@ res <-
                   lower_noise = 0.3)
 }
 
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")

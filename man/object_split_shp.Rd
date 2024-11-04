@@ -57,7 +57,7 @@ number of rows and columns. Then, using the object coordinates, a list of
 \code{Image} objects is created.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 objects <- object_split_shp(flax, nrow = 3, ncol = 5)

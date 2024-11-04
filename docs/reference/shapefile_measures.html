@@ -108,13 +108,51 @@ The width and height are derived from sequential distances between points.</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span> <span class="op">&amp;&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"EBImage"</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">path_shp</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"/soy_shape.rds"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">shp</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_shapefile.html">shapefile_input</a></span><span class="op">(</span><span class="va">path_shp</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">shapefile_measures</span><span class="op">(</span><span class="va">shp</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  class       : SpatVector </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  geometry    : polygons </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  dimensions  : 15, 5  (geometries, attributes)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  extent      : 734337.5, 734348.6, 4489013, 4489017  (xmin, xmax, ymin, ymax)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  coord. ref. : WGS 72BE / UTM zone 14N (EPSG:32414) </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  names       : unique_id block plot_id   row column</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  type        :     &lt;int&gt; &lt;chr&gt;   &lt;chr&gt; &lt;int&gt;  &lt;int&gt;</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  values      :         1   B01   P0001     1      1</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>                        2   B01   P0006     2      1</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>                        3   B01   P0007     3      1</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Simple feature collection with 15 features and 11 fields</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Geometry type: POLYGON</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Dimension:     XY</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Bounding box:  xmin: 734337.5 ymin: 4489013 xmax: 734348.6 ymax: 4489017</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Projected CRS: WGS 72BE / UTM zone 14N</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> First 10 features:</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>    unique_id block plot_id row column   xcoord  ycoord     area perimeter width height</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1          1   B01   P0001   1      1 734339.3 4489016 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 2          2   B01   P0006   2      1 734339.4 4489016 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 3          3   B01   P0007   3      1 734339.4 4489015 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 4          4   B01   P0012   4      1 734339.4 4489014 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 5          5   B01   P0013   5      1 734339.5 4489013 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 6          6   B01   P0002   1      2 734343.0 4489016 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 7          7   B01   P0005   2      2 734343.0 4489016 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 8          8   B01   P0008   3      2 734343.1 4489015 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 9          9   B01   P0011   4      2 734343.1 4489014 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 10        10   B01   P0014   5      2 734343.1 4489013 2.885558  8.895713 3.659  0.789</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>                          geometry</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 1  POLYGON ((734337.5 4489017,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 2  POLYGON ((734337.5 4489016,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 3  POLYGON ((734337.6 4489015,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 4  POLYGON ((734337.6 4489014,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 5  POLYGON ((734337.6 4489014,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 6  POLYGON ((734341.2 4489017,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 7  POLYGON ((734341.2 4489016,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 8  POLYGON ((734341.2 4489015,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 9  POLYGON ((734341.3 4489014,...</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 10 POLYGON ((734341.3 4489014,...</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>

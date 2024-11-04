@@ -33,7 +33,7 @@ is displayed, but this behavior can be controlled using the \code{plot}
 parameter.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 
 library(pliman)
 # Convert a mosaic raster to an RGB image and display it

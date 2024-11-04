@@ -194,7 +194,7 @@
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("sev_leaf_nb.jpg")
 #' healthy <- image_pliman("sev_healthy.jpg")

@@ -35,7 +35,7 @@ number of decimal places (default 2).
 }
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 iris2 <- iris |> rownames_to_column()
 head(iris2)

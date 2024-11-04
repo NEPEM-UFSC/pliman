@@ -95,12 +95,25 @@ which indexes can be computed based on the provided available bands.</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span> <span class="op">&amp;&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"EBImage"</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">available_bands</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"R"</span>, <span class="st">"G"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">computable_indexes</span> <span class="op">&lt;-</span> <span class="fu">pliman_indexes_ican_compute</span><span class="op">(</span><span class="va">available_bands</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">computable_indexes</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     Index                  Equation  Band</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 53    VIG               (G-R)/(G+R) MULTI</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 65   ERVI              ((1.4*R)- G)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 66      G                         G   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 71     GR                     G / R   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 79  MGVRI       (G^2-R^2)/(G^2+R^2)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 83  NGRDI               (G-R)/(G+R)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 85      R                         R   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 89   SAVI (1 + 0.5)*(G-R)/(G+R+0.5)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 90    SCI         (R - G) / (R + G)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 97  GRVI2               (G-R)/(G+R)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 100   NDI 128*((G - R)/(G + R) + 1)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 103   PRI                       R/G   RGB</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

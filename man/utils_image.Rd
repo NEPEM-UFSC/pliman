@@ -96,7 +96,7 @@ Import images from files and URLs and write images to files, possibly with
 batch processing.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 folder <- image_pliman()
 full_path <- paste0(folder, "/sev_leaf.jpg")

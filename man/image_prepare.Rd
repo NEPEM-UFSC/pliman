@@ -41,7 +41,7 @@ visualization. This is useful to prepare the images to be analyzed with
 }
 \examples{
 # Example usage:
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 img <- image_pliman("mult_leaves.jpg")
 image_prepare(img, viewer = "mapview")
 }

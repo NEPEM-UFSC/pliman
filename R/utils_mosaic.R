@@ -342,7 +342,7 @@ mosaic_interpolate <- function(mosaic, points, method = c("bilinear", "loess", "
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' url <- "https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"
 #' mosaic <- mosaic_input(url)
@@ -1570,7 +1570,7 @@ mosaic_analyze_iter <- function(mosaic,
 #'   bind_rows contains ends_with everything between where select filter
 #'   relocate rename
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' # Load a raster showing the elevation of Luxembourg
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -1809,7 +1809,7 @@ mosaic_view <- function(mosaic,
 #' * `mosaic_export()` do not return an object.
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'
 #' # create an SpatRaster object based on a matrix
@@ -1940,7 +1940,7 @@ mosaic_export <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' library(terra)
 #' r <- rast(nrows=3, ncols=3, xmin=0, xmax=10, ymin=0, ymax=10)
@@ -1979,7 +1979,7 @@ mosaic_resample <- function(mosaic, y, ...){
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' library(terra)
 #' r <- rast()
@@ -2044,7 +2044,7 @@ mosaic_aggregate <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_plot(r)
@@ -2075,7 +2075,7 @@ mosaic_plot <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_hist(r)
@@ -2134,7 +2134,7 @@ mosaic_plot_rgb <- function(mosaic, ...){
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' # Load a raster showing the elevation of Luxembourg
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -2225,7 +2225,7 @@ mosaic_crop <- function(mosaic,
 #'   indices. The resulting index layer is returned as an `SpatRaster` object.
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' names(mosaic)
@@ -2473,7 +2473,7 @@ mosaic_index2 <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' seg <-
@@ -2537,7 +2537,7 @@ mosaic_segment <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #'  mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #'  seg <- mosaic_segment_pick(mosaic)
 #'  mosaic_plot(seg)
@@ -2632,7 +2632,7 @@ mosaic_segment_pick <- function(mosaic,
 #'   memory usage.
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' # Convert a mosaic raster to an Image object
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -2687,7 +2687,7 @@ mosaic_to_pliman <- function(mosaic,
 #'
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #'
 #' library(pliman)
 #' # Convert a mosaic raster to an RGB image and display it
@@ -2740,7 +2740,7 @@ mosaic_to_rgb <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_prepare(mosaic)
@@ -2870,7 +2870,7 @@ mosaic_prepare <- function(mosaic,
 #' @export
 #' @examples
 #'
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' # Load a raster showing the elevation of Luxembourg
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -3521,7 +3521,7 @@ mosaic_chm_mask <- function(dsm,
 #'   constructed accordingly.
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' library(terra)
 #'
@@ -3563,7 +3563,7 @@ mosaic_epsg <- function(mosaic) {
 #' @return A raster object representing the projected mosaic.
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(terra)
 #' library(pliman)
 #'
@@ -3595,7 +3595,7 @@ mosaic_project <- function(mosaic, y, ...){
 #'   not in the lon/lat coordinate system, a warning is issued.
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(terra)
 #' library(pliman)
 #'
@@ -3662,7 +3662,7 @@ mosaic_extract <- function(mosaic,
 #'   with added area measurements.
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' mask <- image_pliman("mask.tif")
 #' shp <- mosaic_vectorize(mask, watershed = FALSE)

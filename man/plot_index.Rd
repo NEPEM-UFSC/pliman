@@ -80,7 +80,7 @@ None
 Plot an image index
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 # Example usage:
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")

@@ -115,7 +115,7 @@ number of connected objects in x. This is a wrapper to \link[EBImage:bwlabel]{EB
 \link[EBImage:watershed]{EBImage::watershed} (if \code{watershed = TRUE}).
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 img <- image_pliman("soybean_touch.jpg")
 # segment the objects using the "B" (blue) band.
 object_label(img, index = "B")

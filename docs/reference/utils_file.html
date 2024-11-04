@@ -198,7 +198,7 @@ attempted.</p></li>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span> <span class="op">&amp;&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"EBImage"</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="co"># get file name, directory and extension</span></span></span>
 <span class="r-in"><span><span class="va">file</span> <span class="op">&lt;-</span> <span class="st">"E:/my_folder/my_subfolder/image1.png"</span></span></span>
@@ -218,6 +218,44 @@ attempted.</p></li>
 <span class="r-in"><span>                overwrite <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">list.files</a></span><span class="op">(</span><span class="va">dir</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span>cannot create file 'C:\Users\tiago\AppData\Local\Temp\Rtmpu0MoqV\chang_test.c("tif", "aux", "xml")', reason 'Invalid argument'</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [1] "Rf62f4667779c2"                                                          </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [2] "chang_test.tif"                                                          </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [3] "chang_test.txt"                                                          </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [4] "data_stars62f419fb2489_fb8c50"                                           </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [5] "data_stars62f41e677f14_2f64b0"                                           </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [6] "data_stars62f4241374d2_6382d5"                                           </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [7] "data_stars62f42d307fe7_9fc3a4"                                           </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [8] "data_stars62f441123240_753db8"                                           </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [9] "downlit"                                                                 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [10] "downloaded_packages"                                                     </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [11] "file62f4444c27b1"                                                        </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [12] "file62f44d09386f"                                                        </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [13] "file62f46c885600"                                                        </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [14] "file62f478e54998"                                                        </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [15] "file62f47d029f3"                                                         </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [16] "foo.dll"                                                                 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [17] "foo.o"                                                                   </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [18] "git-commit-message-62f432e01ac5.txt"                                     </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [19] "libloc_181_c7e167d9.rds"                                                 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [20] "libloc_185_fc06ca9c.rds"                                                 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [21] "libloc_197_7764dce8.rds"                                                 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [22] "libloc_197_ac7c3ef3.rds"                                                 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [23] "pkgload62f436ff257"                                                      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [24] "pkgload62f4471366d"                                                      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [25] "pkgload62f465781156"                                                     </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [26] "pkgload62f47ec92f92"                                                     </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [27] "proc_sev_leaf.jpg"                                                       </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [28] "proc_sev_leaf_nb.jpg"                                                    </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [29] "repos_https%3A%2F%2Fcran.rstudio.com%2Fbin%2Fwindows%2Fcontrib%2F4.4.rds"</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [30] "repos_https%3A%2F%2Fcran.rstudio.com%2Fsrc%2Fcontrib.rds"                </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [31] "rs-graphics-3c45e660-992d-4263-a5b0-143a4bcc9f28"                        </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [32] "temp_libpath62f46be42b72"                                                </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [33] "test.tif"                                                                </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [34] "test.tif.aux.xml"                                                        </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [35] "test.txt"                                                                </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [36] "viewhtml62f420e7764e"                                                    </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [37] "viewhtml62f4f023804"                                                     </span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

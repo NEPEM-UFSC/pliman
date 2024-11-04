@@ -34,7 +34,7 @@
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
@@ -108,7 +108,7 @@ image_shp <- function(img,
 #' @importFrom grDevices dev.list
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
@@ -167,7 +167,7 @@ plot.image_shp <- function(x,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' objects <- object_split_shp(flax, nrow = 3, ncol = 5)
@@ -248,7 +248,7 @@ object_split_shp <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' object_export_shp(flax)
@@ -445,7 +445,7 @@ object_export_shp <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' aligned <- image_align(flax)
@@ -555,7 +555,7 @@ image_align <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'
 #' # Computes the DGCI index for each flax leaf
@@ -894,7 +894,7 @@ analyze_objects_shp <- function(img,
 #'
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 #' res <-
@@ -963,7 +963,7 @@ object_map <- function(object,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 #' res <-
@@ -1029,7 +1029,7 @@ plot_shp <- function(coords,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'
 #' # Computes the DGCI index for each flax leaf
@@ -1260,7 +1260,7 @@ plot_index_shp <- function(object,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' # severity for the three leaflets (from left to right)
 #' img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 #' sev <-

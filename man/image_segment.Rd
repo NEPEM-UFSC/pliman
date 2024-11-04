@@ -168,7 +168,7 @@ the proportions of segmented pixels.
 }
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg", plot = TRUE)
 image_segment(img, index = c("R, G, B"))

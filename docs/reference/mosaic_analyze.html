@@ -492,7 +492,7 @@ than one plot).</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span> <span class="op">&amp;&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"EBImage"</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">url</span> <span class="op">&lt;-</span> <span class="st">"https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"</span></span></span>
 <span class="r-in"><span><span class="va">mosaic</span> <span class="op">&lt;-</span> <span class="fu"><a href="mosaic_input.html">mosaic_input</a></span><span class="op">(</span><span class="va">url</span><span class="op">)</span></span></span>
@@ -509,6 +509,23 @@ than one plot).</p>
 <span class="r-in"><span><span class="co"># map with individual results</span></span></span>
 <span class="r-in"><span><span class="va">res</span><span class="op">$</span><span class="va">map_indiv</span></span></span>
 <span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> class       : SpatRaster </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> dimensions  : 1443, 4914, 3  (nrow, ncol, nlyr)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> resolution  : 0.005115345, 0.005105305  (x, y)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> extent      : 218283.8, 218308.9, 2658452, 2658459  (xmin, xmax, ymin, ymax)</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> coord. ref. : TWD97 / TM2 zone 121 (EPSG:3826) </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> source      : rice_ex.tif </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> names       : rice2_1, rice2_2, rice2_3 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> min values  :       0,       0,       0 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> max values  :     254,     254,     254 </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Building the mosaic...</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Using downsample = 2 so that the number of rendered pixels approximates the `max_pixels`</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Building the mosaic...</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> </span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> Listening on http://127.0.0.1:6534</span>
+<span class="r-err co"><span class="r-pr">#&gt;</span> <span class="error">Error in UseMethod("st_geometry"):</span> no applicable method for 'st_geometry' applied to an object of class "NULL"</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

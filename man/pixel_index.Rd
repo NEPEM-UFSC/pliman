@@ -28,7 +28,7 @@ the pixels in that row and creates an array containing the row index, the
 minimum pixel index, the median pixel index, and the maximum pixel index.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 leaf <- image_pliman("sev_leaf.jpg")
 bin <- image_binary(leaf, "NB")[[1]]

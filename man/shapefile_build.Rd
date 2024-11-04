@@ -126,7 +126,7 @@ same length as the number of drawn blocks. In the last, shapefiles in each
 block can be created with different dimensions.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 shps <-

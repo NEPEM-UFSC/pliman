@@ -62,7 +62,7 @@ a \code{SpatRaster} object to a file.
 }
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 
 # create an SpatRaster object based on a matrix

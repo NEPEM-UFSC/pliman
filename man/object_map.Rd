@@ -27,7 +27,7 @@ Computes distances between objects in an \code{anal_obj} object and returns a li
 of distances, coefficient of variation (CV), and means.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 res <-

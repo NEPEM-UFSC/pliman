@@ -187,7 +187,7 @@ Additionally, the shapefiles representing the analyzed objects are included
 in the output object for further analysis or visualization.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 
 # Computes the DGCI index for each flax leaf

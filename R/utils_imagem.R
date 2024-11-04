@@ -16,7 +16,7 @@
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A grid with the images in `...`
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img1 <- image_pliman("sev_leaf.jpg")
 #' img2 <- image_pliman("sev_leaf_nb.jpg")
@@ -125,7 +125,7 @@ image_combine <- function(...,
 #' required. If an empty call is used, the path to the `tmp_images` directory
 #' installed with the package is returned.
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' folder <- image_pliman()
 #' full_path <- paste0(folder, "/sev_leaf.jpg")
@@ -451,7 +451,7 @@ image_pliman <- function(img, plot = FALSE){
 #' `image_*()` function used.
 #' * If `image` is a list, a list of the same length will be returned.
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'img <- image_pliman("sev_leaf.jpg")
 #'plot(img)
@@ -1327,7 +1327,7 @@ image_thinning <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg", plot = TRUE)
 #' image_thinning_guo_hall(img, index = "R", plot = TRUE)
@@ -1554,7 +1554,7 @@ image_contrast <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' image_create("red")
 #' image_create("#009E73", width = 300, heigth = 100)
 #' }
@@ -1661,7 +1661,7 @@ image_create <- function(color,
 #'   of indexes used.
 #' @importFrom utils read.csv
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_binary(img, index = c("R, G"))
@@ -1947,7 +1947,7 @@ image_binary <- function(img,
 #' @return A list containing Grayscale images. The length will depend on the
 #'   number of indexes used.
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_index(img, index = c("R, NR"))
@@ -2109,7 +2109,7 @@ image_index <- function(img,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A `NULL` object
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' # Example for S3 method plot()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
@@ -2233,7 +2233,7 @@ plot.image_index <- function(x,
 #'
 
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg", plot = TRUE)
 #'image_segment(img, index = c("R, G, B"))
@@ -2641,7 +2641,7 @@ image_segment_iter <- function(img,
 #'   \doi{10.2307/2346830}
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' seg <- image_segment_kmeans(img)
 #' seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)
@@ -2925,7 +2925,7 @@ image_segment_manual <-  function(img,
 #'   containing four columns: the name of the image in `image` and the R, G, B
 #'   values.
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' dim(img)
@@ -3002,7 +3002,7 @@ image_to_mat <- function(img,
 #' @export
 #' @importFrom stats na.omit
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'img <- image_pliman("sev_leaf.jpg")
 #'pal <- image_palette(img, npal = 5)
@@ -3321,7 +3321,7 @@ image_palette <- function (img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' image_expand(img, left = 200)
@@ -3441,7 +3441,7 @@ image_expand <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' dim(img)
@@ -3659,7 +3659,7 @@ distance <- function(img,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A data frame with the columns of the converted color space
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' rgb_to_lab(img)
@@ -3993,7 +3993,7 @@ help_imageindex <- function(img,
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' img <-
 #' as_image(rnorm(150 * 150 * 3),
@@ -4017,7 +4017,7 @@ as_image <- function(data, ...){
 #' @export
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' img <- image_pliman("flax_leaves.jpg")
 #' prepare_to_shp(img)
 #' }
@@ -4043,7 +4043,7 @@ prepare_to_shp <- function(img,
 #' @return An `Image` object with an added alpha layer, maintaining the RGBA format.
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' # Load the EBImage package
 #' library(pliman)
 #'

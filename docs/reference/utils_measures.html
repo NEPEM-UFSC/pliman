@@ -210,7 +210,7 @@ the x and y coordinates of the objects in <code>object</code>.</p></li>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span> <span class="op">&amp;&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"EBImage"</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"objects_300dpi.jpg"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rspatial.github.io/terra/reference/plot.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">img</span><span class="op">)</span></span></span>
@@ -242,6 +242,16 @@ the x and y coordinates of the objects in <code>object</code>.</p></li>
 <span class="r-in"><span>             id <span class="op">=</span> <span class="fl">1</span>,</span></span>
 <span class="r-in"><span>             <span class="va">area</span> <span class="op">~</span> <span class="fl">100</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="op">}</span></span></span>
+<span class="r-plt img"><img src="utils_measures-1.png" alt="" width="700" height="433"></span>
+<span class="r-plt img"><img src="utils_measures-2.png" alt="" width="700" height="433"></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> -----------------------------------------</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> measures corrected with:</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> object id: 1</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> area     : 100</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> -----------------------------------------</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Total    : 40.001 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> Average  : 13.334 </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> -----------------------------------------</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>

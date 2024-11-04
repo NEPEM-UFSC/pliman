@@ -279,7 +279,7 @@ plot_id <- function(shapefile,
 #'   the coordinates of the drawn polygons.
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' shps <-
@@ -651,7 +651,7 @@ shapefile_view <- function(shapefile,
 #' @return A modified shapefile with user-edited features.
 #'
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #' shp <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 #' edited <- shapefile_edit(shp)
@@ -724,7 +724,7 @@ shapefile_edit <- function(shapefile,
 #'
 #' @export
 #' @examples
-#' if(interactive()){
+#' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
 #'
 #' path_shp <- paste0(image_pliman(), "/soy_shape.rds")

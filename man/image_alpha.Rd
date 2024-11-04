@@ -22,7 +22,7 @@ The alpha layer can be specified as a single numeric value for uniform transpare
 or as a matrix/array matching the dimensions of the image for varying transparency.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 # Load the EBImage package
 library(pliman)
 

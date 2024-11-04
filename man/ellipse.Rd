@@ -43,7 +43,7 @@ distribution, allowing to visualize a 2D confidence interval.
 Borrowed from Claude (2008), pp. 85
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 ellipse(contours)
 }

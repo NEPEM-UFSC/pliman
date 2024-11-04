@@ -353,7 +353,7 @@ histogram equalization. See more at \code{\link[EBImage:clahe]{EBImage::clahe()}
 }
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 plot(img)

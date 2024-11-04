@@ -17,7 +17,7 @@ Extracts the Fourier coefficients from objects computed with \code{\link[=efouri
 \code{\link[=efourier_norm]{efourier_norm()}} returning a 'ready-to-analyze' data frame.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
 
 # a list of objects

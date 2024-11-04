@@ -72,7 +72,7 @@ This function allows users to interactively edit and analyze an image using
 mapview and mapedit packages.
 }
 \examples{
-if(interactive()){
+if (interactive() && requireNamespace("EBImage")) {
 # Example usage:
 img <- image_pliman("sev_leaf.jpg")
 image_view(img)
