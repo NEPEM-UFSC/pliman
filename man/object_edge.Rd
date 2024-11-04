@@ -32,9 +32,11 @@ convolving the image with a small, separable, and integer-valued filter in
 the horizontal and vertical directions.
 }
 \examples{
+if(interactive()){
 library(pliman)
 img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
 object_edge(img)
+}
 
 }
 \references{

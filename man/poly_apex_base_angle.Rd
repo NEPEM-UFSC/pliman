@@ -35,6 +35,7 @@ coordinates of the apex and base as a list. The angles are computed after the
 object is aligned in the vertical axis with \code{poly_align()}.
 }
 \examples{
+if(interactive()){
 library(pliman)
 # a matrix of coordinates
 angls <- poly_apex_base_angle(contours[[2]])
@@ -42,4 +43,5 @@ angls
 
 # or a list of coordinates
 poly_apex_base_angle(contours)
+}
 }

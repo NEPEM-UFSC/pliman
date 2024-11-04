@@ -37,7 +37,7 @@
 #' @export
 #'
 #' @examples
-#' \dontrun{
+#' \donttest{
 #' library(pliman)
 #' sev <-
 #' measure_disease(pattern = "sev_leaf",

@@ -505,26 +505,33 @@ check_names_dir <- function(name, names_dir, dir){
   }
 }
 
-check_ebi <- function(){
-  if(!requireNamespace("EBImage", quietly = TRUE)) {
-    if(interactive() == TRUE){
-      inst <-
-        switch(menu(c("Yes", "No"), title = "Package {EBImage} required but not installed.\nDo you want to install it now?"),
-               "yes", "no")
-      if(inst == "yes"){
-        if(!requireNamespace("BiocManager", quietly = TRUE)) {
+check_ebi <- function() {
+  if (!requireNamespace("EBImage", quietly = TRUE)) {
+    if (interactive()) {
+      inst <- switch(menu(c("Yes", "No"),
+                          title = "Package {EBImage} is required but not installed.\nDo you want to install it now?"),
+                     "yes", "no")
+      if (inst == "yes") {
+        if (!requireNamespace("BiocManager", quietly = TRUE)) {
           install.packages("BiocManager", quiet = TRUE)
         }
-        BiocManager::install("EBImage",
-                             update = FALSE,
-                             ask = FALSE,
-                             quiet = TRUE)
-      } else{
-        message("To use {pliman}, first install {EBImage} following the directions at 'https://bioconductor.org/packages/EBImage'")
+        BiocManager::install("EBImage", update = FALSE, ask = FALSE, quiet = TRUE)
+        if (!requireNamespace("EBImage", quietly = TRUE)) {
+          message("Installation of {EBImage} failed. Please install it manually.")
+          return(FALSE)
+        }
+      } else {
+        message("To use {pliman}, please install {EBImage} following the directions at 'https://bioconductor.org/packages/EBImage'")
+        return(FALSE)
       }
+    } else {
+      message("Package {EBImage} is required. Please install it following the directions at 'https://bioconductor.org/packages/EBImage'")
+      return(FALSE)
     }
   }
+  return(TRUE)
 }
+
 
 
 # correct coordinates in analyze_objects_shp()

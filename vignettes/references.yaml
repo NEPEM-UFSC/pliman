@@ -1485,4 +1485,278 @@ references:
   type: article-journal
   URL: "https://www.sciencedirect.com/science/article/pii/S0034425702000184"
   volume: 81
+- id: deswaef2021bcc
+  author:
+    - family: De Swaef
+      given: T.
+    - family: Maes
+      given: W.H.
+    - family: Aper
+      given: J.
+    - family: Baert
+      given: J.
+    - family: Cougnon
+      given: M.
+    - family: Reheul
+      given: D.
+    - family: Steppe
+      given: K.
+    - family: Roldán-Ruiz
+      given: I.
+    - family: Lootens
+      given: P.
+  container-title: Remote Sensing
+  DOI: 10.3390/rs13010147
+  issued: 2021
+  page: 147
+  title: Applying RGB- and Thermal-Based Vegetation Indices from UAVs for High-Throughput Field Phenotyping of Drought Tolerance in Forage Grasses
+  type: article-journal
+  volume: 13
+  issue: 1
+- id: richardson2007
+  accessed: "02:09:13"
+  author:
+  - family: Richardson
+    given: Andrew D.
+  - family: Jenkins
+    given: Julian P.
+  - family: Braswell
+    given: Bobby H.
+  - family: Hollinger
+    given: David Y.
+  - family: Ollinger
+    given: Scott V.
+  - family: Smith
+    given: Marie-Louise
+  container-title: Oecologia
+  container-title-short: Oecologia
+  DOI: 10.1007/s00442-006-0657-z
+  ISSN: 0029-8549, 1432-1939
+  issue: 2
+  issued: 2007-05
+  key: SPDGDVDA
+  language: en
+  libraryID: 1
+  page: 323-334
+  providerKey: Zotero
+  source: DOI.org (Crossref)
+  title: Use of digital webcam images to track spring green-up in a
+    deciduous broadleaf forest
+  type: article-journal
+  URL: "https://link.springer.com/10.1007/s00442-006-0657-z"
+  volume: 152
+- id: motohka2010
+  accessed: "02:12:03"
+  author:
+  - family: Motohka
+    given: Takeshi
+  - family: Nasahara
+    given: Kenlo Nishida
+  - family: Oguma
+    given: Hiroyuki
+  - family: Tsuchida
+    given: Satoshi
+  container-title: Remote Sensing
+  DOI: 10.3390/rs2102369
+  ISSN: 2072-4292
+  issue: 10
+  issued: 2010-10
+  key: LNVV4RDB
+  language: en
+  libraryID: 1
+  Number: 10
+  page: 2369-2387
+  providerKey: Zotero
+  Publisher: Molecular
+  rights: "http://creativecommons.org/licenses/by/3.0/"
+  source: www.mdpi.com
+  title: Applicability of Green-Red Vegetation Index for Remote Sensing
+    of Vegetation Phenology
+  type: article-journal
+  URL: "https://www.mdpi.com/2072-4292/2/10/2369"
+  volume: 2
+- id: saberioon2014
+  accessed: "02:13:20"
+  author:
+  - family: Saberioon
+    given: M. M.
+  - family: Amin
+    given: M. S. M.
+  - family: Anuar
+    given: A. R.
+  - family: Gholizadeh
+    given: A.
+  - family: Wayayok
+    given: A.
+  - family: Khairunniza-Bejo
+    given: S.
+  container-title: International Journal of Applied Earth Observation
+    and Geoinformation
+  container-title-short: International Journal of Applied Earth
+    Observation and Geoinformation
+  DOI: 10.1016/j.jag.2014.03.018
+  ISSN: 1569-8432
+  issued: 2014-10-01
+  key: D5MDW3GE
+  libraryID: 1
+  page: 35-45
+  providerKey: Zotero
+  source: ScienceDirect
+  title: Assessment of rice leaf chlorophyll content using visible bands
+    at different growth stages at both the leaf and canopy scale
+  type: article-journal
+  URL: "https://www.sciencedirect.com/science/article/pii/S0303243414000762"
+  volume: 32
+- id: yang2008
+  author:
+  - family: Yang
+    given: Zhengwei
+  - family: Willis
+    given: Patrick
+  - family: Mueller
+    given: Rick
+  issued: 2008
+  key: NUGDG95G
+  language: en
+  libraryID: 1
+  providerKey: Zotero
+  source: Zotero
+  title: IMPACT OF BAND-RATIO ENHANCED AWIFS IMAGE TO CROP
+    CLASSIFICATION ACCURACY
+  type: article-journal
+- id: mcnairn1993
+  accessed: "02:16:39"
+  _eprint: "https://doi.org/10.1080/07038992.1993.10874543"
+  author:
+  - family: McNairn
+    given: H.
+  - family: Protz
+    given: R.
+  container-title: Canadian Journal of Remote Sensing
+  DOI: 10.1080/07038992.1993.10874543
+  ISSN: 0703-8992
+  issue: 2
+  issued: 1993-04-01
+  key: WHMJW69D
+  libraryID: 1
+  note: "\\_eprint: https://doi.org/10.1080/07038992.1993.10874543"
+  page: 152-159
+  providerKey: Zotero
+  Publisher: Canadian
+  source: Taylor and Francis+NEJM
+  title: Mapping Corn Residue Cover on Agricultural Fields in Oxford
+    County, Ontario, Using Thematic Mapper
+  type: article-journal
+  URL: "https://doi.org/10.1080/07038992.1993.10874543"
+  volume: 19
+- id: gamon1997
+  accessed: "02:18:51"
+  author:
+  - family: Gamon
+    given: J. A.
+  - family: Serrano
+    given: L.
+  - family: Surfus
+    given: J. S.
+  container-title: Oecologia
+  container-title-short: Oecologia
+  DOI: 10.1007/s004420050337
+  ISSN: 0029-8549, 1432-1939
+  issue: 4
+  issued: 1997-11-24
+  key: S4DS3HYM
+  libraryID: 1
+  page: 492-501
+  providerKey: Zotero
+  rights: "http://www.springer.com/tdm"
+  source: DOI.org (Crossref)
+  title: "The photochemical reflectance index: an optical indicator of
+    photosynthetic radiation use efficiency across species, functional
+    types, and nutrient levels"
+  title-short: The photochemical reflectance index
+  type: article-journal
+  URL: "http://link.springer.com/10.1007/s004420050337"
+  volume: 112
+- id: hunt2013
+  accessed: "02:20:20"
+  author:
+  - family: Hunt
+    given: E. Raymond
+  - family: Doraiswamy
+    given: Paul C.
+  - family: McMurtrey
+    given: James E.
+  - family: Daughtry
+    given: Craig S. T.
+  - family: Perry
+    given: Eileen M.
+  - family: Akhmedov
+    given: Bakhyt
+  container-title: International Journal of Applied Earth Observation
+    and Geoinformation
+  container-title-short: International Journal of Applied Earth
+    Observation and Geoinformation
+  DOI: 10.1016/j.jag.2012.07.020
+  ISSN: 1569-8432
+  issued: 2013-04-01
+  key: KG43MEKK
+  libraryID: 1
+  page: 103-112
+  providerKey: Zotero
+  source: ScienceDirect
+  title: A visible band index for remote sensing leaf chlorophyll
+    content at the canopy scale
+  type: article-journal
+  URL: "https://www.sciencedirect.com/science/article/pii/S0303243412001791"
+  volume: 21
+- id: hague2006
+  accessed: "02:21:17"
+  author:
+  - family: Hague
+    given: T.
+  - family: Tillett
+    given: N. D.
+  - family: Wheeler
+    given: H.
+  container-title: Precision Agriculture
+  container-title-short: Precision Agric
+  DOI: 10.1007/s11119-005-6787-1
+  ISSN: 1573-1618
+  issue: 1
+  issued: 2006-03-01
+  key: 36DBE3HJ
+  language: en
+  libraryID: 1
+  page: 21-32
+  providerKey: Zotero
+  source: Springer Link
+  title: Automated Crop and Weed Monitoring in Widely Spaced Cereals
+  type: article-journal
+  URL: "https://doi.org/10.1007/s11119-005-6787-1"
+  volume: 7
+- id: costa2020
+  accessed: "02:22:29"
+  author:
+  - family: Costa
+    given: Lucas
+  - family: Nunes
+    given: Leon
+  - family: Ampatzidis
+    given: Yiannis
+  container-title: Computers and Electronics in Agriculture
+  container-title-short: Computers and Electronics in Agriculture
+  DOI: 10.1016/j.compag.2020.105334
+  ISSN: 01681699
+  issued: 2020-05
+  key: GNB4XKDG
+  language: en
+  libraryID: 1
+  page: 105334
+  providerKey: Zotero
+  source: DOI.org (Crossref)
+  title: A new visible band index (vNDVI) for estimating NDVI values on
+    RGB images utilizing genetic algorithms
+  type: article-journal
+  URL: "https://linkinghub.elsevier.com/retrieve/pii/S016816991932383X"
+  volume: 172
 ...

@@ -459,9 +459,12 @@ object_id <- function(img,
 #' @seealso [analyze_objects()], [image_binary()]
 #'
 #' @examples
+#' if(interactive()){
+#'
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' imgs <- object_split(img) # set to NULL to use 50% of the cores
+#' }
 #'
 object_split <- function(img,
                          index = "NB",
@@ -483,6 +486,7 @@ object_split <- function(img,
                          plot = TRUE,
                          verbose = TRUE,
                          ...){
+  check_ebi()
 
   img2 <- help_binary(img,
                       opening = opening,

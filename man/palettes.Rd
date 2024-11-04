@@ -95,8 +95,6 @@ to the RGB values.
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 pal <- image_palette(img, npal = 5)
-
-
 }
 
 

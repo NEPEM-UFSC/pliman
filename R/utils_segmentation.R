@@ -12,11 +12,14 @@
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' binary <- image_binary(img, "B")[[1]]
 #' wts <- watershed2(binary)
 #' range(wts)
+#' }
+
 watershed2 <- function(binary,
                        dist_thresh = 0.75,
                        plot = TRUE){
@@ -44,11 +47,14 @@ watershed2 <- function(binary,
 #'   to the nearest background points
 #' @export
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' binary <- image_binary(img, "B")[[1]]
 #' wts <- dist_transform(binary)
 #' range(wts)
+#'}
+
 dist_transform <- function(binary){
   help_dist_transform(1 - binary)
 }
@@ -66,10 +72,13 @@ dist_transform <- function(binary){
 #' @export
 #'
 #' @examples
-#'img <- image_pliman("soybean_touch.jpg")
-#'# segment the objects using the "B" (blue) band.
-#'object_label(img, index = "B")
-#'object_label(img, index = "B", watershed = TRUE)
+#' if(interactive()){
+#' img <- image_pliman("soybean_touch.jpg")
+#' # segment the objects using the "B" (blue) band.
+#' object_label(img, index = "B")
+#' object_label(img, index = "B", watershed = TRUE)
+#' }
+
 object_label <- function(img,
                          index = "B",
                          invert = FALSE,
@@ -90,6 +99,7 @@ object_label <- function(img,
                          ncol = NULL,
                          nrow = NULL,
                          verbose = TRUE){
+  check_ebi()
   img2 <- image_binary(img,
                        index = index,
                        invert = invert,
@@ -172,9 +182,11 @@ object_label <- function(img,
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' img <- image_pliman("soybean_touch.jpg")
 #' thresh <- otsu(img@.Data[,,3])
 #' plot(img[,,3] < thresh)
+#' }
 #'
 otsu <- function(values){
   help_otsu(values)

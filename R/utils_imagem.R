@@ -465,7 +465,7 @@ image_autocrop <- function(img,
                            workers = NULL,
                            verbose = TRUE,
                            plot = FALSE){
-  # check_ebi()
+  check_ebi()
   if(is.list(img)){
     if(class(img) %in% c("binary_list", "segment_list", "index_list",
                          "img_mat_list", "palette_list")){
@@ -1317,9 +1317,11 @@ image_thinning <- function(img,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg", plot = TRUE)
 #' image_thinning_guo_hall(img, index = "R", plot = TRUE)
+#' }
 #'
 #'
 image_thinning_guo_hall <- function(img,
@@ -1539,8 +1541,10 @@ image_contrast <- function(img,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' image_create("red")
 #' image_create("#009E73", width = 300, heigth = 100)
+#' }
 
 image_create <- function(color,
                          width = 200,
@@ -1643,9 +1647,11 @@ image_create <- function(color,
 #'   of indexes used.
 #' @importFrom utils read.csv
 #' @examples
+#' \donttest{
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_binary(img, index = c("R, G"))
+#' }
 #'
 image_binary <- function(img,
                          index = "R",
@@ -1673,6 +1679,7 @@ image_binary <- function(img,
                          parallel = FALSE,
                          workers = NULL,
                          verbose = TRUE){
+  check_ebi()
   threshold <- threshold[[1]]
   if(is.list(img)){
     if(!all(sapply(img, class) == "Image")){
@@ -1926,9 +1933,11 @@ image_binary <- function(img,
 #' @return A list containing Grayscale images. The length will depend on the
 #'   number of indexes used.
 #' @examples
+#' \donttest{
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_index(img, index = c("R, NR"))
+#' }
 image_index <- function(img,
                         index = NULL,
                         r = 1,
@@ -1947,6 +1956,7 @@ image_index <- function(img,
                         workers = NULL,
                         verbose = TRUE,
                         ...){
+  check_ebi()
   return_classopt <- c("terra", "ebimage")
   return_classopt <- return_classopt[pmatch(return_class[1], return_classopt)]
   if(is.list(img)){
@@ -2085,7 +2095,7 @@ image_index <- function(img,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A `NULL` object
 #' @examples
-#'
+#' \donttest{
 #' # Example for S3 method plot()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
@@ -2095,6 +2105,9 @@ image_index <- function(img,
 #'
 #' # density plot
 #' plot(ind, type = "density")
+#' }
+#'
+#
 plot.image_index <- function(x,
                              type = c("raster", "density"),
                              nrow = NULL,
@@ -2205,11 +2218,12 @@ plot.image_index <- function(x,
 #'
 
 #' @examples
+#' \donttest{
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg", plot = TRUE)
 #'image_segment(img, index = c("R, G, B"))
+#' }
 #'
-#'# adaptive thresholding
 #'
 image_segment <- function(img,
                           index = NULL,
@@ -2237,6 +2251,7 @@ image_segment <- function(img,
                           parallel = FALSE,
                           workers = NULL,
                           verbose = TRUE){
+  check_ebi()
   threshold <- threshold[[1]]
   if(inherits(img, "img_segment")){
     img <- img[[1]]
@@ -2611,9 +2626,11 @@ image_segment_iter <- function(img,
 #'   \doi{10.2307/2346830}
 #'
 #' @examples
+#' \donttest{
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' seg <- image_segment_kmeans(img)
 #' seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)
+#' }
 
 image_segment_kmeans <-   function (img,
                                     bands = 1:3,
@@ -2626,6 +2643,7 @@ image_segment_kmeans <-   function (img,
                                     dilate = FALSE,
                                     fill_hull = FALSE,
                                     plot = TRUE){
+  check_ebi()
   imm <- img@.Data[, , bands]
   if(length(dim(imm)) < 3){
     imb <- data.frame(B1 = image_to_mat(imm)[,3])
@@ -2874,7 +2892,6 @@ image_segment_manual <-  function(img,
 }
 
 
-
 #' Convert an image to a data.frame
 #'
 #' Given an object image, converts it into a data frame where each row corresponds to the intensity values of each pixel in the image.
@@ -2892,15 +2909,18 @@ image_segment_manual <-  function(img,
 #'   containing four columns: the name of the image in `image` and the R, G, B
 #'   values.
 #' @examples
+#' \donttest{
 #' library(pliman)
-#'img <- image_pliman("sev_leaf.jpg")
-#'dim(img)
-#'mat <- image_to_mat(img)
-#'dim(mat[[1]])
+#' img <- image_pliman("sev_leaf.jpg")
+#' dim(img)
+#' mat <- image_to_mat(img)
+#' dim(mat[[1]])
+#' }
 image_to_mat <- function(img,
                          parallel = FALSE,
                          workers = NULL,
                          verbose = TRUE){
+  check_ebi()
   if(is.list(img)){
     if(!all(sapply(img, class) == "Image")){
       stop("All images must be of class 'Image'")
@@ -2970,8 +2990,6 @@ image_to_mat <- function(img,
 #' library(pliman)
 #'img <- image_pliman("sev_leaf.jpg")
 #'pal <- image_palette(img, npal = 5)
-#'
-#'
 #'}
 #'
 #'
@@ -2992,6 +3010,7 @@ image_palette <- function (img,
                            parallel = FALSE,
                            workers = NULL,
                            verbose = TRUE) {
+  check_ebi()
   if(is.null(dir_original)){
     diretorio_original <- paste0("./")
   } else{
@@ -3286,10 +3305,12 @@ image_palette <- function (img,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' image_expand(img, left = 200)
 #' image_expand(img, right = 150, bottom = 250, filter = 5)
+#' }
 #'
 image_expand <- function(img,
                          left = NULL,
@@ -3403,11 +3424,13 @@ image_expand <- function(img,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' dim(img)
 #' square <- image_square(img)
 #' dim(square)
+#' }
 image_square <- function(img, plot = TRUE, ...){
   len <- dim(img)
   n <- max(len[1], len[2])

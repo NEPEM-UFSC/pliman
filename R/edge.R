@@ -24,9 +24,11 @@
 #'
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
 #' object_edge(img)
+#' }
 #'
 object_edge <- function(img,
                         sigma = 1,

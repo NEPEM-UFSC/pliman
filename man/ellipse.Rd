@@ -43,8 +43,10 @@ distribution, allowing to visualize a 2D confidence interval.
 Borrowed from Claude (2008), pp. 85
 }
 \examples{
+\donttest{
 library(pliman)
 ellipse(contours)
+}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

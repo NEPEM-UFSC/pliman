@@ -16,6 +16,7 @@ object_mark(object, col = "white")
 Marks the coordinates of objects in an \code{anal_obj} object on a plot.
 }
 \examples{
+if(interactive()){
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 res <-
@@ -24,6 +25,7 @@ res <-
                        index = "R/(G/B)",
                        plot = FALSE)
 object_mark(res)
+}
 }
 \seealso{
 \code{\link{analyze_objects_shp}}

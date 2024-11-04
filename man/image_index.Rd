@@ -108,10 +108,12 @@ plots can be arranged in a grid controlled by the \code{ncol} and \code{nrow}
 arguments.
 }
 \examples{
+\donttest{
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 image_index(img, index = c("R, NR"))
-
+}
+\donttest{
 # Example for S3 method plot()
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
@@ -121,6 +123,8 @@ plot(ind)
 
 # density plot
 plot(ind, type = "density")
+}
+
 }
 \references{
 Nobuyuki Otsu, "A threshold selection method from gray-level
