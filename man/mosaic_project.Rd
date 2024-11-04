@@ -21,7 +21,7 @@ A raster object representing the projected mosaic.
 This function projects a given mosaic to a specified CRS.
 }
 \examples{
-\dontrun{
+if(interactive()){
 library(terra)
 library(pliman)
 

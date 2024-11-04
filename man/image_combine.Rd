@@ -36,10 +36,12 @@ A grid with the images in \code{...}
 Combines several images to a grid
 }
 \examples{
+if(interactive()){
 library(pliman)
 img1 <- image_pliman("sev_leaf.jpg")
 img2 <- image_pliman("sev_leaf_nb.jpg")
 image_combine(img1, img2)
+}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

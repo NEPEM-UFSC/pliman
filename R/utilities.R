@@ -18,7 +18,7 @@
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' iris2 <- iris |> rownames_to_column()
 #' head(iris2)
@@ -700,7 +700,7 @@ ggplot_color <- function(n = 1){
 #' @name utils_wd
 #' @examples
 #'
-#' \dontrun{
+#' if(interactive()){
 #' get_wd_here()
 #' set_wd_here()
 #' open_wd_here()

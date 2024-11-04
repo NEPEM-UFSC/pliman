@@ -38,7 +38,7 @@ user will be asked if he wants to create such a folder.}
 }
 \examples{
 
-\dontrun{
+if(interactive()){
 get_wd_here()
 set_wd_here()
 open_wd_here()

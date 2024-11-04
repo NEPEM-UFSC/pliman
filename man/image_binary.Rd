@@ -131,7 +131,7 @@ Otsu's thresholding method (Otsu, 1979) is used to automatically perform
 clustering-based image thresholding.
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 image_binary(img, index = c("R, G"))

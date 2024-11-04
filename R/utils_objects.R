@@ -73,7 +73,7 @@
 #' object.
 #' @export
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' # Get the object's (leaves) identification
@@ -1050,6 +1050,7 @@ object_export <- function(img,
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' # segment the objects using the "B" (blue) band (default)
@@ -1057,6 +1058,7 @@ object_export <- function(img,
 #' labs <- object_label(img, watershed = TRUE)
 #' rgb <- object_rgb(img, labs[[1]])
 #' head(rgb)
+#' }
 object_rgb <- function(img, labels){
   dd <- help_get_rgb(img[,,1], img[,,2], img[,,3], labels)
   df2 <- data.frame(do.call(rbind,  lapply(dd, function(x){
@@ -1091,10 +1093,12 @@ object_rgb <- function(img, labels){
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' img2 <- object_to_color(img, index = "G-R")
 #' image_combine(img, img2)
+#' }
 #'
 object_to_color <- function(img,
                             index = "NB",

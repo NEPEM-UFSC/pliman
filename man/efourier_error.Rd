@@ -51,6 +51,7 @@ addition of successive contributing harmonics indicated in the argument
 \code{nharm}.
 }
 \examples{
+if(interactive()){
 library(pliman)
 ef <-
   contours[[1]] |>
@@ -65,4 +66,5 @@ efourier_error(ef,
 efourier_error(ef,
                nharm = c(1, 4, 20),
                type = "deviations")
+}
 }

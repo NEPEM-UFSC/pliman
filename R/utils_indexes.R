@@ -50,10 +50,12 @@ pliman_indexes_me <- function(){
 #' @param available A character vector of available bands (e.g., `c("R", "G")`).
 #' @return A data frame of indexes that can be computed with the available bands.
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' available_bands <- c("R", "G")
 #' computable_indexes <- pliman_indexes_ican_compute(available_bands)
 #' print(computable_indexes)
+#' }
 #' @export
 pliman_indexes_ican_compute <- function(available){
   # Read the indexes CSV file from the package

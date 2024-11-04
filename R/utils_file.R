@@ -42,7 +42,7 @@
 #' attempted.
 #' @export
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' # get file name, directory and extension
 #' file <- "E:/my_folder/my_subfolder/image1.png"

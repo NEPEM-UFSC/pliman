@@ -47,6 +47,7 @@ PCV provides a relative measure of complexity by considering both the
 magnitude and spread of the variations in the contour shape after smoothing.
 }
 \examples{
+if(interactive()){
 library(pliman)
 set.seed(20)
 shp <- efourier_shape(npoints = 1000)
@@ -58,5 +59,6 @@ shp2 <- poly_jitter(shp, noise_x = 20, noise_y = 250, plot = TRUE)
 smo <- poly_smooth(shp2, niter = 100, plot = FALSE)
 plot_contour(smo, col = "red")
 poly_pcv(shp2)
+}
 
 }

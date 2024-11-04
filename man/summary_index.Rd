@@ -70,7 +70,7 @@ Additionaly, the number and proportion of pixels bellow and above the
 cutpoint is shown for each object (id).
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 soy <- image_pliman("soy_green.jpg")
 anal <- analyze_objects(soy, object_index = "G", pixel_level_index = TRUE)

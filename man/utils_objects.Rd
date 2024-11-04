@@ -158,7 +158,7 @@ of each object in the image.
 }
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 img <- image_pliman("la_leaves.jpg")
 # Get the object's (leaves) identification

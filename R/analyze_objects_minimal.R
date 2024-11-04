@@ -8,7 +8,7 @@
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' obj <- analyze_objects(img)
@@ -575,7 +575,7 @@ analyze_objects_minimal <- function(img,
 #' @export
 #'
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #'
 #' img <- image_pliman("soy_green.jpg")

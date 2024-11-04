@@ -108,12 +108,12 @@ plots can be arranged in a grid controlled by the \code{ncol} and \code{nrow}
 arguments.
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 image_index(img, index = c("R, NR"))
 }
-\donttest{
+if(interactive()){
 # Example for S3 method plot()
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")

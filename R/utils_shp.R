@@ -34,9 +34,11 @@
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
+#' }
 #'
 image_shp <- function(img,
                       nrow = 1,
@@ -106,6 +108,7 @@ image_shp <- function(img,
 #' @importFrom grDevices dev.list
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
@@ -113,6 +116,7 @@ image_shp <- function(img,
 #' # grid on the existing image
 #' plot(flax)
 #' plot(shape)
+#' }
 plot.image_shp <- function(x,
                            img = NULL,
                            col_line = "black",

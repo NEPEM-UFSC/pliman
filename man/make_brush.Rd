@@ -24,7 +24,7 @@ Generates brushes of various sizes and shapes that can be used as structuring
 elements. See \code{\link[EBImage:morphology]{EBImage::makeBrush()}}.
 }
 \examples{
-\donttest{
+if(interactive()){
 make_brush(size = 51) |> image()
 make_brush(size = 51, shape = "diamond") |> image()
 }

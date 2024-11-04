@@ -43,7 +43,7 @@ distribution, allowing to visualize a 2D confidence interval.
 Borrowed from Claude (2008), pp. 85
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 ellipse(contours)
 }

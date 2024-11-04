@@ -645,7 +645,7 @@ be adjusted with the \code{width_at_percentiles} argument.
 }
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
@@ -662,7 +662,8 @@ top$results
 
 
 #' ########################### Example 1 #########################
-# Correct the measures based on the area of the largest object
+# Correct the measures based on the area of the largest ob
+ject
 # note that since the reference object
 
 img <- image_pliman("flax_grains.jpg")
@@ -677,7 +678,7 @@ res <-
                   lower_noise = 0.3)
 }
 
-\donttest{
+if(interactive()){
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")

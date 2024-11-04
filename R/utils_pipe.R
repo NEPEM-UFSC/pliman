@@ -6,6 +6,7 @@
 #' @param rhs Where you are piping the result to.
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #'
 #' # Basic use:
@@ -19,6 +20,7 @@
 #'  object_isolate(id = 1) %>%  # isolate object 1
 #'  image_filter() %>%          # apply a median filter
 #'  plot()                      # plot
+#' }
 #'
 #' @name pipe
 #'

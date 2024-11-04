@@ -459,7 +459,7 @@ landmarks_angle <- function(x, unit = c("rad", "deg")){
 #' @export
 #'
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' ellipse(contours)
 #' }

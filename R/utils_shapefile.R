@@ -724,7 +724,7 @@ shapefile_edit <- function(shapefile,
 #'
 #' @export
 #' @examples
-#' \dontrun{
+#' if(interactive()){
 #' library(pliman)
 #'
 #' path_shp <- paste0(image_pliman(), "/soy_shape.rds")

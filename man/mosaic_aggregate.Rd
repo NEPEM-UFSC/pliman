@@ -31,6 +31,7 @@ Aggregate a SpatRaster to create a new SpatRaster with a lower resolution
 https://gdal.org/programs/gdal_translate.html
 }
 \examples{
+if(interactive()){
 library(pliman)
 library(terra)
 r <- rast()
@@ -41,4 +42,5 @@ par(mfrow=c(1,2))
 mosaic_plot(r)
 mosaic_plot(r2)
 par(opar)
+}
 }

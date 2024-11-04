@@ -62,6 +62,7 @@ a \code{SpatRaster} object to a file.
 }
 }
 \examples{
+if(interactive()){
 library(pliman)
 
 # create an SpatRaster object based on a matrix
@@ -73,5 +74,6 @@ mosaic_plot(rast)
 f <- file.path(tempdir(), "test.tif")
 mosaic_export(rast, f, overwrite=TRUE)
 list.files(tempdir())
+}
 
 }

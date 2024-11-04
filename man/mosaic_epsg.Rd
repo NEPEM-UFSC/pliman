@@ -26,7 +26,7 @@ the hemisphere based on the centroid's latitude. The EPSG code is then
 constructed accordingly.
 }
 \examples{
-\dontrun{
+if(interactive()){
 library(pliman)
 library(terra)
 
