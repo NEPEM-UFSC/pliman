@@ -303,6 +303,7 @@ image_export <- function(img,
 #' @export
 #' @name utils_image
 image_input <- function(img, ...){
+  check_ebi()
   if(inherits(img, "character")){
     image_import(img, ...)
   } else if(inherits(img, "array")){
@@ -1091,6 +1092,7 @@ image_opening <- function(img,
                           workers = NULL,
                           verbose = TRUE,
                           plot = FALSE){
+  check_ebi()
   if(is.list(img)){
     if(class(img) %in% c("binary_list", "segment_list", "index_list",
                          "img_mat_list", "palette_list")){
@@ -1139,6 +1141,7 @@ image_closing <- function(img,
                           workers = NULL,
                           verbose = TRUE,
                           plot = FALSE){
+  check_ebi()
   if(is.list(img)){
     if(class(img) %in% c("binary_list", "segment_list", "index_list",
                          "img_mat_list", "palette_list")){
@@ -1187,6 +1190,7 @@ image_skeleton <- function(img,
                            verbose = TRUE,
                            plot = FALSE,
                            ...){
+  check_ebi()
   if(is.list(img)){
     if(class(img) %in% c("binary_list", "segment_list", "index_list",
                          "img_mat_list", "palette_list")){
@@ -1384,6 +1388,7 @@ image_filter <- function(img,
                          workers = NULL,
                          verbose = TRUE,
                          plot = FALSE){
+  check_ebi()
   if(size < 2){
     stop("Using `size` < 2 will crash you R section. Please, consider using 2 or more.")
   }
@@ -1425,6 +1430,7 @@ image_blur <- function(img,
                        workers = NULL,
                        verbose = TRUE,
                        plot = FALSE){
+  check_ebi()
   if(is.list(img)){
     if(class(img) %in% c("binary_list", "segment_list", "index_list",
                          "img_mat_list", "palette_list")){
@@ -1462,6 +1468,7 @@ image_contrast <- function(img,
                            workers = NULL,
                            verbose = TRUE,
                            plot = FALSE){
+  check_ebi()
   if(is.list(img)){
     if(class(img) %in% c("binary_list", "segment_list", "index_list",
                          "img_mat_list", "palette_list")){
@@ -1556,6 +1563,7 @@ image_create <- function(color,
                          width = 200,
                          heigth = 200,
                          plot = FALSE){
+  check_ebi()
   width <- as.integer(width)
   heigth <- as.integer(heigth)
   rgb <- col2rgb(color) / 255
@@ -2119,6 +2127,7 @@ plot.image_index <- function(x,
                              nrow = NULL,
                              ncol = NULL,
                              ...){
+  check_ebi()
   typeop <- c("raster", "density")
   typeop <- typeop[pmatch(type[1], typeop)]
 
@@ -2761,6 +2770,7 @@ image_segment_manual <-  function(img,
                                   resize = TRUE,
                                   edge = 5,
                                   plot = TRUE){
+  check_ebi()
   vals <- c("free", "circle", "rectangle")
   shape <- vals[[pmatch(shape[1], vals)]]
   vieweropt <- c("base", "mapview")
@@ -3331,6 +3341,7 @@ image_expand <- function(img,
                          random = FALSE,
                          filter = NULL,
                          plot = TRUE){
+  check_ebi()
   if(!is.null(edge)){
     left <- edge
     top <- edge
@@ -4012,6 +4023,7 @@ as_image <- function(data, ...){
 #' }
 prepare_to_shp <- function(img,
                            align = "vertical"){
+  check_ebi()
   aligned <- image_align(img, viewer = "base")
   cropped <- image_crop(aligned, viewer = "base", plot = TRUE)
   invisible(cropped)
@@ -4051,6 +4063,7 @@ prepare_to_shp <- function(img,
 #' @export
 #'
 image_alpha <- function(img, mask) {
+  check_ebi()
   # Check if the input image is an RGB image
   if (EBImage::colorMode(img) != 2) {
     stop("Input image must be in RGB format.")
