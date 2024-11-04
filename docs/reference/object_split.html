@@ -231,20 +231,12 @@ converted to white.</p></dd>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"la_leaves.jpg"</span>, plot <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="object_split-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="va">imgs</span> <span class="op">&lt;-</span> <span class="fu">object_split</span><span class="op">(</span><span class="va">img</span><span class="op">)</span> <span class="co"># set to NULL to use 50% of the cores</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> ==============================</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Summary of the procedure</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> ==============================</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Number of objects: 6 </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Average area     : 6580.833 </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Minimum area     : 1014 </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Maximum area     : 11042 </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> Objects created  : 6 </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> ==============================</span>
-<span class="r-plt img"><img src="object_split-2.png" alt="" width="700" height="433"></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

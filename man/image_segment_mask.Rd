@@ -50,6 +50,7 @@ It combines \code{\link[=make_mask]{make_mask()}} and \code{\link[=make_brush]{m
 using a brush of desired size, shape, and position.
 }
 \examples{
+\donttest{
 img <- image_pliman("soybean_touch.jpg")
 plot(img)
 image_segment_mask(img, size = 601)
@@ -59,4 +60,5 @@ image_segment_mask(img,
                    rel_pos_x = 0,
                    rel_pos_y = 0,
                    type = "shadow")
+}
 }

@@ -459,8 +459,10 @@ landmarks_angle <- function(x, unit = c("rad", "deg")){
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' library(pliman)
 #' ellipse(contours)
+#' }
 ellipse <- function(x,
                     conf = 0.95,
                     np = 100,
@@ -468,6 +470,7 @@ ellipse <- function(x,
                     fill = "green",
                     alpha = 0.3,
                     random_fill = TRUE){
+  check_ebi()
   if (inherits(x, "list")) {
     d <- lapply(x, ellipse, conf, np, plot =  FALSE)
     if(isTRUE(plot)){

@@ -100,7 +100,7 @@
                         <h4 data-toc-skip class="author">Tiago
 Olivoto</h4>
             
-            <h4 data-toc-skip class="date">2024-11-01</h4>
+            <h4 data-toc-skip class="date">2024-11-04</h4>
       
       <small class="dont-index">Source: <a href="NA/NA/NA/blob/HEAD/vignettes/indexes.Rmd"><code>vignettes/indexes.Rmd</code></a></small>
       <div class="d-none name"><code>indexes.Rmd</code></div>
@@ -131,10 +131,10 @@ and manipulate color data within the RGB color space:</p>
 </h3>
 <table class="table">
 <colgroup>
-<col width="9%">
-<col width="26%">
-<col width="51%">
-<col width="12%">
+<col width="23%">
+<col width="23%">
+<col width="30%">
+<col width="23%">
 </colgroup>
 <thead><tr class="header">
 <th>Abbreviation</th>
@@ -144,64 +144,29 @@ and manipulate color data within the RGB color space:</p>
 </tr></thead>
 <tbody>
 <tr class="odd">
-<td>R</td>
-<td>Red (650 nm)</td>
-<td><code>R</code></td>
-<td></td>
-</tr>
-<tr class="even">
-<td>G</td>
-<td>Green (545 nm)</td>
-<td><code>G</code></td>
-<td></td>
-</tr>
-<tr class="odd">
 <td>B</td>
 <td>Blue (445 nm)</td>
 <td><code>B</code></td>
 <td></td>
 </tr>
 <tr class="even">
-<td>NR</td>
-<td>Normalized Red</td>
-<td><code>R / (R + G + B)</code></td>
-<td><span class="citation">Yang et al. (2015)</span></td>
+<td>BCC</td>
+<td>Blue Chromatic Coordinate Index</td>
+<td><code>B/(R+G+B)</code></td>
+<td><span class="citation">De Swaef et al. (2021)</span></td>
 </tr>
 <tr class="odd">
-<td>NG</td>
-<td>Normalized Green</td>
-<td><code>G / (R + G + B)</code></td>
-<td><span class="citation">Yang et al. (2015)</span></td>
-</tr>
-<tr class="even">
-<td>NB</td>
-<td>Normalized Blue</td>
-<td><code>B / (R + G + B)</code></td>
-<td><span class="citation">Yang et al. (2015)</span></td>
-</tr>
-<tr class="odd">
-<td>GB</td>
-<td>Green-Blue Ratio</td>
-<td><code>G / B</code></td>
-<td></td>
-</tr>
-<tr class="even">
-<td>RB</td>
-<td>Red-Blue Ratio</td>
-<td><code>R / B</code></td>
-<td></td>
-</tr>
-<tr class="odd">
-<td>GR</td>
-<td>Green-Red Ratio</td>
-<td><code>G / R</code></td>
-<td></td>
+<td>BGI</td>
+<td>Blue Green Pigment</td>
+<td><code>B/G</code></td>
+<td><span class="citation">Zarco-Tejada et al. (2005)</span></td>
 </tr>
 <tr class="even">
 <td>BI</td>
 <td>Brightness Index</td>
 <td><code>sqrt((R^2 + G^2 + B^2) / 3)</code></td>
-<td><span class="citation">Richardson and Wiegand (1977)</span></td>
+<td><span class="citation">A. J. Richardson and Wiegand
+(1977)</span></td>
 </tr>
 <tr class="odd">
 <td>BI2</td>
@@ -210,10 +175,46 @@ and manipulate color data within the RGB color space:</p>
 <td></td>
 </tr>
 <tr class="even">
-<td>SCI</td>
-<td>Soil Colour Index</td>
-<td><code>(R - G) / (R + G)</code></td>
-<td><span class="citation">Mathieu et al. (1998)</span></td>
+<td>BRVI</td>
+<td>Blue Red Vegetation Index</td>
+<td><code>(B-R)/(B+R)</code></td>
+<td><span class="citation">De Swaef et al. (2021)</span></td>
+</tr>
+<tr class="odd">
+<td>CI</td>
+<td>Coloration Index</td>
+<td><code>((R - B) / R)</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td>CIVE</td>
+<td>Color Index of Vegetation Extraction</td>
+<td><code>(0.811*G)+(0.385*B)+18.78745)</code></td>
+<td><span class="citation">Kataoka et al. (2003)</span></td>
+</tr>
+<tr class="odd">
+<td>EGVI</td>
+<td>Excess Green Index</td>
+<td><code>2 * G - R - B</code></td>
+<td><span class="citation">Woebbecke et al. (1995)</span></td>
+</tr>
+<tr class="even">
+<td>ERVI</td>
+<td>Excess Red Vegetation Index</td>
+<td><code>((1.4 * R) - G)</code></td>
+<td><span class="citation">Meyer and Neto (2008)</span></td>
+</tr>
+<tr class="odd">
+<td>GCC</td>
+<td>Green Percentage Index</td>
+<td><code>G/(R+G+B)</code></td>
+<td><span class="citation">A. D. Richardson et al. (2007)</span></td>
+</tr>
+<tr class="even">
+<td>GD</td>
+<td>Green Difference</td>
+<td></td>
+<td><span class="citation">Liang et al. (2017)</span></td>
 </tr>
 <tr class="odd">
 <td>GLI</td>
@@ -223,55 +224,53 @@ and manipulate color data within the RGB color space:</p>
 (2001)</span></td>
 </tr>
 <tr class="even">
+<td>GLAI</td>
+<td></td>
+<td><code>(25 * (G - R) / (G + R - B) + 1.25)</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td>GR</td>
+<td>Green-Red Ratio</td>
+<td><code>G / R</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td>GRAY</td>
+<td></td>
+<td><code>0.299 * R + 0.587 * G + 0.114 * B</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td>GRAY2</td>
+<td></td>
+<td><code>((R^2.2 + (1.5 * G)^2.2 + (0.6 * B)^2.2) / (1 + 1.5^2.2 + 0.6^2.2))^(1/2.2)</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td>GRVI2</td>
+<td>Green Red Vegetation Index</td>
+<td><code>(G-R)/(G+R)</code></td>
+<td><span class="citation">Motohka et al. (2010)</span></td>
+</tr>
+<tr class="odd">
+<td>G</td>
+<td>Green (545 nm)</td>
+<td><code>G</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td>GB</td>
+<td>Green-Blue Ratio</td>
+<td><code>G / B</code></td>
+<td></td>
+</tr>
+<tr class="odd">
 <td>HI</td>
 <td>Primary Colours Hue Index</td>
 <td><code>(2*R-G-B)/(G-B)</code></td>
 <td><span class="citation">Escadafal, Belghit, and Ben-Moussa
 (1994)</span></td>
-</tr>
-<tr class="odd">
-<td>NGRDI</td>
-<td>Normalized Green-Red Difference Index</td>
-<td><code>(G-R)/(G+R)</code></td>
-<td><span class="citation">Tucker (1979)</span></td>
-</tr>
-<tr class="even">
-<td>NGBDI</td>
-<td>Normalized Green-Blue Difference Index</td>
-<td><code>(G-B)/(G+B)</code></td>
-<td><span class="citation">Bannari et al. (1995)</span></td>
-</tr>
-<tr class="odd">
-<td>SI</td>
-<td>Normalized Red-Blue Difference Index</td>
-<td><code>(R-B)/(R+B)</code></td>
-<td><span class="citation">Escadafal, Belghit, and Ben-Moussa
-(1994)</span></td>
-</tr>
-<tr class="even">
-<td>I</td>
-<td>Total intensity</td>
-<td><code>R + G + B</code></td>
-<td></td>
-</tr>
-<tr class="odd">
-<td>S</td>
-<td>Saturation</td>
-<td><code>((R + G + B) - 3 * B) / (R + G + B)</code></td>
-<td></td>
-</tr>
-<tr class="even">
-<td>L</td>
-<td>Average Intensity</td>
-<td><code>(R + G + B) / 3</code></td>
-<td></td>
-</tr>
-<tr class="odd">
-<td>VARI</td>
-<td>Visible Atmospherically Resistant Index</td>
-<td><code>(G-R)/(G+R-B)</code></td>
-<td><span class="citation">Anatoly A. Gitelson et al.
-(2002a)</span></td>
 </tr>
 <tr class="even">
 <td>HUE</td>
@@ -288,33 +287,106 @@ and manipulate color data within the RGB color space:</p>
 (1994)</span></td>
 </tr>
 <tr class="even">
-<td>BGI</td>
-<td>Blue Green Pigment</td>
-<td><code>B/G</code></td>
-<td><span class="citation">Zarco-Tejada et al. (2005)</span></td>
-</tr>
-<tr class="odd">
-<td>GRAY</td>
-<td></td>
-<td><code>0.299 * R + 0.587 * G + 0.114 * B</code></td>
-<td></td>
-</tr>
-<tr class="even">
-<td>GRAY2</td>
-<td></td>
-<td><code>((R^2.2 + (1.5 * G)^2.2 + (0.6 * B)^2.2) / (1 + 1.5^2.2 + 0.6^2.2))^(1/2.2)</code></td>
+<td>I</td>
+<td>Total intensity</td>
+<td><code>R + G + B</code></td>
 <td></td>
 </tr>
 <tr class="odd">
-<td>GLAI</td>
+<td>IPCA</td>
+<td>Principal Component Analysis Index</td>
+<td><code>0.994*abs(R-B) + 0.961*abs(G-B) + 0.914*abs(G-R)</code></td>
+<td><span class="citation">Saberioon et al. (2014)</span></td>
+</tr>
+<tr class="even">
+<td>L</td>
+<td>Average Intensity</td>
+<td><code>(R + G + B) / 3</code></td>
 <td></td>
-<td><code>(25 * (G - R) / (G + R - B) + 1.25)</code></td>
+</tr>
+<tr class="odd">
+<td>MGVRI</td>
+<td>Modified Green Red Vegetation Index</td>
+<td><code>(G2 - R2) / (G2 + R2)</code></td>
+<td><span class="citation">Bendig et al. (2015)</span></td>
+</tr>
+<tr class="even">
+<td>MVARI</td>
+<td>Modified Visible Atmospherically Resistant Vegetation Index</td>
+<td><code>(G - B)/(G + R - B)</code></td>
+<td><span class="citation">Z. Yang, Willis, and Mueller
+(2008)</span></td>
+</tr>
+<tr class="odd">
+<td>NB</td>
+<td>Normalized Blue</td>
+<td><code>B / (R + G + B)</code></td>
+<td><span class="citation">W. Yang et al. (2015)</span></td>
+</tr>
+<tr class="even">
+<td>NDI</td>
+<td>Normalized Difference Index</td>
+<td><code>128*((G - R)/(G + R) + 1)</code></td>
+<td><span class="citation">McNairn and Protz (1993)</span></td>
+</tr>
+<tr class="odd">
+<td>NG</td>
+<td>Normalized Green</td>
+<td><code>G / (R + G + B)</code></td>
+<td><span class="citation">W. Yang et al. (2015)</span></td>
+</tr>
+<tr class="even">
+<td>NGBDI</td>
+<td>Normalized Green-Blue Difference Index</td>
+<td><code>(G-B)/(G+B)</code></td>
+<td><span class="citation">Bannari et al. (1995)</span></td>
+</tr>
+<tr class="odd">
+<td>NGRDI</td>
+<td>Normalized Green-Red Difference Index</td>
+<td><code>(G-R)/(G+R)</code></td>
+<td><span class="citation">Tucker (1979)</span></td>
+</tr>
+<tr class="even">
+<td>NR</td>
+<td>Normalized Red</td>
+<td><code>R / (R + G + B)</code></td>
+<td><span class="citation">W. Yang et al. (2015)</span></td>
+</tr>
+<tr class="odd">
+<td>PRI</td>
+<td>Photochemical Reflectance Index</td>
+<td><code>R / G</code></td>
+<td><span class="citation">Gamon, Serrano, and Surfus (1997)</span></td>
+</tr>
+<tr class="even">
+<td>R</td>
+<td>Red (650 nm)</td>
+<td><code>R</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td>RB</td>
+<td>Red-Blue Ratio</td>
+<td><code>R / B</code></td>
 <td></td>
 </tr>
 <tr class="even">
-<td>CI</td>
-<td>Coloration Index</td>
-<td><code>((R - B) / R)</code></td>
+<td>RCC</td>
+<td>Red Chromatic Coordinate Index</td>
+<td><code>R/(R + G + B)</code></td>
+<td><span class="citation">De Swaef et al. (2021)</span></td>
+</tr>
+<tr class="odd">
+<td>RGBVI</td>
+<td>Red Green Blue Vegetation Index</td>
+<td><code>(G2 - (B * R))/(G2 + (B * R))</code></td>
+<td><span class="citation">Bendig et al. (2015)</span></td>
+</tr>
+<tr class="even">
+<td>RI</td>
+<td>Redness Index</td>
+<td><code>(R^2 / (B * G^3))</code></td>
 <td></td>
 </tr>
 <tr class="odd">
@@ -324,52 +396,68 @@ and manipulate color data within the RGB color space:</p>
 <td></td>
 </tr>
 <tr class="even">
+<td>SAVI</td>
+<td>Soil Adjusted Vegetation Index</td>
+<td><code>(1 + 0.5)*(G-R)/(G+R+0.5)</code></td>
+<td><span class="citation">Li et al. (2010)</span></td>
+</tr>
+<tr class="odd">
+<td>SCI</td>
+<td>Soil Colour Index</td>
+<td><code>(R - G) / (R + G)</code></td>
+<td><span class="citation">Mathieu et al. (1998)</span></td>
+</tr>
+<tr class="even">
 <td>SHP</td>
 <td>Shape Index</td>
 <td><code>(2 * (R - G - B) / (G - B))</code></td>
 <td></td>
 </tr>
 <tr class="odd">
-<td>RI</td>
-<td>Redness Index</td>
-<td><code>(R^2 / (B * G^3))</code></td>
-<td></td>
+<td>SI</td>
+<td>Normalized Red-Blue Difference Index</td>
+<td><code>(R-B)/(R+B)</code></td>
+<td><span class="citation">Escadafal, Belghit, and Ben-Moussa
+(1994)</span></td>
 </tr>
 <tr class="even">
-<td>SAVI</td>
-<td>Soild Adjusted Vegetation Index</td>
-<td><code>(1 + 0.5)*(G-R)/(G+R+0.5)</code></td>
-<td><span class="citation">Li et al. (2010)</span></td>
+<td>S</td>
+<td>Saturation</td>
+<td><code>((R + G + B) - 3 * B) / (R + G + B)</code></td>
+<td></td>
 </tr>
 <tr class="odd">
-<td>EGVI</td>
-<td>Excess Green Index</td>
-<td><code>2 * G - R - B</code></td>
+<td>TGI</td>
+<td>Triangular Greenness Index</td>
+<td><code>G - 0.39*R - 0.61*B</code></td>
+<td><span class="citation">Hunt et al. (2013)</span></td>
+</tr>
+<tr class="even">
+<td>VARI</td>
+<td>Visible Atmospherically Resistant Index</td>
+<td><code>(G-R)/(G+R-B)</code></td>
+<td><span class="citation">Anatoly A. Gitelson et al.
+(2002a)</span></td>
+</tr>
+<tr class="odd">
+<td>VEG</td>
+<td>Vegetative Index</td>
+<td><code>G/(R^0.667 * B^0.334)</code></td>
+<td><span class="citation">Hague, Tillett, and Wheeler
+(2006)</span></td>
+</tr>
+<tr class="even">
+<td>vNDVI</td>
+<td>Visible NDVI</td>
+<td><code>0.5268 * (R - 0.1294*G**0.3389 * B - 0.3118)</code></td>
+<td><span class="citation">Costa, Nunes, and Ampatzidis
+(2020)</span></td>
+</tr>
+<tr class="odd">
+<td>WI</td>
+<td>Woebbecke Index</td>
+<td><code>G - B)/(R - G)</code></td>
 <td><span class="citation">Woebbecke et al. (1995)</span></td>
-</tr>
-<tr class="even">
-<td>ERVI</td>
-<td>Excess Red Vegetation Index</td>
-<td><code>((1.4 * R) - G)</code></td>
-<td><span class="citation">Meyer and Neto (2008)</span></td>
-</tr>
-<tr class="odd">
-<td>MGVRI</td>
-<td>Modified Green Red Vegetation Index</td>
-<td><code>(G2 - R2) / (G2 + R2)</code></td>
-<td><span class="citation">Bendig et al. (2015)</span></td>
-</tr>
-<tr class="even">
-<td>CIVE</td>
-<td>Color Index of Vegetation Extraction</td>
-<td><code>(0.811*G)+(0.385*B)+18.78745)</code></td>
-<td><span class="citation">Kataoka et al. (2003)</span></td>
-</tr>
-<tr class="odd">
-<td>GD</td>
-<td>Green Difference</td>
-<td></td>
-<td><span class="citation">Liang et al. (2017)</span></td>
 </tr>
 </tbody>
 </table>
@@ -382,10 +470,10 @@ generally B, G, R, RE (red-edge) and NIR (near-infrared). The following
 build-in indexes are available.</p>
 <table class="table">
 <colgroup>
-<col width="6%">
-<col width="27%">
-<col width="56%">
-<col width="9%">
+<col width="20%">
+<col width="20%">
+<col width="37%">
+<col width="20%">
 </colgroup>
 <thead><tr class="header">
 <th>Abbreviation</th>
@@ -395,72 +483,36 @@ build-in indexes are available.</p>
 </tr></thead>
 <tbody>
 <tr class="odd">
-<td>NDVI</td>
-<td>Normalized Diference Vegetation Index</td>
-<td><code>(NIR - R) / (NIR + R)</code></td>
-<td><span class="citation">Kriegler (1969)</span></td>
+<td>ARI</td>
+<td>Anthocyanin Reflectance Index</td>
+<td><code>(1 / G) - (1 / RE)</code></td>
+<td><span class="citation">A. A. Gitelson, Merzlyak, and Chivkunova
+(2001)</span></td>
 </tr>
 <tr class="even">
-<td>PSRI</td>
-<td>Plant Senescence Reflectance Index</td>
-<td><code>(R-G)/RE</code></td>
-<td><span class="citation">Merzlyak et al. (1999)</span></td>
+<td>ARVI</td>
+<td>Atmospherically Resistant Vegetation Index</td>
+<td><code>(NIR - (R - 0.1*(R-B))) / (NIR + (R - 0.1*(R-B)))</code></td>
+<td><span class="citation">Kaufman and Tanre (1992)</span></td>
 </tr>
 <tr class="odd">
-<td>GNDVI</td>
-<td>Normalized Difference NIR/G</td>
-<td><code>(NIR - G) / (NIR + G)</code></td>
-<td><span class="citation">Anatoly A. Gitelson and Merzlyak
-(1996)</span></td>
+<td>BAI</td>
+<td>Burn Area Index</td>
+<td><code>1/((0.1 - R)^2 + (0.06 - NIR)^2)</code></td>
+<td><span class="citation">Chuvieco, Martín, and Palacios
+(2002)</span></td>
 </tr>
 <tr class="even">
-<td>RVI</td>
-<td>Ratio Vegetation Index</td>
-<td><code>R/NIR</code></td>
-<td><span class="citation">Pearson and Miller (1972)</span></td>
+<td>BWDRVI</td>
+<td>Blue-Wide Dynamic Range Vegetation Index</td>
+<td><code>(0.1*NIR-B)/(0.1*NIR+B)</code></td>
+<td><span class="citation">Anatoly A. Gitelson (2004)</span></td>
 </tr>
 <tr class="odd">
-<td>VIN</td>
-<td>Vegetation Index Number</td>
-<td><code>NIR/R</code></td>
-<td><span class="citation">Pearson and Miller (1972)</span></td>
-</tr>
-<tr class="even">
-<td>NDRE</td>
-<td>Normalized Difference NIR/Rededge</td>
-<td><code>(NIR-RE)/(NIR+RE)</code></td>
-<td><span class="citation">A. Gitelson and Merzlyak (1994)</span></td>
-</tr>
-<tr class="odd">
-<td>SAVI</td>
-<td>Soild Adjusted Vegetation Index</td>
-<td><code>((NIR-R) / (NIR + R + 0.5) * 1 + 0.5)</code></td>
-<td><span class="citation">A. R. Huete (1988)</span></td>
-</tr>
-<tr class="even">
-<td>TSAVI</td>
-<td>Transformed Soil Adjusted Vegetation Index</td>
-<td><code>(2*((NIR-2)*(R-1)))/(R+2*(NIR-1)+0.5*(1+2*2))</code></td>
-<td><span class="citation">Baret, Guyot, and Major (1989)</span></td>
-</tr>
-<tr class="odd">
-<td>TVI</td>
-<td>Transformed Vegetation Index</td>
-<td><code>sqrt((NIR - R) / (NIR + R) + 0.5)</code></td>
-<td><span class="citation">Broge and Leblanc (2001)</span></td>
-</tr>
-<tr class="even">
-<td>CVI</td>
-<td>Chlorophyll vegetation index</td>
-<td><code>NIR*(R/G^2)</code></td>
-<td><span class="citation">Vincini, Frazzi, and D’Alessio
-(2008)</span></td>
-</tr>
-<tr class="odd">
-<td>EVI</td>
-<td>Enhanced Vegetation Index</td>
-<td><code>2.5*(NIR-R)/(NIR+6*R-7.5*B+1)</code></td>
-<td><span class="citation">A. Huete et al. (2002)</span></td>
+<td>CCCI</td>
+<td>Canopy Chlorophyll Content Index</td>
+<td><code>((NIR-R)/(NIR+R))/((NIR-R)/(NIR+R))</code></td>
+<td><span class="citation">Index DataBase (2023)</span></td>
 </tr>
 <tr class="even">
 <td>CIG</td>
@@ -477,11 +529,36 @@ build-in indexes are available.</p>
 (2003)</span></td>
 </tr>
 <tr class="even">
-<td>RESR</td>
-<td>Red-Edge Simple Ratio </td>
-<td><code>NIR/RE</code></td>
-<td><span class="citation">Anatoly A. Gitelson et al.
-(2002b)</span></td>
+<td>CVI</td>
+<td>Chlorophyll Vegetation Index</td>
+<td><code>NIR * (R/(G*G))</code></td>
+<td><span class="citation">Index DataBase (2023)</span></td>
+</tr>
+<tr class="odd">
+<td>CVI</td>
+<td>Chlorophyll Vegetation Index</td>
+<td><code>NIR*(R/G^2)</code></td>
+<td><span class="citation">Vincini, Frazzi, and D’Alessio
+(2008)</span></td>
+</tr>
+<tr class="even">
+<td>EVI</td>
+<td>Enhanced Vegetation Index</td>
+<td><code>2.5*(NIR-R)/(NIR+6*R-7.5*B+1)</code></td>
+<td><span class="citation">A. Huete et al. (2002)</span></td>
+</tr>
+<tr class="odd">
+<td>GARI</td>
+<td>Green Atmospherically Resistant Index</td>
+<td><code>(NIR - (1.7 * (B-R))) / (NIR + (1.7 * (B-R)))</code></td>
+<td><span class="citation">Anatoly A. Gitelson, Kaufman, and Merzlyak
+(1996)</span></td>
+</tr>
+<tr class="even">
+<td>GEMI</td>
+<td>Global Environmental Monitoring Index</td>
+<td><code>(2*(NIR*NIR-R*R)+1.5*NIR+0.5*R)/(NIR+R+0.5)*(1-0.25*(2*(NIR*NIR-R*R)+1.5*NIR+0.5*R)/(NIR+R+0.5))-((R-0.125)/(1-R))</code></td>
+<td><span class="citation">Pinty and Verstraete (1992)</span></td>
 </tr>
 <tr class="odd">
 <td>GDVI</td>
@@ -490,130 +567,29 @@ build-in indexes are available.</p>
 <td><span class="citation">Index DataBase (2023)</span></td>
 </tr>
 <tr class="even">
-<td>REDVI</td>
-<td>Red-Edge Difference Vegetation Index</td>
-<td><code>NIR-RE</code></td>
-<td><span class="citation">Jordan (1969)</span></td>
-</tr>
-<tr class="odd">
-<td>NDWI</td>
-<td>Normalized Difference Water Index</td>
-<td><code>(G-NIR)/(G+NIR)</code></td>
-<td><span class="citation">McFEETERS (1996)</span></td>
-</tr>
-<tr class="even">
-<td>CVI</td>
-<td>Chlorophyll vegetation index</td>
-<td><code>NIR * (R/(G*G))</code></td>
-<td><span class="citation">Index DataBase (2023)</span></td>
-</tr>
-<tr class="odd">
-<td>PNDVI</td>
-<td>Pan NDVI</td>
-<td><code>((NIR-(G+R+B))/(NIR+(G+R+B)))</code></td>
-<td><span class="citation">Index DataBase (2023)</span></td>
-</tr>
-<tr class="even">
-<td>CCCI</td>
-<td>Canopy Chlorophyll Content Index</td>
-<td><code>((NIR-R)/(NIR+R))/((NIR-R)/(NIR+R))</code></td>
-<td><span class="citation">Index DataBase (2023)</span></td>
-</tr>
-<tr class="odd">
-<td>OSAVI</td>
-<td>Optimized Soil Adjusted Vegetation Index</td>
-<td><code>(NIR-R)/(NIR+R+0.16)</code></td>
-<td><span class="citation">Rondeaux, Steven, and Baret
+<td>GNDVI</td>
+<td>Normalized Difference NIR/G</td>
+<td><code>(NIR - G) / (NIR + G)</code></td>
+<td><span class="citation">Anatoly A. Gitelson and Merzlyak
 (1996)</span></td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>GOSAVI</td>
 <td>Green Optimized Soil Adjusted Vegetation Index</td>
 <td><code>(NIR-G)/(NIR+G+0.16)</code></td>
 <td><span class="citation">Index DataBase (2023)</span></td>
+</tr>
+<tr class="even">
+<td>GRVI</td>
+<td>Green Ratio Vegetation Index</td>
+<td><code>NIR / G</code></td>
+<td><span class="citation">Sripada et al. (2006)</span></td>
 </tr>
 <tr class="odd">
 <td>GSAVI</td>
 <td>Green Soil Adjusted Vegetation Index</td>
 <td><code>((NIR-G)/(NIR+G+0.5))*(1+0.5)</code></td>
 <td><span class="citation">Index DataBase (2023)</span></td>
-</tr>
-<tr class="even">
-<td>BAI</td>
-<td>Burn Area Index</td>
-<td><code>1/((0.1 - R)^2 + (0.06 - NIR)^2)</code></td>
-<td><span class="citation">Chuvieco, Martín, and Palacios
-(2002)</span></td>
-</tr>
-<tr class="odd">
-<td>GEMI</td>
-<td>Global Environmental Monitoring Index</td>
-<td><code>(2*(NIR*NIR-R*R)+1.5*NIR+0.5*R)/(NIR+R+0.5)*(1-0.25*(2*(NIR*NIR-R*R)+1.5*NIR+0.5*R)/(NIR+R+0.5))-((R-0.125)/(1-R))</code></td>
-<td><span class="citation">Pinty and Verstraete (1992)</span></td>
-</tr>
-<tr class="even">
-<td>MSAVI</td>
-<td>Modified Soil Adjusted Vegetation Index </td>
-<td><code>(1/2)*(2*(NIR+1)-sqrt((2*NIR+1)*2-8*(NIR-R)))</code></td>
-<td><span class="citation">Qi et al. (1994)</span></td>
-</tr>
-<tr class="odd">
-<td>MSAVI2</td>
-<td>Modified Soil Adjusted Vegetation Index 2</td>
-<td><code>(2 * NIR + 1 -  sqrt((2 * NIR + 1)^2 - 8 * (NIR - R)  )) / 2</code></td>
-<td><span class="citation">Qi et al. (1994)</span></td>
-</tr>
-<tr class="even">
-<td>MCARI1</td>
-<td>Modified Chlorophyll Absorption in Reflectance Index 1</td>
-<td><code>1.2*((2.5*(NIR-R))-(1.3*(NIR-G)))</code></td>
-<td><span class="citation">Haboudane et al. (2004)</span></td>
-</tr>
-<tr class="odd">
-<td>MCARI2</td>
-<td>Modified Chlorophyll Absorption in Reflectance Index 2</td>
-<td><code>((1.2*(2.5*(NIR-R)-1.3*(NIR-G))/sqrt((2*NIR+1)^2-(6*NIR-5*sqrt(R))-0.5)))</code></td>
-<td><span class="citation">Haboudane et al. (2004)</span></td>
-</tr>
-<tr class="even">
-<td>VIG</td>
-<td>Vegetation Index (green)</td>
-<td><code>(G-R)/(G+R)</code></td>
-<td><span class="citation">Anatoly A. Gitelson et al.
-(2002c)</span></td>
-</tr>
-<tr class="odd">
-<td>VIRE</td>
-<td>Vegetation Index (red-edge)</td>
-<td><code>(RE-R)/(RE+R)</code></td>
-<td><span class="citation">Anatoly A. Gitelson et al.
-(2002c)</span></td>
-</tr>
-<tr class="even">
-<td>VARIRE</td>
-<td>Visible Atmospherically Resistant Index (red-edge)</td>
-<td><code>(RE - 1.7 * R + 0.7 * B) / (RE  + 2.3 * R - 1.3 * B)</code></td>
-<td><span class="citation">Anatoly A. Gitelson et al.
-(2002c)</span></td>
-</tr>
-<tr class="odd">
-<td>ARVI</td>
-<td>Atmospherically resistant vegetation index</td>
-<td><code>(NIR - (R - 0.1*(R-B))) / (NIR + (R - 0.1*(R-B)))</code></td>
-<td><span class="citation">Kaufman and Tanre (1992)</span></td>
-</tr>
-<tr class="even">
-<td>GARI</td>
-<td>Green Atmospherically Resistant Index</td>
-<td><code>(NIR - (1.7 * (B-R))) / (NIR + (1.7 * (B-R)))</code></td>
-<td><span class="citation">Anatoly A. Gitelson, Kaufman, and Merzlyak
-(1996)</span></td>
-</tr>
-<tr class="odd">
-<td>GRVI</td>
-<td>Green Ratio Vegetation Index</td>
-<td><code>NIR / G</code></td>
-<td><span class="citation">Sripada et al. (2006)</span></td>
 </tr>
 <tr class="even">
 <td>IPVI</td>
@@ -628,22 +604,108 @@ build-in indexes are available.</p>
 <td><span class="citation">Boegh et al. (2002)</span></td>
 </tr>
 <tr class="even">
+<td>MCARI1</td>
+<td>Modified Chlorophyll Absorption in Reflectance Index 1</td>
+<td><code>1.2*((2.5*(NIR-R))-(1.3*(NIR-G)))</code></td>
+<td><span class="citation">Haboudane et al. (2004)</span></td>
+</tr>
+<tr class="odd">
+<td>MCARI2</td>
+<td>Modified Chlorophyll Absorption in Reflectance Index 2</td>
+<td><code>((1.2*(2.5*(NIR-R)-1.3*(NIR-G))/sqrt((2*NIR+1)^2-(6*NIR-5*sqrt(R))-0.5)))</code></td>
+<td><span class="citation">Haboudane et al. (2004)</span></td>
+</tr>
+<tr class="even">
+<td>MSAVI</td>
+<td>Modified Soil Adjusted Vegetation Index</td>
+<td><code>(1/2)*(2*(NIR+1)-sqrt((2*NIR+1)*2-8*(NIR-R)))</code></td>
+<td><span class="citation">Qi et al. (1994)</span></td>
+</tr>
+<tr class="odd">
+<td>MSAVI2</td>
+<td>Modified Soil Adjusted Vegetation Index 2</td>
+<td><code>(2 * NIR + 1 - sqrt((2 * NIR + 1)^2 - 8 * (NIR - R))) / 2</code></td>
+<td><span class="citation">Qi et al. (1994)</span></td>
+</tr>
+<tr class="even">
 <td>MSR</td>
 <td>Modified Simple Ratio</td>
 <td><code>(NIR / R - 1) / (sqrt(NIR / R) + 1)</code></td>
 <td><span class="citation">Chen (1996)</span></td>
 </tr>
 <tr class="odd">
-<td>NLI</td>
-<td>Non-Linear index</td>
+<td>NDRE</td>
+<td>Normalized Difference NIR/Rededge</td>
+<td><code>(NIR-RE)/(NIR+RE)</code></td>
+<td><span class="citation">A. Gitelson and Merzlyak (1994)</span></td>
+</tr>
+<tr class="even">
+<td>NDI</td>
+<td>Non-Linear Index</td>
 <td><code>(NIR ^2 - R) / (NIR ^2 + R)</code></td>
 <td><span class="citation">Goel and Qin (1994)</span></td>
+</tr>
+<tr class="odd">
+<td>NDVI</td>
+<td>Normalized Difference Vegetation Index</td>
+<td><code>(NIR - R) / (NIR + R)</code></td>
+<td><span class="citation">Kriegler (1969)</span></td>
+</tr>
+<tr class="even">
+<td>NDWI</td>
+<td>Normalized Difference Water Index</td>
+<td><code>(G-NIR)/(G+NIR)</code></td>
+<td><span class="citation">McFEETERS (1996)</span></td>
+</tr>
+<tr class="odd">
+<td>OSAVI</td>
+<td>Optimized Soil Adjusted Vegetation Index</td>
+<td><code>(NIR-R)/(NIR+R+0.16)</code></td>
+<td><span class="citation">Rondeaux, Steven, and Baret
+(1996)</span></td>
+</tr>
+<tr class="even">
+<td>PNDVI</td>
+<td>Pan NDVI</td>
+<td><code>((NIR-(G+R+B))/(NIR+(G+R+B)))</code></td>
+<td><span class="citation">Index DataBase (2023)</span></td>
+</tr>
+<tr class="odd">
+<td>PSRI</td>
+<td>Plant Senescence Reflectance Index</td>
+<td><code>(R-G)/RE</code></td>
+<td><span class="citation">Merzlyak et al. (1999)</span></td>
 </tr>
 <tr class="even">
 <td>RDVI</td>
 <td>Renormalized Difference Vegetation Index</td>
 <td><code>(NIR - R) / (sqrt(NIR + R))</code></td>
 <td><span class="citation">Roujean and Breon (1995)</span></td>
+</tr>
+<tr class="odd">
+<td>RESR</td>
+<td>Red-Edge Simple Ratio</td>
+<td><code>NIR/RE</code></td>
+<td><span class="citation">Anatoly A. Gitelson et al.
+(2002b)</span></td>
+</tr>
+<tr class="even">
+<td>RVI</td>
+<td>Ratio Vegetation Index</td>
+<td><code>R/NIR</code></td>
+<td><span class="citation">Pearson and Miller (1972)</span></td>
+</tr>
+<tr class="odd">
+<td>SAVI</td>
+<td>Soil Adjusted Vegetation Index</td>
+<td><code>((NIR-R) / (NIR + R + 0.5) * 1 + 0.5)</code></td>
+<td><span class="citation">A. R. Huete (1988)</span></td>
+</tr>
+<tr class="even">
+<td>TCARI</td>
+<td>Transformed Chlorophyll Absorption in Reflectance Index</td>
+<td><code>3 * ((RE - R) - 0.2 * (RE - G) * (RE/R))</code></td>
+<td><span class="citation">Haboudane et al. (2002)</span></td>
 </tr>
 <tr class="odd">
 <td>TDVI</td>
@@ -653,29 +715,49 @@ build-in indexes are available.</p>
 (2002)</span></td>
 </tr>
 <tr class="even">
+<td>TSAVI</td>
+<td>Transformed Soil Adjusted Vegetation Index</td>
+<td><code>(2*((NIR-2)*(R-1)))/(R+2*(NIR-1)+0.5*(1+2*2))</code></td>
+<td><span class="citation">Baret, Guyot, and Major (1989)</span></td>
+</tr>
+<tr class="odd">
+<td>TVI</td>
+<td>Transformed Vegetation Index</td>
+<td><code>sqrt((NIR - R) / (NIR + R) + 0.5)</code></td>
+<td><span class="citation">Broge and Leblanc (2001)</span></td>
+</tr>
+<tr class="even">
+<td>VARIRE</td>
+<td>Visible Atmospherically Resistant Index (red-edge)</td>
+<td><code>(RE - 1.7 * R + 0.7 * B) / (RE  + 2.3 * R - 1.3 * B)</code></td>
+<td><span class="citation">Anatoly A. Gitelson et al.
+(2002c)</span></td>
+</tr>
+<tr class="odd">
+<td>VIG</td>
+<td>Vegetation Index (green)</td>
+<td><code>(G-R)/(G+R)</code></td>
+<td><span class="citation">Anatoly A. Gitelson et al.
+(2002c)</span></td>
+</tr>
+<tr class="even">
+<td>VIN</td>
+<td>Vegetation Index Number</td>
+<td><code>NIR/R</code></td>
+<td><span class="citation">Pearson and Miller (1972)</span></td>
+</tr>
+<tr class="odd">
+<td>VIRE</td>
+<td>Vegetation Index (red-edge)</td>
+<td><code>(RE-R)/(RE+R)</code></td>
+<td><span class="citation">Anatoly A. Gitelson et al.
+(2002c)</span></td>
+</tr>
+<tr class="even">
 <td>WDRVI</td>
 <td>Wide Dynamic Range Vegetation Index</td>
 <td><code>(0.2 * NIR - R) / (0.2 * NIR + R)</code></td>
 <td><span class="citation">Anatoly A. Gitelson (2004)</span></td>
-</tr>
-<tr class="odd">
-<td>BWDRVI</td>
-<td>Blue-Wide Dynamic Range Vegetation Index</td>
-<td><code>(0.1*NIR-B)/(0.1*NIR+B)</code></td>
-<td><span class="citation">Anatoly A. Gitelson (2004)</span></td>
-</tr>
-<tr class="even">
-<td>ARI</td>
-<td>Anthocyanin Reflectance Index</td>
-<td><code>(1 / G) - (1 / RE)</code></td>
-<td><span class="citation">A. A. Gitelson, Merzlyak, and Chivkunova
-(2001)</span></td>
-</tr>
-<tr class="odd">
-<td>TCARI</td>
-<td>Transformed Chlorophyll Absorption in Reflectance Index</td>
-<td><code>3 * ((RE - R) - 0.2 * (RE - G) * (RE/R))</code></td>
-<td><span class="citation">Haboudane et al. (2002)</span></td>
 </tr>
 </tbody>
 </table>
@@ -685,6 +767,8 @@ build-in indexes are available.</p>
 <li><p><a href="https://pro.arcgis.com/en/pro-app/latest/help/analysis/raster-functions/band-arithmetic-function.htm" class="external-link uri">Band Arithmetic function</a></p></li>
 <li><p><a href="https://www.indexdatabase.de/" class="external-link">Index
 Database</a></p></li>
+<li><p><a href="https://www.plantsciencejournal.com/articles/jpsp-aid1124.php" class="external-link">Comparison
+of RGB Indices</a></p></li>
 </ul>
 </div>
 </div>
@@ -734,10 +818,10 @@ HSB color space. The conversion is performed according to described by
 </h3>
 <table class="table">
 <colgroup>
-<col width="13%">
-<col width="22%">
-<col width="50%">
-<col width="13%">
+<col width="23%">
+<col width="23%">
+<col width="28%">
+<col width="23%">
 </colgroup>
 <thead><tr class="header">
 <th>Abbreviation</th>
@@ -847,9 +931,22 @@ Different Spectral Indices in the Red-Near-Infrared Spectral Domain for
 Burned Land Discrimination.”</span> <em>International Journal of Remote
 Sensing</em> 23 (23): 5103–10. <a href="https://doi.org/10.1080/01431160210153129" class="external-link">https://doi.org/10.1080/01431160210153129</a>.
 </div>
+<div id="ref-costa2020" class="csl-entry">
+Costa, Lucas, Leon Nunes, and Yiannis Ampatzidis. 2020. <span>“A New
+Visible Band Index (vNDVI) for Estimating NDVI Values on RGB Images
+Utilizing Genetic Algorithms.”</span> <em>Computers and Electronics in
+Agriculture</em> 172 (May): 105334. <a href="https://doi.org/10.1016/j.compag.2020.105334" class="external-link">https://doi.org/10.1016/j.compag.2020.105334</a>.
+</div>
 <div id="ref-crippen1990" class="csl-entry">
 Crippen, Robert E. 1990. <span>“Calculating the Vegetation Index
 Faster.”</span> <em>Remote Sensing of Environment</em> 34 (1): 71–73. <a href="https://doi.org/10.1016/0034-4257(90)90085-Z" class="external-link">https://doi.org/10.1016/0034-4257(90)90085-Z</a>.
+</div>
+<div id="ref-deswaef2021bcc" class="csl-entry">
+De Swaef, T., W.H. Maes, J. Aper, J. Baert, M. Cougnon, D. Reheul, K.
+Steppe, I. Roldán-Ruiz, and P. Lootens. 2021. <span>“Applying RGB- and
+Thermal-Based Vegetation Indices from UAVs for High-Throughput Field
+Phenotyping of Drought Tolerance in Forage Grasses.”</span> <em>Remote
+Sensing</em> 13 (1): 147. <a href="https://doi.org/10.3390/rs13010147" class="external-link">https://doi.org/10.3390/rs13010147</a>.
 </div>
 <div id="ref-escadafal1994" class="csl-entry">
 Escadafal, R., A. Belghit, and A. Ben-Moussa. 1994. <span>“Indices
@@ -857,6 +954,12 @@ Spectraux Pour La Télédétection de La Dégradation Des Milieux Naturels
 En Tunisie Aride.”</span> In <em>Actes Du 6eme Symposium International
 Sur Les Mesures Physiques Et Signatures En Télédétection</em>, edited by
 G. Guyot, 253–59. Val d’Isère (France).
+</div>
+<div id="ref-gamon1997" class="csl-entry">
+Gamon, J. A., L. Serrano, and J. S. Surfus. 1997. <span>“The
+Photochemical Reflectance Index: An Optical Indicator of Photosynthetic
+Radiation Use Efficiency Across Species, Functional Types, and Nutrient
+Levels.”</span> <em>Oecologia</em> 112 (4): 492–501. <a href="https://doi.org/10.1007/s004420050337" class="external-link">https://doi.org/10.1007/s004420050337</a>.
 </div>
 <div id="ref-gitelson2001" class="csl-entry">
 Gitelson, A. A., M. N. Merzlyak, and O. B. Chivkunova. 2001.
@@ -931,6 +1034,11 @@ Vegetation Indices for Prediction of Crop Chlorophyll Content for
 Application to Precision Agriculture.”</span> <em>Remote Sensing of
 Environment</em> 81 (2): 416–26. <a href="https://doi.org/10.1016/S0034-4257(02)00018-4" class="external-link">https://doi.org/10.1016/S0034-4257(02)00018-4</a>.
 </div>
+<div id="ref-hague2006" class="csl-entry">
+Hague, T., N. D. Tillett, and H. Wheeler. 2006. <span>“Automated Crop
+and Weed Monitoring in Widely Spaced Cereals.”</span> <em>Precision
+Agriculture</em> 7 (1): 21–32. <a href="https://doi.org/10.1007/s11119-005-6787-1" class="external-link">https://doi.org/10.1007/s11119-005-6787-1</a>.
+</div>
 <div id="ref-huete2002" class="csl-entry">
 Huete, A, K Didan, T Miura, E.P Rodriguez, X Gao, and L.G Ferreira.
 2002. <span>“Overview of the Radiometric and Biophysical Performance of
@@ -942,14 +1050,16 @@ Huete, A.R. 1988. <span>“A Soil-Adjusted Vegetation Index
 (SAVI).”</span> <em>Remote Sensing of Environment</em> 25 (3): 295–309.
 <a href="https://doi.org/10.1016/0034-4257(88)90106-x" class="external-link">https://doi.org/10.1016/0034-4257(88)90106-x</a>.
 </div>
+<div id="ref-hunt2013" class="csl-entry">
+Hunt, E. Raymond, Paul C. Doraiswamy, James E. McMurtrey, Craig S. T.
+Daughtry, Eileen M. Perry, and Bakhyt Akhmedov. 2013. <span>“A Visible
+Band Index for Remote Sensing Leaf Chlorophyll Content at the Canopy
+Scale.”</span> <em>International Journal of Applied Earth Observation
+and Geoinformation</em> 21 (April): 103–12. <a href="https://doi.org/10.1016/j.jag.2012.07.020" class="external-link">https://doi.org/10.1016/j.jag.2012.07.020</a>.
+</div>
 <div id="ref-indexdatabase2023" class="csl-entry">
 Index DataBase. 2023. <span>“IDB - List of Available Indices.”</span>
 2023. <a href="https://www.indexdatabase.de/db/i.php" class="external-link">https://www.indexdatabase.de/db/i.php</a>.
-</div>
-<div id="ref-jordan1969" class="csl-entry">
-Jordan, Carl F. 1969. <span>“Derivation of Leaf-Area Index from Quality
-of Light on the Forest Floor.”</span> <em>Ecology</em> 50 (4): 663–66.
-<a href="https://doi.org/10.2307/1936256" class="external-link">https://doi.org/10.2307/1936256</a>.
 </div>
 <div id="ref-karcher2003" class="csl-entry">
 Karcher, Douglas E., and Michael D. Richardson. 2003. <span>“Quantifying
@@ -1002,6 +1112,12 @@ McFEETERS, S. K. 1996. <span>“The Use of the Normalized Difference Water
 Index (NDWI) in the Delineation of Open Water Features.”</span>
 <em>International Journal of Remote Sensing</em> 17 (7): 1425–32. <a href="https://doi.org/10.1080/01431169608948714" class="external-link">https://doi.org/10.1080/01431169608948714</a>.
 </div>
+<div id="ref-mcnairn1993" class="csl-entry">
+McNairn, H., and R. Protz. 1993. <span>“Mapping Corn Residue Cover on
+Agricultural Fields in Oxford County, Ontario, Using Thematic
+Mapper.”</span> <em>Canadian Journal of Remote Sensing</em> 19 (2):
+152–59. <a href="https://doi.org/10.1080/07038992.1993.10874543" class="external-link">https://doi.org/10.1080/07038992.1993.10874543</a>.
+</div>
 <div id="ref-merzlyak1999" class="csl-entry">
 Merzlyak, Mark N., Anatoly A. Gitelson, Olga B. Chivkunova, and Victor
 YU. Rakitin. 1999. <span>“Non-Destructive Optical Detection of Pigment
@@ -1013,6 +1129,12 @@ Meyer, George E., and João Camargo Neto. 2008. <span>“Verification of
 Color Vegetation Indices for Automated Crop Imaging
 Applications.”</span> <em>Computers and Electronics in Agriculture</em>
 63 (2): 282–93. <a href="https://doi.org/10.1016/j.compag.2008.03.009" class="external-link">https://doi.org/10.1016/j.compag.2008.03.009</a>.
+</div>
+<div id="ref-motohka2010" class="csl-entry">
+Motohka, Takeshi, Kenlo Nishida Nasahara, Hiroyuki Oguma, and Satoshi
+Tsuchida. 2010. <span>“Applicability of Green-Red Vegetation Index for
+Remote Sensing of Vegetation Phenology.”</span> <em>Remote Sensing</em>
+2 (10): 2369–87. <a href="https://doi.org/10.3390/rs2102369" class="external-link">https://doi.org/10.3390/rs2102369</a>.
 </div>
 <div id="ref-pearson1972" class="csl-entry">
 Pearson, R. L., and L. D. Miller. 1972. <em>Remote Mapping of Standing
@@ -1034,6 +1156,12 @@ Richardson, A J, and Claudia Wiegand. 1977. <span>“Distinguishing
 Vegetation from Soil Background Information.”</span> <em>Photogrammetric
 Engineering and Remote Sensing</em> 43 (12): 1541–52. <a href="https://www.asprs.org/wp-content/uploads/pers/1977journal/dec/1977_dec_1541-1552.pdf" class="external-link">https://www.asprs.org/wp-content/uploads/pers/1977journal/dec/1977_dec_1541-1552.pdf</a>.
 </div>
+<div id="ref-richardson2007" class="csl-entry">
+Richardson, Andrew D., Julian P. Jenkins, Bobby H. Braswell, David Y.
+Hollinger, Scott V. Ollinger, and Marie-Louise Smith. 2007. <span>“Use
+of Digital Webcam Images to Track Spring Green-up in a Deciduous
+Broadleaf Forest.”</span> <em>Oecologia</em> 152 (2): 323–34. <a href="https://doi.org/10.1007/s00442-006-0657-z" class="external-link">https://doi.org/10.1007/s00442-006-0657-z</a>.
+</div>
 <div id="ref-rondeaux1996" class="csl-entry">
 Rondeaux, Geneviève, Michael Steven, and Frédéric Baret. 1996.
 <span>“Optimization of Soil-Adjusted Vegetation Indices.”</span>
@@ -1044,6 +1172,14 @@ Roujean, Jean-Louis, and François-Marie Breon. 1995. <span>“Estimating
 PAR Absorbed by Vegetation from Bidirectional Reflectance
 Measurements.”</span> <em>Remote Sensing of Environment</em> 51 (3):
 375–84. <a href="https://doi.org/10.1016/0034-4257(94)00114-3" class="external-link">https://doi.org/10.1016/0034-4257(94)00114-3</a>.
+</div>
+<div id="ref-saberioon2014" class="csl-entry">
+Saberioon, M. M., M. S. M. Amin, A. R. Anuar, A. Gholizadeh, A. Wayayok,
+and S. Khairunniza-Bejo. 2014. <span>“Assessment of Rice Leaf
+Chlorophyll Content Using Visible Bands at Different Growth Stages at
+Both the Leaf and Canopy Scale.”</span> <em>International Journal of
+Applied Earth Observation and Geoinformation</em> 32 (October): 35–45.
+<a href="https://doi.org/10.1016/j.jag.2014.03.018" class="external-link">https://doi.org/10.1016/j.jag.2014.03.018</a>.
 </div>
 <div id="ref-sripada2006" class="csl-entry">
 Sripada, Ravi P., Ronnie W. Heiniger, Jeffrey G. White, and Alan D.
@@ -1072,6 +1208,10 @@ Yang, Wenzhu, Sile Wang, Xiaolan Zhao, Jingsi Zhang, and Jiaqi Feng.
 2015. <span>“Greenness Identification Based on HSV Decision
 Tree.”</span> <em>Information Processing in Agriculture</em> 2 (3-4):
 149–60. <a href="https://doi.org/10.1016/j.inpa.2015.07.003" class="external-link">https://doi.org/10.1016/j.inpa.2015.07.003</a>.
+</div>
+<div id="ref-yang2008" class="csl-entry">
+Yang, Zhengwei, Patrick Willis, and Rick Mueller. 2008. <span>“IMPACT OF
+BAND-RATIO ENHANCED AWIFS IMAGE TO CROP CLASSIFICATION ACCURACY.”</span>
 </div>
 <div id="ref-zarco-tejada2005" class="csl-entry">
 Zarco-Tejada, P. J., A. Berjón, R. López-Lozano, J. R. Miller, P.

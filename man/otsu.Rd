@@ -18,9 +18,11 @@ value based on Otsu's method, which minimizes the combined intra-class
 variance
 }
 \examples{
+if(interactive()){
 img <- image_pliman("soybean_touch.jpg")
 thresh <- otsu(img@.Data[,,3])
 plot(img[,,3] < thresh)
+}
 
 }
 \references{

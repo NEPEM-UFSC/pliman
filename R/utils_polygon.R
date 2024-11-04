@@ -1170,6 +1170,7 @@ poly_width_at <- function(x,
 #' the median pixel index, and the maximum pixel index.
 #' @importFrom stats median
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' leaf <- image_pliman("sev_leaf.jpg")
 #' bin <- image_binary(leaf, "NB")[[1]]
@@ -1184,6 +1185,7 @@ poly_width_at <- function(x,
 #' points(x = 248, y = 17, pch = 16, col = "red", cex = 2)
 #' points(x = 163, y = 100, pch = 16, col = "red", cex = 2)
 #' points(x = 333, y = 100, pch = 16, col = "red", cex = 2)
+#' }
 #'
 #'
 #' @export
@@ -1231,6 +1233,7 @@ pixel_index <- function(bin,
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' # a matrix of coordinates
 #' angls <- poly_apex_base_angle(contours[[2]])
@@ -1238,6 +1241,7 @@ pixel_index <- function(bin,
 #'
 #' # or a list of coordinates
 #' poly_apex_base_angle(contours)
+#' }
 poly_apex_base_angle <- function(x,
                                  percentiles = c(0.25, 0.75),
                                  invert = FALSE,

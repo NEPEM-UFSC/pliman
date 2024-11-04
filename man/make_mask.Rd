@@ -32,10 +32,12 @@ arguments.  The size of the brush must be smaller or equal to the smaller
 dimension of \code{image}.
 }
 \examples{
+\donttest{
 img <- image_pliman("soybean_touch.jpg")
 make_mask(img, brush = make_brush(size = 201))
 make_mask(img,
           brush = make_brush(size = 401, shape = "diamond"),
           rel_pos_x = 0.1,
           rel_pos_y = 0.8)
+}
 }

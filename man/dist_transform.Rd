@@ -19,9 +19,11 @@ matrix which contains for each pixel the distance to its nearest background
 pixel.
 }
 \examples{
+if(interactive()){
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 binary <- image_binary(img, "B")[[1]]
 wts <- dist_transform(binary)
 range(wts)
+}
 }

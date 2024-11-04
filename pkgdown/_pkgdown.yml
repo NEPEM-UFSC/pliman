@@ -77,7 +77,6 @@ reference:
     contents:
       - as_image
       - utils_image
-      - image_import_inter
       - image_combine
       - image_create
       - image_expand

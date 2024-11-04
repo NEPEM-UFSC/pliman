@@ -28,6 +28,7 @@ the pixels in that row and creates an array containing the row index, the
 minimum pixel index, the median pixel index, and the maximum pixel index.
 }
 \examples{
+if(interactive()){
 library(pliman)
 leaf <- image_pliman("sev_leaf.jpg")
 bin <- image_binary(leaf, "NB")[[1]]
@@ -42,6 +43,7 @@ plot(leaf)
 points(x = 248, y = 17, pch = 16, col = "red", cex = 2)
 points(x = 163, y = 100, pch = 16, col = "red", cex = 2)
 points(x = 333, y = 100, pch = 16, col = "red", cex = 2)
+}
 
 
 }

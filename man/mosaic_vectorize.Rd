@@ -86,11 +86,13 @@ Converts a raster mask into a vectorized \code{sf} object, with various options
 for morphological operations and filtering.
 }
 \examples{
+if(interactive()){
 library(pliman)
 mask <- image_pliman("mask.tif")
 shp <- mosaic_vectorize(mask, watershed = FALSE)
 mosaic_plot(mask)
 shapefile_plot(shp, add = TRUE, lwd = 3)
+}
 
 
 }

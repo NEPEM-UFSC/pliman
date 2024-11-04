@@ -36,7 +36,9 @@ and width lines are calculated based on the position and orientation of the
 object, and are plotted using the specified colors and line widths.
 }
 \examples{
+\donttest{
 img <- image_pliman("flax_leaves.jpg")
 res <- analyze_objects(img, watershed = FALSE, show_contour = FALSE)
 plot_lw(res)
+}
 }

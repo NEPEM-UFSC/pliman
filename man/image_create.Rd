@@ -21,6 +21,8 @@ An object of class \code{Image}.
 image_create() can be used to create an \code{Image} object with a desired color and size.
 }
 \examples{
+\donttest{
 image_create("red")
 image_create("#009E73", width = 300, heigth = 100)
+}
 }

@@ -629,9 +629,11 @@ plot_measures <- function(object,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' img <- image_pliman("flax_leaves.jpg")
 #' res <- analyze_objects(img, watershed = FALSE, show_contour = FALSE)
 #' plot_lw(res)
+#' }
 plot_lw <- function(object,
                     col_length = "red",
                     col_width = "green",
@@ -716,12 +718,14 @@ plot_lw <- function(object,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #'
 #' @examples
+#' \donttest{
 #' library(pliman)
 #' soy <- image_pliman("soy_green.jpg")
 #' anal <- analyze_objects(soy, object_index = "G", pixel_level_index = TRUE)
 #' plot_measures(anal, measure = "G")
 #'
 #' summary_index(anal, index = "G", cut_point = 0.5)
+#' }
 summary_index <- function(object,
                           index = NULL,
                           cut_point = NULL,

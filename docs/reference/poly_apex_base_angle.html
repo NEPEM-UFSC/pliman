@@ -120,39 +120,15 @@ base coordinates.</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+<span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="co"># a matrix of coordinates</span></span></span>
 <span class="r-in"><span><span class="va">angls</span> <span class="op">&lt;-</span> <span class="fu">poly_apex_base_angle</span><span class="op">(</span><span class="va">contours</span><span class="op">[[</span><span class="fl">2</span><span class="op">]</span><span class="op">]</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="poly_apex_base_angle-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="va">angls</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $apex_angle</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 44.96998</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $base_angle</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 57.70275</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $apex_coords</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>             [,1]      [,2]</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> apex   -28.26853 -137.8909</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> left  -158.48484 -460.1093</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> right  108.09502 -459.6874</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> $base_coords</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>              [,1]      [,2]</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> base    -5.980237 -1426.272</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> left  -194.774675 -1104.431</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> right  160.035021 -1104.714</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> </span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># or a list of coordinates</span></span></span>
 <span class="r-in"><span><span class="fu">poly_apex_base_angle</span><span class="op">(</span><span class="va">contours</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   id apex_angle base_angle</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1  1   58.37192   32.28509</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2  2   44.96998   57.70275</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3  3   57.83157   41.66856</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4  4   44.06891   43.39274</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 5  5   38.57844   41.63098</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6  6   43.34263   44.18222</span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

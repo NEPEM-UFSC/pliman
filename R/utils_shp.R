@@ -959,6 +959,7 @@ object_map <- function(object,
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 #' res <-
@@ -967,6 +968,7 @@ object_map <- function(object,
 #'                        index = "R/(G/B)",
 #'                        plot = FALSE)
 #' object_mark(res)
+#' }
 object_mark <- function(object, col = "white"){
   if(!inherits(object, "anal_obj")){
     stop("Only objects computed with `analyze_objects_shp()` or `analyze_objects_shp()` can be used.")

@@ -99,16 +99,19 @@ which indexes can be computed based on the provided available bands.</p>
 <span class="r-in"><span><span class="va">available_bands</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"R"</span>, <span class="st">"G"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">computable_indexes</span> <span class="op">&lt;-</span> <span class="fu">pliman_indexes_ican_compute</span><span class="op">(</span><span class="va">available_bands</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">computable_indexes</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>    Index                  Equation  Band</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 50   VIG               (G-R)/(G+R) MULTI</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 65  ERVI              ((1.4*R)- G)   RGB</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 66     G                         G   RGB</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 70    GR                     G / R   RGB</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 78 MGVRI       (G^2-R^2)/(G^2+R^2)   RGB</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 82 NGRDI               (G-R)/(G+R)   RGB</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 84     R                         R   RGB</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 88  SAVI (1 + 0.5)*(G-R)/(G+R+0.5)   RGB</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 89   SCI         (R - G) / (R + G)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     Index                  Equation  Band</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 53    VIG               (G-R)/(G+R) MULTI</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 65   ERVI              ((1.4*R)- G)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 66      G                         G   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 71     GR                     G / R   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 79  MGVRI       (G^2-R^2)/(G^2+R^2)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 83  NGRDI               (G-R)/(G+R)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 85      R                         R   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 89   SAVI (1 + 0.5)*(G-R)/(G+R+0.5)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 90    SCI         (R - G) / (R + G)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 97  GRVI2               (G-R)/(G+R)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 100   NDI 128*((G - R)/(G + R) + 1)   RGB</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> 103   PRI                       R/G   RGB</span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

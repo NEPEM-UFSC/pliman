@@ -1938,6 +1938,7 @@ mosaic_export <- function(mosaic,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' library(pliman)
 #' library(terra)
 #' r <- rast(nrows=3, ncols=3, xmin=0, xmax=10, ymin=0, ymax=10)
@@ -1949,6 +1950,7 @@ mosaic_export <- function(mosaic,
 #' plot(r)
 #' plot(x)
 #' par(opar)
+#' }
 mosaic_resample <- function(mosaic, y, ...){
   terra::resample(mosaic, y, ...)
 }
@@ -2378,7 +2380,7 @@ mosaic_index <- function(mosaic,
 #' @return An index layer extracted/computed from the mosaic raster.
 #' @export
 #' @examples
-#' if((Sys.which('python.exe') != '' ) & (Sys.which('gdal_calc.py') != '' )){
+#' if(interactive() & (Sys.which('python.exe') != '' ) & (Sys.which('gdal_calc.py') != '' )){
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' names(mosaic) <- "R"
@@ -2461,6 +2463,7 @@ mosaic_index2 <- function(mosaic,
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' seg <-
@@ -2468,6 +2471,7 @@ mosaic_index2 <- function(mosaic,
 #'                index = "elevation",
 #'                threshold = 350)
 #' mosaic_plot(seg)
+#' }
 mosaic_segment <- function(mosaic,
                            index = "R",
                            r = 3,
@@ -2618,11 +2622,13 @@ mosaic_segment_pick <- function(mosaic,
 #'   memory usage.
 #' @export
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' # Convert a mosaic raster to an Image object
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' pliman_image <- mosaic_to_pliman(mosaic)
 #' plot(pliman_image)
+#' }
 #'
 mosaic_to_pliman <- function(mosaic,
                              r = 3,
@@ -2671,6 +2677,8 @@ mosaic_to_pliman <- function(mosaic,
 #'
 #' @export
 #' @examples
+#' if(interactive()){
+#'
 #' library(pliman)
 #' # Convert a mosaic raster to an RGB image and display it
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -2678,6 +2686,7 @@ mosaic_to_pliman <- function(mosaic,
 #' # Convert a mosaic raster to an RGB image without displaying it
 #' rgb_image <- mosaic_to_rgb(c(mosaic * 2, mosaic - 0.3, mosaic * 0.8))
 #' plot(rgb_image)
+#' }
 #'
 #'
 mosaic_to_rgb <- function(mosaic,
@@ -3643,11 +3652,13 @@ mosaic_extract <- function(mosaic,
 #'   with added area measurements.
 #' @export
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' mask <- image_pliman("mask.tif")
 #' shp <- mosaic_vectorize(mask, watershed = FALSE)
 #' mosaic_plot(mask)
 #' shapefile_plot(shp, add = TRUE, lwd = 3)
+#' }
 #'
 #'
 mosaic_vectorize <- function(mask,

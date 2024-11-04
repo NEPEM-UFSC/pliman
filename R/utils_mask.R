@@ -14,12 +14,14 @@
 #' @importFrom graphics image
 #'
 #' @examples
-#'
+#' \donttest{
 #' make_brush(size = 51) |> image()
 #' make_brush(size = 51, shape = "diamond") |> image()
+#' }
 make_brush <- function(size,
                        shape = "disc",
                        ...){
+  check_ebi()
   if(size %% 2 == 0){
     size <- size + 1
     warning("'size' was rounded to the next odd number:", size, call. = FALSE)
@@ -51,17 +53,20 @@ make_brush <- function(size,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' img <- image_pliman("soybean_touch.jpg")
 #' make_mask(img, brush = make_brush(size = 201))
 #' make_mask(img,
 #'           brush = make_brush(size = 401, shape = "diamond"),
 #'           rel_pos_x = 0.1,
 #'           rel_pos_y = 0.8)
+#' }
 make_mask <- function(img,
                       brush,
                       rel_pos_x = 0.5,
                       rel_pos_y = 0.5,
                       plot = TRUE){
+  check_ebi()
   min_dim <- min(dim(img)[1:2])
   if(nrow(brush) > min_dim){
     stop("The size of the brush cannot be greater than the smaller dimension of `image` (", min_dim, ")", call. = FALSE)
@@ -108,6 +113,7 @@ make_mask <- function(img,
 #' @export
 #'
 #' @examples
+#' \donttest{
 #' img <- image_pliman("soybean_touch.jpg")
 #' plot(img)
 #' image_segment_mask(img, size = 601)
@@ -117,6 +123,7 @@ make_mask <- function(img,
 #'                    rel_pos_x = 0,
 #'                    rel_pos_y = 0,
 #'                    type = "shadow")
+#' }
 image_segment_mask <- function(img,
                                size,
                                shape = "disc",
@@ -126,6 +133,7 @@ image_segment_mask <- function(img,
                                col_background = "white",
                                plot = TRUE,
                                ...){
+  check_ebi()
   mask <- make_mask(img,
                     brush = make_brush(size = size, shape = shape, ...),
                     rel_pos_x = rel_pos_x,
