@@ -180,7 +180,7 @@
 
 #'
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' # A 2 x 2 square
 #' df <- draw_square(side = 2)
@@ -1085,7 +1085,6 @@ plot_ellipse <- function(object,
 #' @examples
 #' cont <- contours[[2]]
 #' plot_polygon(cont |> conv_hull() |> poly_align())
-
 #' #  width below 5th, 25th, 50th, 75th, and 95th percentiles of the length
 #' wd <- poly_width_at(cont)
 #' wd
@@ -1331,6 +1330,7 @@ poly_apex_base_angle <- function(x,
 #'   complexity values for each polygon.
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' set.seed(20)
 #' shp <- efourier_shape(npoints = 1000)
@@ -1342,6 +1342,7 @@ poly_apex_base_angle <- function(x,
 #' smo <- poly_smooth(shp2, niter = 100, plot = FALSE)
 #' plot_contour(smo, col = "red")
 #' poly_pcv(shp2)
+#' }
 #'
 #' @export
 #'

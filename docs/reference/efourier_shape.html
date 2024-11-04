@@ -150,18 +150,17 @@ Springer 316 pp.</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+<span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="co"># approximation of the third leaf's perimeter</span></span></span>
 <span class="r-in"><span><span class="co"># 4 harmonics</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"potato_leaves.jpg"</span>, plot <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="efourier_shape-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu">efourier_shape</span><span class="op">(</span>an <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">7.34</span>,  <span class="fl">1.81</span>,  <span class="op">-</span><span class="fl">1.32</span>, <span class="fl">0.50</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>               bn <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">113.88</span>, <span class="fl">21.90</span>, <span class="op">-</span><span class="fl">0.31</span>, <span class="op">-</span><span class="fl">6.14</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>               cn <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">147.51</span>, <span class="op">-</span><span class="fl">20.89</span>, <span class="fl">0.66</span>, <span class="op">-</span><span class="fl">14.06</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>               dn <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">0.48</span>, <span class="fl">2.36</span>, <span class="op">-</span><span class="fl">4.36</span>, <span class="fl">3.03</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="efourier_shape-2.png" alt="" width="700" height="433"></span>
-<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

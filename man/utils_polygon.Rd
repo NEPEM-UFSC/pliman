@@ -255,7 +255,7 @@ coordinates. See \code{\link[base:jitter]{base::jitter()}} for more details.
 }
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 # A 2 x 2 square
 df <- draw_square(side = 2)

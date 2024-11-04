@@ -148,38 +148,19 @@ a <code>SpatRaster</code> object to a file.</p></li>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+<span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># create an SpatRaster object based on a matrix</span></span></span>
 <span class="r-in"><span><span class="va">x</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"ex/logo.tif"</span>, package<span class="op">=</span><span class="st">"terra"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">rast</span> <span class="op">&lt;-</span> <span class="fu">mosaic_input</span><span class="op">(</span><span class="va">x</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> class       : SpatRaster </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> dimensions  : 77, 101, 3  (nrow, ncol, nlyr)</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> resolution  : 1, 1  (x, y)</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> extent      : 0, 101, 0, 77  (xmin, xmax, ymin, ymax)</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> coord. ref. : Cartesian (Meter) </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> source      : logo.tif </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> colors RGB  : 1, 2, 3 </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> names       : red, green, blue </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> min values  :   0,     0,    0 </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> max values  : 255,   255,  255 </span>
 <span class="r-in"><span><span class="fu"><a href="mosaic_plot.html">mosaic_plot</a></span><span class="op">(</span><span class="va">rast</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="mosaic_input-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># create a temporary filename for the example</span></span></span>
 <span class="r-in"><span><span class="va">f</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"test.tif"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">mosaic_export</span><span class="op">(</span><span class="va">rast</span>, <span class="va">f</span>, overwrite<span class="op">=</span><span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> Exporting the mosaic using datatype = INT1U</span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/list.files.html" class="external-link">list.files</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/tempfile.html" class="external-link">tempdir</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] "Rf185051ebc"                           </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [2] "bslib-4f8e14c0a81b0845d4ecb194b87ef82d"</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [3] "downlit"                               </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [4] "file185020784e38"                      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [5] "file1850363a5cba"                      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [6] "file18503d812bec"                      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [7] "file185043db1dc5"                      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [8] "test.tif"                              </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [9] "test.tif.aux.xml"                      </span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

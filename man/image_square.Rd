@@ -21,7 +21,7 @@ Converts a rectangular image into a square image by expanding the
 rows/columns using \code{\link[=image_expand]{image_expand()}}.
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 dim(img)

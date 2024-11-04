@@ -47,6 +47,7 @@ Computes Elliptical Fourier Analysis of closed outlines based on \code{x} and
 Adapted from Claude (2008). pp. 222-223.
 }
 \examples{
+if(interactive()){
 library(pliman)
 leaf1 <- contours[[4]]
 plot_polygon(leaf1)
@@ -68,6 +69,7 @@ efourier_coefs(ef2)
 # Use only the first one for simplicity
 plot_polygon(contours[[1]] |> poly_align() |> poly_center())
 efourier_inv(ef2[[1]]) |> plot_contour(col = "red", lwd = 4)
+}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

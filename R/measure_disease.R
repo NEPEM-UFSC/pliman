@@ -194,7 +194,7 @@
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("sev_leaf_nb.jpg")
 #' healthy <- image_pliman("sev_healthy.jpg")

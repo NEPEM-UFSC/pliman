@@ -60,6 +60,7 @@ details), it attempts to compute the index using the specified band
 indices. The resulting index layer is returned as an \code{SpatRaster} object.
 }
 \examples{
+if(interactive()){
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 names(mosaic)
@@ -72,5 +73,6 @@ mosaic_plot(elev2)
 
 # return the original parameters
 par(oldpar)
+}
 
 }

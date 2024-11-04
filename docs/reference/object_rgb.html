@@ -101,21 +101,15 @@ the following columns:</p><ul><li><p><code>id</code>: the object id;</p></li>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+<span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"soybean_touch.jpg"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="co"># segment the objects using the "B" (blue) band (default)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">labs</span> <span class="op">&lt;-</span> <span class="fu"><a href="object_label.html">object_label</a></span><span class="op">(</span><span class="va">img</span>, watershed <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="object_rgb-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="va">rgb</span> <span class="op">&lt;-</span> <span class="fu">object_rgb</span><span class="op">(</span><span class="va">img</span>, <span class="va">labs</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rspatial.github.io/terra/reference/headtail.html" class="external-link">head</a></span><span class="op">(</span><span class="va">rgb</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   id         R         G         B</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1  1 0.3725490 0.5411765 0.5647059</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2  1 0.3294118 0.5019608 0.5137255</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3  1 0.3176471 0.4784314 0.4941176</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4  1 0.3254902 0.4862745 0.4941176</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 5  1 0.3450980 0.5058824 0.5137255</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6  1 0.3647059 0.5372549 0.5490196</span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

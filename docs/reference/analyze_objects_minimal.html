@@ -435,24 +435,15 @@ are recognized.</p></dd>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># \donttest{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"soybean_touch.jpg"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">obj</span> <span class="op">&lt;-</span> <span class="fu"><a href="analyze_objects.html">analyze_objects</a></span><span class="op">(</span><span class="va">img</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects_minimal-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="va">obj</span><span class="op">$</span><span class="va">statistics</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>        stat        value</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1         n 3.000000e+01</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2  min_area 1.366000e+03</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3 mean_area 2.051300e+03</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4  max_area 2.436000e+03</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 5   sd_area 2.300703e+02</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6  sum_area 6.153900e+04</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 7  coverage 1.151122e-01</span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># \donttest{</span></span></span>
+<span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"soy_green.jpg"</span><span class="op">)</span></span></span>
@@ -460,15 +451,12 @@ are recognized.</p></dd>
 <span class="r-in"><span><span class="co"># Shows the average value of the blue index in each object</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">rgb</span> <span class="op">&lt;-</span> <span class="fu">analyze_objects_minimal</span><span class="op">(</span><span class="va">img</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects_minimal-2.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="co"># density of area</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">rgb</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects_minimal-3.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># histogram of area</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">rgb</span>, type <span class="op">=</span> <span class="st">"histogram"</span><span class="op">)</span> <span class="co"># or 'hist'</span></span></span>
-<span class="r-plt img"><img src="analyze_objects_minimal-4.png" alt="" width="700" height="433"></span>
-<span class="r-in"><span><span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

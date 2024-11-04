@@ -56,7 +56,7 @@ will be retrevied from \code{dir_processed} directory. Otherwise, the severity
 will be computed again to generate the images.
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 sev <-
 measure_disease(pattern = "sev_leaf",

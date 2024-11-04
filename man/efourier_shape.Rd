@@ -59,6 +59,7 @@ Fourier
 Adapted from Claude (2008). pp. 223.
 }
 \examples{
+if(interactive()){
 library(pliman)
 # approximation of the third leaf's perimeter
 # 4 harmonics
@@ -68,7 +69,7 @@ efourier_shape(an = c(-7.34,  1.81,  -1.32, 0.50),
                bn = c(-113.88, 21.90, -0.31, -6.14),
                cn = c(-147.51, -20.89, 0.66, -14.06),
                dn = c(-0.48, 2.36, -4.36, 3.03))
-
+}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

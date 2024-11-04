@@ -513,7 +513,7 @@
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' obj <- analyze_objects(img)
@@ -530,7 +530,8 @@
 #'
 #'
 #' #' ########################### Example 1 #########################
-#' # Correct the measures based on the area of the largest object
+#' # Correct the measures based on the area of the largest ob
+#' ject
 #' # note that since the reference object
 #'
 #' img <- image_pliman("flax_grains.jpg")
@@ -1725,7 +1726,7 @@ analyze_objects <- function(img,
 #' @export
 #'
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #'
 #' img <- image_pliman("soy_green.jpg")

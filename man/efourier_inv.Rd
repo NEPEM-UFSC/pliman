@@ -28,12 +28,14 @@ given a list with Fourier coefficients computed with \code{\link[=efourier]{efou
 Adapted from Claude (2008). pp. 223.
 }
 \examples{
+if(interactive()){
 library(pliman)
 plot_polygon(contours, aspect_ratio = 1)
 # without alignment
 ef <- efourier(contours, nharm = 10, align = FALSE)
 ief <- efourier_inv(ef)
 plot_contour(ief, col = "red", lwd = 2)
+}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

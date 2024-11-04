@@ -62,7 +62,7 @@
 #' @importFrom stats as.formula
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' img <- image_pliman("objects_300dpi.jpg")
 #' plot(img)
@@ -629,7 +629,7 @@ plot_measures <- function(object,
 #' @export
 #'
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' img <- image_pliman("flax_leaves.jpg")
 #' res <- analyze_objects(img, watershed = FALSE, show_contour = FALSE)
 #' plot_lw(res)
@@ -718,7 +718,7 @@ plot_lw <- function(object,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #'
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #' library(pliman)
 #' soy <- image_pliman("soy_green.jpg")
 #' anal <- analyze_objects(soy, object_index = "G", pixel_level_index = TRUE)

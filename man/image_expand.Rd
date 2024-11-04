@@ -48,7 +48,7 @@ from the image edge. Users can choose how many pixels (rows or columns) are
 sampled and how many pixels the expansion will have.
 }
 \examples{
-\donttest{
+if(interactive()){
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 image_expand(img, left = 200)

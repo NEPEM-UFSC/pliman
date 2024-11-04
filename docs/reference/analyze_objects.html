@@ -881,20 +881,11 @@ Processing and Information Technology, 11–16.
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># \donttest{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"soybean_touch.jpg"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">obj</span> <span class="op">&lt;-</span> <span class="fu">analyze_objects</span><span class="op">(</span><span class="va">img</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="va">obj</span><span class="op">$</span><span class="va">statistics</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>        stat        value</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 1         n 3.000000e+01</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2  min_area 1.366000e+03</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3 mean_area 2.051300e+03</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4  max_area 2.436000e+03</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 5   sd_area 2.300703e+02</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6  sum_area 6.153900e+04</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 7  coverage 1.151122e-01</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co">########################### Example 1 #########################</span></span></span>
 <span class="r-in"><span><span class="co"># Enumerate the objects in the original image</span></span></span>
@@ -903,42 +894,12 @@ Processing and Information Technology, 11–16.
 <span class="r-in"><span> <span class="fu">analyze_objects</span><span class="op">(</span><span class="va">img</span>,</span></span>
 <span class="r-in"><span>                 marker <span class="op">=</span> <span class="st">"id"</span>,</span></span>
 <span class="r-in"><span>                 topn_upper <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects-2.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="va">top</span><span class="op">$</span><span class="va">results</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   id        x         y area area_ch perimeter radius_mean radius_min</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4  4 344.3132 104.74372 2436  2408.0  185.6102    27.45204   24.31796</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 9  9 468.0383  55.44180 2311  2278.0  181.0244    26.77622   23.16169</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3  3 236.6572 338.80546 2310  2288.5  181.0244    26.69273   23.99117</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6  6 405.9755  76.41826 2297  2264.5  178.7817    26.58139   24.07681</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2  2 537.0532 400.81350 2289  2261.5  178.1960    26.55606   24.84882</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   radius_max radius_sd diam_mean diam_min diam_max major_axis minor_axis</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4   30.53131 1.7403323  54.90407 48.63592 61.06262   20.76326   18.04194</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 9   31.04441 2.3392198  53.55243 46.32339 62.08881   20.69928   17.14476</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3   29.44025 1.2381808  53.38545 47.98234 58.88049   19.82571   17.91553</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6   30.02968 1.6596304  53.16279 48.15362 60.05937   19.82630   17.78272</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2   28.70321 0.9660995  53.11211 49.69764 57.40641   19.53438   18.01553</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>    caliper   length    width radius_ratio      theta eccentricity form_factor</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4 61.03278 61.02182 51.02160     1.255504 -0.9790241    0.4949248   0.8885535</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 9 61.18823 61.07428 48.72944     1.340334  1.2628961    0.5603174   0.8862079</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3 57.69749 57.20139 51.99249     1.227128 -0.6370637    0.4282680   0.8858245</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6 59.48109 59.42578 50.82265     1.247245  1.1427598    0.4421814   0.9030764</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2 56.85948 56.53366 52.36854     1.155113 -0.8035065    0.3866007   0.9058576</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   narrow_factor asp_ratio rectangularity pd_ratio plw_ratio solidity convexity</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4      1.000180  1.196000       1.278091 3.041156  1.656592 1.011628 0.9187379</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 9      1.001866  1.253334       1.287804 2.958484  1.648618 1.014486 0.8658923</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3      1.008673  1.100186       1.287464 3.137474  1.657825 1.009395 0.9111738</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6      1.000931  1.169277       1.314835 3.005691  1.621626 1.014352 0.8761289</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2      1.005763  1.079535       1.293397 3.133971  1.636293 1.012160 0.8794599</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   elongation circularity circularity_haralick circularity_norm    coverage</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4 0.16387934    14.14250             15.77402        0.8584609 0.004556678</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 9 0.20212827    14.17993             11.44664        0.8555300 0.004322858</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3 0.09106255    14.18607             21.55802        0.8551466 0.004320988</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 6 0.14477098    13.91507             16.01645        0.8718206 0.004296670</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2 0.07367508    13.87235             27.48791        0.8745939 0.004281706</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co">#' ########################### Example 1 #########################</span></span></span>
-<span class="r-in"><span><span class="co"># Correct the measures based on the area of the largest object</span></span></span>
+<span class="r-in"><span><span class="co"># Correct the measures based on the area of the largest ob</span></span></span>
+<span class="r-in"><span><span class="va">ject</span></span></span>
 <span class="r-in"><span><span class="co"># note that since the reference object</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"flax_grains.jpg"</span><span class="op">)</span></span></span>
@@ -951,10 +912,9 @@ Processing and Information Technology, 11–16.
 <span class="r-in"><span>                  reference_area <span class="op">=</span> <span class="fl">6</span>,</span></span>
 <span class="r-in"><span>                  reference_larger <span class="op">=</span> <span class="cn">TRUE</span>,</span></span>
 <span class="r-in"><span>                  lower_noise <span class="op">=</span> <span class="fl">0.3</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects-3.png" alt="" width="700" height="433"></span>
-<span class="r-in"><span><span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># \donttest{</span></span></span>
+<span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="va">img</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_image.html">image_pliman</a></span><span class="op">(</span><span class="st">"soy_green.jpg"</span><span class="op">)</span></span></span>
@@ -966,19 +926,15 @@ Processing and Information Technology, 11–16.
 <span class="r-in"><span>                   marker <span class="op">=</span> <span class="st">"id"</span>,</span></span>
 <span class="r-in"><span>                   object_index <span class="op">=</span> <span class="st">"B"</span>,</span></span>
 <span class="r-in"><span>                   pixel_level_index <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects-4.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="co"># density of area</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">rgb</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects-5.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># histogram of perimeter</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">rgb</span>, measure <span class="op">=</span> <span class="st">"perimeter"</span>, type <span class="op">=</span> <span class="st">"histogram"</span><span class="op">)</span> <span class="co"># or 'hist'</span></span></span>
-<span class="r-plt img"><img src="analyze_objects-6.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># density of the blue (B) index</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/graphics/plot.default.html" class="external-link">plot</a></span><span class="op">(</span><span class="va">rgb</span>, which <span class="op">=</span> <span class="st">"index"</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="analyze_objects-7.png" alt="" width="700" height="433"></span>
-<span class="r-in"><span><span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

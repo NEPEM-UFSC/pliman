@@ -135,10 +135,10 @@ closed contour. Computer Graphics and Image Processing 18, 236–258. doi:
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
+<span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">leaf1</span> <span class="op">&lt;-</span> <span class="va">contours</span><span class="op">[[</span><span class="fl">4</span><span class="op">]</span><span class="op">]</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_polygon</a></span><span class="op">(</span><span class="va">leaf1</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="efourier-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co">#### default options</span></span></span>
 <span class="r-in"><span><span class="co"># 10 harmonics (default)</span></span></span>
@@ -156,9 +156,8 @@ closed contour. Computer Graphics and Image Processing 18, 236–258. doi:
 <span class="r-in"><span><span class="co"># reconstruct the perimeter of the object</span></span></span>
 <span class="r-in"><span><span class="co"># Use only the first one for simplicity</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_polygon</a></span><span class="op">(</span><span class="va">contours</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span> <span class="op">|&gt;</span> <span class="fu"><a href="utils_polygon.html">poly_align</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="utils_polygon.html">poly_center</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="efourier-2.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="fu"><a href="efourier_inv.html">efourier_inv</a></span><span class="op">(</span><span class="va">ef2</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu"><a href="utils_polygon_plot.html">plot_contour</a></span><span class="op">(</span>col <span class="op">=</span> <span class="st">"red"</span>, lwd <span class="op">=</span> <span class="fl">4</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="efourier-3.png" alt="" width="700" height="433"></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

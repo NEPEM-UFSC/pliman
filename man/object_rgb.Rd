@@ -27,6 +27,7 @@ Given an image and a matrix of labels that identify each object, the function
 extracts the red, green, and blue values from each object.
 }
 \examples{
+if(interactive()){
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 # segment the objects using the "B" (blue) band (default)
@@ -34,4 +35,5 @@ img <- image_pliman("soybean_touch.jpg")
 labs <- object_label(img, watershed = TRUE)
 rgb <- object_rgb(img, labs[[1]])
 head(rgb)
+}
 }

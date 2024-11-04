@@ -486,18 +486,16 @@ Computer Vision. 3rd ed. World Scientific.</p>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># \donttest{</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/interactive.html" class="external-link">interactive</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span><span class="op">{</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://nepem-ufsc.github.io/pliman/">pliman</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="co"># A 2 x 2 square</span></span></span>
 <span class="r-in"><span><span class="va">df</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_shapes.html">draw_square</a></span><span class="op">(</span>side <span class="op">=</span> <span class="fl">2</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># square area</span></span></span>
 <span class="r-in"><span><span class="fu">poly_area</span><span class="op">(</span><span class="va">df</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 4</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># polygon perimeter</span></span></span>
 <span class="r-in"><span><span class="fu">poly_perimeter</span><span class="op">(</span><span class="va">df</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 6</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># center of mass of the square</span></span></span>
 <span class="r-in"><span><span class="va">cm</span> <span class="op">&lt;-</span> <span class="fu">poly_mass</span><span class="op">(</span><span class="va">df</span><span class="op">)</span></span></span>
@@ -505,18 +503,10 @@ Computer Vision. 3rd ed. World Scientific.</p>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># The convex hull will be the vertices of the square</span></span></span>
 <span class="r-in"><span><span class="op">(</span><span class="va">conv_square</span> <span class="op">&lt;-</span> <span class="fu">conv_hull</span><span class="op">(</span><span class="va">df</span><span class="op">)</span> <span class="op">|&gt;</span> <span class="fu">poly_close</span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   x y</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 4 2 0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 5 0 0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 2 0 2</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> 3 2 2</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>   2 0</span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_contour</a></span><span class="op">(</span><span class="va">conv_square</span>,</span></span>
 <span class="r-in"><span>             col <span class="op">=</span> <span class="st">"blue"</span>,</span></span>
 <span class="r-in"><span>             lwd <span class="op">=</span> <span class="fl">6</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="utils_polygon-1.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="fu">poly_area</span><span class="op">(</span><span class="va">conv_square</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 4</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co">################### Example with a polygon ##################</span></span></span>
@@ -527,11 +517,9 @@ Computer Vision. 3rd ed. World Scientific.</p>
 <span class="r-in"><span><span class="co"># area of the polygon</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_polygon</a></span><span class="op">(</span><span class="va">df_poly</span>, fill <span class="op">=</span> <span class="st">"red"</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">poly_area</span><span class="op">(</span><span class="va">df_poly</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 18</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># perimeter of the polygon</span></span></span>
 <span class="r-in"><span><span class="fu">poly_perimeter</span><span class="op">(</span><span class="va">df_poly</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 21.27069</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># center of mass of polygon</span></span></span>
 <span class="r-in"><span><span class="va">cm</span> <span class="op">&lt;-</span> <span class="fu">poly_mass</span><span class="op">(</span><span class="va">df_poly</span><span class="op">)</span></span></span>
@@ -539,30 +527,20 @@ Computer Vision. 3rd ed. World Scientific.</p>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># vertices of the convex hull</span></span></span>
 <span class="r-in"><span><span class="op">(</span><span class="va">conv_poly</span> <span class="op">&lt;-</span> <span class="fu">conv_hull</span><span class="op">(</span><span class="va">df_poly</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>       x   y</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1,]  5 1.0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [2,] -1 0.0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [3,]  0 5.0</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [4,]  1 6.5</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [5,]  2 7.0</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># area of the convex hull</span></span></span>
 <span class="r-in"><span><span class="fu">poly_area</span><span class="op">(</span><span class="va">conv_poly</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 24</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_polygon</a></span><span class="op">(</span><span class="va">conv_poly</span>,</span></span>
 <span class="r-in"><span>             fill <span class="op">=</span> <span class="st">"red"</span>,</span></span>
 <span class="r-in"><span>             alpha <span class="op">=</span> <span class="fl">0.2</span>,</span></span>
 <span class="r-in"><span>             add <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="utils_polygon-2.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co">############ example of circularity measures ################</span></span></span>
 <span class="r-in"><span><span class="va">tri</span> <span class="op">&lt;-</span> <span class="fu"><a href="utils_shapes.html">draw_circle</a></span><span class="op">(</span>n <span class="op">=</span> <span class="fl">200</span>, plot <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_polygon</a></span><span class="op">(</span><span class="va">tri</span>, aspect_ratio <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="utils_polygon-3.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="fu">poly_circularity_norm</span><span class="op">(</span><span class="va">tri</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 0.9999169</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">tri2</span> <span class="op">&lt;-</span></span></span>
@@ -570,10 +548,8 @@ Computer Vision. 3rd ed. World Scientific.</p>
 <span class="r-in"><span>  <span class="fu">poly_jitter</span><span class="op">(</span>noise_x <span class="op">=</span> <span class="fl">100</span>, noise_y <span class="op">=</span> <span class="fl">100</span>, plot <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="fu"><a href="utils_polygon_plot.html">plot_polygon</a></span><span class="op">(</span><span class="va">tri2</span>, aspect_ratio <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></span>
-<span class="r-plt img"><img src="utils_polygon-4.png" alt="" width="700" height="433"></span>
 <span class="r-in"><span><span class="fu">poly_circularity_norm</span><span class="op">(</span><span class="va">tri2</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [1] 0.7888226</span>
-<span class="r-in"><span><span class="co"># }</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 </code></pre></div>
     </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

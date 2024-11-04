@@ -19,7 +19,7 @@ This function projects a given mosaic from the lon/lat coordinate system to
 an EPSG-based CRS determined by the mosaic's extent.
 }
 \examples{
-\dontrun{
+if(interactive()){
 library(terra)
 library(pliman)
 

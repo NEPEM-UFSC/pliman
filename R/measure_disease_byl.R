@@ -36,7 +36,7 @@
 #' @export
 #'
 #' @examples
-#' \donttest{
+#' if(interactive()){
 #'library(pliman)
 #'img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 #'sev <-
