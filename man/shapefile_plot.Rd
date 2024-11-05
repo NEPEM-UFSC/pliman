@@ -18,7 +18,9 @@ A \code{NULL} object
 Plot the values of a SpatVector
 }
 \examples{
+if(interactive()){
 library(pliman)
 r <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 shapefile_plot(r)
+}
 }
