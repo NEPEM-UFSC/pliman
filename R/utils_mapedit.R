@@ -54,7 +54,7 @@ image_view <- function(img,
                        color_regions = custom_palette(),
                        quantiles = c(0, 1),
                        ...){
-  # check_mapview()
+  check_mapview()
   viewopt <- c("rgb", "index")
   viewopt <- viewopt[pmatch(show[[1]], viewopt)]
   compute_downsample <- function(nr, nc, n) {
@@ -298,7 +298,7 @@ plot_index <- function(img = NULL,
                        ncol = NULL,
                        nrow = NULL,
                        aspect_ratio = NA){
-  # check_mapview()
+  check_mapview()
   compute_downsample <- function(nr, nc, n) {
     if (n == 0) {
       invisible(nr * nc)
@@ -533,6 +533,7 @@ image_prepare <- function(img,
                           viewer = get_pliman_viewer(),
                           downsample = NULL,
                           max_pixels = 1000000){
+  check_mapview()
   vieweropt <- c("base", "mapview")
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
 

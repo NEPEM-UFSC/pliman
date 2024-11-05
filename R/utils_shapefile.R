@@ -320,6 +320,7 @@ shapefile_build <- function(mosaic,
                             max_pixels = 1000000,
                             downsample = NULL,
                             quantiles =  c(0, 1)){
+  check_mapview()
   if(terra::crs(mosaic) == ""){
     terra::crs(mosaic) <- terra::crs("EPSG:4326")
   }
@@ -484,9 +485,11 @@ shapefile_build <- function(mosaic,
 #' @export
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' r <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 #' shapefile_plot(r)
+#' }
 shapefile_plot <- function(shapefile, ...){
   if(!inherits(shapefile, "SpatVector") & !inherits(shapefile, "sf") ){
     stop("'mosaic' must be an object of class 'SpatVector' of 'sf'")
@@ -543,10 +546,12 @@ shapefile_plot <- function(shapefile, ...){
 #'  * `shapefile_view()` returns an object of class `mapview`.
 #'
 #' @examples
+#' if(interactive()){
 #' library(pliman)
 #' shp <- system.file("ex/lux.shp", package="terra")
 #' shp_file <- shapefile_input(shp, as_sf = FALSE)
 #' shapefile_view(shp_file)
+#' }
 #'
 #' @export
 shapefile_input <- function(shapefile,
@@ -554,6 +559,7 @@ shapefile_input <- function(shapefile,
                             as_sf = TRUE,
                             multilinestring = FALSE,
                             ...) {
+  check_mapview()
   # Check if shapefile is a URL and download it
   if (is.character(shapefile) && grepl("^http", shapefile)) {
     check_and_install_package("curl")
