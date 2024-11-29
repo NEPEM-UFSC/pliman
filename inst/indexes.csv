@@ -104,5 +104,5 @@ RGBVI;(G**2 - (B * R))/(G**2 + (B * R));RGB
 PRI;R/G;RGB
 TGI;G - 0.39*R - 0.61*B;RGB
 VEG;G/(R^0.667 * B^0.334);RGB
-vNDVI;0.5268 * (R - 0.1294*G**0.3389 * B - 0.3118);RGB
+vNDVI;0.5268 * (R^-0.1294*G^0.3389 * B^-0.3118);RGB
 WI;(G - B)/(R - G);RGB
