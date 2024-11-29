@@ -1829,6 +1829,11 @@ mosaic_input <- function(mosaic,
                          check_16bits = FALSE,
                          check_datatype = FALSE,
                          ...){
+  if(file_extension(mosaic) %in% c("jpg", "jpeg", "png")){
+    flip <- TRUE
+  } else{
+    flip <- FALSE
+  }
   if(!is.null(mosaic_pattern)){
     if(mosaic_pattern %in% c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")){
       mosaic_pattern <- "^[0-9].*$"
@@ -1851,6 +1856,9 @@ mosaic_input <- function(mosaic,
     if(terra::crs(mosaic) == ""){
       message("Missing Coordinate Reference System. Setting to EPSG:3857")
       terra::crs(mosaic) <- terra::crs("EPSG:3857")
+    }
+    if(flip){
+      mosaic <- mosaic_rotate(mosaic, 180, "anticlockwise")
     }
     if(terra::is.lonlat(mosaic)){
       eps <- mosaic_epsg(mosaic)
@@ -3644,7 +3652,7 @@ mosaic_extract <- function(mosaic,
                                  fun = fun,
                                  force_df = TRUE,
                                  ...)
-  sf::st_as_sf(dplyr::bind_cols(results, shapefile)) |> dplyr::relocate(unique_id:diam_max, .before = 1)
+  sf::st_as_sf(dplyr::bind_cols(results, shapefile)) |> dplyr::relocate(unique_id:column, .before = 1)
 }
 
 #' Vectorize a `SpatRaster` mask to an `sf` object
@@ -3752,4 +3760,65 @@ mosaic_vectorize <- function(mask,
     gridindiv <- gridindiv[order(gridindiv$area, decreasing = TRUE),][1:topn_upper,]
   }
   return(gridindiv)
+}
+
+#' Rotate a mosaic image by specified angles
+#'
+#' This function rotates a mosaic image by 90, 180, or 270 degrees.
+#'
+#' @param mosaic A `SpatRaster` object representing the mosaic image.
+#' @param angle An integer specifying the rotation angle. Must be one of 90,
+#'   180, or 270.
+#' @param direction A string specifying the rotation direction. Must be either
+#'   "clockwise" or "anticlockwise".
+#' @return A `SpatRaster` object with the rotated mosaic image.
+#' @export
+#'
+#' @examples
+#' if (interactive() && requireNamespace("EBImage")) {
+#' library(pliman)
+#' # Convert a mosaic raster to an Image object
+#' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
+#' r90 <- mosaic_rotate(mosaic, 90)
+#' r180 <- mosaic_rotate(mosaic, 180)
+#' r270 <- mosaic_rotate(mosaic, 270)
+#' # Plot all rotations side by side
+#' par(mfrow = c(2, 2))
+#' mosaic_plot(mosaic, main = "Original")
+#' mosaic_plot(r90, main = "90 Degrees")
+#' mosaic_plot(r180, main = "180 Degrees")
+#' mosaic_plot(r270, main = "270 Degrees")
+#' par(mfrow = c(1, 1))
+#'
+#' }
+mosaic_rotate <- function(mosaic, angle, direction = "clockwise") {
+  # Ensure angle is one of the allowed values
+  if (!angle %in% c(90, 180, 270)) {
+    stop("Invalid angle. Please specify 90, 180, or 270.")
+  }
+
+  # Ensure direction is valid
+  if (!direction %in% c("clockwise", "anticlockwise")) {
+    stop("Invalid direction. Please specify either 'clockwise' or 'anticlockwise'.")
+  }
+
+  # Apply the appropriate rotation based on direction
+  rotated_mosaic <- if (direction == "clockwise") {
+    switch(
+      as.character(angle),
+      "90"  = terra::t(terra::flip(mosaic)),
+      "180" = terra::flip(terra::flip(mosaic), "horizontal"),
+      "270" = terra::t(terra::flip(mosaic, "horizontal"))
+    )
+  } else {
+    switch(
+      as.character(angle),
+      "90"  = terra::flip(terra::t(mosaic)),
+      "180" = terra::flip(mosaic, "vertical"),
+      "270" = terra::t(terra::flip(mosaic))
+    )
+  }
+
+  # Return the rotated mosaic for further use
+  return(rotated_mosaic)
 }
