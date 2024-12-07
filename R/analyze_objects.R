@@ -1683,7 +1683,7 @@ analyze_objects <- function(img,
       results <- results[, c(ncol(results), 1:ncol(results) - 1)]
     }
     summ <- stats[stats$stat == "n", c(1, 3)]
-    names(summ) <- c("Image", "Objects")
+    names(summ) <- c("img", "objects")
     if(verbose == TRUE){
       cat("--------------------------------------------\n")
       print(summ, row.names = FALSE)

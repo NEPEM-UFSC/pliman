@@ -4087,3 +4087,38 @@ image_alpha <- function(img, mask) {
   EBImage::colorMode(img_with_alpha) <- "Color"
   return(img_with_alpha)
 }
+
+#' Label Connected Components in a Binary Image
+#'
+#' This function labels connected components in a binary image while allowing
+#' for a specified maximum gap between pixels to still be considered part of
+#' the same object.
+#'
+#' @param img A binary image matrix where `1` represents foreground pixels and
+#'   `0` represents background pixels. This should be compatible with the
+#'   EBImage package.
+#' @param max_gap An integer specifying the maximum allowable gap (in pixels)
+#'   between connected components to be considered as part of the same object.
+#'   Default is `1`.
+#'
+#' @return An object of class `Image` (from the EBImage package), where each
+#'   connected component is assigned a unique integer label.
+#'
+#' @export
+#' @examples
+#' if(interactive()){
+#' library(pliman)
+#' img <- matrix(c(
+#'   1, 1, 0, 0, 0, 1, 1, 1, 0,
+#'   0, 0, 0, 0, 0, 1, 0, 0, 0,
+#'   1, 1, 0, 0, 1, 1, 1, 0, 0,
+#'   0, 0, 0, 0, 0, 0, 0, 0, 1
+#' ), nrow = 4, byrow = TRUE)
+#'
+#' image_label(img, max_gap = 1)
+#' image_label(img, max_gap = 2)
+#' image_label(img, max_gap = 3)
+#' }
+image_label <- function(img, max_gap = 0){
+  help_label(img, max_gap = max_gap) |> EBImage::as.Image()
+}

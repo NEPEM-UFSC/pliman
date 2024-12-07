@@ -897,3 +897,60 @@ List add_width_height_cpp(List grid, double width, double height, NumericVector 
 
   return adjusted_polygons;
 }
+
+// [[Rcpp::export]]
+IntegerMatrix help_label(IntegerMatrix matrix, int max_gap = 2) {
+  int rows = matrix.nrow();
+  int cols = matrix.ncol();
+  IntegerMatrix labels(rows, cols);
+  int current_label = 0;
+
+  // Função auxiliar para verificar se dois pixels estão dentro do gap permitido
+  auto is_within_gap = [&](int r1, int c1, int r2, int c2) {
+    return abs(r1 - r2) <= max_gap && abs(c1 - c2) <= max_gap;
+  };
+
+  // Pilhas para busca em profundidade
+  std::vector<int> stack_r, stack_c;
+
+  // Iterar sobre cada pixel da matriz
+  for (int r = 0; r < rows; ++r) {
+    for (int c = 0; c < cols; ++c) {
+      if (matrix(r, c) == 1 && labels(r, c) == 0) { // Novo objeto encontrado
+        ++current_label;
+        stack_r.push_back(r);
+        stack_c.push_back(c);
+
+        // Rotular os pixels conectados
+        while (!stack_r.empty()) {
+          int cr = stack_r.back();
+          int cc = stack_c.back();
+          stack_r.pop_back();
+          stack_c.pop_back();
+
+          if (labels(cr, cc) == 0) {
+            labels(cr, cc) = current_label;
+
+            // Verificar vizinhos
+            for (int dr = -max_gap; dr <= max_gap; ++dr) {
+              for (int dc = -max_gap; dc <= max_gap; ++dc) {
+                if (abs(dr) + abs(dc) > 0) { // Ignorar o próprio pixel
+                  int nr = cr + dr;
+                  int nc = cc + dc;
+
+                  if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                    if (matrix(nr, nc) == 1 && labels(nr, nc) == 0 && is_within_gap(cr, cc, nr, nc)) {
+                      stack_r.push_back(nr);
+                      stack_c.push_back(nc);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return labels;
+}

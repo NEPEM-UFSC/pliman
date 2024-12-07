@@ -229,6 +229,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// help_label
+IntegerMatrix help_label(IntegerMatrix matrix, int max_gap);
+RcppExport SEXP _pliman_help_label(SEXP matrixSEXP, SEXP max_gapSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type matrix(matrixSEXP);
+    Rcpp::traits::input_parameter< int >::type max_gap(max_gapSEXP);
+    rcpp_result_gen = Rcpp::wrap(help_label(matrix, max_gap));
+    return rcpp_result_gen;
+END_RCPP
+}
 // help_area
 Rcpp::RObject help_area(Rcpp::RObject coord);
 RcppExport SEXP _pliman_help_area(SEXP coordSEXP) {
@@ -482,6 +494,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_helper_guo_hall", (DL_FUNC) &_pliman_helper_guo_hall, 1},
     {"_pliman_idw_interpolation_cpp", (DL_FUNC) &_pliman_idw_interpolation_cpp, 6},
     {"_pliman_add_width_height_cpp", (DL_FUNC) &_pliman_add_width_height_cpp, 4},
+    {"_pliman_help_label", (DL_FUNC) &_pliman_help_label, 2},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},
