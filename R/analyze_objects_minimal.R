@@ -548,7 +548,7 @@ analyze_objects_minimal <- function(img,
     }
     summ <- stats[stats$stat == "n", c(1, 3)]
     if(verbose == TRUE){
-      names(summ) <- c("Image", "Objects")
+      names(summ) <- c("img", "objects")
       cat("--------------------------------------------\n")
       print(summ, row.names = FALSE)
       cat("--------------------------------------------\n")

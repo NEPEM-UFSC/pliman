@@ -69,6 +69,10 @@ add_width_height_cpp <- function(grid, width, height, points_align) {
     .Call(`_pliman_add_width_height_cpp`, grid, width, height, points_align)
 }
 
+help_label <- function(matrix, max_gap = 2L) {
+    .Call(`_pliman_help_label`, matrix, max_gap)
+}
+
 help_area <- function(coord) {
     .Call(`_pliman_help_area`, coord)
 }
