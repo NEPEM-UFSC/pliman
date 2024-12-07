@@ -1,3 +1,5 @@
+# pliman (development version)
+
 # pliman 3.0.0
 ## New Functions
 * Introduced the `mosaic_*()` family of functions for high-throughput phenotyping, enabling efficient analysis of large-scale image data.
