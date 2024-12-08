@@ -1,9 +1,13 @@
 # pliman (development version)
 ## New Functions
 
-* Added the `image_label()` to label binary images with options to control a `max_gap`, ie., the maximum allowable gap (in pixels) between connected components to be considered as part of the same object.
+## Minor Improvements
+* include option to draw circles in `shapefile_build()`
+
 # pliman 3.0.0
 ## New Functions
+* Added the `image_label()` to label binary images with options to control a `max_gap`, ie., the maximum allowable gap (in pixels) between connected components to be considered as part of the same object.
+# pliman 3.0.0
 * Introduced the `mosaic_*()` family of functions for high-throughput phenotyping, enabling efficient analysis of large-scale image data.
 * Added the `shapefile_*()` functions for handling and manipulating shapefiles, providing streamlined spatial data management.
 
