@@ -45,9 +45,9 @@ NULL
 
 
 .onAttach <- function(libname, pkgname) {
-  vers <-  "3.0.0"
+  vers <-  "3.0.0.9000"
   packageStartupMessage("|======================================================|")
-  packageStartupMessage("| Welcome to the pliman package (version ", vers, ")!       |")
+  packageStartupMessage("| Welcome to the pliman package (version ", vers, ")!  |")
   packageStartupMessage("| Developed collaboratively by NEPEM - nepemufsc.com   |")
   packageStartupMessage("| Group lead: Prof. Tiago Olivoto                      |")
   packageStartupMessage("| For citation: type `citation('pliman')`              |")
