@@ -1,4 +1,46 @@
+point_to_polygon <- function(sf_object, n_sides = 500) {
+  # Extract CRS of the input sf object
+  crsobj <- sf::st_crs(sf_object)
+  # Create a new geometry list
+  new_geometries <- lapply(seq_len(nrow(sf_object)), function(i) {
+    geom_type <- sf::st_geometry_type(sf_object[i, ])
+    if (geom_type == "POINT") {
+      # Get the point coordinates
+      point <- sf::st_coordinates(sf_object[i, ])
+      radius <- sf_object[["radius"]][i]
 
+      if (is.na(radius)) {
+        stop("Radius is missing for a POINT geometry!")
+      }
+      angles <- seq(0, 2 * pi, length.out = n_sides + 1)
+      circle_coords <- cbind(
+        point[1] + radius * cos(angles),  # X coordinates
+        point[2] + radius * sin(angles)   # Y coordinates
+      )
+      sf::st_polygon(list(circle_coords))
+    } else {
+      sf::st_geometry(sf_object[i, ])
+    }
+  })
+  # Function to ensure all geometries in a list are valid sfg objects
+  validate_geometries <- function(geometry_list) {
+    lapply(geometry_list, function(geom) {
+      if (inherits(geom, "sfg")) {
+        return(geom)  # Valid sfg object, return as is
+      } else if (inherits(geom, "sfc")) {
+        return(geom[[1]])  # Unnest if it's an sfc object
+      } else if (is.list(geom) && inherits(geom[[1]], "sfg")) {
+        return(geom[[1]])  # Handle nested lists containing sfg objects
+      } else {
+        stop("Invalid geometry found in the list")
+      }
+    })
+  }
+  sf_object <-
+    sf::st_set_geometry(sf_object, sf::st_sfc(validate_geometries(new_geometries))) |>
+    sf::st_set_crs(crsobj)
+  return(sf_object)
+}
 add_width_height <- function(grid, width, height, mosaic, points_align) {
   gridl <-lapply(sf::st_geometry(grid), sf::st_coordinates)
   gridadj <- add_width_height_cpp(gridl, height, width, points_align)
@@ -270,6 +312,8 @@ plot_id <- function(shapefile,
 #' @param basemap An optional `mapview` object.
 #' @param controlpoints An `sf` object created with [mapedit::editMap()],
 #'   containing the polygon that defines the region of interest to be analyzed.
+#' @param nsides The number of sides if the geometry is generated with `Draw
+#'   Circle` tool.
 #' @inheritParams mosaic_analyze
 #' @inheritParams mosaic_index
 #' @inheritParams mosaic_view
@@ -305,6 +349,7 @@ shapefile_build <- function(mosaic,
                             grid = TRUE,
                             nrow = 1,
                             ncol = 1,
+                            nsides = 200,
                             plot_width = NULL,
                             plot_height = NULL,
                             layout = "lrtb",
@@ -340,8 +385,23 @@ shapefile_build <- function(mosaic,
                              quantiles = quantiles)
     }
     if(is.null(controlpoints)){
-      points <- mapedit::editMap(basemap, editor = "leafpm")
-      cpoints <- points$finished
+      points <- mapedit::editMap(basemap,
+                                 editor = "leafpm",
+                                 editorOptions = list(toolbarOptions = list(
+                                   drawMarker = TRUE,
+                                   drawPolygon = TRUE,
+                                   drawPolyline = TRUE,
+                                   drawCircle = TRUE,
+                                   drawRectangle = TRUE,
+                                   editMode = TRUE,
+                                   cutPolygon = TRUE,
+                                   removalMode = TRUE,
+                                   position = "topleft"
+                                 ))
+      )
+      cpoints <- points$finished |>
+        sf::st_transform(sf::st_crs(mosaic)) |>
+        point_to_polygon(n_sides = nsides)
     } else{
       cpoints <- controlpoints
     }

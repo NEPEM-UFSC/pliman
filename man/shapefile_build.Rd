@@ -15,6 +15,7 @@ shapefile_build(
   grid = TRUE,
   nrow = 1,
   ncol = 1,
+  nsides = 200,
   plot_width = NULL,
   plot_height = NULL,
   layout = "lrtb",
@@ -55,6 +56,8 @@ extension.}
 \item{nrow}{Number of rows for the grid (default: 1).}
 
 \item{ncol}{Number of columns for the grid (default: 1).}
+
+\item{nsides}{The number of sides if the geometry is generated with \verb{Draw Circle} tool.}
 
 \item{plot_width, plot_height}{The width and height of the plot shape (in the
 mosaic unit). It is mutually exclusiv with \code{buffer_col} and \code{buffer_row}.}
