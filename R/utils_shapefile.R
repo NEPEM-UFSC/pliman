@@ -780,7 +780,9 @@ shapefile_edit <- function(shapefile,
 #' - `area`: The area of the polygon (in square units).
 #' - `perimeter`: The perimeter of the polygon (in linear units).
 #' - `width`: The calculated width based on sequential distances between points.
+#'  The result will only be accurate if the polygon is rectangular.
 #' - `height`: The calculated height based on sequential distances between points.
+#'  The result will only be accurate if the polygon is rectangular.
 #'
 #' @details
 #' This function processes a single or multi-polygon `sf` object and computes
@@ -801,25 +803,26 @@ shapefile_edit <- function(shapefile,
 #'
 
 shapefile_measures <- function(shapefile) {
-  check_and_install_package("lwgeom")
   if (inherits(shapefile, "list")) {
     shapefile <- shapefile_input(shapefile, info = FALSE)
   }
-  # Get the number of points and their coordinates
-  npoints <- sf::st_coordinates(shapefile) |> nrow()
-  coords <- sf::st_coordinates(shapefile)[, 1:2]
 
-  # Calculate distances between points
-  dists <- suppressWarnings(as.matrix(sf::st_distance(sf::st_cast(shapefile[1, ], "POINT")$geometry)))
-
-  # Sequential distances between points
-  seq_dists <- c()
-  for (i in 1:(ncol(dists) - 1)) {
-    seq_dists <- c(seq_dists, dists[i, i + 1])
-  }
-  # Extract width and height (second and first distances)
-  wid <- round(seq_dists[2], 3)
-  hei <- round(seq_dists[1], 3)
+  results <- lapply(1:nrow(shapefile), function(i) {
+    # Extract points from the current geometry
+    geom <- shapefile[i, ]$geometry
+    if(nrow(geom[[1]][[1]]) == 5){
+      points <- sf::st_cast(geom, "POINT")
+      # Calculate pairwise distances between points
+      dists <- suppressWarnings(as.matrix(sf::st_distance(points)))
+      # Extract width and height
+      width <- as.numeric(round(dists[[2]], 3))
+      height <- as.numeric(round(dists[[4]], 3))
+      c(width, height)
+    } else{
+      c(NA, NA)
+    }
+  })
+  wh <- do.call(rbind, results)
 
   # Calculate the centroid and add measurements
   coords <- suppressWarnings(sf::st_centroid(shapefile))|> sf::st_coordinates()
@@ -829,13 +832,15 @@ shapefile_measures <- function(shapefile) {
       xcoord = coords[, 1],
       ycoord = coords[, 2],
       area = as.numeric(sf::st_area(shapefile)),
-      perimeter = as.numeric(sf::st_perimeter(shapefile)),
-      width = wid,
-      height = hei,
+      perimeter = rcpp_st_perimeter(as.list(sf::st_geometry(shapefile))),
+      width = wh[, 1],
+      height = wh[, 2],
       .before = geometry
     )
+
   return(measures)
 }
+
 
 #' Interpolate values at specific points based on coordinates and a target variable
 #'

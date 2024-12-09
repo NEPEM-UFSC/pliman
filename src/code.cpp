@@ -954,3 +954,31 @@ IntegerMatrix help_label(IntegerMatrix matrix, int max_gap = 2) {
   }
   return labels;
 }
+
+// [[Rcpp::export]]
+NumericVector rcpp_st_perimeter(List sf_coords) {
+  int n = sf_coords.size();
+  NumericVector perimeters(n);
+
+  for (int i = 0; i < n; ++i) {
+    List geom = sf_coords[i]; // Get each geometry (may consist of multiple rings)
+    double total_perimeter = 0.0;
+
+    for (int j = 0; j < geom.size(); ++j) {
+      NumericMatrix ring = geom[j]; // Single ring (matrix of coordinates)
+      double ring_perimeter = 0.0;
+      int rows = ring.nrow();
+
+      for (int k = 0; k < rows - 1; ++k) {
+        // Calculate Euclidean distance between consecutive points
+        double dx = ring(k + 1, 0) - ring(k, 0);
+        double dy = ring(k + 1, 1) - ring(k, 1);
+        ring_perimeter += sqrt(dx * dx + dy * dy);
+      }
+
+      total_perimeter += ring_perimeter;
+    }
+    perimeters[i] = total_perimeter;
+  }
+  return perimeters;
+}

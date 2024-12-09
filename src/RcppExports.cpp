@@ -241,6 +241,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// rcpp_st_perimeter
+NumericVector rcpp_st_perimeter(List sf_coords);
+RcppExport SEXP _pliman_rcpp_st_perimeter(SEXP sf_coordsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type sf_coords(sf_coordsSEXP);
+    rcpp_result_gen = Rcpp::wrap(rcpp_st_perimeter(sf_coords));
+    return rcpp_result_gen;
+END_RCPP
+}
 // help_area
 Rcpp::RObject help_area(Rcpp::RObject coord);
 RcppExport SEXP _pliman_help_area(SEXP coordSEXP) {
@@ -495,6 +506,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_idw_interpolation_cpp", (DL_FUNC) &_pliman_idw_interpolation_cpp, 6},
     {"_pliman_add_width_height_cpp", (DL_FUNC) &_pliman_add_width_height_cpp, 4},
     {"_pliman_help_label", (DL_FUNC) &_pliman_help_label, 2},
+    {"_pliman_rcpp_st_perimeter", (DL_FUNC) &_pliman_rcpp_st_perimeter, 1},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},
