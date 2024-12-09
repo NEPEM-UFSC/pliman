@@ -73,6 +73,10 @@ help_label <- function(matrix, max_gap = 2L) {
     .Call(`_pliman_help_label`, matrix, max_gap)
 }
 
+rcpp_st_perimeter <- function(sf_coords) {
+    .Call(`_pliman_rcpp_st_perimeter`, sf_coords)
+}
+
 help_area <- function(coord) {
     .Call(`_pliman_help_area`, coord)
 }
