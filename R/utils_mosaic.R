@@ -3369,10 +3369,10 @@ mosaic_chm <- function(dsm,
     }
     chm <- dsm - dtm
     gc()
-    psize <- prod(terra::res(chm))
-    volume <- chm * psize
-    chm <- c(chm, volume)
-    gc()
+    # psize <- prod(terra::res(chm))
+    # volume <- chm * psize
+    # chm <- c(chm, volume)
+    # gc()
     if(!is.null(mask)){
       if((terra::ext(mask) != terra::ext(dsm)) || (terra::ncell(mask) != terra::ncell(dsm))){
         mask <- terra::resample(mask, dsm)
@@ -3380,7 +3380,7 @@ mosaic_chm <- function(dsm,
       chm <- terra::mask(chm,  mask, maskvalues = mask_soil)
     }
     chm <- c(dtm, chm)
-    names(chm) <- c("dtm", "height", "volume")
+    names(chm) <- c("dtm", "height")
   }
   if(verbose){
     message("\014","\nDone!\n")
@@ -3397,8 +3397,8 @@ mosaic_chm <- function(dsm,
 #' @param shapefile An `sf` object representing the plot boundaries for which
 #'   the metrics will be extracted.
 #'
-#' @return A `sf` object with extracted metrics including minimum, 10th
-#'   percentile, median (50th percentile), 90th percentile, interquartile range
+#' @return A `sf` object with extracted metrics including minimum, 5th
+#'   percentile, median (50th percentile), 95th percentile, interquartile range
 #'   (IQR), mean, maximum canopy height, coefficient of variation (CV) of canopy
 #'   height, canopy height entropy, total volume, covered area, plot area, and
 #'   coverage percentage. Centroid coordinates (x, y) of each plot are also
@@ -3420,17 +3420,18 @@ mosaic_chm_extract <- function(chm, shapefile){
       entropy <- -sum(prob * log(prob))
       return(entropy)
     }
-    quantiles <- quantile(valids, c(0.1, 0.5, 0.9))
+    quantiles <- quantile(valids, c(0.05, 0.5, 0.95))
     data.frame(
       min = min(valids),
-      q10 = quantiles[[1]],
+      q05 = quantiles[[1]],
       q50 = quantiles[[2]],
-      q90 = quantiles[[3]],
+      q95 = quantiles[[3]],
       iqr = IQR(valids),
       mean = sum(valids) / length(valids),
       max = max(valids),
       cv = sd(valids) / mean(valids),
-      entropy = entropy(valids)
+      entropy = entropy(valids),
+      volume = sum(valids * prod(terra::res(chm$chm[[1]])))
     )
   }
   height <- exactextractr::exact_extract(chm$chm[[2]],
@@ -3438,16 +3439,9 @@ mosaic_chm_extract <- function(chm, shapefile){
                                          fun = custom_summary,
                                          force_df = TRUE,
                                          progress = FALSE)
-  vol <- exactextractr::exact_extract(chm$chm[[3]],
-                                      shapefile,
-                                      fun = "sum",
-                                      force_df = TRUE,
-                                      progress = FALSE)
-  names(vol) <- c("volume")
-
   # include check here if mask is not present
   if(chm$mask){
-    area <- exactextractr::exact_extract(chm$chm[[3]],
+    area2 <- exactextractr::exact_extract(chm$chm[[2]],
                                          shapefile,
                                          coverage_area = TRUE,
                                          force_df = TRUE,
@@ -3464,10 +3458,13 @@ mosaic_chm_extract <- function(chm, shapefile){
                                plot_area = area,
                                coverage = 1)
   }
+  shapefile <-
+    shapefile |>
+    dplyr::select(-suppressWarnings(dplyr::any_of(c("x", "y"))))
   centroids <- suppressWarnings(sf::st_centroid(shapefile)) |> sf::st_coordinates()
   colnames(centroids) <- c("x", "y")
   dftmp <-
-    dplyr::bind_cols(height, vol, covered_area, centroids, shapefile) |>
+    dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
     sf::st_as_sf() |>
     dplyr::relocate(unique_id, block, plot_id, row, column, x, y, .before = 1)
   return(dftmp)
@@ -3668,6 +3665,8 @@ mosaic_extract <- function(mosaic,
 #' @param fill_hull Fill holes in the binary image? Defaults to `FALSE`.
 #' @return An `sf` object containing vectorized features from the raster mask,
 #'   with added area measurements.
+#' @param smooth Smoothes the contours using a moving average filter. Default is
+#'   `FALSE`.
 #' @export
 #' @examples
 #' if (interactive() && requireNamespace("EBImage")) {
@@ -3693,7 +3692,8 @@ mosaic_vectorize <- function(mask,
                              lower_size = NULL,
                              upper_size = NULL,
                              topn_lower = NULL,
-                             topn_upper = NULL){
+                             topn_upper = NULL,
+                             smooth = FALSE){
   if(!is.null(aggregate)){
     mask <- mosaic_aggregate(mask, aggregate)
   }
@@ -3725,6 +3725,9 @@ mosaic_vectorize <- function(mask,
   }
   conts <- EBImage::ocontour(dmask)
   conts <- conts[sapply(conts, nrow) > 2]
+  if(is.numeric(smooth) & smooth > 0){
+    conts <- smoothContours(conts, smooth)
+  }
   resx <- terra::res(mask)[1]
   resy <- terra::res(mask)[1]
   sf_df <- sf::st_sf(
@@ -3759,7 +3762,7 @@ mosaic_vectorize <- function(mask,
   if(!is.null(topn_upper)){
     gridindiv <- gridindiv[order(gridindiv$area, decreasing = TRUE),][1:topn_upper,]
   }
-  return(gridindiv)
+  return(gridindiv |> check_cols_shp())
 }
 
 #' Rotate a mosaic image by specified angles

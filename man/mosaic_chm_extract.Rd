@@ -14,8 +14,8 @@ by the \code{\link[=mosaic_chm]{mosaic_chm()}} function.}
 the metrics will be extracted.}
 }
 \value{
-A \code{sf} object with extracted metrics including minimum, 10th
-percentile, median (50th percentile), 90th percentile, interquartile range
+A \code{sf} object with extracted metrics including minimum, 5th
+percentile, median (50th percentile), 95th percentile, interquartile range
 (IQR), mean, maximum canopy height, coefficient of variation (CV) of canopy
 height, canopy height entropy, total volume, covered area, plot area, and
 coverage percentage. Centroid coordinates (x, y) of each plot are also

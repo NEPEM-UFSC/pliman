@@ -486,6 +486,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// smoothContours
+List smoothContours(List contours, int window_size);
+RcppExport SEXP _pliman_smoothContours(SEXP contoursSEXP, SEXP window_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type contours(contoursSEXP);
+    Rcpp::traits::input_parameter< int >::type window_size(window_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(smoothContours(contours, window_size));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_pliman_threshold_adaptive", (DL_FUNC) &_pliman_threshold_adaptive, 4},
@@ -528,6 +540,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_sum_true_cols", (DL_FUNC) &_pliman_sum_true_cols, 1},
     {"_pliman_help_poly_angles", (DL_FUNC) &_pliman_help_poly_angles, 1},
     {"_pliman_help_smoth", (DL_FUNC) &_pliman_help_smoth, 2},
+    {"_pliman_smoothContours", (DL_FUNC) &_pliman_smoothContours, 2},
     {NULL, NULL, 0}
 };
 

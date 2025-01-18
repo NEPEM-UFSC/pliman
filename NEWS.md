@@ -2,7 +2,8 @@
 ## New Functions
 
 ## Minor Improvements
-* include option to draw circles in `shapefile_build()`
+* Include option to draw circles in `shapefile_build()`
+* Remove dependency on `lwgeom` package to compute perimeter.
 
 # pliman 3.0.0
 ## New Functions

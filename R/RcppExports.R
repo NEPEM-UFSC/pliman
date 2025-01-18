@@ -161,3 +161,7 @@ help_smoth <- function(coords, niter) {
     .Call(`_pliman_help_smoth`, coords, niter)
 }
 
+smoothContours <- function(contours, window_size = 3L) {
+    .Call(`_pliman_smoothContours`, contours, window_size)
+}
+

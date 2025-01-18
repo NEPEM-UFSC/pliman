@@ -634,14 +634,14 @@ shapefile_input <- function(shapefile,
       message("Missing Coordinate Reference System. Setting to EPSG:3857")
       terra::crs(shp) <- terra::crs("EPSG:3857")
     }
-    if (info) {
-      print(shp)
-    }
     if (as_sf) {
       shp <- sf::st_as_sf(shp)
       if(multilinestring){
         shp <- sf::st_cast(shp, "MULTILINESTRING")
       }
+    }
+    if (info) {
+      print(shp)
     }
     return(shp)
   }
@@ -934,3 +934,21 @@ shapefile_surface <- function(model,
                   ...)
 }
 
+check_cols_shp <- function(shpimp){
+  if(!"unique_id" %in% colnames(shpimp)){
+    shpimp <- shpimp |> dplyr::mutate(unique_id = dplyr::row_number())
+  }
+  if(!"block" %in% colnames(shpimp)){
+    shpimp <- shpimp |> dplyr::mutate(block = "B01")
+  }
+  if(!"plot_id" %in% colnames(shpimp)){
+    shpimp <- shpimp |> dplyr::mutate(plot_id = paste0("P", leading_zeros(1:nrow(shpimp), 3)))
+  }
+  if(!"row" %in% colnames(shpimp)){
+    shpimp <- shpimp |> dplyr::mutate(row = 1)
+  }
+  if(!"column" %in% colnames(shpimp)){
+    shpimp <- shpimp |> dplyr::mutate(column = 1)
+  }
+  shpimp |> dplyr::relocate(geometry, .after = dplyr::last_col())
+}
