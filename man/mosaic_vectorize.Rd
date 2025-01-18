@@ -19,7 +19,8 @@ mosaic_vectorize(
   lower_size = NULL,
   upper_size = NULL,
   topn_lower = NULL,
-  topn_upper = NULL
+  topn_upper = NULL,
+  smooth = FALSE
 )
 }
 \arguments{
@@ -76,6 +77,9 @@ be considered.}
 \item{topn_lower, topn_upper}{Select the top \code{n} objects based on its area.
 \code{topn_lower} selects the \code{n} elements with the smallest area whereas
 \code{topn_upper} selects the \code{n} objects with the largest area.}
+
+\item{smooth}{Smoothes the contours using a moving average filter. Default is
+\code{FALSE}.}
 }
 \value{
 An \code{sf} object containing vectorized features from the raster mask,

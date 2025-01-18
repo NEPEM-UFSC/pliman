@@ -39,6 +39,9 @@ install.packages("pliman")
 The development version of `pliman` can be installed from [GitHub](https://github.com/nepem-ufsc/pliman) using the [pak](https://github.com/r-lib/pak) package:
 
 ```{r, eval=FALSE}
+if(!requireNamespace("pak", quietly = TRUE)){
+  install.packages("pak")
+}
 pak::pkg_install("nepem-ufsc/pliman")
 ```
 

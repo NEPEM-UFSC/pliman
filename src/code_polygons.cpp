@@ -570,3 +570,41 @@ NumericMatrix help_smoth(NumericMatrix coords, int niter) {
 
   return smoothedCoords;
 }
+
+// [[Rcpp::export]]
+List smoothContours(List contours, int window_size = 3) {
+  if (window_size < 1) {
+    stop("Window size must be at least 1.");
+  }
+
+  int half_window = window_size / 2;
+  List smoothedContours(contours.size());
+
+  for (int i = 0; i < contours.size(); ++i) {
+    NumericMatrix contour = contours[i];
+    int n = contour.nrow();
+    NumericMatrix smoothedContour(n, 2);
+
+    for (int j = 0; j < n; ++j) {
+      // Smoothing X and Y separately
+      double x_sum = 0.0, y_sum = 0.0;
+      int count = 0;
+
+      for (int k = -half_window; k <= half_window; ++k) {
+        int idx = j + k;
+        if (idx >= 0 && idx < n) {
+          x_sum += contour(idx, 0);
+          y_sum += contour(idx, 1);
+          count++;
+        }
+      }
+
+      smoothedContour(j, 0) = x_sum / count;
+      smoothedContour(j, 1) = y_sum / count;
+    }
+
+    smoothedContours[i] = smoothedContour;
+  }
+
+  return smoothedContours;
+}
