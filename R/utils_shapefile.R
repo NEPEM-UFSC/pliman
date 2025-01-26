@@ -952,3 +952,126 @@ check_cols_shp <- function(shpimp){
   }
   shpimp |> dplyr::relocate(geometry, .after = dplyr::last_col())
 }
+
+#' Spatial Operations on Shapefiles
+#'
+#' These functions perform various spatial operations on two shapefiles, including determining which geometries fall within, outside, touch, cross, overlap, or intersect another geometry. They also include functions for geometric operations such as intersection, difference, and union.
+#'
+#' @param shp1 An `sf` object representing the first shapefile.
+#' @param shp2 An `sf` object representing the second shapefile.
+#'
+#' @details All functions ensure that the coordinate reference systems (CRS) of both shapefiles are the same before performing operations. If the CRSs are different, `shp2` will be transformed to match the CRS of `shp1`.
+#' - `shapefile_within()`: Filters features in `shp1` that are fully within `shp2`.
+#' - `shapefile_outside()`: Filters features in `shp1` that are outside or do not overlap `shp2`.
+#' - `shapefile_overlaps()`: Filters features in `shp1` that overlap with `shp2`.
+#' - `shapefile_touches()`: Filters features in `shp1` that touch the boundary of `shp2`.
+#' - `shapefile_crosses()`: Filters features in `shp1` that cross through `shp2`.
+#' - `shapefile_intersection()`: Computes the geometric intersection of `shp1` and `shp2`.
+#' - `shapefile_difference()`: Computes the geometric difference of `shp1` minus `shp2`.
+#' - `shapefile_union()`: Computes the geometric union of `shp1` and `shp2`.
+#'
+#' @return A filtered `sf` object or the result of the geometric operation.
+#' @examples
+#' if (interactive() && requireNamespace("EBImage")) {
+#' library(pliman)
+#'
+#' shp1 <- shapefile_input(paste0(image_pliman(), "/shp1.rds"))
+#' shp2 <- shapefile_input(paste0(image_pliman(), "/shp2.rds"))
+#' shapefile_view(shp1) + shapefile_view(shp1)
+#'
+#' # Apply operations
+#' shapefile_within(shp1, shp2)
+#' shapefile_outside(shp1, shp2)
+#' shapefile_overlaps(shp1, shp2)
+#' shapefile_touches(shp1, shp2)
+#' shapefile_crosses(shp1, shp2)
+#' shapefile_intersection(shp1, shp2)
+#' shapefile_difference(shp1, shp2)
+#' shapefile_union(shp1, shp2)
+#' }
+#' @name shapefile_operations
+#' @export
+#'
+shapefile_within <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  bin <- sf::st_within(shp1, shp2) |> as.logical()
+  bin[is.na(bin)] <- FALSE
+  shp1 |> dplyr::filter(bin)
+}
+#' @name shapefile_operations
+#' @export
+shapefile_outside <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  bin <- sf::st_within(shp1, shp2) |> as.logical()
+  over <- sf::st_overlaps(shp1, shp2) |> as.logical()
+  bin[is.na(bin)] <- FALSE
+  over[is.na(over)] <- FALSE
+  filt <- as.logical(bin + over)
+  shp1 |> dplyr::filter(!filt)
+}
+#' @name shapefile_operations
+#' @export
+shapefile_overlaps <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  bin <- sf::st_overlaps(shp1, shp2) |> as.logical()
+  bin[is.na(bin)] <- FALSE
+  shp1 |> dplyr::filter(bin)
+}
+#' @name shapefile_operations
+#' @export
+shapefile_touches <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  bin <- sf::st_touches(shp1, shp2) |> as.logical()
+  bin[is.na(bin)] <- FALSE
+  shp1 |> dplyr::filter(bin)
+}
+#' @name shapefile_operations
+#' @export
+shapefile_crosses <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  bin <- sf::st_crosses(shp1, shp2) |> as.logical()
+  bin[is.na(bin)] <- FALSE
+  shp1 |> dplyr::filter(bin)
+}
+#' @name shapefile_operations
+#' @export
+shapefile_intersection <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  suppressWarnings(sf::st_intersection(shp1, shp2))
+}
+#' @name shapefile_operations
+#' @export
+shapefile_difference <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  suppressWarnings(sf::st_difference(shp1, shp2))
+}
+#' @name shapefile_operations
+#' @export
+shapefile_union <- function(shp1, shp2){
+  if(sf::st_crs(shp1) != sf::st_crs(shp2)){
+    warning("CRS are different, matching CRS of shp1 to shp2")
+    shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
+  }
+  suppressWarnings(sf::st_union(shp1, shp2))
+}

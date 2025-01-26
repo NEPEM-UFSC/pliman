@@ -1,5 +1,6 @@
 # pliman (development version)
 ## New Functions
+* New functions for geometric operation on shapefiles.
 
 ## Minor Improvements
 * Include option to draw circles in `shapefile_build()`
