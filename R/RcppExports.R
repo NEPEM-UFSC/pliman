@@ -77,6 +77,10 @@ rcpp_st_perimeter <- function(sf_coords) {
     .Call(`_pliman_rcpp_st_perimeter`, sf_coords)
 }
 
+uuid_v7 <- function() {
+    .Call(`_pliman_uuid_v7`)
+}
+
 help_area <- function(coord) {
     .Call(`_pliman_help_area`, coord)
 }

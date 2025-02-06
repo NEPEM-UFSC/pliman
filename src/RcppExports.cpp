@@ -252,6 +252,16 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// uuid_v7
+std::string uuid_v7();
+RcppExport SEXP _pliman_uuid_v7() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(uuid_v7());
+    return rcpp_result_gen;
+END_RCPP
+}
 // help_area
 Rcpp::RObject help_area(Rcpp::RObject coord);
 RcppExport SEXP _pliman_help_area(SEXP coordSEXP) {
@@ -519,6 +529,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_add_width_height_cpp", (DL_FUNC) &_pliman_add_width_height_cpp, 4},
     {"_pliman_help_label", (DL_FUNC) &_pliman_help_label, 2},
     {"_pliman_rcpp_st_perimeter", (DL_FUNC) &_pliman_rcpp_st_perimeter, 1},
+    {"_pliman_uuid_v7", (DL_FUNC) &_pliman_uuid_v7, 0},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},

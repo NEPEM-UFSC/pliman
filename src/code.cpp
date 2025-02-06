@@ -1,6 +1,11 @@
 #include <RcppArmadillo.h>
 #include <queue>
 #include <cmath>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <random>
+
 using namespace Rcpp;
 using namespace arma;
 
@@ -981,4 +986,51 @@ NumericVector rcpp_st_perimeter(List sf_coords) {
     perimeters[i] = total_perimeter;
   }
   return perimeters;
+}
+
+// Helper function to generate random hexadecimal characters
+std::string generate_random_hex(int length) {
+  const char hex_chars[] = "0123456789abcdef";
+  std::string result;
+  for (int i = 0; i < length; ++i) {
+    result += hex_chars[rand() % 16];
+  }
+  return result;
+}
+
+// [[Rcpp::export]]
+std::string  uuid_v7() {
+  // Step 1: Get current timestamp in milliseconds since Unix epoch
+  auto now = std::chrono::system_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch());
+  long long timestamp = duration.count();
+
+  // Convert timestamp to a hexadecimal string with exactly 12 characters
+  std::stringstream ss;
+  ss << std::hex << std::setw(12) << std::setfill('0') << (timestamp & 0xFFFFFFFFFFFF); // Ensure 12 hex digits
+  std::string timestamp_hex = ss.str();
+
+  // Step 2: Extract components from the timestamp
+  std::string time_low = timestamp_hex.substr(0, 8);  // First 8 hex digits (32 bits)
+  std::string time_mid = timestamp_hex.substr(8, 4);  // Next 4 hex digits (16 bits)
+  std::string time_high_and_version = generate_random_hex(4); // Generate 4 random hex chars
+  time_high_and_version[0] = '7'; // Set the version to 7 (Version 7 UUID)
+
+  // Step 3: Generate the variant and clock sequence
+  std::string variant_and_sequence = generate_random_hex(4);
+  variant_and_sequence[0] = "89ab"[rand() % 4]; // Set the variant (8, 9, a, b)
+
+  // Step 4: Generate the node (random bits for uniqueness)
+  std::string node = generate_random_hex(12);
+
+  // Step 5: Combine all components into the UUID structure
+  std::string uuid = time_low + "-" + time_mid + "-" + time_high_and_version +
+    "-" + variant_and_sequence + "-" + node;
+
+  // Ensure UUID is exactly 36 characters long (with 4 hyphens)
+  if (uuid.length() != 36) {
+    throw std::runtime_error("Generated UUID has incorrect length: " + uuid);
+  }
+
+  return uuid;
 }
