@@ -773,7 +773,8 @@ shapefile_edit <- function(shapefile,
 #'
 #' @param shapefile An `sf` object representing the shapefile. It should contain
 #'   polygonal geometries for which the measures will be calculated.
-#'
+#' @param n An integer specifying the number of polygons to process. If `NULL`,
+#'   all polygons are considered.
 #' @return A modified `sf` object with added columns for:
 #' - `xcoord`: The x-coordinate of the centroid.
 #' - `ycoord`: The y-coordinate of the centroid.
@@ -802,11 +803,13 @@ shapefile_edit <- function(shapefile,
 #'
 #'
 
-shapefile_measures <- function(shapefile) {
+shapefile_measures <- function(shapefile, n = NULL) {
   if (inherits(shapefile, "list")) {
     shapefile <- shapefile_input(shapefile, info = FALSE)
   }
-
+  if(!is.null(n)){
+    shapefile <- shapefile |> dplyr::slice(1:n)
+  }
   results <- lapply(1:nrow(shapefile), function(i) {
     # Extract points from the current geometry
     geom <- shapefile[i, ]$geometry
@@ -815,8 +818,8 @@ shapefile_measures <- function(shapefile) {
       # Calculate pairwise distances between points
       dists <- suppressWarnings(as.matrix(sf::st_distance(points)))
       # Extract width and height
-      width <- as.numeric(round(dists[[2]], 3))
-      height <- as.numeric(round(dists[[4]], 3))
+      width <- as.numeric(round(dists[[4]], 3))
+      height <- as.numeric(round(dists[[2]], 3))
       c(width, height)
     } else{
       c(NA, NA)
