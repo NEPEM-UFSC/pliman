@@ -2134,6 +2134,8 @@ mosaic_plot_rgb <- function(mosaic, ...){
 #'   band numbers if the index is computed using the band name.
 #' @param shapefile An optional `SpatVector`, that can be created with
 #'   [shapefile_input()].
+#' @param mosaic2 A second `SpatRaster` object to be used to crop the mosaic. If
+#'   declared, `mosaic` will be cropped to the extent of `mosaic2`.
 #' @param buffer A buffering factor to be used when a shapefile is used to crop
 #'   the mosaic.
 #' @param ... Additional arguments passed to [mosaic_view()].
@@ -2159,13 +2161,14 @@ mosaic_crop <- function(mosaic,
                         re = 4,
                         nir = 5,
                         shapefile = NULL,
+                        mosaic2 = NULL,
                         buffer = 0,
                         show = c("rgb", "index"),
                         index = "R",
                         max_pixels = 500000,
                         downsample = NULL,
                         ...){
-  if(is.null(shapefile)){
+  if(is.null(shapefile) & is.null(mosaic2)){
     showopt <- c("rgb", "index")
     showopt <- showopt[pmatch(show[[1]], showopt)]
     controls <- mosaic_view(mosaic,
@@ -2193,7 +2196,12 @@ mosaic_crop <- function(mosaic,
     }
     cropped <- terra::crop(mosaic, grids)
   } else{
-    cropped <- terra::crop(mosaic, shapefile |> terra::vect() |> terra::buffer(buffer))
+    if(!is.null(shapefile)){
+      cropped <- terra::crop(mosaic, shapefile |> terra::vect() |> terra::buffer(buffer))
+    }
+    if(!is.null(mosaic2)){
+      cropped <- terra::crop(mosaic, mosaic2)
+    }
   }
   invisible(cropped)
 
@@ -2250,7 +2258,7 @@ mosaic_crop <- function(mosaic,
 #'
 
 mosaic_index <- function(mosaic,
-                         index = "R",
+                         index = "RENDVI",
                          r = 3,
                          g = 2,
                          b = 1,
@@ -2261,7 +2269,15 @@ mosaic_index <- function(mosaic,
                          plot = TRUE,
                          in_memory = TRUE,
                          workers = 1){
+
   indices <- c(r = r, g = g, b = b, re = re, nir = nir, swir = swir, tir = tir)
+  ind <- read.csv(file=system.file("indexes.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
+  indexname <- index
+  for(i in seq_along(index)){
+    if(index[i] %in% ind$Index && ind[which(index[i] == ind$Index), 3] == "HYP"){
+      index[i] <- indexband_to_formula(names(mosaic), ind[which(index[i] == ind$Index), 2])
+    }
+  }
   valid_indices <- indices[!is.na(indices)]
   if(length(index) == 1){
     if(inherits(mosaic, "Image")){
@@ -2269,13 +2285,11 @@ mosaic_index <- function(mosaic,
     } else{
       ras <- mosaic
     }
-    ind <- read.csv(file=system.file("indexes.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
     checkind <- index %in% ind$Index
     if (!all(checkind)) {
       message(paste("Index '", paste0(index[!checkind], collapse = ", "), "' is not available. Trying to compute your own index.",
                     sep = ""))
     }
-    dimmo <- prod(dim(mosaic)[1:2])
     pattern <- "\\b\\w+\\b"
     reserved <- c("exp", "abs", "min", "max", "median", "sum", "sqrt", "cos", "sin", "tan", "log", "log10")
     layersused <- setdiff(unlist(regmatches(index, gregexpr(pattern, index, perl = TRUE))), reserved)
@@ -2313,7 +2327,7 @@ mosaic_index <- function(mosaic,
         }
       }
     }
-    names(mosaic_gray) <- index
+    names(mosaic_gray) <- indexname
     if(!is.na(terra::crs(mosaic))){
       if(terra::crs(mosaic_gray) != terra::crs(mosaic)){
         suppressWarnings(terra::crs(mosaic_gray) <- terra::crs(mosaic))
@@ -2374,6 +2388,7 @@ mosaic_index <- function(mosaic,
             })
         )
       )
+      names(mosaic_gray) <- unique(indexname)
     }
   }
   if(plot){
@@ -3442,10 +3457,10 @@ mosaic_chm_extract <- function(chm, shapefile){
   # include check here if mask is not present
   if(chm$mask){
     area2 <- exactextractr::exact_extract(chm$chm[[2]],
-                                         shapefile,
-                                         coverage_area = TRUE,
-                                         force_df = TRUE,
-                                         progress = FALSE)
+                                          shapefile,
+                                          coverage_area = TRUE,
+                                          force_df = TRUE,
+                                          progress = FALSE)
     covered_area <-
       purrr::map_dfr(area, function(x){
         data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
@@ -3541,8 +3556,8 @@ mosaic_chm_mask <- function(dsm,
 mosaic_epsg <- function(mosaic) {
   if(terra::is.lonlat(mosaic)){
     extens <- terra::ext(mosaic)
-    latitude <- mean(c(extens[3], extens[4]))
-    longitude <- mean(c(extens[1], extens[2]))
+    latitude <- mean(c(terra::ymin(mosaic), terra::ymax(mosaic)))
+    longitude <- mean(c(terra::xmin(mosaic), terra::xmax(mosaic)))
     utm_zone <- floor((longitude + 180) / 6) + 1
     hemisphere <- ifelse(latitude >= 0, "N", "S")
     epsg_code <- if (hemisphere == "N") {

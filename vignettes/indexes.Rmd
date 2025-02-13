@@ -28,7 +28,7 @@ The RGB (Red, Green, Blue) color space is a widely used color representation in 
 ## Indexes in the RGB Color Space
 
 | Abbreviation | Name | Formula | Reference |
-|-----------------|-----------------|----------------------|-----------------|
+|-----------------|-----------------|---------------------|-----------------|
 | B | Blue (445 nm) | `B` |  |
 | BCC | Blue Chromatic Coordinate Index | `B/(R+G+B)` | @deswaef2021bcc |
 | BGI | Blue Green Pigment | `B/G` | @zarco-tejada2005 |
@@ -81,12 +81,12 @@ The RGB (Red, Green, Blue) color space is a widely used color representation in 
 | vNDVI | Visible NDVI | `0.5268 * (R - 0.1294*G**0.3389 * B - 0.3118)` | @costa2020 |
 | WI | Woebbecke Index | `G - B)/(R - G)` | @d.m.woebbecke1995 |
 
-## Multispectral indexes
+## Multispectral vegetation indexes
 
 {pliman} provides tools to analyze up to 5 bands , which are generally B, G, R, RE (red-edge) and NIR (near-infrared). The following build-in indexes are available.
 
 | Abbreviation | Name | Formula | Reference |
-|---------------|---------------|---------------------------|---------------|
+|----------------|----------------|------------------------|----------------|
 | ARI | Anthocyanin Reflectance Index | `(1 / G) - (1 / RE)` | @gitelson2001 |
 | ARVI | Atmospherically Resistant Vegetation Index | `(NIR - (R - 0.1*(R-B))) / (NIR + (R - 0.1*(R-B)))` | @kaufman1992 |
 | BAI | Burn Area Index | `1/((0.1 - R)^2 + (0.06 - NIR)^2)` | @chuvieco2002 |
@@ -132,7 +132,23 @@ The RGB (Red, Green, Blue) color space is a widely used color representation in 
 | VIRE | Vegetation Index (red-edge) | `(RE-R)/(RE+R)` | @gitelson2002b |
 | WDRVI | Wide Dynamic Range Vegetation Index | `(0.2 * NIR - R) / (0.2 * NIR + R)` | @gitelson2004 |
 
+## Hyperspectral vegetation indexes indexes
 
+Hyperspectral vegetation indexes are mathematical combinations of spectral reflectance values at specific wavelengths, designed to highlight particular vegetation properties such as chlorophyll content, biomass, and plant stress. These indexes utilize narrow bands in the electromagnetic spectrum, allowing for precise assessment of vegetation health and physiological status.
+
+The indexes listed below have been adapted for use with ([Wyvern Space](https://wyvern.space/)), a satellite-based hyperspectral imaging platform that provides high-resolution spectral data.
+
+| Abbreviation | Name | Formula | Reference |
+|-------------|---------------------|-------------------------|-------------|
+| RENDVI | Red-Edge Normalized Difference Vegetation Index | `(750nm - 711nm) / (750nm + 711nm)` | @velichkova2019 |
+| VREI | Vogelmann Red-Edge Index | `734nm / 722nm` | @velichkova2019 |
+| VREI2 | Vogelmann Red-Edge Index 2 | `(734nm - 750nm) / (711nm + 722nm)` | @velichkova2019 |
+| MTVI | Modified Triangular Vegetation Index | `1.2 * (1.2 * (799nm - 549nm) - 2.5 * (669nm - 549nm))` | @velichkova2019 |
+| RESVI | Red-Edge Stress Vegetation Index | `(722nm + 750nm) / 2 - 734nm` | @velichkova2019 |
+| mNDVI | Modified Normalized Difference Vegetation Index | `(750nm - 699nm) / (750nm + 699nm)` | @velichkova2019 |
+| PRI | Photochemical Reflectance Index | `(535nm - 570nm) / (535nm + 570nm)` | @velichkova2019 |
+| GREENNESS | Greenness Index | `549nm / 669nm` | @velichkova2019 |
+| CHL | The Green Chlorophyll Index | `764nm / 549nm - 1` | @velichkova2019 |
 
 **Usefull references**
 
@@ -164,7 +180,7 @@ The `rgb_to_hsb()` function can be used to convert RGB to HSB color space. The c
 ## Indexes in the HSB Color Space
 
 | Abbreviation | Name | Formula | Reference |
-|-----------------|-----------------|--------------------|-----------------|
+|------------------|------------------|--------------------|------------------|
 | DGCI | Dark Green Color Inde | `((H - 60) / 60 + (1 - S/100) + (1 - B/100)) / 3` | @karcher2003 |
 
 # CIE-Lab Color Space
@@ -187,4 +203,6 @@ To understand the specific formulas and steps involved in this conversion, pleas
 
 <!-- inicio font awesome -->
 
+```{=html}
 <script src="https://kit.fontawesome.com/1f72d6921a.js" crossorigin="anonymous"></script>
+```

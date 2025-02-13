@@ -101,8 +101,16 @@ MVARI;(G - B)/(G + R - B);RGB
 NDI;128*((G - R)/(G + R) + 1);RGB
 RCC;R/(R + G + B);RGB
 RGBVI;(G**2 - (B * R))/(G**2 + (B * R));RGB
-PRI;R/G;RGB
 TGI;G - 0.39*R - 0.61*B;RGB
 VEG;G/(R^0.667 * B^0.334);RGB
 vNDVI;0.5268 * (R^-0.1294*G^0.3389 * B^-0.3118);RGB
 WI;(G - B)/(R - G);RGB
+RENDVI;(750nm - 711nm) / (750nm + 711nm);HYP
+VREI;734nm / 722nm;HYP
+VREI2;(734nm - 750nm) / (711nm + 722nm);HYP
+MTVI;1.2 * (1.2 * (799nm - 549nm) - 2.5*(669nm - 549nm));HYP
+RESVI;(722nm + 750nm) / 2 - 734nm;HYP
+mNDVI;(750nm - 699nm) / (750nm + 699nm);HYP
+PRI;(535nm - 570nm) / (535nm + 570nm);HYP
+GREENNESS;549nm / 669nm;HYP
+CHL;764nm / 549nm - 1;HYP
