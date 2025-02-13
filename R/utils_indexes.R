@@ -3,6 +3,7 @@
 #' - `pliman_indexes()`: Get all the available indexes in pliman.
 #' - `pliman_indexes_rgb()`: Get all the RGB-based available indexes in pliman.
 #' - `pliman_indexes_me()`: Get all the multispectral available indexes in pliman.
+#' - `pliman_indexes_hs()`: Get all the hyperspectral available indexes in pliman.
 #' - `pliman_indexes_eq()`: Get the equations of the available indexes.
 
 #' @name utils_indexes
@@ -39,6 +40,15 @@ pliman_indexes_me <- function(){
                                      mustWork = TRUE),
                   header = T, sep = ";"),
          Band == "MULTI")$Index
+}
+#' @name utils_indexes
+#' @export
+pliman_indexes_hs <- function(){
+  subset(read.csv(file = system.file("indexes.csv",
+                                     package = "pliman",
+                                     mustWork = TRUE),
+                  header = T, sep = ";"),
+         Band == "HYP")$Index
 }
 
 #' List Computable Indexes Based on Available Bands
@@ -97,3 +107,16 @@ pliman_indexes_ican_compute <- function(available){
   ind[ind$Index %in% ind$Index[result], ]
 }
 
+indexband_to_formula <- function(band_names, index) {
+  numbers <- as.numeric(gsub("nm", "", unlist(regmatches(index, gregexpr("\\d*nm", index)))))
+  band_replacements <- setNames(band_names, unlist(regmatches(band_names, gregexpr("\\d+", band_names))))
+  missing_bands <- setdiff(as.character(numbers), names(band_replacements))
+  if (length(missing_bands) > 0) {
+    stop("Error: The following wavelengths are not available in band_names: ", paste(missing_bands, collapse = ", "))
+  }
+  index <- gsub("nm", "", index)
+  for (num in unique(numbers)) {  # Ensures each number is replaced correctly
+    index <- gsub(paste0("\\b", num, "\\b"), band_replacements[as.character(num)], index)
+  }
+  return(index)
+}
