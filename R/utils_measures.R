@@ -898,8 +898,12 @@ compute_measures <- function(mask,
                              haralick =  FALSE,
                              har_nbins = 32,
                              har_scales = 1,
-                             har_band = "GRAY"){
+                             har_band = "GRAY",
+                             smooth = FALSE){
   ocont <- EBImage::ocontour(mask)
+  if(is.numeric(smooth) & smooth > 0){
+    ocont <- poly_smooth(ocont, niter = smooth, plot = FALSE) |> poly_close()
+  }
   shape <-
     cbind(features_moment(ocont),
           cbind(area = get_area_mask(mask), features_shape(ocont)))

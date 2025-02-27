@@ -231,6 +231,9 @@
 #'  compute the Haralick features. See Details.
 #'@param har_band The band to compute the Haralick features (1 = R, 2 = G, 3 =
 #'  B). Defaults to 1. Other allowed value is `har_band = "GRAY"`.
+#'@param smooth whether the object contours should be smoothed with
+#'  [poly_smooth()]. Defaults to `FALSE`. To smooth use a numeric value
+#'  indicating the number of interactions used to smooth the contours.
 #' @param pcv Computes the Perimeter Complexity Value? Defaults to `FALSE`.
 #' @param pcv_niter An integer specifying the number of smoothing iterations for
 #'   computing the  Perimeter Complexity Value. Defaults to 100.
@@ -312,6 +315,7 @@
 #'  `FALSE`.
 #'@param show_contour Show a contour line around the objects? Defaults to
 #'  `TRUE`.
+#'@param show_bbox Show the bounding box around the objects? Defaults to `FALSE`.
 #'@param contour_col,contour_size The color and size for the contour line around
 #'  objects. Defaults to `contour_col = "red"` and `contour_size = 1`.
 #'@param show_lw If `TRUE`, plots the length and width lines on each object
@@ -572,6 +576,7 @@ analyze_objects <- function(img,
                             har_nbins = 32,
                             har_scales = 1,
                             har_band = 1,
+                            smooth = FALSE,
                             pcv = FALSE,
                             pcv_niter = 100,
                             resize = FALSE,
@@ -615,6 +620,7 @@ analyze_objects <- function(img,
                             show_original = TRUE,
                             show_chull = FALSE,
                             show_contour = TRUE,
+                            show_bbox = FALSE,
                             contour_col = "red",
                             contour_size = 1,
                             show_lw = FALSE,
@@ -837,7 +843,8 @@ analyze_objects <- function(img,
                                   haralick = haralick,
                                   har_nbins = har_nbins,
                                   har_scales = har_scales,
-                                  har_band = har_band)
+                                  har_band = har_band,
+                                  smooth = smooth)
         object_contour <- shape$cont
         ch <- shape$ch
         shape <- shape$shape
@@ -1367,6 +1374,9 @@ analyze_objects <- function(img,
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
+            if(show_bbox){
+              add_bbox(object_contour, col = contour_col)
+            }
             if(show_mark){
               text(shape[, 2] + 1,
                    shape[, 3] + 1,
@@ -1381,6 +1391,9 @@ analyze_objects <- function(img,
             plot(im2)
             if(isTRUE(show_contour)  & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
+            }
+            if(show_bbox){
+              add_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
               points(shape[, 2] + 1,
@@ -1415,6 +1428,9 @@ analyze_objects <- function(img,
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
+            if(show_bbox){
+              add_bbox(object_contour, col = contour_col)
+            }
             if(show_mark){
               text(shape[, 2] + 1,
                    shape[, 3] + 1,
@@ -1426,6 +1442,9 @@ analyze_objects <- function(img,
             plot(im2)
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
+            }
+            if(show_bbox){
+              add_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
               points(shape[, 2] + 1,

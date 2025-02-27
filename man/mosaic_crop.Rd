@@ -12,6 +12,7 @@ mosaic_crop(
   re = 4,
   nir = 5,
   shapefile = NULL,
+  mosaic2 = NULL,
   buffer = 0,
   show = c("rgb", "index"),
   index = "R",
@@ -32,6 +33,9 @@ band numbers if the index is computed using the band name.}
 
 \item{shapefile}{An optional \code{SpatVector}, that can be created with
 \code{\link[=shapefile_input]{shapefile_input()}}.}
+
+\item{mosaic2}{A second \code{SpatRaster} object to be used to crop the mosaic. If
+declared, \code{mosaic} will be cropped to the extent of \code{mosaic2}.}
 
 \item{buffer}{A buffering factor to be used when a shapefile is used to crop
 the mosaic.}

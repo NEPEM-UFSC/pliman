@@ -34,6 +34,7 @@ analyze_objects(
   har_nbins = 32,
   har_scales = 1,
   har_band = 1,
+  smooth = FALSE,
   pcv = FALSE,
   pcv_niter = 100,
   resize = FALSE,
@@ -77,6 +78,7 @@ analyze_objects(
   show_original = TRUE,
   show_chull = FALSE,
   show_contour = TRUE,
+  show_bbox = FALSE,
   contour_col = "red",
   contour_size = 1,
   show_lw = FALSE,
@@ -230,6 +232,10 @@ compute the Haralick features. See Details.}
 \item{har_band}{The band to compute the Haralick features (1 = R, 2 = G, 3 =
 B). Defaults to 1. Other allowed value is \code{har_band = "GRAY"}.}
 
+\item{smooth}{whether the object contours should be smoothed with
+\code{\link[=poly_smooth]{poly_smooth()}}. Defaults to \code{FALSE}. To smooth use a numeric value
+indicating the number of interactions used to smooth the contours.}
+
 \item{pcv}{Computes the Perimeter Complexity Value? Defaults to \code{FALSE}.}
 
 \item{pcv_niter}{An integer specifying the number of smoothing iterations for
@@ -377,6 +383,8 @@ to \code{NULL} (i.e., no lower and upper limits).}
 
 \item{show_contour}{Show a contour line around the objects? Defaults to
 \code{TRUE}.}
+
+\item{show_bbox}{Show the bounding box around the objects? Defaults to \code{FALSE}.}
 
 \item{contour_col, contour_size}{The color and size for the contour line around
 objects. Defaults to \code{contour_col = "red"} and \code{contour_size = 1}.}

@@ -6,6 +6,7 @@
 \alias{pliman_indexes_eq}
 \alias{pliman_indexes_rgb}
 \alias{pliman_indexes_me}
+\alias{pliman_indexes_hs}
 \title{Utilities for image indexes}
 \usage{
 pliman_indexes()
@@ -15,12 +16,15 @@ pliman_indexes_eq()
 pliman_indexes_rgb()
 
 pliman_indexes_me()
+
+pliman_indexes_hs()
 }
 \description{
 \itemize{
 \item \code{pliman_indexes()}: Get all the available indexes in pliman.
 \item \code{pliman_indexes_rgb()}: Get all the RGB-based available indexes in pliman.
 \item \code{pliman_indexes_me()}: Get all the multispectral available indexes in pliman.
+\item \code{pliman_indexes_hs()}: Get all the hyperspectral available indexes in pliman.
 \item \code{pliman_indexes_eq()}: Get the equations of the available indexes.
 }
 }

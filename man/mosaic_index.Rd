@@ -6,7 +6,7 @@
 \usage{
 mosaic_index(
   mosaic,
-  index = "R",
+  index = "NGRDI",
   r = 3,
   g = 2,
   b = 1,
