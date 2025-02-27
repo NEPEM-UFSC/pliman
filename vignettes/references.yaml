@@ -1759,4 +1759,26 @@ references:
   type: article-journal
   URL: "https://linkinghub.elsevier.com/retrieve/pii/S016816991932383X"
   volume: 172
+- id: velichkova2019
+  accessed: "14:01:53"
+  author:
+  - family: Velichkova
+    given: Kalinka
+  - family: Krezhova
+    given: Dora
+  container-title: RAD Association Journal
+  container-title-short: RadJ
+  DOI: 10.21175/RadJ.2018.03.034
+  ISSN: 24664294
+  issue: 3
+  issued: 2019
+  key: BMRB7R9M
+  libraryID: 1
+  providerKey: Zotero
+  source: DOI.org (Crossref)
+  title: COMPARATIVE ANALYSIS OF HYPERSPECTRAL VEGETATION INDICES FOR
+    REMOTE ESTIMATION OF LEAF CHLOROPHYLL CONTENT AND PLANT STATUS
+  type: article-journal
+  URL: "http://www.rad-journal.org/paper.php?id=126"
+  volume: 3
 ...

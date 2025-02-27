@@ -1117,3 +1117,76 @@ object_to_color <- function(img,
   }
   invisible(img)
 }
+
+#' Compute Bounding Boxes from Contours
+#'
+#' This function calculates the bounding boxes for a given list of contours.
+#'
+#' @param contours A list of matrices, where each matrix contains two columns
+#'   representing (x, y) coordinates of a contour.
+#'
+#' @return A list of bounding boxes, where each bounding box is represented as a
+#'   list with `x_min`, `y_min`, `x_max`, and `y_max` values.
+#'
+#' @examples
+#' if(interactive()){
+#' contours <- list(
+#'   matrix(c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+#'            110, 120, 130, 140, 150, 160, 170, 180, 190, 200),
+#'          ncol = 2, byrow = FALSE)
+#' )
+#' bbox_list <- object_bbox(contours)
+#' print(bbox_list)
+#' }
+#'
+#' @export
+object_bbox <- function(contours) {
+  # Ensure contours is a list
+  if (!is.list(contours)) {
+    stop("contours must be a list of coordinate matrices")
+  }
+  bbox_list <- lapply(contours, function(coords) {
+    list(
+      x_min = min(coords[, 1]),
+      y_min = min(coords[, 2]),
+      x_max = max(coords[, 1]),
+      y_max = max(coords[, 2])
+    )
+  })
+  return(bbox_list)
+}
+
+#' Add Bounding Boxes to an Existing Plot
+#'
+#' This function overlays bounding boxes onto an existing plot.
+#'
+#' @param bbox_list A list of bounding boxes, as returned by `object_bbox()`.
+#'
+#' @return None (adds bounding boxes to an existing plot).
+#'
+#' @examples
+#' if(interactive()){
+#' plot(NA, xlim = c(0, 200), ylim = c(0, 200), xlab = "X", ylab = "Y", main = "Bounding Boxes", asp = 1)
+#' contours <- list(
+#'   matrix(c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+#'            110, 120, 130, 140, 150, 160, 170, 180, 190, 200),
+#'          ncol = 2, byrow = FALSE)
+#' )
+#' bbox_list <- object_bbox(contours)
+#' add_bbox(bbox_list)
+#' }
+#'
+#' @export
+add_bbox <- function(bbox_list, col = "red") {
+  if(is.matrix(bbox_list[[1]])){
+    bbox_list <- object_bbox(bbox_list)
+  }
+  # Ensure bbox_list is a list
+  if (!is.list(bbox_list) || length(bbox_list) == 0) {
+    stop("bbox_list must be a non-empty list of bounding boxes.")
+  }
+  for (bbox in bbox_list) {
+    rect(bbox$x_min, bbox$y_min, bbox$x_max, bbox$y_max, border = col, lwd = 2)
+  }
+}
+

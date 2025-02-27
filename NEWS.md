@@ -1,6 +1,7 @@
 # pliman (development version)
 ## New Functions
 * New functions for geometric operation on shapefiles.
+* New `mosaic_classify()` function to classify orthomosaics based on break values defined by users.
 
 ## Minor Improvements
 * Include option to draw circles in `shapefile_build()`

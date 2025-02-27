@@ -2258,7 +2258,7 @@ mosaic_crop <- function(mosaic,
 #'
 
 mosaic_index <- function(mosaic,
-                         index = "RENDVI",
+                         index = "NGRDI",
                          r = 3,
                          g = 2,
                          b = 1,
@@ -3451,7 +3451,7 @@ mosaic_chm_extract <- function(chm, shapefile){
   }
   height <- exactextractr::exact_extract(chm$chm[[2]],
                                          shapefile,
-                                         fun = custom_summary,
+                                         fun = "mean",
                                          force_df = TRUE,
                                          progress = FALSE)
   # include check here if mask is not present
@@ -3840,3 +3840,64 @@ mosaic_rotate <- function(mosaic, angle, direction = "clockwise") {
   # Return the rotated mosaic for further use
   return(rotated_mosaic)
 }
+
+#' Classify a Mosaic Based on Index Breaks
+#'
+#' This function classifies a given raster mosaic based on user-defined breaks.
+#' It provides an option to calculate the frequency and area of each class, as
+#' well as plot the classified mosaic.
+#'
+#' @param mosaic A `SpatRaster` object representing the mosaic to be classified.
+#' @param breaks A numeric vector specifying the breakpoints for classification.
+#' @param frequency Logical. If `TRUE`, computes the class frequency and area (in hectares).
+#' @param plot Logical. If `TRUE`, plots the classified mosaic.
+#'
+#' @return A list with two elements:
+#'   - `classified`: A `SpatRaster` object containing the classified mosaic.
+#'   - `class_freq`: A data frame containing class frequencies, areas (ha), and percentages (if `frequency = TRUE`).
+#'
+#' @export
+#' @examples
+#' if(interactive()){
+#' library(pliman)
+#' library(terra)
+#'
+#' # Create an example raster
+#' r <- terra::rast(matrix(runif(100, min = 0, max = 1), nrow=10, ncol=10))
+#'
+#' # Classify the raster
+#' result <- mosaic_classify(r, breaks = c(0.3, 0.6))
+#'
+#' # View results
+#' result$classified
+#' result$class_freq
+#' }
+#'
+mosaic_classify <- function(mosaic, breaks, frequency = TRUE, plot = TRUE) {
+  breaks <- c(-Inf, breaks, Inf)
+  classified <- terra::classify(mosaic, breaks, brackets = TRUE, include.lowest = FALSE)
+
+  if (frequency) {
+    class_freq <- terra::freq(classified)
+    if (terra::crs(mosaic) == "" | terra::is.lonlat(mosaic)) {
+      warning("Unknown CRS or lat/lon used. The area will be calculated in square units of raster")
+      class_freq$area_ha <- class_freq$count * prod(terra::res(mosaic))
+    } else {
+      class_freq$area_ha <- (class_freq$count * prod(terra::res(mosaic))) / 10000
+    }
+    total_pixels <- sum(class_freq$count)
+    class_freq$percentage <- (class_freq$count / total_pixels) * 100
+  } else {
+    class_freq <- NULL
+  }
+
+  if (plot) {
+    terra::plot(
+      classified,
+      col = pliman::custom_palette(c("darkred", "yellow", "darkgreen"), n = length(breaks)),
+      maxcell = 1e6
+    )
+  }
+  return(list(classified = classified, class_freq = class_freq))
+}
+
