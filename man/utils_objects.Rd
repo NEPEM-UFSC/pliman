@@ -39,6 +39,7 @@ object_contour(
   closing = FALSE,
   filter = FALSE,
   fill_hull = FALSE,
+  smooth = FALSE,
   threshold = "Otsu",
   watershed = TRUE,
   extension = NULL,
@@ -128,6 +129,10 @@ to \code{NULL}, which means that the current working directory will be
 considered.}
 
 \item{center}{If \code{TRUE} returns the object contours centered on the origin.}
+
+\item{smooth}{whether the object contours should be smoothed with
+\code{\link[=poly_smooth]{poly_smooth()}}. Defaults to \code{FALSE}. To smooth use a numeric value
+indicating the number of interactions used to smooth the contours.}
 
 \item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
 

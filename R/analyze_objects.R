@@ -1375,7 +1375,7 @@ analyze_objects <- function(img,
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
             if(show_bbox){
-              add_bbox(object_contour, col = contour_col)
+              plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
               text(shape[, 2] + 1,
@@ -1393,7 +1393,7 @@ analyze_objects <- function(img,
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
             if(show_bbox){
-              add_bbox(object_contour, col = contour_col)
+              plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
               points(shape[, 2] + 1,
@@ -1429,7 +1429,7 @@ analyze_objects <- function(img,
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
             if(show_bbox){
-              add_bbox(object_contour, col = contour_col)
+              plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
               text(shape[, 2] + 1,
@@ -1444,7 +1444,7 @@ analyze_objects <- function(img,
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
             if(show_bbox){
-              add_bbox(object_contour, col = contour_col)
+              plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
               points(shape[, 2] + 1,

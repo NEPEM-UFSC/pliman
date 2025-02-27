@@ -37,6 +37,9 @@
 #'
 #'   Hierarchically, the operations are performed as opening > closing > filter.
 #'   The value declared in each argument will define the brush size.
+#'@param smooth whether the object contours should be smoothed with
+#'  [poly_smooth()]. Defaults to `FALSE`. To smooth use a numeric value
+#'  indicating the number of interactions used to smooth the contours.
 #' @param fill_hull Fill holes in the objects? Defaults to `FALSE`.
 #' @param watershed If `TRUE` (default) performs watershed-based object
 #'   detection. This will detect objects even when they are touching one other.
@@ -198,6 +201,7 @@ object_contour <- function(img,
                            closing = FALSE,
                            filter = FALSE,
                            fill_hull = FALSE,
+                           smooth = FALSE,
                            threshold = "Otsu",
                            watershed = TRUE,
                            extension = NULL,
@@ -229,11 +233,11 @@ object_contour <- function(img,
       message("Image processing using multiple sessions (",nworkers, "). Please wait.")
         foreach::foreach(i = seq_along(img)) %dofut%{
           object_contour(img[[i]],
-                         pattern, dir_original, center, index, invert, opening, closing, filter, fill_hull, threshold,
+                         pattern, dir_original, center, index, invert, opening, closing, filter, fill_hull, smooth, threshold,
                          watershed, extension, tolerance, object_size, plot = plot)
         }
     } else{
-      lapply(img, object_contour, pattern, dir_original, center, index, invert, opening, closing, filter, fill_hull, threshold,
+      lapply(img, object_contour, pattern, dir_original, center, index, invert, opening, closing, filter, fill_hull, smooth, threshold,
              watershed, extension, tolerance, object_size, plot = plot)
     }
   } else{
@@ -272,6 +276,9 @@ object_contour <- function(img,
       }
       dims <- sapply(contour, function(x){dim(x)[1]})
       contour <- contour[which(dims > mean(dims * 0.1))]
+      if(is.numeric(smooth) & smooth > 0){
+        contour <- poly_smooth(contour, niter = smooth, plot = FALSE) |> poly_close()
+      }
       if(isTRUE(plot)){
         if(isTRUE(center)){
           plot_polygon(contour)
@@ -1173,20 +1180,19 @@ object_bbox <- function(contours) {
 #'          ncol = 2, byrow = FALSE)
 #' )
 #' bbox_list <- object_bbox(contours)
-#' add_bbox(bbox_list)
+#' plot_bbox(bbox_list)
 #' }
 #'
 #' @export
-add_bbox <- function(bbox_list, col = "red") {
+plot_bbox <- function(bbox_list, col = "red") {
   if(is.matrix(bbox_list[[1]])){
     bbox_list <- object_bbox(bbox_list)
   }
-  # Ensure bbox_list is a list
   if (!is.list(bbox_list) || length(bbox_list) == 0) {
     stop("bbox_list must be a non-empty list of bounding boxes.")
   }
   for (bbox in bbox_list) {
-    rect(bbox$x_min, bbox$y_min, bbox$x_max, bbox$y_max, border = col, lwd = 2)
+    rect(bbox$x_min, bbox$y_min, bbox$x_max, bbox$y_max, border = col, lwd = 1)
   }
 }
 
