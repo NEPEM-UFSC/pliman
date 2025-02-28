@@ -3451,7 +3451,7 @@ mosaic_chm_extract <- function(chm, shapefile){
   }
   height <- exactextractr::exact_extract(chm$chm[[2]],
                                          shapefile,
-                                         fun = "mean",
+                                         fun = custom_summary,
                                          force_df = TRUE,
                                          progress = FALSE)
   # include check here if mask is not present
