@@ -991,10 +991,13 @@ NumericVector rcpp_st_perimeter(List sf_coords) {
 // Helper function to generate random hexadecimal characters
 std::string generate_random_hex(int length) {
   const char hex_chars[] = "0123456789abcdef";
-  std::string result;
-  for (int i = 0; i < length; ++i) {
-    result += hex_chars[rand() % 16];
+  std::string result(length, '0');
+  GetRNGstate(); // Inicia o RNG do R
+  for (int i = 0; i < length; i++) {
+    result[i] = hex_chars[(int)(unif_rand() * 16)]; // Gera um índice entre 0 e 15
   }
+  PutRNGstate(); // Finaliza o RNG do R
+
   return result;
 }
 
@@ -1018,7 +1021,9 @@ std::string  uuid_v7() {
 
   // Step 3: Generate the variant and clock sequence
   std::string variant_and_sequence = generate_random_hex(4);
-  variant_and_sequence[0] = "89ab"[rand() % 4]; // Set the variant (8, 9, a, b)
+  GetRNGstate(); // Inicia o RNG do R para a variante
+  variant_and_sequence[0] = "89ab"[(int)(unif_rand() * 4)]; // Define a variante (8, 9, a, b)
+  PutRNGstate(); // Finaliza o RNG do R
 
   // Step 4: Generate the node (random bits for uniqueness)
   std::string node = generate_random_hex(12);

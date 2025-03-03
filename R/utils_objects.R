@@ -117,11 +117,11 @@ object_coord <- function(img,
       on.exit(future::plan(future::sequential))
       `%dofut%` <- doFuture::`%dofuture%`
       message("Image processing using multiple sessions (",nworkers, "). Please wait.")
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          object_coord(img[[i]], id, index, invert,
-                       fill_hull, threshold, edge, extension, tolerance,
-                       object_size, plot)
-        }
+      foreach::foreach(i = seq_along(img)) %dofut%{
+        object_coord(img[[i]], id, index, invert,
+                     fill_hull, threshold, edge, extension, tolerance,
+                     object_size, plot)
+      }
     } else{
       lapply(img, object_coord, id, index, invert, fill_hull, threshold,
              edge, extension, tolerance, object_size, plot)
@@ -231,11 +231,11 @@ object_contour <- function(img,
       `%dofut%` <- doFuture::`%dofuture%`
 
       message("Image processing using multiple sessions (",nworkers, "). Please wait.")
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          object_contour(img[[i]],
-                         pattern, dir_original, center, index, invert, opening, closing, filter, fill_hull, smooth, threshold,
-                         watershed, extension, tolerance, object_size, plot = plot)
-        }
+      foreach::foreach(i = seq_along(img)) %dofut%{
+        object_contour(img[[i]],
+                       pattern, dir_original, center, index, invert, opening, closing, filter, fill_hull, smooth, threshold,
+                       watershed, extension, tolerance, object_size, plot = plot)
+      }
     } else{
       lapply(img, object_contour, pattern, dir_original, center, index, invert, opening, closing, filter, fill_hull, smooth, threshold,
              watershed, extension, tolerance, object_size, plot = plot)
@@ -1168,12 +1168,15 @@ object_bbox <- function(contours) {
 #' This function overlays bounding boxes onto an existing plot.
 #'
 #' @param bbox_list A list of bounding boxes, as returned by `object_bbox()`.
-#'
+#' @param col The color for the bounding boxes. Defaults to `"red"`.
 #' @return None (adds bounding boxes to an existing plot).
 #'
 #' @examples
 #' if(interactive()){
-#' plot(NA, xlim = c(0, 200), ylim = c(0, 200), xlab = "X", ylab = "Y", main = "Bounding Boxes", asp = 1)
+#' plot(NA,
+#'     xlim = c(0, 200),
+#'     ylim = c(0, 200),
+#'     asp = 1)
 #' contours <- list(
 #'   matrix(c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
 #'            110, 120, 130, 140, 150, 160, 170, 180, 190, 200),
@@ -1195,4 +1198,5 @@ plot_bbox <- function(bbox_list, col = "red") {
     rect(bbox$x_min, bbox$y_min, bbox$x_max, bbox$y_max, border = col, lwd = 1)
   }
 }
+
 

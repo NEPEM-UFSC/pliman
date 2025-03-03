@@ -4122,3 +4122,178 @@ image_alpha <- function(img, mask) {
 image_label <- function(img, max_gap = 0){
   help_label(img, max_gap = max_gap) |> EBImage::as.Image()
 }
+
+
+
+#' Smooth Contour Line Detection
+#'
+#'
+#' @param img An `Image` object.
+#' @param index A character string with the index to be used. Defaults to `"GRAY"`.
+#' @param Q numeric value with the pixel quantization step
+#' @return A list with the contour lines.
+#' @importFrom utils tail
+#' @export
+#' @examples
+#' if(interactive()){
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#' conts <- image_contour_line(img, index = "B")
+#' plot(img)
+#' plot_contour(conts, col = "black")
+#' }
+#'
+image_contour_line <- function(img, index = "GRAY", Q = 2.0){
+  ind <- image_index(img, index, plot = FALSE)[[1]]
+  mat <- ind@.Data * 255
+  contourlines <- utils_contours(mat,
+                                 X = nrow(mat),
+                                 Y = ncol(mat),
+                                 Q = Q)
+  names(contourlines) <- c("x", "y", "curvelimits", "curves", "contourpoints")
+  contourlines$curvelimits <- contourlines$curvelimits+1L
+  from <- contourlines$curvelimits
+  to <- c(tail(contourlines$curvelimits, contourlines$curves-1L)-1L, contourlines$contourpoints)
+  curve <- unlist(mapply(seq_along(from), from, to, FUN=function(contourid, from, to) rep(contourid, to-from+1L), SIMPLIFY = FALSE))
+  contourlines$data <- data.frame(x = contourlines$x, y = contourlines$y, curve = curve)
+  res <- split(contourlines$data, contourlines$data$curve)
+  res <-
+    lapply(res, function(x){
+      as.matrix(x[, 1:2])
+    })
+  return(res)
+}
+
+
+#' @title Canny Edge Detector
+#' @description Canny Edge Detector for Images. Adapted from \url{https://github.com/bnosac/image/tree/master/image.CannyEdges}.
+#' @param img An `Image` object.
+#' @param index A character string with the index to be used. Defaults to `"GRAY"`.
+#' @param s sigma, the Gaussian filter variance. Defaults to 5.
+#' @param low_thr lower threshold value of the algorithm. Defaults to 10.
+#' @param high_thr upper threshold value of the algorithm. Defaults to 20
+#' @return a list with an `Image` object with values 0 or 255, and the number of
+#'   pixels which have value 255 (pixels_nonzero).
+#' @export
+#' @examples
+#' if(interactive()){
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#' conts <- image_canny_edge(img, index = "B")
+#' par(mfrow = c(1, 2))
+#' plot(img)
+#' plot(conts$edges)
+#' par(mfrow = c(1, 1))
+#' }
+image_canny_edge <- function(img,
+                             index = "GRAY",
+                             s = 5,
+                             low_thr = 10,
+                             high_thr = 20) {
+  ind <- image_index(img, index, plot = FALSE)[[1]]
+  mat <- ind@.Data * 255
+  res <- canny_edge_detector(mat, nrow(mat), ncol(mat), s, low_thr, high_thr, TRUE)
+  res$edges <- EBImage::as.Image(res$edges)
+  return(res[1:2])
+}
+
+#' @title Line Segment Detection in an Image
+#' @description Detects line segments in a digital image using the Line Segment
+#'   Detector (LSD), a linear-time method that controls false detections and
+#'   requires no parameter tuning. Based on Burns, Hanson, and Riseman's method
+#'   with an a-contrario validation approach.
+#'
+#' @param img An `Image` object.
+#' @param index A character string with the index to be used. Defaults to `"GRAY"`.
+#' @param scale A positive numeric value. Scales the input image before detection using Gaussian filtering.
+#'   A value <1 downscales, >1 upscales. Default is 0.8.
+#' @param sigma_scale A positive numeric value determining the Gaussian filter sigma.
+#'   If scale <1, sigma = sigma_scale / scale; otherwise, sigma = sigma_scale. Default is 0.6.
+#' @param quant A positive numeric value controlling gradient quantization error. Default is 2.0.
+#' @param ang_th A numeric value (0-180) defining the gradient angle tolerance in degrees. Default is 22.5.
+#' @param log_eps A numeric detection threshold. Larger values make detection stricter. Default is 0.0.
+#' @param density_th A numeric value (0-1) defining the minimum proportion of supporting points in a rectangle. Default is 0.7.
+#' @param n_bins A positive integer specifying the number of bins for pseudo-ordering gradient modulus. Default is 1024.
+#' @param union Logical. If TRUE, merges close line segments. Default is FALSE.
+#' @param union_min_length Numeric. Minimum segment length to merge. Default is 5.
+#' @param union_max_distance Numeric. Maximum distance between segments to merge. Default is 5.
+#' @param union_ang_th Numeric. Angle threshold for merging segments. Default is 7.
+#' @param union_use_NFA Logical. If TRUE, uses NFA in merging. Default is FALSE.
+#' @param union_log_eps Numeric. Detection threshold for merging. Default is 0.0.
+#'
+#' @return A list of class `lsd` containing:
+#' \itemize{
+#'   \item `n` - Number of detected line segments.
+#'   \item `lines` - A matrix with detected segments (columns: x1, y1, x2, y2, width, p, -log_nfa).
+#'   \item `pixels` - A matrix assigning each pixel to a detected segment (0 = unused pixels).
+#' }
+#'
+#' @references
+#' Grompone von Gioi, R., Jakubowicz, J., Morel, J.-M., & Randall, G. (2010).
+#' LSD: A Fast Line Segment Detector with a False Detection Control.
+#' IEEE Transactions on Pattern Analysis and Machine Intelligence, 32(4), 722-732.\doi{10.5201/ipol.2012.gjmr-lsd}
+#'
+#' @export
+#' @examples
+#' library(pliman)
+image_line_segment <- function(img,
+                               index = "GRAY",
+                               scale = 0.8,
+                               sigma_scale = 0.6,
+                               quant = 2.0,
+                               ang_th = 22.5,
+                               log_eps = 0.0,
+                               density_th = 0.7,
+                               n_bins = 1024,
+                               union = FALSE,
+                               union_min_length = 5,
+                               union_max_distance = 5,
+                               union_ang_th = 7,
+                               union_use_NFA = FALSE,
+                               union_log_eps = 0.0) {
+  ind <- image_index(EBImage::flop(EBImage::transpose(img)), index, plot = FALSE)[[1]]
+  x <- ind@.Data * 255
+  lines <- detect_line_segments(as.numeric(x),
+                                X = nrow(x),
+                                Y = ncol(x),
+                                scale = as.numeric(scale),
+                                sigma_scale = as.numeric(sigma_scale),
+                                quant = as.numeric(quant),
+                                ang_th = as.numeric(ang_th),
+                                log_eps = as.numeric(log_eps),
+                                need_to_union = as.logical(union),
+                                union_use_NFA = as.logical(union_use_NFA),
+                                union_ang_th = as.numeric(union_ang_th),
+                                union_log_eps = as.numeric(union_log_eps),
+                                length_threshold = as.numeric(union_min_length),
+                                dist_threshold = as.numeric(union_max_distance))
+
+  names(lines) <- c("lines", "pixels")
+  colnames(lines$lines) <- c("x1", "y1", "x2", "y2", "width", "p", "-log_nfa")
+  lines$n <- nrow(lines$lines)
+
+  return(lines)
+}
+
+#' @title Plot Detected Line Segments
+#' @description Plots the detected line segments from the output of [image_line_segment()].
+#' Each segment is drawn as a red line on the existing plot.
+#'
+#' @param x A list returned by [image_line_segment()], containing detected line segments.
+#' @param col The color of lines
+#' @param lwd The width of lines. Defaults to 1
+#' @return No return value. The function adds line segments to an existing plot.
+#'
+#' @examples
+#' library(pliman)
+#'
+#' @export
+plot_line_segment <- function(x, col = "red", lwd = 1){
+  a <- lapply(seq_len(x$n), FUN=function(i){
+    l <- rbind(
+      x$lines[i, c("x1", "y1")],
+      x$lines[i, c("x2", "y2")])
+    segments(l[1, 1], l[1, 2], l[2, 1], l[2, 2], col = col, lwd = lwd)
+  })
+}
+

@@ -508,6 +508,63 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// detect_line_segments
+List detect_line_segments(NumericVector image, int X, int Y, double scale, double sigma_scale, double quant, double ang_th, double log_eps, double density_th, int n_bins, int need_to_union, double union_ang_th, int union_use_NFA, double union_log_eps, double length_threshold, double dist_threshold);
+RcppExport SEXP _pliman_detect_line_segments(SEXP imageSEXP, SEXP XSEXP, SEXP YSEXP, SEXP scaleSEXP, SEXP sigma_scaleSEXP, SEXP quantSEXP, SEXP ang_thSEXP, SEXP log_epsSEXP, SEXP density_thSEXP, SEXP n_binsSEXP, SEXP need_to_unionSEXP, SEXP union_ang_thSEXP, SEXP union_use_NFASEXP, SEXP union_log_epsSEXP, SEXP length_thresholdSEXP, SEXP dist_thresholdSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type image(imageSEXP);
+    Rcpp::traits::input_parameter< int >::type X(XSEXP);
+    Rcpp::traits::input_parameter< int >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< double >::type scale(scaleSEXP);
+    Rcpp::traits::input_parameter< double >::type sigma_scale(sigma_scaleSEXP);
+    Rcpp::traits::input_parameter< double >::type quant(quantSEXP);
+    Rcpp::traits::input_parameter< double >::type ang_th(ang_thSEXP);
+    Rcpp::traits::input_parameter< double >::type log_eps(log_epsSEXP);
+    Rcpp::traits::input_parameter< double >::type density_th(density_thSEXP);
+    Rcpp::traits::input_parameter< int >::type n_bins(n_binsSEXP);
+    Rcpp::traits::input_parameter< int >::type need_to_union(need_to_unionSEXP);
+    Rcpp::traits::input_parameter< double >::type union_ang_th(union_ang_thSEXP);
+    Rcpp::traits::input_parameter< int >::type union_use_NFA(union_use_NFASEXP);
+    Rcpp::traits::input_parameter< double >::type union_log_eps(union_log_epsSEXP);
+    Rcpp::traits::input_parameter< double >::type length_threshold(length_thresholdSEXP);
+    Rcpp::traits::input_parameter< double >::type dist_threshold(dist_thresholdSEXP);
+    rcpp_result_gen = Rcpp::wrap(detect_line_segments(image, X, Y, scale, sigma_scale, quant, ang_th, log_eps, density_th, n_bins, need_to_union, union_ang_th, union_use_NFA, union_log_eps, length_threshold, dist_threshold));
+    return rcpp_result_gen;
+END_RCPP
+}
+// utils_contours
+List utils_contours(NumericVector image, int X, int Y, double Q);
+RcppExport SEXP _pliman_utils_contours(SEXP imageSEXP, SEXP XSEXP, SEXP YSEXP, SEXP QSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type image(imageSEXP);
+    Rcpp::traits::input_parameter< int >::type X(XSEXP);
+    Rcpp::traits::input_parameter< int >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< double >::type Q(QSEXP);
+    rcpp_result_gen = Rcpp::wrap(utils_contours(image, X, Y, Q));
+    return rcpp_result_gen;
+END_RCPP
+}
+// canny_edge_detector
+List canny_edge_detector(IntegerVector image, int X, int Y, double s, double low_thr, double high_thr, bool accGrad);
+RcppExport SEXP _pliman_canny_edge_detector(SEXP imageSEXP, SEXP XSEXP, SEXP YSEXP, SEXP sSEXP, SEXP low_thrSEXP, SEXP high_thrSEXP, SEXP accGradSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type image(imageSEXP);
+    Rcpp::traits::input_parameter< int >::type X(XSEXP);
+    Rcpp::traits::input_parameter< int >::type Y(YSEXP);
+    Rcpp::traits::input_parameter< double >::type s(sSEXP);
+    Rcpp::traits::input_parameter< double >::type low_thr(low_thrSEXP);
+    Rcpp::traits::input_parameter< double >::type high_thr(high_thrSEXP);
+    Rcpp::traits::input_parameter< bool >::type accGrad(accGradSEXP);
+    rcpp_result_gen = Rcpp::wrap(canny_edge_detector(image, X, Y, s, low_thr, high_thr, accGrad));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_pliman_threshold_adaptive", (DL_FUNC) &_pliman_threshold_adaptive, 4},
@@ -552,6 +609,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_help_poly_angles", (DL_FUNC) &_pliman_help_poly_angles, 1},
     {"_pliman_help_smoth", (DL_FUNC) &_pliman_help_smoth, 2},
     {"_pliman_smoothContours", (DL_FUNC) &_pliman_smoothContours, 2},
+    {"_pliman_detect_line_segments", (DL_FUNC) &_pliman_detect_line_segments, 16},
+    {"_pliman_utils_contours", (DL_FUNC) &_pliman_utils_contours, 4},
+    {"_pliman_canny_edge_detector", (DL_FUNC) &_pliman_canny_edge_detector, 7},
     {NULL, NULL, 0}
 };
 

@@ -2,6 +2,9 @@
 ## New Functions
 * New functions for geometric operation on shapefiles.
 * New `mosaic_classify()` function to classify orthomosaics based on break values defined by users.
+* New `new image_contour_line()` function allows users to detect smooth contour lines in an image.
+* New `image_canny_edge()` function, which implements Canny Edge detection.
+* New `image_line_segment()` function that enables automatic line segment detection using the Line Segment Detector (LSD) algorithm.
 
 ## Minor Improvements
 * Include option to draw circles in `shapefile_build()`
