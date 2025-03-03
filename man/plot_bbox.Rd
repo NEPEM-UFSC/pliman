@@ -8,6 +8,8 @@ plot_bbox(bbox_list, col = "red")
 }
 \arguments{
 \item{bbox_list}{A list of bounding boxes, as returned by \code{object_bbox()}.}
+
+\item{col}{The color for the bounding boxes. Defaults to \code{"red"}.}
 }
 \value{
 None (adds bounding boxes to an existing plot).
@@ -17,7 +19,10 @@ This function overlays bounding boxes onto an existing plot.
 }
 \examples{
 if(interactive()){
-plot(NA, xlim = c(0, 200), ylim = c(0, 200), xlab = "X", ylab = "Y", main = "Bounding Boxes", asp = 1)
+plot(NA,
+    xlim = c(0, 200),
+    ylim = c(0, 200),
+    asp = 1)
 contours <- list(
   matrix(c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
            110, 120, 130, 140, 150, 160, 170, 180, 190, 200),

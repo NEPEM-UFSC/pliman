@@ -185,6 +185,9 @@ reference:
     contents:
       - image_augment
       - image_binary
+      - image_canny_edge
+      - image_contour_line
+      - image_line_segment
       - image_index
       - utils_indexes
       - palettes
