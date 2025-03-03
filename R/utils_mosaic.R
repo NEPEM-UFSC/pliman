@@ -3384,10 +3384,6 @@ mosaic_chm <- function(dsm,
     }
     chm <- dsm - dtm
     gc()
-    # psize <- prod(terra::res(chm))
-    # volume <- chm * psize
-    # chm <- c(chm, volume)
-    # gc()
     if(!is.null(mask)){
       if((terra::ext(mask) != terra::ext(dsm)) || (terra::ncell(mask) != terra::ncell(dsm))){
         mask <- terra::resample(mask, dsm)
@@ -3400,7 +3396,10 @@ mosaic_chm <- function(dsm,
   if(verbose){
     message("\014","\nDone!\n")
   }
-  return(list(chm = chm, sampling_points = sampp, mask = ifelse(is.null(mask), FALSE, TRUE)))
+  return(list(chm = chm,
+              sampling_points = sampp,
+              mask = ifelse(is.null(mask), FALSE, TRUE),
+              res =  terra::res(dsm)))
 }
 
 #' Extract Canopy Height and Volume
@@ -3446,7 +3445,7 @@ mosaic_chm_extract <- function(chm, shapefile){
       max = max(valids),
       cv = sd(valids) / mean(valids),
       entropy = entropy(valids),
-      volume = sum(valids * prod(terra::res(chm$chm[[1]])))
+      volume = sum(valids) * prod(chm[["res"]])
     )
   }
   height <- exactextractr::exact_extract(chm$chm[[2]],
@@ -3454,7 +3453,6 @@ mosaic_chm_extract <- function(chm, shapefile){
                                          fun = custom_summary,
                                          force_df = TRUE,
                                          progress = FALSE)
-  # include check here if mask is not present
   if(chm$mask){
     area2 <- exactextractr::exact_extract(chm$chm[[2]],
                                           shapefile,
