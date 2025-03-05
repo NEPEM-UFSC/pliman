@@ -3231,6 +3231,11 @@ sentinel_to_tif <- function(layers = NULL,
 #' @param window_size An integer  (meters) specifying the window size (rows and
 #'   columns, respectively) for creating a DTM using a moving window. Default is
 #'   c(10, 10).
+#' @param ground_quantile Numeric value between `0` and `1` indicating the
+#'   quantile threshold for ground point selection in the CHM computation. Lower
+#'   values (e.g., `0`) retain the lowest ground points, while higher values
+#'   (e.g., `1`) consider higher ground elevations. Default is `0`, which uses
+#'   the lowest points within each window.
 #' @param mask (optional) A `SpatRaster` object used to mask the CHM and volume
 #'   results. Default is NULL.
 #' @param mask_soil Is `mask` representing a soil mask (eg., removing plants)? Default is TRUE.
@@ -3263,12 +3268,12 @@ mosaic_chm <- function(dsm,
                        points = NULL,
                        interpolation = c("Tps", "Kriging"),
                        window_size = c(5, 5),
+                       ground_quantile = 0,
                        mask = NULL,
                        mask_soil = TRUE,
                        verbose = TRUE){
   # Check if fields is installed
   # check_and_install_package("fields")
-
   sampp <- NULL
   ch1 <- !inherits(dsm,"SpatRaster") || !terra::nlyr(dsm) == 1 || terra::is.bool(dsm) || is.list(dsm)
   if(ch1){
@@ -3330,7 +3335,8 @@ mosaic_chm <- function(dsm,
                            verbose = FALSE)
     vals <- exactextractr::exact_extract(dsm,
                                          shp[[1]],
-                                         fun = "min",
+                                         fun = "quantile",
+                                         quantiles = ground_quantile,
                                          progress = FALSE)
     gc()
     cent <- suppressWarnings(sf::st_centroid(shp[[1]]))
@@ -3402,86 +3408,248 @@ mosaic_chm <- function(dsm,
               res =  terra::res(dsm)))
 }
 
-#' Extract Canopy Height and Volume
-#'
-#' This function extracts canopy height and volume metrics for given plots
-#' within a specified shapefile.
-#' @param chm A list object containing the Canopy Height Model (CHM) generated
-#'   by the [mosaic_chm()] function.
-#' @param shapefile An `sf` object representing the plot boundaries for which
-#'   the metrics will be extracted.
-#'
-#' @return A `sf` object with extracted metrics including minimum, 5th
-#'   percentile, median (50th percentile), 95th percentile, interquartile range
-#'   (IQR), mean, maximum canopy height, coefficient of variation (CV) of canopy
-#'   height, canopy height entropy, total volume, covered area, plot area, and
-#'   coverage percentage. Centroid coordinates (x, y) of each plot are also
-#'   included.
-#' @details
-#' The function uses the `exactextractr` package to extract canopy height and
-#' volume metrics from the CHM. For each plot in the shapefile, the function
-#' computes various statistics on the canopy height values (e.g., min, max,
-#' percentiles, mean, CV, entropy) and sums the volume values. If a mask was
-#' applied in the CHM calculation, the covered area and plot area are also
-#' computed.
-#' @export
-mosaic_chm_extract <- function(chm, shapefile){
+mosaic_chm_extract <- function(chm,
+                               shapefile,
+                               chm_threshold = NULL,
+                               plot_quality = c("absolute", "relative")) {
+
+  plot_quality <- match.arg(plot_quality)
+
   custom_summary <- function(values, coverage_fractions, ...) {
     valids <- na.omit(values)
-    entropy <- function(values) {
-      freq <- table(round(values, 2))
-      prob <- freq / sum(freq)
-      entropy <- -sum(prob * log(prob))
-      return(entropy)
+    quantiles <- quantile(valids, c(0, 0.05, 0.5, 0.95, 1))
+
+    mean_val <- mean(valids)
+    cv <- sd(valids) / mean_val
+    entropy <- helper_entropy(valids)
+    volume <- sum(valids) * prod(chm[["res"]])
+
+    if (!is.null(chm_threshold)) {
+      coverage <- sum(valids > chm_threshold) / length(valids)
+      plot_quality_value <- sqrt((cv ^ 2 + entropy ^ 2 + (coverage - 1)^2)) / 3
+
+      return(data.frame(
+        min = quantiles[[1]],
+        q05 = quantiles[[2]],
+        q50 = quantiles[[3]],
+        q95 = quantiles[[4]],
+        max = quantiles[[5]],
+        mean = mean_val,
+        cv = cv,
+        entropy = entropy,
+        volume = volume,
+        coverage = coverage,
+        plot_quality = plot_quality_value
+      ))
+
+    } else {
+      return(data.frame(
+        min = quantiles[[1]],
+        q05 = quantiles[[2]],
+        q50 = quantiles[[3]],
+        q95 = quantiles[[4]],
+        max = quantiles[[5]],
+        mean = mean_val,
+        cv = cv,
+        entropy = entropy,
+        volume = volume
+      ))
     }
-    quantiles <- quantile(valids, c(0.05, 0.5, 0.95))
-    data.frame(
-      min = min(valids),
-      q05 = quantiles[[1]],
-      q50 = quantiles[[2]],
-      q95 = quantiles[[3]],
-      iqr = IQR(valids),
-      mean = sum(valids) / length(valids),
-      max = max(valids),
-      cv = sd(valids) / mean(valids),
-      entropy = entropy(valids),
-      volume = sum(valids) * prod(chm[["res"]])
-    )
   }
+
   height <- exactextractr::exact_extract(chm$chm[[2]],
                                          shapefile,
                                          fun = custom_summary,
                                          force_df = TRUE,
                                          progress = FALSE)
-  if(chm$mask){
+
+  if (chm$mask) {
     area2 <- exactextractr::exact_extract(chm$chm[[2]],
                                           shapefile,
                                           coverage_area = TRUE,
                                           force_df = TRUE,
                                           progress = FALSE)
-    covered_area <-
-      purrr::map_dfr(area, function(x){
-        data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
-                   plot_area = sum(x[, "coverage_area"]))
-      }) |>
+
+    covered_area <- purrr::map_dfr(area2, function(x) {
+      data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
+                 plot_area = sum(x[, "coverage_area"]))
+    }) |>
       dplyr::mutate(coverage = covered_area / plot_area)
-  } else{
+
+  } else {
     area <- as.numeric(sf::st_area(shapefile))
-    covered_area <- data.frame(covered_area = area,
-                               plot_area = area,
-                               coverage = 1)
+    if (!is.null(chm_threshold)) {
+      covered_area <- data.frame(plot_area = area)
+    } else {
+      covered_area <- data.frame(covered_area = area,
+                                 plot_area = area,
+                                 coverage = 1)
+    }
   }
-  shapefile <-
-    shapefile |>
+
+  shapefile <- shapefile |>
     dplyr::select(-suppressWarnings(dplyr::any_of(c("x", "y"))))
+
   centroids <- suppressWarnings(sf::st_centroid(shapefile)) |> sf::st_coordinates()
   colnames(centroids) <- c("x", "y")
-  dftmp <-
-    dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
+
+  dftmp <- dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
     sf::st_as_sf() |>
     dplyr::relocate(unique_id, block, plot_id, row, column, x, y, .before = 1)
+
+  # **Adjust `plot_quality` to be relative (0-1)**
+  if ("plot_quality" %in% colnames(dftmp) && plot_quality == "relative") {
+    min_quality <- min(dftmp$plot_quality, na.rm = TRUE)
+    max_quality <- max(dftmp$plot_quality, na.rm = TRUE)
+
+    dftmp <- dftmp |>
+      dplyr::mutate(plot_quality = (max_quality - plot_quality) / (max_quality - min_quality))
+  }
+
   return(dftmp)
 }
+#' Extracts height metrics and plot quality from a Canopy Height Model (CHM)
+#'
+#' This function extracts height-related summary statistics from a CHM using a given shapefile
+#' and computes a plot quality metric based on coefficient of variation (CV), entropy, and coverage.
+#' The plot quality can be returned in absolute or relative terms.
+#'
+#' @param chm An object computed with [mosaic_chm()].
+#' @param shapefile An `sf` object containing the polygons over which height
+#'   metrics are extracted.
+#' @param chm_threshold A numeric value representing the height threshold for
+#'   calculating coverage. If `NULL`, coverage is not computed.
+#' @param plot_quality A character string specifying whether plot quality should
+#'   be returned as `"absolute"` (raw Euclidean distance) or `"relative"`
+#'   (normalized between 0 and 1, where 1 indicates the best plot quality and 0
+#'   the worst). Defaults to `"absolute"`.
+#'
+#' @return An `sf` object containing height summary statistics for each plot, including:
+#' \item{min}{Minimum height value.}
+#' \item{q05}{5th percentile height value.}
+#' \item{q50}{Median height value.}
+#' \item{q95}{95th percentile height value.}
+#' \item{max}{Maximum height value.}
+#' \item{mean}{Mean height value.}
+#' \item{cv}{Coefficient of variation (standard deviation divided by the mean).}
+#' \item{entropy}{Shannon entropy of height values, representing height distribution complexity.}
+#' \item{volume}{Total sum of heights multiplied by CHM resolution.}
+#' \item{coverage}{Proportion of pixels exceeding `chm_threshold`. Only computed if `chm_threshold` is provided.}
+#' \item{plot_quality}{Plot quality index. If `"relative"`, values are normalized between 0 and 1.}
+#'
+#'
+#' @export
+mosaic_chm_extract <- function(chm,
+                               shapefile,
+                               chm_threshold = NULL,
+                               plot_quality = c("absolute", "relative")) {
+
+  plot_quality <- match.arg(plot_quality)
+
+  custom_summary <- function(values, coverage_fractions, ...) {
+    valids <- na.omit(values)
+    quantiles <- quantile(valids, c(0, 0.05, 0.5, 0.95, 1))
+
+    mean_val <- mean(valids)
+    cv <- sd(valids) / mean_val
+    entropy <- helper_entropy(valids)
+    volume <- sum(valids) * prod(chm[["res"]])
+
+    if (!is.null(chm_threshold)) {
+      coverage <- sum(valids > chm_threshold) / length(valids)
+      pq <- sqrt(cv^2 + entropy^2 + (4 * (coverage - 1))^2) / sqrt(1^2 + 1^2 + 4^2)
+
+
+      data.frame(
+        min = quantiles[[1]],
+        q05 = quantiles[[2]],
+        q50 = quantiles[[3]],
+        q95 = quantiles[[4]],
+        max = quantiles[[5]],
+        mean = mean_val,
+        cv = cv,
+        entropy = entropy,
+        volume = volume,
+        coverage = coverage,
+        plot_quality = pq
+      )
+
+    } else {
+      return(data.frame(
+        min = quantiles[[1]],
+        q05 = quantiles[[2]],
+        q50 = quantiles[[3]],
+        q95 = quantiles[[4]],
+        max = quantiles[[5]],
+        mean = mean_val,
+        cv = cv,
+        entropy = entropy,
+        volume = volume
+      ))
+    }
+  }
+
+  height <- exactextractr::exact_extract(chm$chm[[2]],
+                                         shapefile,
+                                         fun = custom_summary,
+                                         force_df = TRUE,
+                                         progress = FALSE)
+
+  if (chm$mask) {
+    area2 <- exactextractr::exact_extract(chm$chm[[2]],
+                                          shapefile,
+                                          coverage_area = TRUE,
+                                          force_df = TRUE,
+                                          progress = FALSE)
+
+    covered_area <- purrr::map_dfr(area2, function(x) {
+      data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
+                 plot_area = sum(x[, "coverage_area"]))
+    }) |>
+      dplyr::mutate(coverage = covered_area / plot_area)
+
+  } else {
+    area <- as.numeric(sf::st_area(shapefile))
+    if (!is.null(chm_threshold)) {
+      covered_area <- data.frame(plot_area = area)
+    } else {
+      covered_area <- data.frame(covered_area = area,
+                                 plot_area = area,
+                                 coverage = 1)
+    }
+  }
+
+  shapefile <- shapefile |>
+    dplyr::select(-suppressWarnings(dplyr::any_of(c("x", "y"))))
+
+  centroids <- suppressWarnings(sf::st_centroid(shapefile)) |> sf::st_coordinates()
+  colnames(centroids) <- c("x", "y")
+
+  dftmp <- dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
+    sf::st_as_sf() |>
+    dplyr::relocate(unique_id, block, plot_id, row, column, x, y, .before = 1)
+
+  if ("plot_quality" %in% colnames(dftmp)) {
+    dftmp <-
+      dftmp |>
+      dplyr::mutate(plot_quality = 1 - plot_quality / max(plot_quality))
+
+  # **Adjust `plot_quality` to be relative (0-1)**
+    if(plot_quality == "relative"){
+    min_quality <- min(dftmp$plot_quality, na.rm = TRUE)
+    max_quality <- max(dftmp$plot_quality, na.rm = TRUE)
+
+    dftmp <- dftmp |>
+      dplyr::mutate(plot_quality = (plot_quality - min_quality) / (max_quality - min_quality))
+    }
+  }
+
+  return(dftmp)
+}
+
+
+
+
 
 
 #' Apply a height mask to CHM data

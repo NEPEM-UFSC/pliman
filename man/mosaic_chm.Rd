@@ -10,6 +10,7 @@ mosaic_chm(
   points = NULL,
   interpolation = c("Tps", "Kriging"),
   window_size = c(5, 5),
+  ground_quantile = 0,
   mask = NULL,
   mask_soil = TRUE,
   verbose = TRUE
@@ -33,6 +34,12 @@ interpolation method to use when \code{points} are provided. Options are
 \item{window_size}{An integer  (meters) specifying the window size (rows and
 columns, respectively) for creating a DTM using a moving window. Default is
 c(10, 10).}
+
+\item{ground_quantile}{Numeric value between \code{0} and \code{1} indicating the
+quantile threshold for ground point selection in the CHM computation. Lower
+values (e.g., \code{0}) retain the lowest ground points, while higher values
+(e.g., \code{1}) consider higher ground elevations. Default is \code{0}, which uses
+the lowest points within each window.}
 
 \item{mask}{(optional) A \code{SpatRaster} object used to mask the CHM and volume
 results. Default is NULL.}

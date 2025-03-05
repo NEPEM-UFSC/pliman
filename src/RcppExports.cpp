@@ -262,6 +262,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// helper_entropy
+double helper_entropy(NumericVector values, int precision);
+RcppExport SEXP _pliman_helper_entropy(SEXP valuesSEXP, SEXP precisionSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericVector >::type values(valuesSEXP);
+    Rcpp::traits::input_parameter< int >::type precision(precisionSEXP);
+    rcpp_result_gen = Rcpp::wrap(helper_entropy(values, precision));
+    return rcpp_result_gen;
+END_RCPP
+}
 // help_area
 Rcpp::RObject help_area(Rcpp::RObject coord);
 RcppExport SEXP _pliman_help_area(SEXP coordSEXP) {
@@ -587,6 +599,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_help_label", (DL_FUNC) &_pliman_help_label, 2},
     {"_pliman_rcpp_st_perimeter", (DL_FUNC) &_pliman_rcpp_st_perimeter, 1},
     {"_pliman_uuid_v7", (DL_FUNC) &_pliman_uuid_v7, 0},
+    {"_pliman_helper_entropy", (DL_FUNC) &_pliman_helper_entropy, 2},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},
