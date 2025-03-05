@@ -1039,3 +1039,25 @@ std::string  uuid_v7() {
 
   return uuid;
 }
+
+// [[Rcpp::export]]
+double helper_entropy(NumericVector values, int precision = 2) {
+  std::unordered_map<double, int> freq;
+  int n = values.size();
+
+  // Compute frequencies with rounding
+  double scale = pow(10.0, precision);
+  for (int i = 0; i < n; ++i) {
+    double rounded_val = round(values[i] * scale) / scale;
+    freq[rounded_val]++;
+  }
+
+  // Compute entropy
+  double entropy = 0.0;
+  for (auto& pair : freq) {
+    double prob = static_cast<double>(pair.second) / n;
+    entropy -= prob * log(prob);
+  }
+
+  return entropy;
+}
