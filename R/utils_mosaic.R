@@ -3540,26 +3540,22 @@ mosaic_chm_extract <- function(chm,
 #'
 #' @export
 mosaic_chm_extract <- function(chm,
-                               shapefile,
-                               chm_threshold = NULL,
-                               plot_quality = c("absolute", "relative")) {
+                                shapefile,
+                                chm_threshold = NULL,
+                                plot_quality = c("absolute", "relative")) {
 
   plot_quality <- match.arg(plot_quality)
-
   custom_summary <- function(values, coverage_fractions, ...) {
     valids <- na.omit(values)
+    sumvalids <- sum(valids)
     quantiles <- quantile(valids, c(0, 0.05, 0.5, 0.95, 1))
-
-    mean_val <- mean(valids)
+    mean_val <- sumvalids / length(valids)
     cv <- sd(valids) / mean_val
     entropy <- helper_entropy(valids)
-    volume <- sum(valids) * prod(chm[["res"]])
-
+    volume <- sumvalids * prod(chm[["res"]])
     if (!is.null(chm_threshold)) {
       coverage <- sum(valids > chm_threshold) / length(valids)
       pq <- sqrt(cv^2 + entropy^2 + (4 * (coverage - 1))^2) / sqrt(1^2 + 1^2 + 4^2)
-
-
       data.frame(
         min = quantiles[[1]],
         q05 = quantiles[[2]],
@@ -3573,7 +3569,6 @@ mosaic_chm_extract <- function(chm,
         coverage = coverage,
         plot_quality = pq
       )
-
     } else {
       return(data.frame(
         min = quantiles[[1]],
@@ -3588,20 +3583,17 @@ mosaic_chm_extract <- function(chm,
       ))
     }
   }
-
   height <- exactextractr::exact_extract(chm$chm[[2]],
                                          shapefile,
                                          fun = custom_summary,
                                          force_df = TRUE,
                                          progress = FALSE)
-
   if (chm$mask) {
     area2 <- exactextractr::exact_extract(chm$chm[[2]],
                                           shapefile,
                                           coverage_area = TRUE,
                                           force_df = TRUE,
                                           progress = FALSE)
-
     covered_area <- purrr::map_dfr(area2, function(x) {
       data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
                  plot_area = sum(x[, "coverage_area"]))
@@ -3618,7 +3610,6 @@ mosaic_chm_extract <- function(chm,
                                  coverage = 1)
     }
   }
-
   shapefile <- shapefile |>
     dplyr::select(-suppressWarnings(dplyr::any_of(c("x", "y"))))
 
@@ -3634,16 +3625,15 @@ mosaic_chm_extract <- function(chm,
       dftmp |>
       dplyr::mutate(plot_quality = 1 - plot_quality / max(plot_quality))
 
-  # **Adjust `plot_quality` to be relative (0-1)**
+    # **Adjust `plot_quality` to be relative (0-1)**
     if(plot_quality == "relative"){
-    min_quality <- min(dftmp$plot_quality, na.rm = TRUE)
-    max_quality <- max(dftmp$plot_quality, na.rm = TRUE)
+      min_quality <- min(dftmp$plot_quality, na.rm = TRUE)
+      max_quality <- max(dftmp$plot_quality, na.rm = TRUE)
 
-    dftmp <- dftmp |>
-      dplyr::mutate(plot_quality = (plot_quality - min_quality) / (max_quality - min_quality))
+      dftmp <- dftmp |>
+        dplyr::mutate(plot_quality = (plot_quality - min_quality) / (max_quality - min_quality))
     }
   }
-
   return(dftmp)
 }
 
