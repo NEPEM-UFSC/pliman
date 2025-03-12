@@ -3440,9 +3440,9 @@ mosaic_chm <- function(dsm,
 #'
 #' @export
 mosaic_chm_extract <- function(chm,
-                                shapefile,
-                                chm_threshold = NULL,
-                                plot_quality = c("absolute", "relative")) {
+                               shapefile,
+                               chm_threshold = NULL,
+                               plot_quality = c("absolute", "relative")) {
 
   plot_quality <- match.arg(plot_quality)
   custom_summary <- function(values, coverage_fractions, ...) {
@@ -3455,7 +3455,7 @@ mosaic_chm_extract <- function(chm,
     volume <- sumvalids * prod(chm[["res"]])
     if (!is.null(chm_threshold)) {
       coverage <- sum(valids > chm_threshold) / length(valids)
-      pq <- sqrt(cv^2 + entropy^2 + (4 * (coverage - 1))^2) / sqrt(1^2 + 1^2 + 4^2)
+      pq <- sqrt(cv^2 + entropy^2 + (4 * (coverage - 1)^2)) / sqrt(4)
       data.frame(
         min = quantiles[[1]],
         q05 = quantiles[[2]],
@@ -3516,14 +3516,23 @@ mosaic_chm_extract <- function(chm,
   centroids <- suppressWarnings(sf::st_centroid(shapefile)) |> sf::st_coordinates()
   colnames(centroids) <- c("x", "y")
 
-  dftmp <- dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
+  dftmp <-
+    dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
     sf::st_as_sf() |>
     dplyr::relocate(unique_id, block, plot_id, row, column, x, y, .before = 1)
 
+  if(chm$mask & is.null(chm_threshold)){
+    dftmp <-
+      dftmp |>
+      dplyr::mutate(
+        plot_quality = sqrt(cv^2 + entropy^2 + (4 * (coverage - 1)^2)) / sqrt(4),
+        .after = coverage
+      )
+  }
   if ("plot_quality" %in% colnames(dftmp)) {
     dftmp <-
       dftmp |>
-      dplyr::mutate(plot_quality = 1 - plot_quality / max(plot_quality))
+      dplyr::mutate(plot_quality = (plot_quality / min(plot_quality, na.rm = TRUE)) - 1)
 
     # **Adjust `plot_quality` to be relative (0-1)**
     if(plot_quality == "relative"){
