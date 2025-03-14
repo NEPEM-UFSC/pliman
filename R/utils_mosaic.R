@@ -3416,7 +3416,8 @@ mosaic_chm <- function(dsm,
 #' @param chm An object computed with [mosaic_chm()].
 #' @param shapefile An `sf` object containing the polygons over which height
 #'   metrics are extracted.
-#'
+#' @param chm_threshold A numeric value representing the height threshold for
+#'   calculating coverage. If `NULL`, coverage is not computed.
 #' @return An `sf` object containing height summary statistics for each plot,
 #'   including:
 #' * `min`: Minimum height value.
@@ -3426,27 +3427,44 @@ mosaic_chm <- function(dsm,
 #' * `max`: Maximum height value.
 #' * `mean`: Mean height value.
 #' * `volume`: Total sum of heights multiplied by CHM resolution.
-#' * `coverage`: If a mask is used, returns the proportion of pixels covered
-#'  within the plot. Otherwise, returns 1.
+#' * `coverage`: If a mask is used in [mosaic_chm()] or `chm_threshold` is
+#' informed, returns the proportion of pixels covered within the plot.
+#' Otherwise, returns 1.
 #'
 #' @export
 
-mosaic_chm_extract <- function(chm, shapefile) {
+mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL) {
   custom_summary <- function(values, coverage_fractions, ...) {
     valids <- na.omit(values)
     sumvalids <- sum(valids)
     quantiles <- quantile(valids, c(0, 0.05, 0.5, 0.95, 1))
     mean_val <- sumvalids / length(valids)
     volume <- sumvalids * prod(chm[["res"]])
-    data.frame(
-      min = quantiles[[1]],
-      q05 = quantiles[[2]],
-      q50 = quantiles[[3]],
-      q95 = quantiles[[4]],
-      max = quantiles[[5]],
-      mean = mean_val,
-      volume = volume
-    )
+    if (!is.null(chm_threshold)) {
+      coverage <- sum(valids > chm_threshold) / length(valids)
+      data.frame(
+        min = quantiles[[1]],
+        q05 = quantiles[[2]],
+        q50 = quantiles[[3]],
+        q95 = quantiles[[4]],
+        max = quantiles[[5]],
+        mean = mean_val,
+        volume = volume,
+        coverage = coverage
+      )
+
+    } else{
+      data.frame(
+        min = quantiles[[1]],
+        q05 = quantiles[[2]],
+        q50 = quantiles[[3]],
+        q95 = quantiles[[4]],
+        max = quantiles[[5]],
+        mean = mean_val,
+        volume = volume
+      )
+    }
+
   }
   height <- exactextractr::exact_extract(chm$chm[[2]],
                                          shapefile,
@@ -3466,9 +3484,12 @@ mosaic_chm_extract <- function(chm, shapefile) {
       dplyr::mutate(coverage = covered_area / plot_area)
   } else {
     area <- as.numeric(sf::st_area(shapefile))
-    covered_area <- data.frame(covered_area = area,
-                               plot_area = area,
-                               coverage = 1)
+    if (is.null(chm_threshold)) {
+      covered_area <- data.frame(plot_area = area)
+    } else {
+      covered_area <- data.frame(covered_area = area * height$coverage,
+                                 plot_area = area)
+    }
   }
   shapefile <- shapefile |>
     dplyr::select(-suppressWarnings(dplyr::any_of(c("x", "y"))))

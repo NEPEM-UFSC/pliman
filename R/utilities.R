@@ -925,3 +925,22 @@ uuid <- function(n = 1,
   }
   return(uuids)
 }
+
+
+
+#' Compute Shannon Entropy
+#'
+#' This function calculates the Shannon entropy of a numeric vector.
+#'
+#' @param x A numeric vector containing the values for which entropy will be computed.
+#'
+#' @return A numeric value representing the entropy.
+#' @export
+#'
+#' @examples
+#' library(pliman)
+#' x <- c(1, 2, 2, 3, 3, 3, 4, 4, 4, 4)
+#' entropy(x)
+entropy <- function(x){
+  helper_entropy(x)
+}
