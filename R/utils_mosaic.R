@@ -3410,78 +3410,43 @@ mosaic_chm <- function(dsm,
 
 #' Extracts height metrics and plot quality from a Canopy Height Model (CHM)
 #'
-#' This function extracts height-related summary statistics from a CHM using a given shapefile
-#' and computes a plot quality metric based on coefficient of variation (CV), entropy, and coverage.
-#' The plot quality can be returned in absolute or relative terms.
+#' This function extracts height-related summary statistics from a CHM using a
+#' given shapefile.
 #'
 #' @param chm An object computed with [mosaic_chm()].
 #' @param shapefile An `sf` object containing the polygons over which height
 #'   metrics are extracted.
-#' @param chm_threshold A numeric value representing the height threshold for
-#'   calculating coverage. If `NULL`, coverage is not computed.
-#' @param plot_quality A character string specifying whether plot quality should
-#'   be returned as `"absolute"` (raw Euclidean distance) or `"relative"`
-#'   (normalized between 0 and 1, where 1 indicates the best plot quality and 0
-#'   the worst). Defaults to `"absolute"`.
 #'
-#' @return An `sf` object containing height summary statistics for each plot, including:
-#' \item{min}{Minimum height value.}
-#' \item{q05}{5th percentile height value.}
-#' \item{q50}{Median height value.}
-#' \item{q95}{95th percentile height value.}
-#' \item{max}{Maximum height value.}
-#' \item{mean}{Mean height value.}
-#' \item{cv}{Coefficient of variation (standard deviation divided by the mean).}
-#' \item{entropy}{Shannon entropy of height values, representing height distribution complexity.}
-#' \item{volume}{Total sum of heights multiplied by CHM resolution.}
-#' \item{coverage}{Proportion of pixels exceeding `chm_threshold`. Only computed if `chm_threshold` is provided.}
-#' \item{plot_quality}{Plot quality index. If `"relative"`, values are normalized between 0 and 1.}
-#'
+#' @return An `sf` object containing height summary statistics for each plot,
+#'   including:
+#' * `min`: Minimum height value.
+#' * `q05`: 5th percentile height value.
+#' * `q50`: Median height value.
+#' * `q95`: 95th percentile height value.
+#' * `max`: Maximum height value.
+#' * `mean`: Mean height value.
+#' * `volume`: Total sum of heights multiplied by CHM resolution.
+#' * `coverage`: If a mask is used, returns the proportion of pixels covered
+#'  within the plot. Otherwise, returns 1.
 #'
 #' @export
-mosaic_chm_extract <- function(chm,
-                               shapefile,
-                               chm_threshold = NULL,
-                               plot_quality = c("absolute", "relative")) {
 
-  plot_quality <- match.arg(plot_quality)
+mosaic_chm_extract <- function(chm, shapefile) {
   custom_summary <- function(values, coverage_fractions, ...) {
     valids <- na.omit(values)
     sumvalids <- sum(valids)
     quantiles <- quantile(valids, c(0, 0.05, 0.5, 0.95, 1))
     mean_val <- sumvalids / length(valids)
-    cv <- sd(valids) / mean_val
-    entropy <- helper_entropy(valids)
     volume <- sumvalids * prod(chm[["res"]])
-    if (!is.null(chm_threshold)) {
-      coverage <- sum(valids > chm_threshold) / length(valids)
-      pq <- sqrt(cv^2 + entropy^2 + (4 * (coverage - 1)^2)) / sqrt(4)
-      data.frame(
-        min = quantiles[[1]],
-        q05 = quantiles[[2]],
-        q50 = quantiles[[3]],
-        q95 = quantiles[[4]],
-        max = quantiles[[5]],
-        mean = mean_val,
-        cv = cv,
-        entropy = entropy,
-        volume = volume,
-        coverage = coverage,
-        plot_quality = pq
-      )
-    } else {
-      return(data.frame(
-        min = quantiles[[1]],
-        q05 = quantiles[[2]],
-        q50 = quantiles[[3]],
-        q95 = quantiles[[4]],
-        max = quantiles[[5]],
-        mean = mean_val,
-        cv = cv,
-        entropy = entropy,
-        volume = volume
-      ))
-    }
+    data.frame(
+      min = quantiles[[1]],
+      q05 = quantiles[[2]],
+      q50 = quantiles[[3]],
+      q95 = quantiles[[4]],
+      max = quantiles[[5]],
+      mean = mean_val,
+      volume = volume
+    )
   }
   height <- exactextractr::exact_extract(chm$chm[[2]],
                                          shapefile,
@@ -3499,54 +3464,23 @@ mosaic_chm_extract <- function(chm,
                  plot_area = sum(x[, "coverage_area"]))
     }) |>
       dplyr::mutate(coverage = covered_area / plot_area)
-
   } else {
     area <- as.numeric(sf::st_area(shapefile))
-    if (!is.null(chm_threshold)) {
-      covered_area <- data.frame(plot_area = area)
-    } else {
-      covered_area <- data.frame(covered_area = area,
-                                 plot_area = area,
-                                 coverage = 1)
-    }
+    covered_area <- data.frame(covered_area = area,
+                               plot_area = area,
+                               coverage = 1)
   }
   shapefile <- shapefile |>
     dplyr::select(-suppressWarnings(dplyr::any_of(c("x", "y"))))
-
   centroids <- suppressWarnings(sf::st_centroid(shapefile)) |> sf::st_coordinates()
   colnames(centroids) <- c("x", "y")
-
   dftmp <-
     dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
     sf::st_as_sf() |>
     dplyr::relocate(unique_id, block, plot_id, row, column, x, y, .before = 1)
 
-  if(chm$mask & is.null(chm_threshold)){
-    dftmp <-
-      dftmp |>
-      dplyr::mutate(
-        plot_quality = sqrt(cv^2 + entropy^2 + (4 * (coverage - 1)^2)) / sqrt(4),
-        .after = coverage
-      )
-  }
-  if ("plot_quality" %in% colnames(dftmp)) {
-    dftmp <-
-      dftmp |>
-      dplyr::mutate(plot_quality = (plot_quality / min(plot_quality, na.rm = TRUE)) - 1)
-
-    # **Adjust `plot_quality` to be relative (0-1)**
-    if(plot_quality == "relative"){
-      min_quality <- min(dftmp$plot_quality, na.rm = TRUE)
-      max_quality <- max(dftmp$plot_quality, na.rm = TRUE)
-
-      dftmp <- dftmp |>
-        dplyr::mutate(plot_quality = (plot_quality - min_quality) / (max_quality - min_quality))
-    }
-  }
   return(dftmp)
 }
-
-
 
 
 
