@@ -4,13 +4,16 @@
 \alias{mosaic_chm_extract}
 \title{Extracts height metrics and plot quality from a Canopy Height Model (CHM)}
 \usage{
-mosaic_chm_extract(chm, shapefile)
+mosaic_chm_extract(chm, shapefile, chm_threshold = NULL)
 }
 \arguments{
 \item{chm}{An object computed with \code{\link[=mosaic_chm]{mosaic_chm()}}.}
 
 \item{shapefile}{An \code{sf} object containing the polygons over which height
 metrics are extracted.}
+
+\item{chm_threshold}{A numeric value representing the height threshold for
+calculating coverage. If \code{NULL}, coverage is not computed.}
 }
 \value{
 An \code{sf} object containing height summary statistics for each plot,
@@ -23,8 +26,9 @@ including:
 \item \code{max}: Maximum height value.
 \item \code{mean}: Mean height value.
 \item \code{volume}: Total sum of heights multiplied by CHM resolution.
-\item \code{coverage}: If a mask is used, returns the proportion of pixels covered
-within the plot. Otherwise, returns 1.
+\item \code{coverage}: If a mask is used in \code{\link[=mosaic_chm]{mosaic_chm()}} or \code{chm_threshold} is
+informed, returns the proportion of pixels covered within the plot.
+Otherwise, returns 1.
 }
 }
 \description{
