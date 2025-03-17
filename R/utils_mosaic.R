@@ -2307,8 +2307,8 @@ mosaic_index <- function(mosaic,
       if(in_memory){
         if(index %in% ind$Index){
           formula <- as.character(ind$Equation[as.character(ind$Index)==index])
-        lyrs <- used_layers(indices, formula)
-        names(lyrs) <- names(indices)[lyrs]
+          lyrs <- used_layers(indices, formula)
+          names(lyrs) <- names(indices)[lyrs]
           mosaic_gray <- terra::lapp(mosaic[[lyrs]], parse_formula(formula, lyrs))
         } else{
           mosaic_gray <- terra::lapp(mosaic[[lyrs]], parse_formula(index, lyrs))
