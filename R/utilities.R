@@ -802,7 +802,7 @@ open_wd <- function(path = getwd()){
 parse_formula <- function(formula, valid_indices) {
   eval(parse(text = sprintf("function(%s) %s", paste0(toupper(names(valid_indices)), collapse = ", "), formula)))
 }
-layers_used <- function(indices, formula) {
+used_layers <- function(indices, formula) {
   formula_lower <- tolower(formula)
   vars_extracted <- unique(unlist(regmatches(formula_lower, gregexpr("[a-z]+", formula_lower))))
   used_names <- names(indices)[names(indices) %in% vars_extracted & !is.na(indices)]
