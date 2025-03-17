@@ -2278,7 +2278,6 @@ mosaic_index <- function(mosaic,
       index[i] <- indexband_to_formula(names(mosaic), ind[which(index[i] == ind$Index), 2])
     }
   }
-  valid_indices <- indices[!is.na(indices)]
   if(length(index) == 1){
     if(inherits(mosaic, "Image")){
       ras <- t(terra::rast(mosaic@.Data))
@@ -2306,11 +2305,13 @@ mosaic_index <- function(mosaic,
       mosaic_gray <- eval(parse(text = index), envir = layers)
     } else{
       if(in_memory){
+        lyrs <- layers_used(indices, formula)
+        names(lyrs) <- names(indices)[lyrs]
         if(index %in% ind$Index){
           formula <- as.character(ind$Equation[as.character(ind$Index)==index])
-          mosaic_gray <- terra::lapp(mosaic[[valid_indices]], parse_formula(formula, valid_indices))
+          mosaic_gray <- terra::lapp(mosaic[[lyrs]], parse_formula(formula, lyrs))
         } else{
-          mosaic_gray <- terra::lapp(mosaic[[valid_indices]], parse_formula(index, valid_indices))
+          mosaic_gray <- terra::lapp(mosaic[[lyrs]], parse_formula(index, lyrs))
         }
       } else{
         R <- try(ras[[indices[["r"]]]], TRUE)
