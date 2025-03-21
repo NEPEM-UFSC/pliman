@@ -950,3 +950,38 @@ uuid <- function(n = 1,
 entropy <- function(x){
   helper_entropy(x)
 }
+
+#' Extract UUID from filenames
+#'
+#' This function extracts a UUID (Universal Unique Identifier) from the
+#' filename, using a regular expression that specifically identifies the
+#' standard UUID format.
+#'
+#' @param filename A string containing the filename.
+#' @return Returns the UUID extracted from the filename as a string.
+#' @examples
+#' library(pliman)
+#' file <- "Grãos - contagem_f68bca60-c8cf-4272-9448-3f28891a97cd.jpg"
+#' file2 <- "Grãos - contagem_f68bca60-c8cf-4272-9448-3f8891a97cd.jpg"
+#' get_uuid(file)
+#' @export
+get_uuid <- function(filename) {
+  patterns <- "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"
+  uuidtext <- regmatches(filename, regexpr(patterns, filename))
+  texts <- unname(
+    sapply(filename, function(x){
+      val <- regmatches(x, regexpr(patterns, x))
+      if(length(val) > 0){
+        val
+      } else{
+        NA
+      }
+    })
+  )
+  no_uuid_idx <- which(is.na(texts))
+  if (length(no_uuid_idx) > 0) {
+    warning("No UUID found in the following entries: ", paste(no_uuid_idx, collapse = ", "),
+            call. = FALSE)
+  }
+  return(texts)
+}
