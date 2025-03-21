@@ -71,7 +71,7 @@ file_extension <- function(file){
 #' @name utils_file
 file_name <- function(file){
   sapply(seq_along(file), function(x){
-    strsplit(basename(file[x]), split="\\.")[[1]][1]
+    tools::file_path_sans_ext(basename(file))
   })
 }
 #' @export
