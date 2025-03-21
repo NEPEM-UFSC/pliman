@@ -187,12 +187,14 @@ image_import <- function(img,
     if(!any(grepl("http", img_dir, fixed = TRUE)) & !all(test)){
       stop(" '",img_name[which(test == FALSE)],"' not found in ", img_dir[which(test == FALSE)],  call. = FALSE)
     }
-    img_name <- paste0(img_dir, "/",img_name , ".", file_extension(img))
+    fext <- file_extension(img)
+    img_name <- paste0(img_dir,img_name , ".", fext[length(fext)])
     if(length(img) > 1){
       ls <-
         lapply(seq_along(img_name),
                function(x){
-                 if(file_extension(img_name[[1]]) %in% c("tif", "TIF", "tiff", "TIFF", "gri", "grd")){
+                 fext <- file_extension(img_name[[1]])
+                 if(fext[length(fext)] %in% c("tif", "TIF", "tiff", "TIFF", "gri", "grd")){
                    terra::rast(img_name[x])
                  } else{
                    EBImage::readImage(img_name[x], ...)
@@ -211,7 +213,8 @@ image_import <- function(img,
       }
       invisible(ls)
     } else{
-      if(file_extension(img_name) %in% c("tif", "TIF", "tiff", "TIFF", "gri", "grd")){
+      fext <- file_extension(img_name)
+      if(fext[length(fext)] %in% c("tif", "TIF", "tiff", "TIFF", "gri", "grd")){
         img <- terra::rast(img_name)
       } else{
         img <- EBImage::readImage(img_name, ...)

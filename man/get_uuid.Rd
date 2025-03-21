@@ -13,11 +13,13 @@ get_uuid(filename)
 Returns the UUID extracted from the filename as a string.
 }
 \description{
-This function extracts a UUID (Universal Unique Identifier) from the filename,
-using a regular expression that specifically identifies the standard UUID format.
+This function extracts a UUID (Universal Unique Identifier) from the
+filename, using a regular expression that specifically identifies the
+standard UUID format.
 }
 \examples{
 library(pliman)
 file <- "Grãos - contagem_f68bca60-c8cf-4272-9448-3f28891a97cd.jpg"
+file2 <- "Grãos - contagem_f68bca60-c8cf-4272-9448-3f8891a97cd.jpg"
 get_uuid(file)
 }
