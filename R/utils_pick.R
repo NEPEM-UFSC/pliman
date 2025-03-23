@@ -30,6 +30,10 @@
 #'   [set_pliman_viewer()] function. For example, you can run
 #'   `set_pliman_viewer("mapview")` to set the viewer option to "mapview" for
 #'   all functions.
+#' @param external_device Logical. If \code{TRUE} (default), opens an external
+#' graphics window when running inside RStudio to ensure accurate point
+#' selection using \code{locator()}. Ignored when not in RStudio or when using
+#' \code{viewer = "mapview"}.
 #' @param title The title of the map view when `viewer`is used.
 #' @param show How to plot in mapview viewer, either `'rgb` or `'index'`.
 #' @param index The index to use for the index view. Defaults to 'B'.
@@ -67,6 +71,7 @@ pick_count <- function(img,
                        n = Inf,
                        col = "red",
                        viewer = get_pliman_viewer(),
+                       external_device = TRUE,
                        size = 0.8,
                        plot = TRUE,
                        verbose = TRUE){
@@ -74,6 +79,32 @@ pick_count <- function(img,
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
   if (isTRUE(interactive())) {
     if(vieweropt == "base"){
+      # Handle external device logic
+      is_rstudio <- Sys.getenv("RSTUDIO") == "1"
+      os <- .Platform$OS.type
+      original_device <- dev.cur()
+      new_device <- FALSE
+
+      if (is_rstudio && isTRUE(external_device)) {
+        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        new_device <- TRUE
+        if (os == "windows") {
+          windows()
+        } else if (Sys.info()["sysname"] == "Darwin") {
+          quartz()
+        } else {
+          X11()
+        }
+      }
+
+      on.exit({
+        # Close and restore device
+        if (new_device) {
+          dev.off()
+          dev.set(original_device)
+        }
+      })
+
       if (isTRUE(plot)) {
         plot(img)
       }
@@ -111,16 +142,45 @@ pick_coords <- function(img,
                         n = Inf,
                         col = "red",
                         viewer = get_pliman_viewer(),
+                        external_device = TRUE,
                         size = 0.8,
-                        verbose = TRUE){
+                        verbose = TRUE) {
+
   vieweropt <- c("base", "mapview")
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
+
   if (isTRUE(interactive())) {
     pixels <- NULL
-    if(vieweropt == "base"){
+
+    if (vieweropt == "base") {
+      # Handle external device logic
+      is_rstudio <- Sys.getenv("RSTUDIO") == "1"
+      os <- .Platform$OS.type
+      original_device <- dev.cur()
+      new_device <- FALSE
+
+      if (is_rstudio && isTRUE(external_device)) {
+        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        new_device <- TRUE
+        if (os == "windows") {
+          windows()
+        } else if (Sys.info()["sysname"] == "Darwin") {
+          quartz()
+        } else {
+          X11()
+        }
+      }
+
+      on.exit({
+        # Close and restore device
+        if (new_device) {
+          dev.off()
+          dev.set(original_device)
+        }
+      })
+
       plot(img)
-      on.exit(invisible(data.frame(x = x, y = y)))
-      if(isTRUE(verbose)){
+      if (isTRUE(verbose)) {
         message("Use the first mouse button to pick up points in the plot.\nPress Esc to exit.")
       }
 
@@ -136,15 +196,21 @@ pick_coords <- function(img,
         points(x, y, type = "p", col = col, cex = size, pch = 19)
         i <- i + 1
       }
+
       if (i >= n) {
-        warning("Maximum number of count achieved. Please, increase the argument `n`.", call. = FALSE)
+        warning("Maximum number of points reached. Consider increasing the argument `n`.", call. = FALSE)
       }
-    } else{
+
+      return(invisible(data.frame(x = x, y = y)))
+
+    } else {
+      # mapview interface
       points <- mv_points(img, title = "Use the 'Draw Marker' tool to pick up points in the plot")
-      invisible(points)
+      return(invisible(points))
     }
   }
 }
+
 
 #' @name utils_pick
 #' @export
@@ -152,6 +218,7 @@ pick_rgb <- function(img,
                      n = Inf,
                      col = "red",
                      viewer = get_pliman_viewer(),
+                     external_device = TRUE,
                      size = 0.8,
                      plot = TRUE,
                      verbose = TRUE){
@@ -160,6 +227,31 @@ pick_rgb <- function(img,
   if (isTRUE(interactive())) {
     pixels <- NULL
     if(vieweropt == "base"){
+      # Handle external device logic
+      is_rstudio <- Sys.getenv("RSTUDIO") == "1"
+      os <- .Platform$OS.type
+      original_device <- dev.cur()
+      new_device <- FALSE
+
+      if (is_rstudio && isTRUE(external_device)) {
+        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        new_device <- TRUE
+        if (os == "windows") {
+          windows()
+        } else if (Sys.info()["sysname"] == "Darwin") {
+          quartz()
+        } else {
+          X11()
+        }
+      }
+
+      on.exit({
+        # Close and restore device
+        if (new_device) {
+          dev.off()
+          dev.set(original_device)
+        }
+      })
       if (isTRUE(plot)) {
         plot(img)
       }
@@ -212,6 +304,7 @@ pick_palette <- function(img,
                          r = 1,
                          shape = "box",
                          viewer = get_pliman_viewer(),
+                         external_device = TRUE,
                          show = "rgb",
                          title = "Pick colors in the image",
                          index =  "B",
@@ -227,6 +320,31 @@ pick_palette <- function(img,
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
   if (isTRUE(interactive())) {
     if(vieweropt == "base"){
+      # Handle external device logic
+      is_rstudio <- Sys.getenv("RSTUDIO") == "1"
+      os <- .Platform$OS.type
+      original_device <- dev.cur()
+      new_device <- FALSE
+
+      if (is_rstudio && isTRUE(external_device)) {
+        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        new_device <- TRUE
+        if (os == "windows") {
+          windows()
+        } else if (Sys.info()["sysname"] == "Darwin") {
+          quartz()
+        } else {
+          X11()
+        }
+      }
+
+      on.exit({
+        # Close and restore device
+        if (new_device) {
+          dev.off()
+          dev.set(original_device)
+        }
+      })
 
       if (isTRUE(plot)) {
         plot(img)
