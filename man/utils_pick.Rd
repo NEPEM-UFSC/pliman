@@ -13,6 +13,7 @@ pick_count(
   n = Inf,
   col = "red",
   viewer = get_pliman_viewer(),
+  external_device = TRUE,
   size = 0.8,
   plot = TRUE,
   verbose = TRUE
@@ -23,6 +24,7 @@ pick_coords(
   n = Inf,
   col = "red",
   viewer = get_pliman_viewer(),
+  external_device = TRUE,
   size = 0.8,
   verbose = TRUE
 )
@@ -32,6 +34,7 @@ pick_rgb(
   n = Inf,
   col = "red",
   viewer = get_pliman_viewer(),
+  external_device = TRUE,
   size = 0.8,
   plot = TRUE,
   verbose = TRUE
@@ -43,6 +46,7 @@ pick_palette(
   r = 1,
   shape = "box",
   viewer = get_pliman_viewer(),
+  external_device = TRUE,
   show = "rgb",
   title = "Pick colors in the image",
   index = "B",
@@ -73,6 +77,11 @@ argument globally for all functions in the package, you can use the
 \code{\link[=set_pliman_viewer]{set_pliman_viewer()}} function. For example, you can run
 \code{set_pliman_viewer("mapview")} to set the viewer option to "mapview" for
 all functions.}
+
+\item{external_device}{Logical. If \code{TRUE} (default), opens an external
+graphics window when running inside RStudio to ensure accurate point
+selection using \code{locator()}. Ignored when not in RStudio or when using
+\code{viewer = "mapview"}.}
 
 \item{plot}{Call a new \code{plot(img)} before processing? Defaults to \code{TRUE}.}
 
