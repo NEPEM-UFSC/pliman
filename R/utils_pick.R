@@ -49,6 +49,7 @@
 #' * `pick_rgb()` returns a `data.frame` with the R, G, and B values of the
 #' selected point(s).
 #' * `pick_palette()` returns an object of class `Image`.
+#' @importFrom grDevices dev.cur dev.set dev.new
 #' @name utils_pick
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@gmail.com}
@@ -88,13 +89,7 @@ pick_count <- function(img,
       if (is_rstudio && isTRUE(external_device)) {
         if (verbose) message("Opening external graphics window for accurate locator() input...")
         new_device <- TRUE
-        if (os == "windows") {
-          windows()
-        } else if (Sys.info()["sysname"] == "Darwin") {
-          quartz()
-        } else {
-          X11()
-        }
+        dev.new(noRStudioGD = TRUE)
       }
 
       on.exit({
@@ -162,13 +157,7 @@ pick_coords <- function(img,
       if (is_rstudio && isTRUE(external_device)) {
         if (verbose) message("Opening external graphics window for accurate locator() input...")
         new_device <- TRUE
-        if (os == "windows") {
-          windows()
-        } else if (Sys.info()["sysname"] == "Darwin") {
-          quartz()
-        } else {
-          X11()
-        }
+        dev.new(noRStudioGD = TRUE)
       }
 
       on.exit({
@@ -236,13 +225,7 @@ pick_rgb <- function(img,
       if (is_rstudio && isTRUE(external_device)) {
         if (verbose) message("Opening external graphics window for accurate locator() input...")
         new_device <- TRUE
-        if (os == "windows") {
-          windows()
-        } else if (Sys.info()["sysname"] == "Darwin") {
-          quartz()
-        } else {
-          X11()
-        }
+        dev.new(noRStudioGD = TRUE)
       }
 
       on.exit({
@@ -329,13 +312,7 @@ pick_palette <- function(img,
       if (is_rstudio && isTRUE(external_device)) {
         if (verbose) message("Opening external graphics window for accurate locator() input...")
         new_device <- TRUE
-        if (os == "windows") {
-          windows()
-        } else if (Sys.info()["sysname"] == "Darwin") {
-          quartz()
-        } else {
-          X11()
-        }
+        dev.new(noRStudioGD = TRUE)
       }
 
       on.exit({
