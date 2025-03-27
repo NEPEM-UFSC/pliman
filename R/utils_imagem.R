@@ -163,7 +163,6 @@ image_import <- function(img,
               "' of invalid format ignored.", call. = FALSE)
     }
     imgs <- paste0(path, "/", imgs[all_valid])
-
     list_img <-
       lapply(imgs, function(x){
         EBImage::readImage(x)
@@ -188,7 +187,7 @@ image_import <- function(img,
       stop(" '",img_name[which(test == FALSE)],"' not found in ", img_dir[which(test == FALSE)],  call. = FALSE)
     }
     fext <- file_extension(img)
-    img_name <- paste0(img_dir,img_name , ".", fext[length(fext)])
+    img_name <- paste0(img_dir, "/", img_name , ".", fext[length(fext)])
     if(length(img) > 1){
       ls <-
         lapply(seq_along(img_name),
