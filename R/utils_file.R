@@ -70,9 +70,7 @@ file_extension <- function(file){
 #' @export
 #' @name utils_file
 file_name <- function(file){
-  sapply(seq_along(file), function(x){
-    tools::file_path_sans_ext(basename(file))
-  })
+  tools::file_path_sans_ext(basename(file))
 }
 #' @export
 #' @name utils_file
