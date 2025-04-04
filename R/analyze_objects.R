@@ -650,7 +650,7 @@ analyze_objects <- function(img,
     diretorio_original <-
       ifelse(grepl("[/\\]", dir_original),
              dir_original,
-             paste0("./", dir_original))
+             paste0("./", dir_original, "/"))
   }
   if(is.null(dir_processed)){
     diretorio_processada <- paste0("./")
