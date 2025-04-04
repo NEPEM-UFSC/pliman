@@ -985,3 +985,66 @@ get_uuid <- function(filename) {
   }
   return(texts)
 }
+
+#' Lin's Concordance Correlation Coefficient (CCC)
+#'
+#' Computes Lin's Concordance Correlation Coefficient (CCC) between observed and
+#' predicted values. Also returns Pearson's correlation coefficient and root
+#' mean squared error (RMSE). If the input is a grouped data frame
+#' (`grouped_df`), the function will return results for each group.
+#'
+#' The CCC is defined as:
+#'
+#' \deqn{\rho_c = \frac{2 \cdot \text{Cov}(x, y)}{\text{Var}(x) + \text{Var}(y) + (\bar{x} - \bar{y})^2}}
+#'
+#' where:
+#' * \eqn{\text{Cov}(x, y)} is the covariance between observed and predicted values
+#' * \eqn{\text{Var}(x)} and \eqn{\text{Var}(y)} are the variances of the observed and predicted values
+#' * \eqn{\bar{x}} and \eqn{\bar{y}} are the means of the observed and predicted values
+#'
+#' @param data A data frame containing the columns for observed and predicted values.
+#' @param real The column name (unquoted) corresponding to the observed values.
+#' @param predito The column name (unquoted) corresponding to the predicted values.
+#'
+#' @return A data frame with the following columns:
+#' * `r`: Pearson correlation coefficient
+#' * `ccc`: Lin's Concordance Correlation Coefficient
+#' * `rmse`: Root mean squared error
+#'
+#' @export
+#' @examples
+#' library(dplyr)
+#' library(pliman)
+#' df <- data.frame(
+#'   group = rep(c("A", "B"), each = 5),
+#'   real = c(1:5, 2:6),
+#'   predicted = c(1.1, 2, 2.9, 4.1, 5, 2.2, 3.1, 4, 4.8, 6.1)
+#' )
+#'
+#' # Without grouping
+#' ccc(df, real, predicted)
+#'
+#' # With grouping
+#' df |>
+#'   group_by(group) |>
+#'   ccc(real, predicted)
+#'
+ccc <- function(data, real, predito) {
+  if(dplyr::is.grouped_df(data)){
+    data |>
+      dplyr::group_modify(~ccc(.x, {{real}}, {{predito}})) |>
+      dplyr::ungroup()
+  } else{
+    x <- data |> dplyr::select({{real}}) |> dplyr::pull()
+    y <- data |> dplyr::select({{predito}}) |> dplyr::pull()
+    mean_x <- mean(x)
+    mean_y <- mean(y)
+    var_x  <- var(x)
+    var_y  <- var(y)
+    cov_xy <- cov(x, y)
+    r <- cov_xy / (sqrt(var_x) * sqrt(var_y))
+    rmse <- sqrt(mean((x - y)^2))
+    ccc <- (2 * cov_xy) / (var_x + var_y + (mean_x - mean_y)^2)
+    return(data.frame(r = r, ccc = ccc,  rmse = rmse))
+  }
+}
