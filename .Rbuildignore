@@ -1,4 +1,5 @@
 ^LICENSE\.md$
+^check\.R$
 ^package_release\.R$
 ^pliman\.Rproj$
 ^\.Rproj\.user$
