@@ -100,8 +100,8 @@ landmarks <- function(img,
     } else{
       coords <- mv_points(img, title = "Use the first mouse button to select landmarks in the plot. Press 'Done' to exit.")
       rownames(coords) <- paste0("L", 1:nrow(coords))
-      invisible(coords)
     }
+    invisible(coords)
   }
 }
 
