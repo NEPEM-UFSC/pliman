@@ -13,7 +13,7 @@ pick_count(
   n = Inf,
   col = "red",
   viewer = get_pliman_viewer(),
-  external_device = TRUE,
+  external_device = FALSE,
   size = 0.8,
   plot = TRUE,
   verbose = TRUE
@@ -24,7 +24,7 @@ pick_coords(
   n = Inf,
   col = "red",
   viewer = get_pliman_viewer(),
-  external_device = TRUE,
+  external_device = FALSE,
   size = 0.8,
   verbose = TRUE
 )
