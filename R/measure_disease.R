@@ -985,6 +985,7 @@ measure_disease_iter <- function(img,
                          viewer = viewopt,
                          show = show,
                          index = index,
+                         external_device = FALSE,
                          title = "Use the first mouse button to pick up BACKGROUND colors. Click 'Done' to finish",
                          col = "blue")
     if(viewopt != "base"){
@@ -1005,6 +1006,7 @@ measure_disease_iter <- function(img,
                        viewer = viewopt,
                        show = show,
                        index = index,
+                       external_device = FALSE,
                        title = "Use the first mouse button to pick up LEAF colors. Click 'Done' to finish",
                        col = "black")
   if(viewopt != "base"){
@@ -1023,6 +1025,7 @@ measure_disease_iter <- function(img,
                           viewer = viewopt,
                           show = show,
                           index = index,
+                          external_device = FALSE,
                           title = "Use the first mouse button to pick up DISEASE colors. Click 'Done' to finish",
                           col = "red")
 

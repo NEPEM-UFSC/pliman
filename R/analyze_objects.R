@@ -708,6 +708,7 @@ analyze_objects <- function(img,
                                        palette  = FALSE,
                                        plot = FALSE,
                                        col = "blue",
+                                       external_device = FALSE,
                                        title = "Use the first mouse button to pick up BACKGROUND colors. Click 'Done' to finish",
                                        viewer = viewer)
             if(viewopt != "base"){
@@ -722,6 +723,7 @@ analyze_objects <- function(img,
                                        palette  = FALSE,
                                        plot = FALSE,
                                        col = "salmon",
+                                       external_device = FALSE,
                                        title = "Use the first mouse button to pick up FOREGROUND colors. Click 'Done' to finish",
                                        viewer = viewer)
           }
@@ -974,6 +976,7 @@ analyze_objects <- function(img,
                                            palette  = FALSE,
                                            plot = FALSE,
                                            col = "blue",
+                                           external_device = FALSE,
                                            title = "Use the first mouse button to pick up BACKGROUND colors. Click 'Done' to finish",
                                            viewer = viewer)
                 if(viewopt != "base"){
@@ -988,6 +991,7 @@ analyze_objects <- function(img,
                                            palette  = FALSE,
                                            plot = FALSE,
                                            col = "salmon",
+                                           external_device = FALSE,
                                            title = "Use the first mouse button to pick up FOREGROUND colors. Click 'Done' to finish",
                                            viewer = viewer)
               }
