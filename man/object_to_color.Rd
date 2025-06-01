@@ -4,10 +4,27 @@
 \alias{object_to_color}
 \title{Apply color to image objects}
 \usage{
-object_to_color(img, index = "NB", color = "blue", plot = TRUE, ...)
+object_to_color(
+  img,
+  pick_palettes = FALSE,
+  background = NULL,
+  foreground = NULL,
+  index = "NB",
+  color = "blue",
+  plot = TRUE,
+  ...
+)
 }
 \arguments{
 \item{img}{An image object.}
+
+\item{pick_palettes}{Logical argument indicating wheater the user needs to
+pick up the color palettes for foreground and background for the image. If
+\code{TRUE} \code{\link[=pick_palette]{pick_palette()}} will be called internally so that the user can sample
+color points representing foreground and background.}
+
+\item{foreground, background}{A color palette for the foregrond and background,
+respectively (optional).}
 
 \item{index}{A character value (or a vector of characters) specifying the
 target mode for conversion to binary image. See the available indexes with

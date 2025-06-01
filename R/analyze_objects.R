@@ -123,10 +123,10 @@
 #' @inheritParams image_index
 #'
 #'@param img The image to be analyzed.
-#'@param foreground,background A color palette for the foregrond and background,
-#'  respectively (optional). If a chacarceter is used (eg., `foreground =
-#'  "fore"`), the function will search in the current working directory a valid
-#'  image named "fore".
+#'@param foreground,background,reference_img A color palette for the foregrond,
+#'  background, and reference object, respectively (optional). If a chacarceter
+#'  is used (eg., `foreground = "fore"`), the function will search in the
+#'  current working directory a valid image named "fore".
 #' @param opening,closing,filter,erode,dilate **Morphological operations (brush size)**
 #'  * `dilate` puts the mask over every background pixel, and sets it to
 #'  foreground if any of the pixels covered by the mask is from the foreground.
@@ -560,6 +560,7 @@ analyze_objects <- function(img,
                             reference_area = NULL,
                             back_fore_index = "R/(G/B)",
                             fore_ref_index = "B-R",
+                            reference_img = NULL,
                             reference_larger = FALSE,
                             reference_smaller = FALSE,
                             pattern = NULL,
@@ -863,24 +864,99 @@ analyze_objects <- function(img,
           } else{
             invert1 <- FALSE
           }
-          img_bf <-
-            help_binary(img,
-                        threshold = threshold,
-                        index = back_fore_index,
-                        erode = erode,
-                        dilate = dilate,
-                        opening = opening,
-                        closing = closing,
-                        filter = filter,
-                        r = r,
-                        g = g,
-                        b = b,
-                        re = re,
-                        nir = nir,
-                        k = k,
-                        windowsize = windowsize,
-                        invert = invert1,
-                        fill_hull = fill_hull)
+          if(!is.null(background) & !is.null(foreground) & !is.null(reference_img)){
+            if(is.character(foreground)){
+              all_files <- sapply(list.files(getwd()), file_name)
+              imag <- list.files(getwd(), pattern = foreground)
+              check_names_dir(foreground, all_files, getwd())
+              name <- file_name(imag)
+              extens <- file_extension(imag)
+              foreground <- image_import(paste(getwd(), "/", name, ".", extens, sep = ""))
+            }
+            if(is.character(background)){
+              all_files <- sapply(list.files(getwd()), file_name)
+              imag <- list.files(getwd(), pattern = background)
+              check_names_dir(background, all_files, getwd())
+              name <- file_name(imag)
+              extens <- file_extension(imag)
+              background <- image_import(paste(getwd(), "/", name, ".", extens, sep = ""))
+            }
+            if(is.character(reference_img)){
+              all_files <- sapply(list.files(getwd()), file_name)
+              imag <- list.files(getwd(), pattern = reference_img)
+              check_names_dir(reference_img, all_files, getwd())
+              name <- file_name(imag)
+              extens <- file_extension(imag)
+              reference_img <- image_import(paste(getwd(), "/", name, ".", extens, sep = ""))
+            }
+            original <-
+              data.frame(CODE = "img",
+                         R = c(img@.Data[,,1]),
+                         G = c(img@.Data[,,2]),
+                         B = c(img@.Data[,,3]))
+            fore <-
+              data.frame(CODE = "foreground",
+                         R = c(foreground@.Data[,,1]),
+                         G = c(foreground@.Data[,,2]),
+                         B = c(foreground@.Data[,,3]))
+            ref <-
+              data.frame(CODE = "reference",
+                         R = c(reference_img@.Data[,,1]),
+                         G = c(reference_img@.Data[,,2]),
+                         B = c(reference_img@.Data[,,3]))
+            back <-
+              data.frame(CODE = "background",
+                         R = c(background@.Data[,,1]),
+                         G = c(background@.Data[,,2]),
+                         B = c(background@.Data[,,3]))
+            back_fore <-
+              transform(rbind(fore[sample(1:nrow(fore)),][1:1000,],
+                              ref[sample(1:nrow(ref)),][1:1000,],
+                              back[sample(1:nrow(back)),][1:1000,]),
+                        Y = ifelse(CODE == "background", 0, 1))
+
+            formula <- as.formula(paste("Y ~ ", "R+G+B"))
+
+            modelo1 <- suppressWarnings(glm(formula,
+                                            family = binomial("logit"),
+                                            data = back_fore))
+            img_bf <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
+            if(!isFALSE(filter) & filter > 1){
+              img_bf <- EBImage::medianFilter(img_bf, filter)
+            }
+            if(is.numeric(erode) & erode > 0){
+              img_bf <- image_erode(img_bf, size = erode)
+            }
+            if(is.numeric(dilate) & dilate > 0){
+              img_bf <- image_dilate(img_bf, size = dilate)
+            }
+            if(is.numeric(opening) & opening > 0){
+              img_bf <- image_opening(img_bf, size = opening)
+            }
+            if(is.numeric(closing) & closing > 0){
+              img_bf <- image_closing(img_bf, size = closing)
+            }
+          } else{
+            img_bf <-
+              help_binary(img,
+                          threshold = threshold,
+                          index = back_fore_index,
+                          erode = erode,
+                          dilate = dilate,
+                          opening = opening,
+                          closing = closing,
+                          filter = filter,
+                          r = r,
+                          g = g,
+                          b = b,
+                          re = re,
+                          nir = nir,
+                          k = k,
+                          windowsize = windowsize,
+                          invert = invert1,
+                          fill_hull = fill_hull)
+          }
+
           img3 <- img
           img3@.Data[,,1][which(img_bf != 1)] <- 2
           img3@.Data[,,2][which(img_bf != 1)] <- 2
@@ -893,23 +969,54 @@ analyze_objects <- function(img,
           } else{
             invert2 <- FALSE
           }
-          img4 <-
-            help_binary(img3,
-                        threshold = threshold,
-                        index = fore_ref_index,
-                        r = r,
-                        g = g,
-                        b = b,
-                        re = re,
-                        nir = nir,
-                        erode = erode,
-                        dilate = dilate,
-                        opening = opening,
-                        closing = closing,
-                        filter = filter,
-                        k = k,
-                        windowsize = windowsize,
-                        invert = invert2)
+          if(!is.null(background) & !is.null(foreground) & !is.null(reference_img)){
+            back_fore <-
+              transform(rbind(fore[sample(1:nrow(fore)),][1:1000,],
+                              ref[sample(1:nrow(ref)),][1:1000,],
+                              back[sample(1:nrow(back)),][1:1000,]),
+                        Y = ifelse(CODE == "reference", 0, 1))
+
+            formula <- as.formula(paste("Y ~ ", "R+G+B"))
+
+            modelo1 <- suppressWarnings(glm(formula,
+                                            family = binomial("logit"),
+                                            data = back_fore))
+            img4 <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
+            if(!isFALSE(filter) & filter > 1){
+              img4 <- EBImage::medianFilter(img4, filter)
+            }
+            if(is.numeric(erode) & erode > 0){
+              img4 <- image_erode(img4, size = erode)
+            }
+            if(is.numeric(dilate) & dilate > 0){
+              img4 <- image_dilate(img4, size = dilate)
+            }
+            if(is.numeric(opening) & opening > 0){
+              img4 <- image_opening(img4, size = opening)
+            }
+            if(is.numeric(closing) & closing > 0){
+              img4 <- image_closing(img4, size = closing)
+            }
+          } else{
+            img4 <-
+              help_binary(img3,
+                          threshold = threshold,
+                          index = fore_ref_index,
+                          r = r,
+                          g = g,
+                          b = b,
+                          re = re,
+                          nir = nir,
+                          erode = erode,
+                          dilate = dilate,
+                          opening = opening,
+                          closing = closing,
+                          filter = filter,
+                          k = k,
+                          windowsize = windowsize,
+                          invert = invert2)
+          }
+
           mask <- img_bf
           pix_ref <- which(img4 != 1)
           img@.Data[,,1][pix_ref] <- 1
