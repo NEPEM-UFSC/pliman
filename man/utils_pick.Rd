@@ -34,7 +34,7 @@ pick_rgb(
   n = Inf,
   col = "red",
   viewer = get_pliman_viewer(),
-  external_device = TRUE,
+  external_device = FALSE,
   size = 0.8,
   plot = TRUE,
   verbose = TRUE
@@ -43,10 +43,10 @@ pick_rgb(
 pick_palette(
   img,
   n = Inf,
-  r = 1,
+  r = 2,
   shape = "box",
   viewer = get_pliman_viewer(),
-  external_device = TRUE,
+  external_device = FALSE,
   show = "rgb",
   title = "Pick colors in the image",
   index = "B",

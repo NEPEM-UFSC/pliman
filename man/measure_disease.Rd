@@ -61,7 +61,8 @@ measure_disease(
 measure_disease_iter(
   img,
   has_background = TRUE,
-  r = 2,
+  r = 3,
+  by_leaf = FALSE,
   viewer = get_pliman_viewer(),
   opening = c(10, 0),
   closing = c(0, 0),
@@ -257,6 +258,11 @@ be segmented before processing.}
 
 \item{r}{The radius of neighborhood pixels. Defaults to \code{2}. A square is
 drawn indicating the selected pixels.}
+
+\item{by_leaf}{Compute the severity by leaf? If \code{TRUE},
+\code{\link[=measure_disease_byl]{measure_disease_byl()}} is called internallty and the severity is computed
+for each object (leaf) in the image. The background segmentation is then
+controlled by the argument \code{index}.}
 
 \item{viewer}{The viewer option. If not provided, the value is retrieved
 using \code{\link[=get_pliman_viewer]{get_pliman_viewer()}}. This option controls the type of viewer to use

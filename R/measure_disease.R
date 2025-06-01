@@ -164,6 +164,10 @@
 #'   be segmented before processing.
 #' @param r The radius of neighborhood pixels. Defaults to `2`. A square is
 #'   drawn indicating the selected pixels.
+#' @param by_leaf Compute the severity by leaf? If `TRUE`,
+#'   [measure_disease_byl()] is called internallty and the severity is computed
+#'   for each object (leaf) in the image. The background segmentation is then
+#'   controlled by the argument `index`.
 #' @param viewer The viewer option. If not provided, the value is retrieved
 #'   using [get_pliman_viewer()]. This option controls the type of viewer to use
 #'   for interactive plotting. The available options are "base" and "mapview".
@@ -875,14 +879,14 @@ measure_disease <- function(img,
         message("Processing ", length(names_plant), " images in multiple sessions (",nworkers, "). Please, wait.")
       }
       results <-
-      foreach::foreach(i = seq_along(names_plant)) %dofut%{
-        help_count(names_plant[i],
-                   img_healthy, img_symptoms, img_background, resize, fill_hull, invert,
-                   index_lb, index_dh, has_white_bg, lesion_size, tolerance, extension, randomize,
-                   nsample, plot, show_original, show_background, col_leaf,
-                   col_lesions, col_background,  save_image, dir_original, dir_processed,
-                   marker, marker_col, marker_size)
-      }
+        foreach::foreach(i = seq_along(names_plant)) %dofut%{
+          help_count(names_plant[i],
+                     img_healthy, img_symptoms, img_background, resize, fill_hull, invert,
+                     index_lb, index_dh, has_white_bg, lesion_size, tolerance, extension, randomize,
+                     nsample, plot, show_original, show_background, col_leaf,
+                     col_lesions, col_background,  save_image, dir_original, dir_processed,
+                     marker, marker_col, marker_size)
+        }
     } else{
       init_time <- Sys.time()
       results <- list()
@@ -956,7 +960,8 @@ measure_disease <- function(img,
 #' @export
 measure_disease_iter <- function(img,
                                  has_background = TRUE,
-                                 r = 2,
+                                 r = 3,
+                                 by_leaf = FALSE,
                                  viewer = get_pliman_viewer(),
                                  opening = c(10, 0),
                                  closing = c(0, 0),
@@ -966,6 +971,9 @@ measure_disease_iter <- function(img,
                                  show = "rgb",
                                  index = "NGRDI",
                                  ...){
+  if(by_leaf){
+    has_background <- FALSE
+  }
   viewopt <- c("base", "mapview")
   viewopt <- viewopt[pmatch(viewer[[1]], viewopt)]
   if(viewopt == "base"){
@@ -1028,13 +1036,21 @@ measure_disease_iter <- function(img,
                           external_device = FALSE,
                           title = "Use the first mouse button to pick up DISEASE colors. Click 'Done' to finish",
                           col = "red")
-
-  temp <-
-    measure_disease(img = img,
-                    img_healthy = leaf,
-                    img_symptoms = disease,
-                    img_background = back,
-                    ...)
+  if(by_leaf){
+    temp <-
+      measure_disease_byl(img = img,
+                          img_healthy = leaf,
+                          img_symptoms = disease,
+                          index = index,
+                          ...)
+  } else{
+    temp <-
+      measure_disease(img = img,
+                      img_healthy = leaf,
+                      img_symptoms = disease,
+                      img_background = back,
+                      ...)
+  }
 
   invisible(list(results = temp,
                  leaf = leaf,

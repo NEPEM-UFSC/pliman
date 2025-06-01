@@ -18,6 +18,7 @@ analyze_objects(
   reference_area = NULL,
   back_fore_index = "R/(G/B)",
   fore_ref_index = "B-R",
+  reference_img = NULL,
   reference_larger = FALSE,
   reference_smaller = FALSE,
   pattern = NULL,
@@ -117,7 +118,7 @@ analyze_objects_iter(pattern, known_area, verbose = TRUE, ...)
 \arguments{
 \item{img}{The image to be analyzed.}
 
-\item{foreground, background}{A color palette for the foregrond and background,
+\item{foreground, background, reference_img}{A color palette for the foregrond and background,
 respectively (optional). If a chacarceter is used (eg., \code{foreground = "fore"}), the function will search in the current working directory a valid
 image named "fore".}
 

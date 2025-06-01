@@ -1093,6 +1093,12 @@ object_rgb <- function(img, labels){
 #' @inheritParams image_binary
 #' @param color The color to apply in the image objects. Defaults to `"blue"`.
 #' @param plot Plots the modified image? Defaults to `TRUE`.
+#' @param pick_palettes  Logical argument indicating wheater the user needs to
+#'   pick up the color palettes for foreground and background for the image. If
+#'   `TRUE` [pick_palette()] will be called internally so that the user can sample
+#'   color points representing foreground and background.
+#'@param foreground,background A color palette for the foregrond and background,
+#'  respectively (optional).
 #' @param ... Additional arguments passed on to [image_binary()].
 #'
 #' @return An object of class `Image`
@@ -1107,13 +1113,80 @@ object_rgb <- function(img, labels){
 #' }
 #'
 object_to_color <- function(img,
+                            pick_palettes = FALSE,
+                            background = NULL,
+                            foreground = NULL,
                             index = "NB",
                             color = "blue",
                             plot = TRUE,
                             ...){
-  bin <- help_binary(img,
-                     index = index,
-                     ...)
+  if(isTRUE(pick_palettes) || (!is.null(background) & !is.null(foreground))){
+    if(interactive()){
+      plot(img)
+      if(is.null(background) && is.null(foreground)){
+        message("Use the first mouse button to pick up BACKGROUND colors. Press Est to exit")
+        back <- pick_palette(img,
+                             r = 5,
+                             verbose = FALSE,
+                             palette  = FALSE,
+                             plot = FALSE,
+                             col = "blue",
+                             external_device = FALSE,
+                             title = "Use the first mouse button to pick up BACKGROUND colors. Click 'Done' to finish",
+                             viewer = "base")
+      } else{
+        back <- background
+      }
+      if(is.null(background) && is.null(foreground)){
+        message("Use the first mouse button to pick up FOREGROUND colors. Press Est to exit")
+        fore <- pick_palette(img,
+                             r = 5,
+                             verbose = FALSE,
+                             palette  = FALSE,
+                             plot = FALSE,
+                             col = "salmon",
+                             external_device = FALSE,
+                             title = "Use the first mouse button to pick up FOREGROUND colors. Click 'Done' to finish",
+                             viewer = "base")
+      } else{
+        fore <- foreground
+      }
+
+      original <-
+        data.frame(CODE = "img",
+                   R = c(img@.Data[,,1]),
+                   G = c(img@.Data[,,2]),
+                   B = c(img@.Data[,,3]))
+      foreground <-
+        data.frame(CODE = "foreground",
+                   R = c(fore@.Data[,,1]),
+                   G = c(fore@.Data[,,2]),
+                   B = c(fore@.Data[,,3]))
+      background <-
+        data.frame(CODE = "background",
+                   R = c(back@.Data[,,1]),
+                   G = c(back@.Data[,,2]),
+                   B = c(back@.Data[,,3]))
+      back_fore <-
+        transform(rbind(foreground[sample(1:nrow(foreground)),][1:2000,],
+                        background[sample(1:nrow(background)),][1:2000,]),
+                  Y = ifelse(CODE == "background", 0, 1))
+
+      formula <- as.formula(paste("Y ~ ", "R+G+B"))
+
+      modelo1 <- suppressWarnings(glm(formula,
+                                      family = binomial("logit"),
+                                      data = back_fore))
+      pred1 <- round(predict(modelo1, newdata = original, type="response"), 0)
+      bin <- EBImage::Image(matrix(pred1, ncol = dim(img)[[2]]))
+
+    }
+  } else{
+    bin <- help_binary(img,
+                       index = index,
+                       ...)
+  }
+
   pix_ref <- which(bin == 1)
   colto <- col2rgb(color) / 255
   img@.Data[,,1][pix_ref] <- colto[1]
