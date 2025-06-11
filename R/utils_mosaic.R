@@ -2138,6 +2138,8 @@ mosaic_plot_rgb <- function(mosaic, ...){
 #'   declared, `mosaic` will be cropped to the extent of `mosaic2`.
 #' @param buffer A buffering factor to be used when a shapefile is used to crop
 #'   the mosaic.
+#' @param type The cropping type. Can be either 'crop' (default) or 'mask', to
+#'   mask the mosaic to the shapefile area.
 #' @param ... Additional arguments passed to [mosaic_view()].
 #'
 #' @return A cropped version of `mosaic` based on the user-defined selection.
@@ -2167,6 +2169,7 @@ mosaic_crop <- function(mosaic,
                         index = "R",
                         max_pixels = 500000,
                         downsample = NULL,
+                        type = c("crop", "mask"),
                         ...){
   if(is.null(shapefile) & is.null(mosaic2)){
     showopt <- c("rgb", "index")
@@ -2197,7 +2200,11 @@ mosaic_crop <- function(mosaic,
     cropped <- terra::crop(mosaic, grids)
   } else{
     if(!is.null(shapefile)){
-      cropped <- terra::crop(mosaic, shapefile |> terra::vect() |> terra::buffer(buffer))
+      shp <- shapefile |> terra::vect() |> terra::buffer(buffer)
+      cropped <- terra::crop(mosaic, shp)
+      if(type[[1]] == "mask"){
+        cropped <- terra::mask(mosaic, shp)
+      }
     }
     if(!is.null(mosaic2)){
       cropped <- terra::crop(mosaic, mosaic2)
