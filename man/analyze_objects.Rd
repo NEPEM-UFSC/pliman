@@ -118,9 +118,10 @@ analyze_objects_iter(pattern, known_area, verbose = TRUE, ...)
 \arguments{
 \item{img}{The image to be analyzed.}
 
-\item{foreground, background, reference_img}{A color palette for the foregrond and background,
-respectively (optional). If a chacarceter is used (eg., \code{foreground = "fore"}), the function will search in the current working directory a valid
-image named "fore".}
+\item{foreground, background, reference_img}{A color palette for the foregrond,
+background, and reference object, respectively (optional). If a chacarceter
+is used (eg., \code{foreground = "fore"}), the function will search in the
+current working directory a valid image named "fore".}
 
 \item{pick_palettes}{Logical argument indicating wheater the user needs to
 pick up the color palettes for foreground and background for the image. If
