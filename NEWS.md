@@ -1,4 +1,4 @@
-# pliman (development version)
+# pliman 3.1.0
 ## New Functions
 * New functions for geometric operation on shapefiles.
 * New `mosaic_classify()` function to classify orthomosaics based on break values defined by users.
@@ -9,6 +9,7 @@
 ## Minor Improvements
 * Include option to draw circles in `shapefile_build()`
 * Remove dependency on `lwgeom` package to compute perimeter.
+* `mosaic_crop()` now have a `type` argument, that allows returning a cropped or masked raster.
 
 # pliman 3.0.0
 ## New Functions
