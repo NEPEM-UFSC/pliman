@@ -2318,6 +2318,8 @@ mosaic_index <- function(mosaic,
           names(lyrs) <- names(indices)[indices %in% lyrs]
           mosaic_gray <- terra::lapp(mosaic[[lyrs]], parse_formula(formula, lyrs))
         } else{
+          lyrs <- used_layers(indices, index)
+          names(lyrs) <- names(indices)[indices %in% lyrs]
           mosaic_gray <- terra::lapp(mosaic[[lyrs]], parse_formula(index, lyrs))
         }
       } else{

@@ -523,9 +523,9 @@ plot_measures <- function(object,
     }
 
 
-    if(measure %in% colnames(object)){
       hjust <- ifelse(is.null(hjust), 0, hjust)
       vjust <- ifelse(is.null(vjust), 0, vjust)
+    if(measure %in% colnames(object)){
       text(x = object[,2] + hjust,
            y = object[,3] - vjust,
            labels = round(object[, which(colnames(object) == measure)], digits),
@@ -538,8 +538,8 @@ plot_measures <- function(object,
         if(!measure %in% measures){
           stop("'measure' must be one of {", paste(c(colnames(object), measures), collapse = ", "),"}.", call. = FALSE)
         }
-        text(x = index[,2],
-             y = index[,3],
+        text(x = index[,2] + hjust,
+             y = index[,3] - vjust,
              labels = round(index[, which(colnames(index) == measure)], digits),
              col = col,
              cex = size,
@@ -577,10 +577,10 @@ plot_measures <- function(object,
       id <- id
     }
     object <- object[which(object$id %in% id), ]
-
+    hjust <- ifelse(is.null(hjust), 0, hjust)
+    vjust <- ifelse(is.null(vjust), 0, vjust)
     if(measure %in% colnames(object)){
-      hjust <- ifelse(is.null(hjust), 0, hjust)
-      vjust <- ifelse(is.null(vjust), 0, vjust)
+
       text(x = object[,2] + hjust,
            y = object[,3] - vjust,
            labels = round(object[, which(colnames(object) == measure)], digits),
@@ -593,8 +593,8 @@ plot_measures <- function(object,
         if(!measure %in% measures){
           stop("'measure' must be one of {", paste(c(colnames(object), measures), collapse = ", "),"}.", call. = FALSE)
         }
-        text(x = object[,2],
-             y = object[,3],
+        text(x = object[,2] + hjust,
+             y = object[,3] - vjust,
              labels = round(index[which(index$id %in% object$id), which(colnames(index) == measure)], digits),
              col = col,
              cex = size,

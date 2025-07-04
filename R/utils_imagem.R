@@ -372,6 +372,7 @@ image_pliman <- function(img, plot = FALSE){
 #'
 #' @name utils_transform
 #' @inheritParams image_view
+#' @inheritParams object_coord
 #' @param img An image or a list of images of class `Image`.
 #' @param index The index to segment the image. See [image_index()] for more
 #'   details. Defaults to `"NB"` (normalized blue).
@@ -470,6 +471,8 @@ image_autocrop <- function(img,
                            opening = 5,
                            closing = FALSE,
                            filter = FALSE,
+                           invert = FALSE,
+                           threshold = "Otsu",
                            parallel = FALSE,
                            workers = NULL,
                            verbose = TRUE,
@@ -508,7 +511,9 @@ image_autocrop <- function(img,
                               plot = FALSE,
                               opening = opening,
                               closing = closing,
-                              filter = filter)
+                              filter = filter,
+                              invert = invert,
+                              threshold = threshold)
     segmented <- img[conv_hull[1]:conv_hull[2],
                      conv_hull[3]:conv_hull[4],
                      1:3]

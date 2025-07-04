@@ -30,6 +30,8 @@ image_autocrop(
   opening = 5,
   closing = FALSE,
   filter = FALSE,
+  invert = FALSE,
+  threshold = "Otsu",
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
