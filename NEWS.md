@@ -10,6 +10,7 @@
 * Include option to draw circles in `shapefile_build()`
 * Remove dependency on `lwgeom` package to compute perimeter.
 * `mosaic_crop()` now have a `type` argument, that allows returning a cropped or masked raster.
+* `image_autocrop()` now has `threshold` and `invert` arguments.
 
 # pliman 3.0.0
 ## New Functions

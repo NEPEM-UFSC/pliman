@@ -1,11 +1,11 @@
 * **Package**: pliman
-* **Version**: 3.0.0
-* **Date**: 2024/11/04
+* **Version**: 3.1.0
+* **Date**: 2025/06/13
 * **Dependencies**
    - {pliman} depends on {EBImage} that is not on CRAN. I check this internally and provide a guide to install it. 
 * **Reverse dependencies**: None
 * **Release summary**
-   - This is a major release (3.0.0) that fixes the bug at https://cran.r-project.org/web/checks/check_results_pliman.html and includes several new functions for high-trhouput phenotyping.
+   - This is a major release (3.1.0) that includes new functions and minor improvements.
 
    
 * **R CMD check results (run with --run-donttest --as-cran)**

@@ -1599,48 +1599,66 @@ analyze_objects <- function(img,
     if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
       stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
     }
-    if(parallel == TRUE){
+    if (parallel == TRUE) {
       init_time <- Sys.time()
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.3), workers)
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.3), workers)
+
       future::plan(future::multisession, workers = nworkers)
       on.exit(future::plan(future::sequential))
       `%dofut%` <- doFuture::`%dofuture%`
 
-      if(verbose == TRUE){
-        message("Processing ", length(names_plant), " images in multiple sessions (",nworkers, "). Please, wait.")
+      cli::cli_h2("🔄 Parallel processing started")
+      cli::cli_alert_info("Processing {length(names_plant)} images using {nworkers} workers...")
+
+      results <- foreach::foreach(i = seq_along(names_plant)) %dofut% {
+        help_count(
+          names_plant[i],
+          foreground, background, pick_palettes, resize, fill_hull, threshold,
+          erode, dilate, opening, closing, filter, tolerance, extension,
+          randomize, nrows, plot, show_original, show_background, marker,
+          marker_col, marker_size, save_image, prefix, dir_original,
+          dir_processed, verbose, col_background, col_foreground,
+          lower_noise, ab_angles, ab_angles_percentiles,
+          width_at, width_at_percentiles, return_mask, pcv
+        )
       }
 
-      results <-
-        foreach::foreach(i = seq_along(names_plant)) %dofut%{
-          help_count(names_plant[i],
-                     foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate, opening, closing, filter,
-                     tolerance , extension, randomize, nrows, plot, show_original,
-                     show_background, marker, marker_col, marker_size, save_image, prefix,
-                     dir_original, dir_processed, verbose, col_background,
-                     col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv)
-        }
+      cli::cli_alert_success("✅ Parallel processing completed in {round(Sys.time() - init_time, 2)}.")
 
-    } else{
+    } else {
       init_time <- Sys.time()
-      pb <- progress(max = length(plants), style = 4)
-      foo <- function(plants, ...){
-        if(verbose == TRUE){
-          run_progress(pb, ...)
-        }
-        help_count(img  = plants,
-                   foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate, opening, closing, filter,
-                   tolerance , extension, randomize, nrows, plot, show_original,
-                   show_background, marker, marker_col, marker_size, save_image, prefix,
-                   dir_original, dir_processed, verbose, col_background,
-                   col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv)
+      cli::cli_h2("🔄 Sequential processing started")
+      cli::cli_alert_info("Processing {length(names_plant)} images...")
+
+      pb <- cli::cli_progress_bar(
+        name = "image_bar",
+        format = "📸 {cli::pb_bar} {cli::pb_percent} ({cli::pb_eta}) - {msg}",
+        total = length(names_plant),
+        clear = FALSE
+      )
+
+      results <- vector("list", length(names_plant))
+      for (i in seq_along(names_plant)) {
+        img_name <- names_plant[i]
+        cli::cli_progress_update(id = "image_bar", set = list(msg = img_name))
+
+        results[[i]] <- help_count(
+          img = names_plant[i],
+          foreground, background, pick_palettes, resize, fill_hull, threshold,
+          erode, dilate, opening, closing, filter, tolerance, extension,
+          randomize, nrows, plot, show_original, show_background, marker,
+          marker_col, marker_size, save_image, prefix, dir_original,
+          dir_processed, verbose, col_background, col_foreground,
+          lower_noise, ab_angles, ab_angles_percentiles,
+          width_at, width_at_percentiles, return_mask, pcv
+        )
       }
-      results <-
-        lapply(seq_along(names_plant), function(i){
-          foo(names_plant[i],
-              actual = i,
-              text = paste("Processing image", names_plant[i]))
-        })
+      cli::cli_progress_done(id = "image_bar")
+      cli::cli_alert_success("✅ Sequential processing completed in {round(Sys.time() - init_time, 2)}.")
+
     }
+
+
 
     ## bind the results
     names(results) <- names_plant
