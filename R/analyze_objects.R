@@ -1630,9 +1630,9 @@ analyze_objects <- function(img,
       cli::cli_h2("🔄 Sequential processing started")
       cli::cli_alert_info("Processing {length(names_plant)} images...")
 
-      pb <- cli::cli_progress_bar(
+      cli::cli_progress_bar(
         name = "image_bar",
-        format = "📸 {cli::pb_bar} {cli::pb_percent} ({cli::pb_eta}) - {msg}",
+        format = "📸 {cli::pb_bar} {cli::pb_percent} ({cli::pb_eta})",
         total = length(names_plant),
         clear = FALSE
       )
@@ -1640,7 +1640,7 @@ analyze_objects <- function(img,
       results <- vector("list", length(names_plant))
       for (i in seq_along(names_plant)) {
         img_name <- names_plant[i]
-        cli::cli_progress_update(id = "image_bar", set = list(msg = img_name))
+        cli::cli_progress_update()
 
         results[[i]] <- help_count(
           img = names_plant[i],
