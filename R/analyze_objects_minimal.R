@@ -490,39 +490,50 @@ analyze_objects_minimal <- function(img,
       on.exit(future::plan(future::sequential))
       `%dofut%` <- doFuture::`%dofuture%`
 
-      if(verbose == TRUE){
-        message("Processing ", length(names_plant), " images in multiple sessions (",nworkers, "). Please, wait.")
+      cli::cli_h2("🔄 Parallel processing started")
+      cli::cli_alert_info("Processing {length(names_plant)} images using {nworkers} workers...")
+
+      results <- foreach::foreach(i = seq_along(names_plant)) %dofut% {
+        help_count(
+          names_plant[i],
+          fill_hull, threshold, opening, closing, filter, erode, dilate,
+          tolerance, extension, plot, show_original, marker, marker_col,
+          marker_size, save_image, prefix, dir_original, dir_processed,
+          verbose, col_background, col_foreground, lower_noise
+        )
       }
 
-      results <-
-        foreach::foreach(i = seq_along(names_plant)) %dofut%{
-          help_count(names_plant[i],
-                     fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
-                     show_original,  marker, marker_col, marker_size,
-                     save_image, prefix, dir_original, dir_processed, verbose,
-                     col_background, col_foreground, lower_noise)
-        }
+      cli::cli_alert_success("✅ Parallel processing completed in {round(Sys.time() - init_time, 2)}.")
 
     } else{
       init_time <- Sys.time()
-      pb <- progress(max = length(plants), style = 4)
-      foo <- function(plants, ...){
-        if(verbose == TRUE){
-          run_progress(pb, ...)
-        }
-        help_count(img  = plants,
-                   fill_hull, threshold, filter, tolerance, extension,  plot,
-                   show_original,  marker, marker_col, marker_size,
-                   save_image, prefix, dir_original, dir_processed, verbose,
-                   col_background, col_foreground, lower_noise)
+      cli::cli_h2("🔄 Sequential processing started")
+      cli::cli_alert_info("Processing {length(names_plant)} images...")
+
+      cli::cli_progress_bar(
+        name = "image_bar",
+        format = "📸 {cli::pb_bar} {cli::pb_percent} ({cli::pb_eta})",
+        total = length(names_plant),
+        clear = FALSE
+      )
+
+      results <- vector("list", length(names_plant))
+      for (i in seq_along(names_plant)) {
+        img_name <- names_plant[i]
+        cli::cli_progress_update()
+
+        results[[i]] <- help_count(
+          img = names_plant[i],
+          fill_hull, threshold, filter, tolerance, extension, plot,
+          show_original, marker, marker_col, marker_size,
+          save_image, prefix, dir_original, dir_processed, verbose,
+          col_background, col_foreground, lower_noise
+        )
       }
-      results <-
-        lapply(seq_along(names_plant), function(i){
-          foo(names_plant[i],
-              actual = i,
-              text = paste("Processing image", names_plant[i]))
-        })
+      cli::cli_progress_done()
+      cli::cli_alert_success("✅ Sequential processing completed in {round(Sys.time() - init_time, 2)}.")
     }
+
 
     ## bind the results
     names(results) <- names_plant
