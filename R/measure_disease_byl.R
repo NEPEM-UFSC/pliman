@@ -247,68 +247,122 @@ measure_disease_byl <- function(img,
   }
 
   if(missing(pattern)){
+    if(verbose){
+      cli::cli_progress_step(
+        msg = "Processing a single image. Please, wait.",
+        msg_done = "Image {.emph Successfully} analyzed!",
+        msg_failed = "Oops, something went wrong."
+      )
+    }
     results <- help_byl(img, img_healthy, img_symptoms, back, index_dh, index_lb)
-  } else{
-    if(pattern %in% c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")){
+  } else {
+    if (pattern %in% as.character(0:9)) {
+      old_pattern <- pattern
       pattern <- "^[0-9].*$"
+      cli::cli_alert_info(
+        "Numeric pattern {.val {old_pattern}} converted to {.val {pattern}}."
+      )
     }
-    plants <- list.files(pattern = pattern, diretorio_original)
-    extensions <- as.character(sapply(plants, file_extension))
-    names_plant <- as.character(sapply(plants, file_name))
-    if(length(grep(pattern, names_plant)) == 0){
-      stop(paste("'", pattern, "' pattern not found in '",
-                 paste(getwd(), sub(".", "", diretorio_original), sep = ""), "'", sep = ""),
-           call. = FALSE)
-    }
-    if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
-      stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
-    }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.3), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Processing ", length(names_plant), " images in multiple sessions (",nworkers, "). Please, wait.")
-      }
-      results <-
-        foreach::foreach(i = seq_along(names_plant)) %dofut%{
-          help_byl(img  = names_plant[i], img_healthy, img_symptoms, back, index_dh, index_lb)
-        }
-    } else{
-      results <- list()
-      pb <- progress(max = length(plants), style = 4)
-      for (i in 1:length(plants)) {
-        if(verbose == TRUE){
-          run_progress(pb, actual = i,
-                       text = paste("Processing image", names_plant[i]))
-        }
-        results[[i]] <- help_byl(img  = names_plant[i], img_healthy, img_symptoms, back, index_dh, index_lb)
-      }
-    }
-    names(results) <- names_plant
-    if(isTRUE(show_features)){
-      stats <- do.call(rbind, lapply(results, function(x){x[["stats"]]}))
-      rownames(stats) <- NULL
-      shape <- do.call(rbind, lapply(results, function(x){x[["shape"]]}))
-      rownames(shape) <- NULL
-    } else{
-      shape <- NULL
-      stats <- NULL
-    }
-    severity <- do.call(rbind, lapply(results, function(x){x[["severity"]]}))
-    rownames(severity) <- NULL
 
-    results <- list(severity = severity,
-                    shape = shape,
-                    stats = stats,
-                    parms = list(
-                      pattern = pattern,
-                      img_healthy = img_healthy,
-                      img_symptoms = img_symptoms,
-                      dir_original = diretorio_original,
-                      dir_processed = diretorio_processada,
-                      save_image = save_image))
+    # list and name files
+    plants       <- list.files(pattern = pattern, diretorio_original)
+    extensions   <- tolower(vapply(plants, tools::file_ext,   ""))
+    names_plant  <-         vapply(plants, tools::file_path_sans_ext, "")
+
+
+    if (length(plants) == 0) {
+      cli::cli_abort(c(
+        "x" = "Pattern {.val {pattern}} not found in directory {.path {diretorio_original}}.",
+        "i" = "Check your working directory: {.path {getwd()}}"
+      ))
+    }
+
+
+    bad <- setdiff(extensions, c("png", "jpeg", "jpg", "tiff"))
+    if (length(bad)) {
+      cli::cli_abort(c(
+        "x" = "Unsupported file extension{?s}: {.val {unique(bad)}} found.",
+        "i" = "Allowed: {.val png}, {.val jpeg}, {.val jpg}, {.val tiff}."
+      ))
+    }
+
+
+    if (parallel) {
+      # define número de workers
+      nworkers <- ifelse(is.null(workers),
+                         trunc(parallel::detectCores() * 0.5),
+                         workers)
+
+      # inicia os workers do mirai
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      # mensagens CLI
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Parallel processing of {.val {length(names_plant)}} images"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Dispatching batches...",
+          msg_done   = "All batches complete!",
+          msg_failed = "Batch run failed."
+        )
+      }
+
+      # define função para aplicar em paralelo
+      process_image <- function(img) {
+        help_byl(
+          img          = img,
+          img_healthy  = img_healthy,
+          img_symptoms = img_symptoms,
+          back         = back,
+          index_dh     = index_dh,
+          index_lb     = index_lb
+        )
+      }
+
+      # executa com barra de progresso automática
+      results <- mirai::mirai_map(
+        .x = names_plant,
+        .f = process_image
+      )[.progress]
+
+
+    } else {
+      # sequential header + bar
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Sequential processing of {.val {length(names_plant)}} images"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+        cli::cli_progress_bar(
+          format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
+          total  = length(names_plant),
+          clear  = FALSE
+        )
+      }
+
+      # run loop
+      results <- vector("list", length(names_plant))
+      for (i in seq_along(names_plant)) {
+        if (verbose) cli::cli_progress_update(status = names_plant[i])
+        results[[i]] <- help_byl(
+          img          = names_plant[i],
+          img_healthy, img_symptoms, back,
+          index_dh, index_lb
+        )
+      }
+
+      # done rule
+      if (verbose) {
+        cli::cli_progress_done()
+        cli::cli_rule(
+          left  = cli::col_green("Finished processing {.val {length(names_plant)}} images"),
+          right = cli::col_blue("Ended at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+      }
+    }
   }
   invisible(structure(
     results, class = "plm_disease_byl"

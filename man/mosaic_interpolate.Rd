@@ -19,7 +19,7 @@ used. The function will handle most used shapefile formats (eg.,
 "idw" (Inverse Distance Weighting).}
 }
 \value{
-An \code{SpatRaster} object with the same extend and crs from \code{mosaic}
+An \code{SpatRaster} object with the same extent and crs from \code{mosaic}
 }
 \description{
 Performs the interpolation of points from a raster object.

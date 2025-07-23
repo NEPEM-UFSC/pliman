@@ -65,7 +65,7 @@ image_view <- function(img,
     } else if (n > 1) {
       invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
     } else {
-      stop("Invalid downsampling factor. n must be a non-negative integer.")
+      cli::cli_abort("Invalid downsampling factor. n must be a non-negative integer.")
     }
   }
 
@@ -86,7 +86,7 @@ image_view <- function(img,
       downsample <- ifelse(downsample == 1, 0, downsample)
     }
     if(downsample > 0){
-      message(paste0("Using downsample = ", downsample, " so that the number of rendered pixels approximates the `max_pixels`"))
+      cli::cli_alert_info("Using {.field downsample} = {.val {downsample}} so that the number of rendered pixels approximates {.field max_pixels}.")
       ras <- mosaic_aggregate(ras, pct = round(100 / downsample))
     }
   }
@@ -307,7 +307,7 @@ plot_index <- function(img = NULL,
     } else if (n > 1) {
       invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
     } else {
-      stop("Invalid downsampling factor. n must be a non-negative integer.")
+      cli::cli_abort("Invalid downsampling factor. n must be a non-negative integer.")
     }
   }
   vieweropt <- c("base", "mapview")
@@ -378,9 +378,13 @@ plot_index <- function(img = NULL,
       nrow <- ceiling(num_plots/ncol)
     }
     if(vieweropt == "base"){
-      if(terra::nlyr(sts) > 16){
-        warning("The number of layers is too large and plots may not fit well to the plot area. Consider reducing the number of indexes used.", call. = FALSE)
+      if (terra::nlyr(sts) > 16) {
+        cli::cli_warn(c(
+          "!" = "The number of layers is too large and plots may not fit well in the plotting area.",
+          " " = "Consider reducing the number of indexes used."
+        ))
       }
+
       terra::plot(sts,
                   col = color_regions,
                   axes = FALSE,
@@ -390,10 +394,14 @@ plot_index <- function(img = NULL,
                   cex.main = 1,
                   smooth = TRUE)
     } else{
-      if(layer > terra::nlyr(sts)){
-        warning("The layer number is greater than the total number of layers. Plotting the first layer.", call. = FALSE)
+      if (layer > terra::nlyr(sts)) {
+        cli::cli_warn(c(
+          "!" = "The selected layer number is greater than the total number of layers.",
+          " " = "Defaulting to layer {.val 1}."
+        ))
         layer <- 1
       }
+
       if(terra::nlyr(sts) == 1 & all_layers == TRUE){
         all_layers <- FALSE
       }
@@ -441,7 +449,7 @@ plot_index <- function(img = NULL,
   } else{
     if(!is.null(object)){
       if(is.null(object$mask)){
-        stop("Use `return_mask = TRUE` in `analyze_objects()` to plot the image index.")
+        cli::cli_abort("Use {.code return_mask = TRUE} in {.fn analyze_objects} to plot the image index.")
       }
       mask <- object$mask
     }
@@ -563,7 +571,7 @@ mv_two_points <- function(img,
                   max_pixels = max_pixels,
                   edit = TRUE)
   if(!inherits(e, "sfc_LINESTRING")){
-    stop("The geometry used is not valid. Please, use 'Draw Polyline' tool to select two points.", call. = FALSE)
+    cli::cli_abort("The geometry used is not valid. Please, use {.val Draw Polyline} tool to select two points.")
   }
   nc <- ncol(img)
   x1 <- e[[1]][1]
@@ -591,7 +599,7 @@ mv_rectangle <- function(img,
                   max_pixels = max_pixels,
                   edit = TRUE)
   if(!inherits(e, "sfc_POLYGON")){
-    stop("The geometry used is not valid. Please, use 'Draw Rectangle' tool to select two points.", call. = FALSE)
+    cli::cli_abort("The geometry used is not valid. Please, use {.val Draw Rectangle} tool to select two points.")
   }
   nc <- ncol(img)
   coords <- e[[1]][[1]]
@@ -615,7 +623,7 @@ mv_polygon <- function(img,
                   max_pixels = max_pixels,
                   edit = TRUE)
   if(!inherits(e, "sfc_POLYGON")){
-    stop("The geometry used is not valid. Please, use 'Draw Polygon' tool to select two points.", call. = FALSE)
+    cli::cli_abort("The geometry used is not valid. Please, use {.val Draw Polygon} tool to select two points.")
   }
   nc <- ncol(img)
   coords <- e[[1]][[1]]
@@ -639,7 +647,7 @@ mv_points <- function(img,
                   max_pixels = max_pixels,
                   edit = TRUE)
   if(!inherits(e, "sfc_POINT")){
-    stop("The geometry used is not valid. Please, use 'Draw Marker' tool to select two points.", call. = FALSE)
+    cli::cli_abort("The geometry used is not valid. Please, use {.val Draw Marker} tool to select two points.")
   }
   nc <- ncol(img)
   coords <-

@@ -76,6 +76,6 @@ Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,
 Springer 316 pp.
 
 Kuhl, F. P., and Giardina, C. R. (1982). Elliptic Fourier features of a
-closed contour. Computer Graphics and Image Processing 18, 236–258. doi:
+closed contour. Computer Graphics and Image Processing 18, 236-258. doi:
 \doi{10.1016/0146-664X(82)90034-X}
 }

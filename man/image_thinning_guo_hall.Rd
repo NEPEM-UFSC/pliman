@@ -49,7 +49,6 @@ img <- image_pliman("potato_leaves.jpg", plot = TRUE)
 image_thinning_guo_hall(img, index = "R", plot = TRUE)
 }
 
-
 }
 \references{
 Guo, Z., and R.W. Hall. 1989. Parallel thinning with

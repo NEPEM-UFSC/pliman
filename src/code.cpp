@@ -753,7 +753,6 @@ IntegerMatrix helper_guo_hall(IntegerMatrix image) {
   IntegerMatrix data2 = Rcpp::clone(image);
 
   auto get = [&](int col, int row) { return image(row, col) != 0; };
-  auto set = [&](int col, int row) { data2(row, col) = 255; };
   auto clear = [&](int col, int row) { data2(row, col) = 0; };
 
   IntegerMatrix stepCounter(wid, hgt);
@@ -876,32 +875,48 @@ NumericMatrix rotate_polygon(NumericMatrix coords, double angle, NumericVector c
 }
 
 // [[Rcpp::export]]
-List add_width_height_cpp(List grid, double width, double height, NumericVector points_align) {
-  int n = grid.size();
-  List adjusted_polygons(n);
+CharacterVector add_width_height_cpp(
+    List grid,
+    double width,
+    double height,
+    NumericVector points_align) {
 
-  // Calculate the rotation angle
-  double x1 = points_align[0];
-  double y1 = points_align[2];
-  double x2 = points_align[1];
-  double y2 = points_align[3];
-  double rotation_angle = atan2(y2 - y1, x2 - x1);
+    int n = grid.size();
+    CharacterVector wkt(n);
 
-  for (int i = 0; i < n; ++i) {
-    NumericMatrix coords = as<NumericMatrix>(grid[i]);
-    NumericMatrix new_bbox = adjust_bbox(coords, width, height);
+    // unpack alignment points
+    double x1 = points_align[0], x2 = points_align[1],
+                                                  y1 = points_align[2], y2 = points_align[3];
+    double angle = std::atan2(y2 - y1, x2 - x1);
 
-    // Calculate the centroid of the new bounding box
-    NumericVector bbox_centroid = colMeans(new_bbox(Range(0, 3), _));
+    for(int i = 0; i < n; ++i) {
+      NumericMatrix coords = as<NumericMatrix>(grid[i]);
 
-    // Rotate the bounding box polygon
-    NumericMatrix rotated_coords = rotate_polygon(new_bbox, rotation_angle, bbox_centroid);
+      // 1) build new bbox around centroid
+      NumericMatrix bbox = adjust_bbox(coords, width, height);
 
-    adjusted_polygons[i] = rotated_coords;
+      // 2) compute centroid for rotation
+      NumericVector cent = colMeans(bbox(Range(0,3), _));
+
+      // 3) rotate the bbox
+      NumericMatrix rot = rotate_polygon(bbox, angle, cent);
+
+      // 4) convert to WKT
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(6)
+          << "POLYGON((";
+      int m = rot.nrow();
+      for(int j = 0; j < m; ++j) {
+        oss << rot(j,0) << " " << rot(j,1);
+        if(j < m-1) oss << ", ";
+      }
+      oss << "))";
+
+      wkt[i] = oss.str();
+    }
+
+    return wkt;
   }
-
-  return adjusted_polygons;
-}
 
 // [[Rcpp::export]]
 IntegerMatrix help_label(IntegerMatrix matrix, int max_gap = 2) {
@@ -1060,4 +1075,68 @@ double helper_entropy(NumericVector values, int precision = 2) {
   }
 
   return entropy;
+}
+
+
+// [[Rcpp::export]]
+CharacterVector corners_to_wkt(List cornersList) {
+  int nPlots = cornersList.size();
+  CharacterVector out(nPlots);
+
+  for (int k = 0; k < nPlots; ++k) {
+    NumericVector v = as<NumericVector>(cornersList[k]);
+    int len = v.size();
+    if (len < 8 || (len % 2) != 0) {
+      stop("Each element must be an even-length numeric vector of at least 8 elements");
+    }
+    int rows = len / 2;
+
+    // build rows×2 matrix of coordinates
+    NumericMatrix m(rows, 2);
+    for (int i = 0; i < rows; ++i) {
+      m(i, 0) = v[i];
+      m(i, 1) = v[i + rows];
+    }
+
+    // take first four unique corners (drop closing point)
+    NumericMatrix c4(4, 2);
+    for (int i = 0; i < 4; ++i) {
+      c4(i, 0) = m(i, 0);
+      c4(i, 1) = m(i, 1);
+    }
+
+    // squared lengths of edges 1–2 and 2–3
+    double dx1 = c4(0,0) - c4(1,0);
+    double dy1 = c4(0,1) - c4(1,1);
+    double d1  = dx1*dx1 + dy1*dy1;
+    double dx2 = c4(1,0) - c4(2,0);
+    double dy2 = c4(1,1) - c4(2,1);
+    double d2  = dx2*dx2 + dy2*dy2;
+
+    // choose longer-opposite edges midpoints
+    double x1, y1, x2, y2;
+    if (d1 < d2) {
+      // edges 1–2 & 3–4 shorter => mids of those
+      x1 = (c4(0,0) + c4(1,0)) * 0.5;
+      y1 = (c4(0,1) + c4(1,1)) * 0.5;
+      x2 = (c4(2,0) + c4(3,0)) * 0.5;
+      y2 = (c4(2,1) + c4(3,1)) * 0.5;
+    } else {
+      // edges 2–3 & 4–1 shorter
+      x1 = (c4(1,0) + c4(2,0)) * 0.5;
+      y1 = (c4(1,1) + c4(2,1)) * 0.5;
+      x2 = (c4(3,0) + c4(0,0)) * 0.5;
+      y2 = (c4(3,1) + c4(0,1)) * 0.5;
+    }
+
+    // format WKT with fixed decimals
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(6)
+        << "LINESTRING(" << x1 << " " << y1 << ","
+        << x2 << " " << y2 << ")";
+
+    out[k] = oss.str();
+  }
+
+  return out;
 }

@@ -36,7 +36,7 @@ the length of \verb{*_n} coefficients.}
 \item{alpha}{The power coefficient associated with the (usually decreasing)
 amplitude of the Fourier coefficients.}
 
-\item{plot}{Logical indicating Whether to plot the shape. Defaults to ´TRUE`}
+\item{plot}{Logical indicating Whether to plot the shape. Defaults to \code{TRUE}}
 }
 \value{
 A list with components:

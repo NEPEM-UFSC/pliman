@@ -78,7 +78,7 @@ sad <- function(object,
     leaves_name <- paste0("proc_", leaves$img, ".jpg")
     if(isFALSE(save_image)){
       if(is.null(patt) | is.null(h) | is.null(s)){
-        stop("'pattern', 'img_healthy', and 'img_symptoms' are mandatory arguments.")
+        cli::cli_abort("{.arg pattern}, {.arg img_healthy}, and {.arg img_symptoms} are mandatory arguments.")
       }
       td <- tempdir()
       temp <-
@@ -128,7 +128,7 @@ sad <- function(object,
     leaves <- leaves[order(leaves$rank),]
     leaves_name <- leaves$img
     if(isFALSE(save_image)){
-      stop("Standard Area Diagram can only be generated using `save_image = TRUE` set in `measure_disease_byl()`.")
+      cli::cli_abort("Standard Area Diagram can only be generated using {.code save_image = TRUE} set in {.code measure_disease_byl()}.")
     } else{
       sads <- image_import(leaves_name, path = dir_proc)
       image_combine(sads,

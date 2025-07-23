@@ -27,7 +27,7 @@ the first fitting ellipse.
 }
 \description{
 The first harmonic defines an ellipse that best fits the outlines. One can
-use the parameters of the first harmonic to “normalize” the data so that they
+use the parameters of the first harmonic to "normalize" the data so that they
 can be invariant to size, rotation, and starting position of the outline
 trace. This approach is referred to in the literature as the normalized
 elliptic Fourier. \code{\link[=efourier_norm]{efourier_norm()}} calculates a new set of Fourier
