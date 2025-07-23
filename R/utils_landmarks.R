@@ -65,7 +65,8 @@ landmarks <- function(img,
   if (isTRUE(interactive())) {
     if(isTRUE(calibrate)){
       scale <- calibrate(img)
-      message(paste0("scale: ", scale))
+      cli::cli_inform(c("i" = "Scale: {.val {scale}}"))
+
     } else{
       if(is.null(scale)){
         scale <- 1
@@ -78,7 +79,7 @@ landmarks <- function(img,
     if(viewopt == "base"){
       plot(img)
       on.exit(invisible(coords))
-      message("Use the first mouse button to select landmarks in the plot.\nPress Esc to exit.")
+      cli::cli_alert_info(c("i" = "Use the first mouse button to select landmarks in the plot. Press {.key Esc} to exit."))
       i <- 1
       coords <- data.frame(x = NA, y = NA)
       while (i <= n) {
@@ -95,7 +96,7 @@ landmarks <- function(img,
         i <- i + 1
       }
       if (i >= n) {
-        warning("Number of landmarks achieved.", call. = FALSE)
+        cli::cli_warn("Number of landmarks achieved.")
       }
     } else{
       coords <- mv_points(img, title = "Use the first mouse button to select landmarks in the plot. Press 'Done' to exit.")
@@ -342,7 +343,7 @@ calibrate <- function(img, viewer = get_pliman_viewer()){
   viewopt <- c("base", "mapview")
   viewopt <- viewopt[pmatch(viewer[[1]], viewopt)]
   if(viewopt == "base"){
-    message("Use the first mouse button to create a line in the plot.")
+    cli::cli_alert_info("Use the first mouse button to create a line in the plot.")
     plot(img)
     a <- locator(2,type="o",pch=8,lwd=2,col="red",lty="11")
     scale <- sqrt(sum(diff(a$x)^2 + diff(a$y)^2))
@@ -415,10 +416,14 @@ landmarks_dist <- function(x){
 #' }
 landmarks_angle <- function(x, unit = c("rad", "deg")){
   unit <- unit[[1]]
-  if(!unit %in% c("rad", "deg")){
-    warning("`unit` must be 'rad' or 'deg'. Defaulting to 'rad'")
+  if (!unit %in% c("rad", "deg")) {
+    cli::cli_warn(c(
+      "!" = "`unit` must be one of {.val 'rad'} or {.val 'deg'}.",
+      " " = "Defaulting to {.val 'rad'}."
+    ))
     unit <- "rad"
   }
+
   if(inherits(x, "landmarks_regradi")){
     x <- x$coords
   }

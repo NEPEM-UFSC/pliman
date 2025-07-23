@@ -154,7 +154,7 @@ manipulate_files <- function(pattern,
     } else{
       name <- name
       if (length(name) != length(names)) {
-        stop("The length of name must be equal to the number of files (", length(names), ").")
+        cli::cli_abort("The length of {.arg name} must be equal to the number of files ({length(names)}).")
       }
     }
   }
@@ -170,20 +170,25 @@ manipulate_files <- function(pattern,
       invisible(file.remove(old_files))
       if (verbose == TRUE) {
         if (remove_original == TRUE) {
-          message(length(old_files), " files successfully deleted from '", dir, "'")
+          cli::cli_inform(c(
+            "v" = "{.val {length(old_files)}} files successfully deleted from {.path {dir}}."
+          ))
+
         }
       }
     } else{
-      message("Nothing done.")
+      cli::cli_alert_info("Nothing done.")
     }
   }
   if (verbose == TRUE) {
-    if (all(a) == TRUE) {
-      message(length(a), " files successfully copied to '", save_to, "'")
+    if (all(a)) {
+      cli::cli_alert_success("{.strong {length(a)}} files successfully copied to {.path {save_to}}.")
     }
-    if (any(a) == FALSE) {
-      warning("Failed to copy ", length(which(a == FALSE)), " files.", call. = FALSE)
+
+    if (any(!a)) {
+      cli::cli_warn("Failed to copy {.strong {length(which(!a))}} file{?s}.")
     }
+
   }
 }
 

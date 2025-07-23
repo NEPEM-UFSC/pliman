@@ -30,9 +30,9 @@
 #'   [set_pliman_viewer()] function. For example, you can run
 #'   `set_pliman_viewer("mapview")` to set the viewer option to "mapview" for
 #'   all functions.
-#' @param external_device Logical. If \code{TRUE} (default), opens an external
+#' @param external_device Logical. If `TRUE` (default), opens an external
 #' graphics window when running inside RStudio to ensure accurate point
-#' selection using \code{locator()}. Ignored when not in RStudio or when using
+#' selection using [locator()]. Ignored when not in RStudio or when using
 #' \code{viewer = "mapview"}.
 #' @param title The title of the map view when `viewer`is used.
 #' @param show How to plot in mapview viewer, either `'rgb` or `'index'`.
@@ -87,7 +87,10 @@ pick_count <- function(img,
       new_device <- FALSE
 
       if (is_rstudio && isTRUE(external_device)) {
-        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        if (verbose) {
+          cli::cli_inform("Opening external graphics window for accurate {.fn locator}() use.")
+        }
+
         new_device <- TRUE
         dev.new(noRStudioGD = TRUE)
       }
@@ -105,7 +108,11 @@ pick_count <- function(img,
       }
       on.exit(invisible(length(x)))
       if(isTRUE(verbose)){
-        message("Use the first mouse button to pick up points in the plot.\nPress Esc to exit.")
+        cli::cli_inform(c(
+          "i" = "Use the first mouse button to pick up points in the plot.",
+          "i" = "Press {.kbd Esc} to exit."
+        ))
+
       }
       x <- y <- NULL
       i <- 1
@@ -122,7 +129,7 @@ pick_count <- function(img,
       }
       cat("\n")
       if (i >= n) {
-        warning("Maximum number of count achieved. Please, increase the argument `n`.", call. = FALSE)
+        cli::cli_warn("Maximum number of count achieved. Please, increase the argument {.arg n}.")
       }
     } else {
       points <- mv_points(img, title = "Use the 'Draw Marker' tool to pick up points in the plot")
@@ -155,7 +162,9 @@ pick_coords <- function(img,
       new_device <- FALSE
 
       if (is_rstudio && isTRUE(external_device)) {
-        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        if (isTRUE(verbose)) {
+          cli::cli_inform("Opening external graphics window for accurate {.fn locator}() input...")
+        }
         new_device <- TRUE
         dev.new(noRStudioGD = TRUE)
       }
@@ -169,9 +178,14 @@ pick_coords <- function(img,
       })
 
       plot(img)
+
       if (isTRUE(verbose)) {
-        message("Use the first mouse button to pick up points in the plot.\nPress Esc to exit.")
+        cli::cli_inform(c(
+          "i" = "Use the first mouse button to pick up points in the plot.",
+          "i" = "Press {.kbd Esc} to exit."
+        ))
       }
+
 
       x <- y <- NULL
       i <- 1
@@ -187,7 +201,7 @@ pick_coords <- function(img,
       }
 
       if (i >= n) {
-        warning("Maximum number of points reached. Consider increasing the argument `n`.", call. = FALSE)
+        cli::cli_warn("Maximum number of points reached. Please, increase the argument {.arg n}.")
       }
 
       return(invisible(data.frame(x = x, y = y)))
@@ -223,7 +237,10 @@ pick_rgb <- function(img,
       new_device <- FALSE
 
       if (is_rstudio && isTRUE(external_device)) {
-        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        if (isTRUE(verbose)) {
+          cli::cli_inform("Opening external graphics window for accurate {.fn locator}() input...")
+        }
+
         new_device <- TRUE
         dev.new(noRStudioGD = TRUE)
       }
@@ -240,7 +257,10 @@ pick_rgb <- function(img,
       }
       on.exit(invisible(pixels))
       if(isTRUE(verbose)){
-        message("Use the first mouse button to pick up points in the plot.\nPress Esc to exit.")
+        cli::cli_inform(c(
+          "i" = "Use the first mouse button to pick up points in the plot.",
+          "i" = "Press {.kbd Esc} to exit."
+        ))
       }
 
       x <- y <- NULL
@@ -262,7 +282,7 @@ pick_rgb <- function(img,
       pixels <- data.frame(pixels)
 
       if (i >= n) {
-        warning("Maximum number of count achieved. Please, increase the argument `n`.", call. = FALSE)
+        cli::cli_warn("Maximum number of count achieved. Please, increase the argument {.arg n}.")
       }
     } else{
       points <- mv_points(img, title = "Use the 'Draw Marker' tool to pick up points in the plot")
@@ -310,7 +330,10 @@ pick_palette <- function(img,
       new_device <- FALSE
 
       if (is_rstudio && isTRUE(external_device)) {
-        if (verbose) message("Opening external graphics window for accurate locator() input...")
+        if (isTRUE(verbose)) {
+          cli::cli_inform("Opening external graphics window for accurate {.fn locator} input...")
+        }
+
         new_device <- TRUE
         dev.new(noRStudioGD = TRUE)
       }
@@ -327,7 +350,11 @@ pick_palette <- function(img,
         plot(img)
       }
       if(isTRUE(verbose)){
-        message("Use the first mouse button to pick up points in the plot.\nPress Esc to exit.")
+        cli::cli_inform(c(
+          "i" = "Use the first mouse button to pick up points in the plot.",
+          "i" = "Press {.kbd Esc} to exit."
+        ))
+
       }
       bind <- NULL
       i <- 1
@@ -353,7 +380,7 @@ pick_palette <- function(img,
         i <- i + 1
       }
       if(i == 1){
-        stop("Process interrupted", call. = FALSE)
+        cli::cli_abort("Process interrupted.")
       }
       if(i > 1){
         on.exit(invisible(pal))

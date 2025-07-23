@@ -1298,11 +1298,10 @@ return: log(NFA)
 
     /* compute the p-value using the standard error function */
     pvalue = 0.5 * ( 1.0 - erf_winitzki(z/sqrt(2.0)) );
-  if( pvalue <= 0.0 ) /* the p-value should always be larger than zero.
-  this condition reveals a numeric overflow,
-  due to a very very small p-value. then the arc
-  is meaningful => return a negative log10(NFA) */
-    return (double) DBL_MIN_10_EXP; /* minimal negative exponent in doubles */
+    if (pvalue <= 0.0) {
+      /* numeric underflow: extremely small p-value → arc is meaningful */
+      return (double) DBL_MIN_10_EXP;  /* minimal negative exponent */
+    }
 
     /* return the log10(NFA) */
     return logNT + log10(pvalue);

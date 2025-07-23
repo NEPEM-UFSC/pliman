@@ -67,15 +67,24 @@ apply_fun_to_imgs <- function(pattern,
   }
 
   imgs <- list.files(pattern = pattern, diretorio_original)
-  if(length(imgs) == 0){
-    stop(paste("Pattern '", pattern, "' not found in '",
-               paste(getwd(), sub(".", "", diretorio_original), sep = ""), "'", sep = ""),
-         call. = FALSE)
+  # check for no images found
+  if (length(imgs) == 0) {
+    cli::cli_abort(c(
+      "x" = "Pattern {.val {pattern}} not found in directory {.path {diretorio_original}}.",
+      "i" = "Current working directory: {.path {getwd()}}"
+    ))
   }
-  extensions <- as.character(sapply(imgs, file_extension))
-  if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
-    stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
+
+  # check for invalid extensions
+  extensions <- as.character(vapply(imgs, tools::file_ext, character(1)))
+  invalid <- setdiff(tolower(extensions), c("png", "jpeg", "jpg", "tiff"))
+  if (length(invalid) > 0) {
+    cli::cli_abort(c(
+      "x" = "Found file(s) with unsupported extension{?s}: {.val {unique(invalid)}}.",
+      "i" = "Allowed extensions are {.val png}, {.val jpeg}, {.val jpg}, {.val tiff}."
+    ))
   }
+
   help_apply <- function(img,
                          fun,
                          ...,
@@ -90,42 +99,95 @@ apply_fun_to_imgs <- function(pattern,
     image_export(res, subfolder = diretorio_processada)
   }
 
-  if(parallel == TRUE){
-    workers <- ifelse(is.null(workers), ceiling(parallel::detectCores() * 0.5), workers)
-    future::plan(future::multisession, workers = workers)
-    on.exit(future::plan(future::sequential))
-    `%dofut%` <- doFuture::`%dofuture%`
+  if (parallel) {
+    # decide number of workers
+    workers <- ifelse(is.null(workers),
+                      ceiling(parallel::detectCores() * 0.75),
+                      workers)
 
-    if(verbose == TRUE){
-      message("Processing ", length(imgs), " images in multiple sessions (",workers, "). Please, wait.")
+    # silenciar mensagens do pliman, capturar opções antigas
+    opar <- options(pliman_quiet = TRUE)
+    on.exit(options(opar), add = TRUE)
+
+    # iniciar workers persistentes
+    mirai::daemons(workers)
+    on.exit(mirai::daemons(0), add = TRUE)
+
+    # carregar pliman nos workers (se necessário)
+    mirai::everywhere({
+      library(pliman)
+    })
+
+    # mensagens CLI
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_blue("Parallel processing using {workers} cores"),
+        right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+
+      cli::cli_progress_step(
+        msg        = "Processing {.val {length(imgs)}} images in parallel...",
+        msg_done   = "All batches complete!",
+        msg_failed = "Batch failed"
+      )
+    }
+    # função que será executada em paralelo
+    process_image <- function(img) {
+      help_apply(
+        img                  = img,
+        fun                  = fun,
+        ...,
+        diretorio_original   = diretorio_original,
+        diretorio_processada = diretorio_processada,
+        prefix               = prefix,
+        suffix               = suffix
+      )
     }
 
-    results <-
-      foreach::foreach(i = seq_along(imgs)) %dofut%{
-        help_apply(imgs[[i]],
-                   fun,
-                   ...,
-                   diretorio_original = diretorio_original,
-                   diretorio_processada = diretorio_processada,
-                   prefix = prefix,
-                   suffix = suffix)
-      }
+    # executa em paralelo com barra de progresso automática
+    results <- mirai::mirai_map(
+      .x = imgs,
+      .f = process_image
+    )[.progress]
 
-  } else{
-    pb <- progress(max = length(imgs), style = 4)
-    for(i in seq_along(imgs)){
-      run_progress(pb,
-                   actual = i,
-                   text = paste("Processing image", imgs[i]))
-      help_apply(imgs[[i]],
-                 fun,
-                 ...,
-                 diretorio_original = diretorio_original,
-                 diretorio_processada = diretorio_processada,
-                 prefix = prefix,
-                 suffix = suffix)
+  } else {
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_blue("Sequential processing of {.val {length(imgs)}} images"),
+        right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+      cli::cli_progress_bar(
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} [ETA: {cli::pb_eta}] | Current: {.val {cli::pb_status}}",
+        total  = length(imgs),
+        clear  = FALSE
+      )
+    }
+
+    results <- vector("list", length(imgs))
+    for (i in seq_along(imgs)) {
+      if (verbose) {
+        cli::cli_progress_update(status = imgs[i])
+      }
+      results[[i]] <- help_apply(
+        img                  = imgs[[i]],
+        fun                  = fun,
+        ...,
+        diretorio_original   = diretorio_original,
+        diretorio_processada = diretorio_processada,
+        prefix               = prefix,
+        suffix               = suffix
+      )
+    }
+
+    if (verbose) {
+      cli::cli_progress_done()
+      cli::cli_rule(
+        left  = cli::col_blue("Function {.fn {deparse(substitute(fun))}} successfully applied to the images"),
+        right = cli::col_blue("Finished on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
     }
   }
+
 }
 
 

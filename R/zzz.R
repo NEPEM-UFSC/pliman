@@ -45,14 +45,27 @@ NULL
 
 
 .onAttach <- function(libname, pkgname) {
-  vers <-  "3.0.0.9000"
-  packageStartupMessage("|======================================================|")
-  packageStartupMessage("| Welcome to the pliman package (version ", vers, ")!  |")
-  packageStartupMessage("| Developed collaboratively by NEPEM - nepemufsc.com   |")
-  packageStartupMessage("| Group lead: Prof. Tiago Olivoto                      |")
-  packageStartupMessage("| For citation: type `citation('pliman')`              |")
-  packageStartupMessage("| We welcome your feedback and suggestions!            |")
-  packageStartupMessage("|======================================================|")
+  vers <- as.character(utils::packageVersion("pliman"))
+  show_startup <- interactive() || !is.null(getOption("knitr.in.progress"))
+  if(show_startup){
+    fmt <- cli::ansi_columns(
+      c(
+        cli::format_inline("{.strong Developed collaboratively by} NEPEM {.url https://nepemufsc.com}"),
+        cli::format_inline("{.strong Group lead:} Prof. Tiago Olivoto"),
+        cli::format_inline("For citation, type {.code citation('pliman')}"),
+        cli::format_inline("We welcome your feedback and suggestions!")
+      ),
+      width = 60,
+      fill = "rows",
+      align = "left"
+    )
+    packageStartupMessage(
+      cli::boxx(fmt, ,
+                header = cli::format_inline("{.cyan Welcome to pliman version {.val {vers}}!}"),
+                footer = cli::format_inline("{.emph Simplifying high-throughput plant phenotyping in R}"),
+                border_style = "round")
+    )
+  }
   check_ebi()
   check_mapview()
 }
@@ -64,11 +77,11 @@ if (getRversion() >= "2.15.1") {
       "s.radius.min", "y", "s.area", "s.perimeter", "symptomatic", "m.eccentricity",
       "m.majoraxis", "s.radius.mean", "n_greater", "n_less", "setNames", "s.radius.sd",
       "perimeter", "radius_max", "radius_mean", "radius_min", "radius_sd", "X1",
-      "X2", "%dofut%", "i", "img", "plotn", "x", "leaf", "Band", "block", "mosaic",
+      "X2", "i", "img", "plotn", "x", "leaf", "Band", "block", "mosaic",
       "geometry", "n", "area_sum", "individual", "compute_downsample", "plot_id",
       "re", "nir", "coverage_fraction", "sigma", "summarize_quantiles", "prop", "plot_id_seq",
       "B1", "B2", "B3", "cluster", "h", "s", "column", "data", "plot_area", "unique_id",
-      "diam_max"))
+      "diam_max", "uuids", ".progress"))
 }
 
 
@@ -127,13 +140,21 @@ get_pliman_viewer <- function() {
 #' @export
 set_pliman_viewer <- function(value) {
   if(!value %in% c("base", "mapview")){
-    stop("`value` must be either 'base' or 'mapview'.", call. = FALSE)
+    cli::cli_abort("{.arg value} must be either {.val base} or {.val mapview}")
   }
   options(pliman_viewer = value)
 }
 
 ### Utilities for defining viewer options
 .onLoad <- function(libname, pkgname) {
-  options(pliman_viewer = "base")
+  # Define as opções apenas se ainda não estiverem definidas
+  op <- options()
+  op.pliman <- list(
+    pliman_viewer = "base",
+    pliman_quiet = FALSE
+  )
+  toset <- !(names(op.pliman) %in% names(op))
+  if (any(toset)) options(op.pliman[toset])
 }
+
 

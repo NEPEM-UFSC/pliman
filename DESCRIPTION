@@ -22,12 +22,10 @@ Depends:
     R (>= 4.1)
 Imports: 
     cli,
-    doFuture,
     dplyr,
     exactextractr,
-    foreach,
-    future,
     methods,
+    mirai,
     purrr,
     Rcpp,
     sf,

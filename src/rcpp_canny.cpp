@@ -13,46 +13,57 @@ extern "C" {
 #include "canny.h"
 }
 
-// Mirroring
 int mirror(int x, int y, size_t nx, size_t ny) {
   int xt, yt;
-  if (x < 0)
-    xt = -x;
-  else
-    if (x > (int)nx -1)
-      xt = 2*nx - 2 - x;
-    else
-      xt = x;
-    if (y < 0)
-      yt = -y;
-    else
-      if (y > (int)ny - 1)
-        yt = 2*ny - 2 - y;
-      else
-        yt = y;
-      return xt + nx*yt;
 
+  if (x < 0) {
+    xt = -x;
+  } else {
+    if (x > (int)nx - 1) {
+      xt = 2 * nx - 2 - x;
+    } else {
+      xt = x;
+    }
+  }
+
+  if (y < 0) {
+    yt = -y;
+  } else {
+    if (y > (int)ny - 1) {
+      yt = 2 * ny - 2 - y;
+    } else {
+      yt = y;
+    }
+  }
+
+  return xt + nx * yt;
 }
 
-// extention of the border values
+// extension of the border values
 int extend(int x, int y, size_t nx, size_t ny) {
   int xt, yt;
-  if (x < 0)
+
+  // clamp x to [0, nx-1]
+  if (x < 0) {
     xt = 0;
-  else
-    if (x > (int)nx -1)
-      xt = nx - 1;
-    else
-      xt = x;
-    if (y < 0)
-      yt = 0;
-    else
-      if (y > (int)ny - 1)
-        yt = ny - 1;
-      else
-        yt = y;
-      return xt + nx*yt;
+  } else if (x > (int)nx - 1) {
+    xt = nx - 1;
+  } else {
+    xt = x;
+  }
+
+  // clamp y to [0, ny-1]
+  if (y < 0) {
+    yt = 0;
+  } else if (y > (int)ny - 1) {
+    yt = ny - 1;
+  } else {
+    yt = y;
+  }
+
+  return xt + nx * yt;
 }
+
 
 // out-of-image points value computation
 int value(int x, int y, size_t nx, size_t ny) {
@@ -120,129 +131,132 @@ static void maxima(double* grad, double *theta, unsigned char *output, size_t nx
 
 // [[Rcpp::export]]
 List canny_edge_detector(IntegerVector image, int X, int Y,
-                          double s = 2,
-                          double low_thr = 3,
-                          double high_thr = 10,
-                          bool accGrad = false)
+                         double s = 2,
+                         double low_thr = 3,
+                         double high_thr = 10,
+                         bool accGrad = false)
 {
-  size_t nx, ny;		// data size
-  nx=X;
-  ny=Y;
-  //double s = 2; 		//s : sigma, filter variance
-  //double low_thr=3, high_thr = 10;		// Thresholds
-  //bool accGrad = false;
+  size_t nx = X, ny = Y;
+  auto img_size = nx * ny;
 
-  //unsigned char input[image.size()];
-  unsigned char *input = new unsigned char[image.size()];
-  for(int i = 0; i < image.size(); i++) input[i] = (unsigned char)image[i];
+  // copy input
+  unsigned char* input = new unsigned char[img_size];
+  for (size_t i = 0; i < img_size; ++i) {
+    input[i] = static_cast<unsigned char>(image[i]);
+  }
 
-  double* in = (double *) xmalloc(sizeof(double) * nx * ny);
+  // allocate buffers
+  double* in    = static_cast<double*>(xmalloc(sizeof(double) * img_size));
+  double* data  = static_cast<double*>(xmalloc(sizeof(double) * img_size));
+  double* grad  = static_cast<double*>(xmalloc(sizeof(double) * img_size));
+  double* theta = static_cast<double*>(xmalloc(sizeof(double) * img_size));
 
-  for(size_t d = 0 ; d < nx*ny ; d++)
-    in[d] = (double) input[d];
-  double* data = (double *) xmalloc(sizeof(double) * nx * ny);
+  // convert to double
+  for (size_t d = 0; d < img_size; ++d) {
+    in[d] = static_cast<double>(input[d]);
+  }
 
-  // Gaussian filtering
+  // Gaussian blur
   gblur(data, in, nx, ny, 1, s);
   free(in);
-  double* grad = (double *) xmalloc(sizeof(double) * nx * ny);
-  double* theta = (double *) xmalloc(sizeof(double) * nx * ny);
-  double hgrad,vgrad;
 
-  // Gradient value :
-  for(size_t x = 0 ; x < nx ; x++) {
-    for(size_t y = 0 ; y < ny ; y++) {
-      if(accGrad) {
-        //horizontal gradient
-        hgrad = 2*(data[value(x+1,y,nx,ny)] - data[value(x-1,y,nx,ny)]) +
-          data[value(x+1,y+1,nx,ny)] - data[value(x-1,y+1,nx,ny)] +
-          data[value(x+1,y-1,nx,ny)] - data[value(x-1,y-1,nx,ny)];
-        //vertical gradient
-        vgrad = 2*(data[value(x,y+1,nx,ny)] - data[value(x,y-1,nx,ny)]) +
-          data[value(x+1,y+1,nx,ny)] - data[value(x+1,y-1,nx,ny)] +
-          data[value(x-1,y+1,nx,ny)] - data[value(x-1,y-1,nx,ny)] ;
-      }
-      else {
-        //horizontal gradient
+  // compute gradients
+  for (size_t x = 0; x < nx; ++x) {
+    for (size_t y = 0; y < ny; ++y) {
+      double hgrad, vgrad;
+      if (accGrad) {
+        // horizontal gradient
+        hgrad = 2 * (data[value(x+1,y,nx,ny)] - data[value(x-1,y,nx,ny)])
+        +  (data[value(x+1,y+1,nx,ny)] - data[value(x-1,y+1,nx,ny)])
+        +  (data[value(x+1,y-1,nx,ny)] - data[value(x-1,y-1,nx,ny)]);
+        // vertical gradient
+        vgrad = 2 * (data[value(x,y+1,nx,ny)] - data[value(x,y-1,nx,ny)])
+          +  (data[value(x+1,y+1,nx,ny)] - data[value(x+1,y-1,nx,ny)])
+          +  (data[value(x-1,y+1,nx,ny)] - data[value(x-1,y-1,nx,ny)]);
+      } else {
+        // simple gradients
         hgrad = data[value(x+1,y,nx,ny)] - data[value(x-1,y,nx,ny)];
-        //vertical gradient
         vgrad = data[value(x,y+1,nx,ny)] - data[value(x,y-1,nx,ny)];
       }
-      // Gradient norm and dirextion
-      grad[y*nx+x] = hypot(hgrad,vgrad);
-      theta[y*nx + x] = atan2(vgrad,hgrad);
+      grad[y*nx + x]  = std::hypot(hgrad, vgrad);
+      theta[y*nx + x] = std::atan2(vgrad, hgrad);
     }
   }
-  unsigned char *output = NULL;
-  output = (unsigned char *) xmalloc(sizeof(unsigned char) * nx * ny);
 
-  //Suppression of non-maxima
-  maxima(grad,theta,output,nx,ny,low_thr,high_thr);
+  // non-maximum suppression
+  unsigned char* output = static_cast<unsigned char*>(xmalloc(sizeof(unsigned char) * img_size));
+  maxima(grad, theta, output, nx, ny, low_thr, high_thr);
 
-  int N = nx*ny;
+  // union-find structures
+  int* t = static_cast<int*>(xmalloc(sizeof(int) * img_size));
+  adsf_begin(t, img_size);
 
-  int* t = (int *) xmalloc(sizeof(int) * nx * ny);
-
-  // Building the trees
-  adsf_begin(t,N);
-  for(size_t x = 0 ; x < nx ; x++)
-    for(size_t y = 0 ; y < ny ; y++) {
+  // build connectivity
+  for (size_t x = 0; x < nx; ++x) {
+    for (size_t y = 0; y < ny; ++y) {
       int d = x + nx * y;
-      if(output[d]) {
-        for(int ex = -1 ; ex < 2 ; ex++)
-          for(int ey = -1 ; ey < 2 ; ey++) {
-            int ed = value(x+ex,y+ey,nx,ny);
-            // If the neighbour is marked, we make the union
-            if(output[ed])
-              adsf_union(t,N,d,ed);
+      if (output[d]) {
+        for (int ex = -1; ex <= 1; ++ex) {
+          for (int ey = -1; ey <= 1; ++ey) {
+            int ed = value(x+ex, y+ey, nx, ny);
+            if (output[ed]) {
+              adsf_union(t, img_size, d, ed);
+            }
           }
+        }
       }
     }
+  }
 
-    // We mark every tree having a node higher than the high threshold
-    for(int d = 0 ; d < N ; d++)
-      if(output[d] == 2)
-        output[adsf_find(t,N,d)] = 2;
-
-      adsf_assert_consistency(t,N);
-
-      // We remove every tree which root is not marked
-      for(int d = 0 ; d < N ; d++)
-        if(output[adsf_find(t,N,d)]  < 2)
-          output[d] = 0;
-        else
-          // Very high value so it can be seen
-          output[d] = (char) -1;
-        free(t);
-
-        free(grad);
-        free(theta);
-        free(data);
-
-
-
-
-
-  NumericMatrix out_r(Dimension(nx, ny));
-  int nonzero = 0;
-  for(int i = 0; i < int(nx * ny); i++){
-    out_r[i] = output[i];
-    if(output[i] == 255){
-      nonzero = nonzero + 1;
+  // mark strong edges
+  for (int d = 0; d < static_cast<int>(img_size); ++d) {
+    if (output[d] == 2) {
+      output[adsf_find(t, img_size, d)] = 2;
     }
   }
+
+  adsf_assert_consistency(t, img_size);
+
+  // finalize output
+  for (int d = 0; d < static_cast<int>(img_size); ++d) {
+    if (output[adsf_find(t, img_size, d)] < 2) {
+      output[d] = 0;
+    } else {
+      output[d] = static_cast<unsigned char>(-1); // strong edge
+    }
+  }
+
+  // clean up
+  free(t);
+  free(grad);
+  free(theta);
+  free(data);
+
+  // build R matrix and count
+  NumericMatrix out_r(Dimension(nx, ny));
+  int nonzero = 0;
+  for (int i = 0; i < static_cast<int>(img_size); ++i) {
+    out_r[i] = output[i];
+    if (output[i] == 255) {
+      ++nonzero;
+    }
+  }
+
   free(output);
   delete[] input;
-  List z = List::create(_["edges"] = out_r,
-                        _["pixels_nonzero"] = nonzero,
-                        _["nx"] = nx,
-                        _["ny"] = ny,
-                        _["s"] = s,
-                        _["low_thr"] = low_thr,
-                        _["high_thr"] = high_thr,
-                        _["accGrad"] = accGrad);
-  return z;
+
+  return List::create(
+    _["edges"]           = out_r,
+    _["pixels_nonzero"]  = nonzero,
+    _["nx"]              = nx,
+    _["ny"]              = ny,
+    _["s"]               = s,
+    _["low_thr"]         = low_thr,
+    _["high_thr"]        = high_thr,
+    _["accGrad"]         = accGrad
+  );
 }
+
 
 
 

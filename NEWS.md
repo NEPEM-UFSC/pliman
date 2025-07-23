@@ -11,6 +11,12 @@
 * Remove dependency on `lwgeom` package to compute perimeter.
 * `mosaic_crop()` now have a `type` argument, that allows returning a cropped or masked raster.
 * `image_autocrop()` now has `threshold` and `invert` arguments.
+* Removed dependencies on **future**, **foreach** and **doFuture** in favour of
+the new **mirai** background engine.  This simplifies installation and delivers
+faster, more reliable parallel processing across all image-based functions.
+* Added **cli**-based messages (rules, progress steps and alerts) throughout both 
+parallel and sequential workflows to provide clear, informative status updates 
+during long-running image processing tasks.
 
 # pliman 3.0.0
 ## New Functions

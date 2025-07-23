@@ -36,7 +36,7 @@ The \code{img} aligned
 \code{\link[=image_align]{image_align()}} rotate an image given a line of desired aligment along the y
 axis that corresponds to the alignment of the objects (e.g., field plots). By
 default, the aligment will be to the vertical, which means that if the drawed
-line have an angle < 90º parallel to the x axis, the rotation angle wil be
+line have an angle < 90 degrees parallel to the x axis, the rotation angle wil be
 negative (anticlocwise rotation).
 }
 \details{

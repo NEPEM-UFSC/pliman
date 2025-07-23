@@ -112,7 +112,11 @@ indexband_to_formula <- function(band_names, index) {
   band_replacements <- setNames(band_names, unlist(regmatches(band_names, gregexpr("\\d+", band_names))))
   missing_bands <- setdiff(as.character(numbers), names(band_replacements))
   if (length(missing_bands) > 0) {
-    stop("Error: The following wavelengths are not available in band_names: ", paste(missing_bands, collapse = ", "))
+    cli::cli_abort(c(
+      "!" = "The following wavelengths are not available in {.arg band_names}:",
+      "x" = "{.val {paste(missing_bands, collapse = ', ')}}"
+    ))
+
   }
   index <- gsub("nm", "", index)
   for (num in unique(numbers)) {  # Ensures each number is replaced correctly

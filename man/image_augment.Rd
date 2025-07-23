@@ -12,7 +12,8 @@ image_augment(
   dir_original = NULL,
   dir_processed = NULL,
   parallel = FALSE,
-  verbose = TRUE
+  verbose = TRUE,
+  workers = NULL
 )
 }
 \arguments{
@@ -33,6 +34,10 @@ a list of augmented images.}
 \item{parallel}{Whether to perform image augmentation in parallel.}
 
 \item{verbose}{Whether to display progress messages.}
+
+\item{workers}{A positive numeric scalar or a function specifying the number
+of parallel processes that can be active at the same time. By default, the
+number of sections is set up to 30\% of available cores.}
 }
 \value{
 If type is "export," augmented images are saved. If type is "return,"

@@ -24,7 +24,7 @@ make_brush <- function(size,
   check_ebi()
   if(size %% 2 == 0){
     size <- size + 1
-    warning("'size' was rounded to the next odd number:", size, call. = FALSE)
+    cli::cli_warn(c("!" = "`size` was rounded to the next odd number: {.val {size}}"))
   }
   EBImage::makeBrush(size, shape, ...)
 }
@@ -69,7 +69,9 @@ make_mask <- function(img,
   check_ebi()
   min_dim <- min(dim(img)[1:2])
   if(nrow(brush) > min_dim){
-    stop("The size of the brush cannot be greater than the smaller dimension of `image` (", min_dim, ")", call. = FALSE)
+    cli::cli_abort(c(
+      "!" = "The size of the brush cannot be greater than the smaller dimension of {.arg img} ({min_dim})."
+    ))
   }
   nrim <- nrow(img)
   ncim <- ncol(img)

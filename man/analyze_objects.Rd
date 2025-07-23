@@ -724,7 +724,7 @@ Classification. IEEE Transactions on Systems, Man, and Cybernetics SMC-3(6): 610
 \doi{10.1109/TSMC.1973.4309314}
 
 Kuhl, F. P., and Giardina, C. R. (1982). Elliptic Fourier features of a
-closed contour. Computer Graphics and Image Processing 18, 236–258. doi:
+closed contour. Computer Graphics and Image Processing 18, 236-258. doi:
 \doi{10.1016/0146-664X(82)90034-X}
 
 Lee, Y., & Lim, W. (2017). Shoelace Formula: Connecting the Area of a Polygon

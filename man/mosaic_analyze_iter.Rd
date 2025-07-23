@@ -27,6 +27,8 @@ mosaic_analyze_iter(
   color_regions = rev(grDevices::terrain.colors(50)),
   alpha = 0.75,
   quantiles = c(0, 1),
+  parallel = FALSE,
+  workers = NULL,
   ...
 )
 }
@@ -84,6 +86,17 @@ rev(grDevices::terrain.colors(50))).}
 \item{alpha}{opacity of the fill color of the raster layer(s).}
 
 \item{quantiles}{the upper and lower quantiles used for color stretching.}
+
+\item{parallel}{If \code{TRUE} processes the images asynchronously (in parallel) in
+separate R sessions running in the background on the same machine. It may
+speed up the processing time, especially when \code{pattern} is used is informed.
+When \code{object_index} is informed, multiple sections will be used to extract
+the RGB values for each object in the image. This may significantly speed up
+processing time when an image has lots of objects (say >1000).}
+
+\item{workers}{A positive numeric scalar or a function specifying the number
+of parallel processes that can be active at the same time. By default, the
+number of sections is set up to 30\% of available cores.}
 
 \item{...}{Further arguments passed on to \code{\link[=mosaic_analyze]{mosaic_analyze()}}}
 }

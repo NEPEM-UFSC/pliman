@@ -25,7 +25,8 @@ object_coord(
   object_size = "medium",
   parallel = FALSE,
   workers = NULL,
-  plot = TRUE
+  plot = TRUE,
+  verbose = TRUE
 )
 
 object_contour(
@@ -51,9 +52,16 @@ object_contour(
   verbose = TRUE
 )
 
-object_isolate(img, id = NULL, parallel = FALSE, workers = NULL, ...)
+object_isolate(
+  img,
+  id = NULL,
+  parallel = FALSE,
+  workers = NULL,
+  verbose = TRUE,
+  ...
+)
 
-object_id(img, parallel = FALSE, workers = NULL, ...)
+object_id(img, parallel = FALSE, workers = NULL, verbose = TRUE, ...)
 }
 \arguments{
 \item{img}{An image of class \code{Image} or a list of \code{Image} objects.}
@@ -116,6 +124,8 @@ number of parallel processes that can be active at the same time.}
 \item{plot}{Shows the image with bounding rectangles? Defaults to
 \code{TRUE}.}
 
+\item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
+
 \item{pattern}{A pattern of file name used to identify images to be imported.
 For example, if \code{pattern = "im"} all images in the current working directory
 that the name matches the pattern (e.g., img1.-, image1.-, im2.-) will be
@@ -133,8 +143,6 @@ considered.}
 \item{smooth}{whether the object contours should be smoothed with
 \code{\link[=poly_smooth]{poly_smooth()}}. Defaults to \code{FALSE}. To smooth use a numeric value
 indicating the number of interactions used to smooth the contours.}
-
-\item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
 
 \item{...}{\itemize{
 \item For \code{object_isolate()}, further arguments passed on to \code{\link[=object_coord]{object_coord()}}.

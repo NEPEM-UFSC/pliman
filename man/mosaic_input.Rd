@@ -25,7 +25,7 @@ array or a list of \code{SpatRaster} objects.
 
 \item{mosaic_pattern}{A pattern name to import multiple mosaics into a list.}
 
-\item{info}{Print the mosaic informations (eg., CRS, extend). Defaults to \code{TRUE}}
+\item{info}{Print the mosaic informations (eg., CRS, extent). Defaults to \code{TRUE}}
 
 \item{check_16bits}{Checks if mosaic has maximum value in the 16-bits format
 (65535), and replaces it by NA. Defaults to \code{FALSE}.}
