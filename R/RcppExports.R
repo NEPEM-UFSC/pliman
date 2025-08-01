@@ -85,6 +85,10 @@ helper_entropy <- function(values, precision = 2L) {
     .Call(`_pliman_helper_entropy`, values, precision)
 }
 
+corners_to_wkt <- function(cornersList) {
+    .Call(`_pliman_corners_to_wkt`, cornersList)
+}
+
 help_area <- function(coord) {
     .Call(`_pliman_help_area`, coord)
 }

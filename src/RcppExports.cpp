@@ -216,7 +216,7 @@ BEGIN_RCPP
 END_RCPP
 }
 // add_width_height_cpp
-List add_width_height_cpp(List grid, double width, double height, NumericVector points_align);
+CharacterVector add_width_height_cpp(List grid, double width, double height, NumericVector points_align);
 RcppExport SEXP _pliman_add_width_height_cpp(SEXP gridSEXP, SEXP widthSEXP, SEXP heightSEXP, SEXP points_alignSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
@@ -271,6 +271,17 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< NumericVector >::type values(valuesSEXP);
     Rcpp::traits::input_parameter< int >::type precision(precisionSEXP);
     rcpp_result_gen = Rcpp::wrap(helper_entropy(values, precision));
+    return rcpp_result_gen;
+END_RCPP
+}
+// corners_to_wkt
+CharacterVector corners_to_wkt(List cornersList);
+RcppExport SEXP _pliman_corners_to_wkt(SEXP cornersListSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type cornersList(cornersListSEXP);
+    rcpp_result_gen = Rcpp::wrap(corners_to_wkt(cornersList));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -600,6 +611,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_rcpp_st_perimeter", (DL_FUNC) &_pliman_rcpp_st_perimeter, 1},
     {"_pliman_uuid_v7", (DL_FUNC) &_pliman_uuid_v7, 0},
     {"_pliman_helper_entropy", (DL_FUNC) &_pliman_helper_entropy, 2},
+    {"_pliman_corners_to_wkt", (DL_FUNC) &_pliman_corners_to_wkt, 1},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},

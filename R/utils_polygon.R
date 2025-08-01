@@ -578,7 +578,7 @@ poly_sample <- function(x, n = 50) {
   } else{
     coord <- poly_check(x)
     if (nrow(coord) < n){
-      stop("Less coordinates than n", call. = FALSE)
+      cli::cli_abort("Less coordinates than n")
     }
     sampled <- round(seq(1, nrow(coord), len = n + 1)[-(n + 1)])
     return(coord[sampled, ])
@@ -1100,9 +1100,12 @@ poly_width_at <- function(x,
                           unify = FALSE,
                           plot = FALSE){
   check_ebi()
-  if(!is.numeric(at) && any(at != "height")){
-    warning("`at` must be one of 'height' or a numeric vector in the range 0-1.")
+  if (!is.numeric(at) && any(at != "height")) {
+    cli::cli_warn(c(
+      "!" = "`at` must be either {.val 'height'} or a numeric vector in the range {.val 0-1}."
+    ))
   }
+
   if(isTRUE(unify)){
     chu <- conv_hull_unified(x) |> poly_align(plot = FALSE)
   } else{
@@ -1204,10 +1207,13 @@ pixel_index <- function(bin,
     pixels <- which(bin[, i] == TRUE)
     indexes <- c(i, min(pixels), ceiling(median(pixels)), max(pixels))
   }else{
-    if(length(row) > 1){
-      warning("'row' must be an escalar. The fist element will be used")
+    if (length(row) > 1) {
+      cli::cli_warn(c(
+        "!" = "`row` must be a scalar. Using the first element: {.val {row[1]}}."
+      ))
       row <- row[1]
     }
+
     pixels <- which(bin[, row] == TRUE)
     indexes <- c(row, min(pixels), ceiling(median(pixels)), max(pixels))
   }

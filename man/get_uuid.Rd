@@ -7,10 +7,10 @@
 get_uuid(filename)
 }
 \arguments{
-\item{filename}{A string containing the filename.}
+\item{filename}{A character vector containing filenames or strings}
 }
 \value{
-Returns the UUID extracted from the filename as a string.
+A character vector with extracted UUIDs (or NA if none found)
 }
 \description{
 This function extracts a UUID (Universal Unique Identifier) from the

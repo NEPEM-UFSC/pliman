@@ -10,7 +10,7 @@ point_to_polygon <- function(sf_object, n_sides = 500) {
       radius <- sf_object[["radius"]][i]
 
       if (is.na(radius)) {
-        stop("Radius is missing for a POINT geometry!")
+        cli::cli_abort("Radius is missing for a POINT geometry!")
       }
       angles <- seq(0, 2 * pi, length.out = n_sides + 1)
       circle_coords <- cbind(
@@ -32,7 +32,7 @@ point_to_polygon <- function(sf_object, n_sides = 500) {
       } else if (is.list(geom) && inherits(geom[[1]], "sfg")) {
         return(geom[[1]])  # Handle nested lists containing sfg objects
       } else {
-        stop("Invalid geometry found in the list")
+        cli::cli_abort("Invalid geometry found in the list")
       }
     })
   }
@@ -44,10 +44,7 @@ point_to_polygon <- function(sf_object, n_sides = 500) {
 add_width_height <- function(grid, width, height, mosaic, points_align) {
   gridl <-lapply(sf::st_geometry(grid), sf::st_coordinates)
   gridadj <- add_width_height_cpp(gridl, height, width, points_align)
-  grd <- lapply(gridadj, function(x){sf::st_polygon(list(x))}) |> sf::st_sfc()
-  grd <-  sf::st_sf(geometry = grd)
-  sf::st_crs(grd) <- sf::st_crs(grid)
-  return(grd)
+  return(sf::st_sf(geometry = sf::st_as_sfc(gridadj, crs = sf::st_crs(grid))))
 }
 create_buffer <- function(coords, buffer_col, buffer_row) {
   # Calculate the new x-min, x-max, y-min, and y-max after adjustment
@@ -70,8 +67,6 @@ create_buffer <- function(coords, buffer_col, buffer_row) {
   resized_coords[, 1] <- (resized_coords[, 1] - x_min) * x_scale_factor + new_x_min
   resized_coords[, 2] <- (resized_coords[, 2] - y_min) * y_scale_factor + new_y_min
   sf::st_polygon(list(resized_coords[, 1:2]))
-  # return(resized_coords)
-  # return(data.frame(resized_coords) |> sf::st_as_sf(coords = c("X", "Y")))
 }
 
 make_grid <- function(points, nrow, ncol, mosaic, buffer_col = 0, buffer_row = 0, plot_width = NULL, plot_height = NULL) {
@@ -99,7 +94,7 @@ make_grid <- function(points, nrow, ncol, mosaic, buffer_col = 0, buffer_row = 0
   cvm <- lm(txy ~ sxy[1:4, ])
   parms <- cvm$coefficients[2:3, ]
   intercept <- cvm$coefficients[1, ]
-  geometry <- grids * parms + intercept
+  geometry <- sf::st_sf(geometry = grids * parms + intercept, crs = sf::st_crs(mosaic))
 
   if (buffer_row != 0 | buffer_col != 0) {
     geometry <- lapply(geometry, function(g) {
@@ -108,11 +103,9 @@ make_grid <- function(points, nrow, ncol, mosaic, buffer_col = 0, buffer_row = 0
       sf::st_sfc(crs = sf::st_crs(mosaic))
   }
   if (!is.null(plot_width) & !is.null(plot_height)) {
-    geometry <-
-      add_width_height(grid = geometry, width = plot_width, height = plot_height, points_align = points_align[2:3, 1:2]) |>
-      sf::st_as_sfc(crs = sf::st_crs(mosaic))
+    geometry <- add_width_height(grid = geometry, width = plot_width, height = plot_height, points_align = points_align[2:3, 1:2])
   }
-  return(sf::st_sf(geometry = geometry, crs = sf::st_crs(mosaic)))
+  return(geometry)
 }
 
 #' Generate plot IDs with different layouts
@@ -147,14 +140,18 @@ plot_id <- function(shapefile,
   allowed <- c("tblr", "tbrl", "btlr", "btrl", "lrtb", "lrbt", "rltb", "rlbt")
   layout <- layout[[1]]
   if (!layout %in% allowed) {
-    stop(paste0("`layout` must be one of the following: ", paste0(allowed, collapse = ", ")))
+    cli::cli_abort(c(
+      "!" = "{.arg layout} must be one of the following:",
+      "v" = "{.val {paste(allowed, collapse = ', ')}}"
+    ))
   }
 
   # Ensure that the number of rows in the shapefile matches expected dimensions
   expected_rows <- nrow * ncol
   if (nrow(shapefile) != expected_rows) {
-    stop(paste("Expected", expected_rows, "rows, but shapefile has", nrow(shapefile), "rows."))
+    cli::cli_abort("Expected {.val {expected_rows}} rows, but {.arg shapefile} has {.val {nrow(shapefile)}} rows.")
   }
+
 
   # Helper function for generating plot names
   leading_zeros <- function(x, n) {
@@ -373,7 +370,9 @@ shapefile_build <- function(mosaic,
   nlyrs <- terra::nlyr(mosaic)
   if(build_shapefile){
     if(verbose){
-      message("\014","\nBuilding the mosaic...\n")
+      cli::cli_progress_step("Building the mosaic",
+                             msg_done = "Mosaic built",
+                             msg_failed = "Failed to build mosaic")
     }
     if(is.null(basemap)){
       basemap <- mosaic_view(mosaic,
@@ -429,6 +428,11 @@ shapefile_build <- function(mosaic,
 
   # crop to the analyzed area
   if(crop_to_shape_ext){
+    if(verbose){
+      cli::cli_progress_step("Cropping the mosaic",
+                             msg_done = "Mosaic cropped",
+                             msg_failed = "Failed to crop mosaic")
+    }
     if(sum(ress) != 2){
       cpoints <- cpoints |> sf::st_transform(crs = sf::st_crs(terra::crs(mosaic)))
     }
@@ -455,7 +459,9 @@ shapefile_build <- function(mosaic,
 
   # check the created shapes?
   if(verbose){
-    message("\014","\nCreating the shapes...\n")
+    cli::cli_progress_step("Creating the shapes",
+                           msg_done = "Shapes created",
+                           msg_failed = "Failed to create shapes")
   }
   created_shapes <- list()
   for(k in 1:nrow(cpoints)){
@@ -496,7 +502,9 @@ shapefile_build <- function(mosaic,
   }
   if(check_shapefile){
     if(verbose){
-      message("\014","\nChecking the built shapefile...\n")
+      cli::cli_progress_step("Checking the built shapefile",
+                             msg_done = "Shapefile checked",
+                             msg_failed = "Failed to check shapefile")
     }
     lengths <- sapply(created_shapes, nrow)
     pg_edit <-
@@ -524,7 +532,9 @@ shapefile_build <- function(mosaic,
     created_shapes <- split(sfeat, edited$block)
   }
   if(verbose){
-    message("\014","\nShapefile finished...\n")
+    cli::cli_progress_step("Finishing the shapefile",
+                           msg_done = "Shapefile built",
+                           msg_failed = "Failed to export shapefile")
   }
   if(!as_sf){
     return(shapefile_input(created_shapes, info = FALSE, as_sf = FALSE))
@@ -552,7 +562,9 @@ shapefile_build <- function(mosaic,
 #' }
 shapefile_plot <- function(shapefile, ...){
   if(!inherits(shapefile, "SpatVector") & !inherits(shapefile, "sf") ){
-    stop("'mosaic' must be an object of class 'SpatVector' of 'sf'")
+    cli::cli_abort(c(
+      "!" = "{.arg shapefile} must be an object of class {.cls SpatVector} or {.cls sf}."
+    ))
   }
   if(inherits(shapefile, "sf")){
     shapefile <- terra::vect(shapefile)
@@ -631,7 +643,7 @@ shapefile_input <- function(shapefile,
   create_shp <- function(shapefile, info, as_sf, ...){
     shp <- terra::vect(shapefile, ...)
     if (terra::crs(shp) == "") {
-      message("Missing Coordinate Reference System. Setting to EPSG:3857")
+      cli::cli_abort("Missing Coordinate Reference System. Setting to EPSG:3857")
       terra::crs(shp) <- terra::crs("EPSG:3857")
     }
     if (as_sf) {
@@ -663,7 +675,9 @@ shapefile_export <- function(shapefile, filename, ...) {
     shapefile <- try(terra::vect(shapefile))
   }
   if (inherits(shapefile, "try-error")) {
-    stop("Unable to coerce the input shapefile to a SpatVector object")
+    cli::cli_abort(c(
+      "!" = "{.arg shapefile} must be an object of class {.cls SpatVector} or {.cls sf}."
+    ))
   }
   terra::writeVector(shapefile, filename, ...)
 }
@@ -876,7 +890,9 @@ shapefile_interpolate <- function(shapefile,
 
   # Validate shapefile input
   if (!all(c(x, y, z) %in% names(shapefile))) {
-    stop("The shapefile must contain the specified x, y, and z columns")
+    cli::cli_abort(c(
+      "!" = "{.arg shapefile} must contain the columns {.val x}, {.val y}, and {.val z}."
+    ))
   }
 
   # Extract coordinates and values from shapefile object
@@ -884,7 +900,7 @@ shapefile_interpolate <- function(shapefile,
   values <- shapefile[[z]]  # The target variable to be interpolated
 
   if (verbose){
-    message("Interpolating the points using ", interpolation[[1]], "...")
+    cli::cli_alert_info("Interpolating the points using ", interpolation[[1]], "...")
   }
 
   # Perform interpolation
@@ -893,7 +909,7 @@ shapefile_interpolate <- function(shapefile,
   } else if (interpolation[[1]] == "Tps") {
     fit <- suppressMessages(suppressWarnings(fields::Tps(xy, values)))
   } else {
-    stop("Invalid interpolation method. Choose 'Kriging' or 'Tps'.")
+    cli::cli_abort("Invalid interpolation method. Choose {.val Kriging} or {.val Tps}.")
   }
   return(fit)
 }
@@ -997,7 +1013,7 @@ check_cols_shp <- function(shpimp){
 #'
 shapefile_within <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   bin <- sf::st_within(shp1, shp2) |> as.logical()
@@ -1008,7 +1024,7 @@ shapefile_within <- function(shp1, shp2){
 #' @export
 shapefile_outside <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   bin <- sf::st_within(shp1, shp2) |> as.logical()
@@ -1022,7 +1038,7 @@ shapefile_outside <- function(shp1, shp2){
 #' @export
 shapefile_overlaps <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   bin <- sf::st_overlaps(shp1, shp2) |> as.logical()
@@ -1033,7 +1049,7 @@ shapefile_overlaps <- function(shp1, shp2){
 #' @export
 shapefile_touches <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   bin <- sf::st_touches(shp1, shp2) |> as.logical()
@@ -1044,7 +1060,7 @@ shapefile_touches <- function(shp1, shp2){
 #' @export
 shapefile_crosses <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   bin <- sf::st_crosses(shp1, shp2) |> as.logical()
@@ -1055,7 +1071,7 @@ shapefile_crosses <- function(shp1, shp2){
 #' @export
 shapefile_intersection <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   suppressWarnings(sf::st_intersection(shp1, shp2))
@@ -1064,7 +1080,7 @@ shapefile_intersection <- function(shp1, shp2){
 #' @export
 shapefile_difference <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   suppressWarnings(sf::st_difference(shp1, shp2))
@@ -1073,8 +1089,38 @@ shapefile_difference <- function(shp1, shp2){
 #' @export
 shapefile_union <- function(shp1, shp2){
   if(sf::st_crs(shp1) != sf::st_crs(shp2)){
-    warning("CRS are different, matching CRS of shp1 to shp2")
+    cli::cli_alert_warning("CRS are different. Matching CRS of {.arg shp2} to {.arg shp1}.")
     shp2 <- shp2 |> sf::st_transform(sf::st_crs(shp1))
   }
   suppressWarnings(sf::st_union(shp1, shp2))
+}
+
+#' Extract mid‐lines from half‐plots
+#'
+#' For each polygon in an `sf` object, computes the line segment joining
+#' the midpoints of the longer pair of opposite edges (the “half‐plot line”).
+#'
+#' @param shapefile An `sf` object of polygons. Each geometry must be closed
+#'   (first and last coordinate coincide) so that `st_coordinates(...)`
+#'   yields a repeating start point.
+#' @return A `SpatVector` (from the **terra** package) of line geometries
+#'   representing the half‐plot midlines.
+#' @export
+#'
+#' @examples
+#'
+#' if(interactive()){
+#' library(pliman)
+#' shp <- shapefile_input( paste0(image_pliman(), "/soy_shape.rds"))
+#' mosaic <- mosaic_input( paste0(image_pliman(), "/soy_dsm.tif"))
+#' mosaic_plot(mosaic)
+#' half <- line_on_halfplot(shp)
+#' shapefile_plot(half, add = TRUE, col = "blue")
+#'
+#' }
+line_on_halfplot <- function(shapefile) {
+  coords <- sf::st_coordinates(shapefile)
+  corners_list <- split(coords[, c("X","Y")], coords[, "L2"])
+  wkt_lines <- corners_to_wkt(corners_list)
+  terra::vect(wkt_lines)
 }

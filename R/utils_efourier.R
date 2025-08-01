@@ -32,7 +32,7 @@
 #' Springer 316 pp.
 #'
 #' Kuhl, F. P., and Giardina, C. R. (1982). Elliptic Fourier features of a
-#' closed contour. Computer Graphics and Image Processing 18, 236–258. doi:
+#' closed contour. Computer Graphics and Image Processing 18, 236-258. doi:
 #' \doi{10.1016/0146-664X(82)90034-X}
 #'
 #' @export
@@ -92,13 +92,20 @@ efourier <- function(x,
     }
     nr <- nrow(coord)
     if (nharm * 2 > nr) {
-      nharm <- floor(nr/2)
-      message("'nharm' must be lower than half the number of points. It has been set to ", nharm, " harmonics")
+      nharm <- floor(nr / 2)
+      cli::cli_inform(c(
+        "!" = "'nharm' must be lower than half the number of points.",
+        " " = "It has been set to {.val {nharm}} harmonics."
+      ))
     }
+
     if (nharm == -1) {
-      nharm = floor(nr/2)
-      message("the number of harmonics used has been set to: ", nharm)
+      nharm <- floor(nr / 2)
+      cli::cli_inform(c(
+        "i" = "The number of harmonics used has been automatically set to {.val {nharm}}."
+      ))
     }
+
     if (smooth_iter != 0) {
       coord <- poly_smooth(coord, niter = smooth_iter)
     }
@@ -185,10 +192,13 @@ efourier_inv <- function(x,
     if (is.null(nharm)) {
       nharm <- length(an)
     }
-    if(nharm > length(an)){
-      warning("Number of harmonics used must be less than or equal to the number used in `efourier()` function\nSetting `nharm` to ", length(an), call. = FALSE)
+    if (nharm > length(an)) {
+      cli::cli_warn(
+        "Number of harmonics {.val {nharm}} exceeds what {.fun efourier()} returned ({.val {length(an)}}). Setting {.arg nharm} to {.val {length(an)}}."
+      )
       nharm <- length(an)
     }
+
     theta <- seq(0, 2 * pi, length = npoints + 1)[-(npoints + 1)]
     hx <- matrix(NA, nharm, npoints)
     hy <- matrix(NA, nharm, npoints)
@@ -258,10 +268,13 @@ efourier_error <- function(x,
                            ncol = NULL,
                            nrow = NULL){
   type <- type[[1]]
-  if(!type %in% c("error", "outline", "deviations")){
-    warning("`type` argument must be one of 'error', 'outline', or 'deviations'. Defaulting to 'error'", call. = FALSE)
+  if (!type %in% c("error", "outline", "deviations")) {
+    cli::cli_warn(
+      "`type` must be one of {.val 'error'}, {.val 'outline'}, or {.val 'deviations'}. Defaulting to {.val 'error'}."
+    )
     type <- "error"
   }
+
   if(inherits(x, "efourier_lst")){
     num_plots <- length(x)
     if (is.null(nrow) && is.null(ncol)){
@@ -386,7 +399,7 @@ efourier_error <- function(x,
 #' Normalized Fourier coefficients
 #'
 #' The first harmonic defines an ellipse that best fits the outlines. One can
-#' use the parameters of the first harmonic to “normalize” the data so that they
+#' use the parameters of the first harmonic to "normalize" the data so that they
 #' can be invariant to size, rotation, and starting position of the outline
 #' trace. This approach is referred to in the literature as the normalized
 #' elliptic Fourier. [efourier_norm()] calculates a new set of Fourier
@@ -511,7 +524,7 @@ efourier_norm <- function(x, start = FALSE) {
 #' }
 efourier_coefs <- function(x){
   if(!inherits(x, c("nefourier_lst", "efourier_lst", "efourier", "nefourier"))){
-    stop("Object is not valid. Please, use an object computed with `efourier()` or `efourier_norm()`", call. = FALSE)
+    cli::cli_abort("{.arg x} must be an object computed with {.fun efourier()} or {.fun efourier_norm()}.")
   }
   if(inherits(x, "efourier_lst") | inherits(x, "nefourier_lst")){
     if(inherits(x[[1]], "nefourier_lst")){
@@ -720,7 +733,7 @@ efourier_power <- function(x,
 #' @param npoints The number of points to calculate.
 #' @param alpha The power coefficient associated with the (usually decreasing)
 #'   amplitude of the Fourier coefficients.
-#' @param plot Logical indicating Whether to plot the shape. Defaults to ´TRUE`
+#' @param plot Logical indicating Whether to plot the shape. Defaults to `TRUE`
 #' @return A list with components:
 #'  * `x` vector of x-coordrdinates
 #'  * `y` vector of y-coordrdinates.

@@ -241,6 +241,27 @@ with serrated edges.
 Hierarchically, the operations are performed as opening > closing > filter.
 The value declared in each argument will define the brush size.}
 
+\item{invert}{Inverts the binary image if desired. This is useful to process
+images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}
+is use, \code{invert} can be declared as a logical vector of length 2 (eg.,
+\verb{invert = c(FALSE, TRUE}). In this case, the segmentation of objects and
+reference from the foreground using \code{back_fore_index} is performed using the
+default (not inverted), and the segmentation of objects from the reference
+is performed by inverting the selection (selecting pixels higher than the
+threshold).}
+
+\item{threshold}{The theshold method to be used.
+\itemize{
+\item By default (\code{threshold = "Otsu"}), a threshold value based
+on Otsu's method is used to reduce the grayscale image to a binary image. If
+a numeric value is informed, this value will be used as a threshold.
+\item If \code{threshold = "adaptive"}, adaptive thresholding (Shafait et al. 2008)
+is used, and will depend on the \code{k} and \code{windowsize} arguments.
+\item If any non-numeric value different than \code{"Otsu"} and \code{"adaptive"} is used,
+an iterative section will allow you to choose the threshold based on a
+raster plot showing pixel intensity of the index.
+}}
+
 \item{parallel}{Processes the images asynchronously (in parallel) in separate
 R sessions running in the background on the same machine. It may speed up
 the processing time when \code{image} is a list. The number of sections is set

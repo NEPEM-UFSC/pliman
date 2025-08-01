@@ -266,9 +266,9 @@ measure_disease <- function(img,
                             dir_original = NULL,
                             dir_processed = NULL,
                             verbose = TRUE){
-  check_ebi()
+  # check_ebi()
   if(!missing(img) & !missing(pattern)){
-    stop("Only one of `img` or `pattern` arguments can be used.", call. = FALSE)
+    cli::cli_abort("Only one of {.arg img} or {.arg pattern} arguments can be used.")
   }
   if(is.null(dir_original)){
     diretorio_original <- paste("./", sep = "")
@@ -755,8 +755,10 @@ measure_disease <- function(img,
         show_mark <- TRUE
         marker <- ifelse(is.null(marker), "id", marker)
         if(!isFALSE(show_mark) & marker != "point" & !marker %in% colnames(shape)){
-          warning("Accepted 'marker' are: {", paste(colnames(shape), collapse = ", "),
-                  "}. Drawing the object id.", call. = FALSE)
+          cli::cli_warn(c(
+            "!" = "Accepted values for {.arg marker} are: {.val {paste(colnames(shape), collapse = ', ')}}.",
+            "i" = "Using {.val 'id'} as default marker."
+          ))
           marker <- "id"
         }
         marker_col <- ifelse(is.null(marker_col), "white", marker_col)
@@ -848,61 +850,122 @@ measure_disease <- function(img,
     }
 
   if(missing(pattern)){
+    if(verbose){
+      cli::cli_progress_step(
+        msg = "Processing a single image. Please, wait.",
+        msg_done = "Image {.emph Successfully} analyzed!",
+        msg_failed = "Oops, something went wrong."
+      )
+    }
     help_count(img, img_healthy, img_symptoms, img_background, resize, fill_hull, invert,
                index_lb, index_dh, has_white_bg, lesion_size, tolerance, extension, randomize,
                nsample, plot, show_original, show_background, col_leaf,
                col_lesions, col_background,  save_image, dir_original, dir_processed,
                marker, marker_col, marker_size)
   } else{
-    if(pattern %in% c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")){
+    if (pattern %in% as.character(0:9)) {
+      old_pattern <- pattern
       pattern <- "^[0-9].*$"
+      cli::cli_alert_info(
+        "Numeric pattern {.val {old_pattern}} converted to {.val {pattern}}."
+      )
     }
     plants <- list.files(pattern = pattern, diretorio_original)
     extensions <- as.character(sapply(plants, file_extension))
     names_plant <- as.character(sapply(plants, file_name))
-    if(length(grep(pattern, names_plant)) == 0){
-      stop(paste("'", pattern, "' pattern not found in '",
-                 paste(getwd(), sub(".", "", diretorio_original), sep = ""), "'", sep = ""),
-           call. = FALSE)
+    # Verifica se algum nome de imagem corresponde ao padrão
+    if (length(grep(pattern, names_plant)) == 0) {
+      cli::cli_abort(
+        "Pattern {.val {pattern}} not found in directory {.path {imgpath}}."
+      )
     }
-    if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
-      stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
-    }
-    if(parallel == TRUE){
-      init_time <- Sys.time()
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.3), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
 
-      if(verbose == TRUE){
-        message("Processing ", length(names_plant), " images in multiple sessions (",nworkers, "). Please, wait.")
+    # Verifica extensões válidas
+    allowed_ext <- c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF")
+    if (!all(extensions %in% allowed_ext)) {
+      cli::cli_abort(
+        "Allowed extensions are {.val {allowed_ext}}."
+      )
+    }
+
+    if (parallel) {
+      # decide number of workers
+      nworkers <- ifelse(is.null(workers),
+                         trunc(parallel::detectCores() * 0.3),
+                         workers)
+
+      # start mirai daemons
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      # verbose header & progress step
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Parallel processing using {nworkers} cores"),
+          right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(names_plant)}} images in parallel...",
+          msg_done   = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
+        )
       }
-      results <-
-        foreach::foreach(i = seq_along(names_plant)) %dofut%{
-          help_count(names_plant[i],
-                     img_healthy, img_symptoms, img_background, resize, fill_hull, invert,
-                     index_lb, index_dh, has_white_bg, lesion_size, tolerance, extension, randomize,
-                     nsample, plot, show_original, show_background, col_leaf,
-                     col_lesions, col_background,  save_image, dir_original, dir_processed,
-                     marker, marker_col, marker_size)
+
+      # define per-image function
+      process_image <- function(img) {
+        help_count(
+          img             = img,
+          img_healthy, img_symptoms, img_background, resize, fill_hull, invert,
+          index_lb, index_dh, has_white_bg, lesion_size, tolerance, extension,
+          randomize, nsample, plot, show_original, show_background,
+          col_leaf, col_lesions, col_background,
+          save_image, dir_original, dir_processed,
+          marker, marker_col, marker_size
+        )
+      }
+
+      # run in parallel with automatic CLI progress
+      results <- mirai::mirai_map(
+        .x = names_plant,
+        .f = process_image
+      )[.progress]
+
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Sequential processing of {.val {length(names_plant)}} images"),
+          right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+        cli::cli_progress_bar(
+          format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} [ETA: {cli::pb_eta}}]",
+          total  = length(names_plant),
+          clear  = FALSE
+        )
+      }
+
+      results <- vector("list", length(names_plant))
+      for (i in seq_along(names_plant)) {
+        if (verbose) {
+          cli::cli_progress_update(status = names_plant[i])
         }
-    } else{
-      init_time <- Sys.time()
-      results <- list()
-      pb <- progress(max = length(plants), style = 4)
-      for (i in 1:length(plants)) {
-        if(verbose == TRUE){
-          run_progress(pb, actual = i,
-                       text = paste("Processing image", names_plant[i]))
-        }
-        results[[i]] <-
-          help_count(img  = names_plant[i],
-                     img_healthy, img_symptoms, img_background, resize, fill_hull, invert,
-                     index_lb, index_dh, has_white_bg, lesion_size, tolerance, extension, randomize,
-                     nsample, plot, show_original, show_background, col_leaf,
-                     col_lesions, col_background,  save_image, dir_original,
-                     dir_processed, marker, marker_col, marker_size)
+        results[[i]] <- help_count(
+          img             = names_plant[i],
+          img_healthy, img_symptoms, img_background, resize, fill_hull, invert,
+          index_lb, index_dh, has_white_bg, lesion_size, tolerance, extension,
+          randomize, nsample, plot, show_original, show_background,
+          col_leaf, col_lesions, col_background,
+          save_image, dir_original, dir_processed,
+          marker, marker_col, marker_size
+        )
+      }
+
+      if (verbose) {
+        cli::cli_progress_done()
+        cli::cli_rule(
+          left  = cli::col_green("All {.val {length(names_plant)}} images processed"),
+          right = cli::col_blue("Finished on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
       }
     }
     names(results) <- names_plant
@@ -935,8 +998,10 @@ measure_disease <- function(img,
                           img =  names(results[i]))[, c(3, 1:2)]
               })
       )
-    message("Done!")
-    message("Elapsed time: ", sec_to_hms(as.numeric(difftime(Sys.time(),  init_time, units = "secs"))))
+    cli::cli_rule(
+      left = cli::col_blue("Processing successfully finished"),
+      right = cli::col_blue("on {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
+    )
     invisible(
       structure(
         list(severity = severity,
@@ -983,7 +1048,7 @@ measure_disease_iter <- function(img,
     # Call the functions independently
     # Call pick_background function
     if(viewopt == "base"){
-      message("Use the first mouse button to pick up BACKGROUND colors. Press Est to exit")
+      cli::cli_inform(c("i" = "Use the first mouse button to pick up {cli::col_blue('BACKGROUND')} colors. Press {.key Esc} to exit"))
     }
     back <- pick_palette(img,
                          r = r,
@@ -1004,7 +1069,7 @@ measure_disease_iter <- function(img,
   }
   # Call pick_leaf function
   if(viewopt == "base"){
-    message("Use the first mouse button to pick up LEAF colors. Press Est to exit")
+    cli::cli_inform(c("i" = "Use the first mouse button to pick up {cli::col_blue('LEAF')} colors. Press {.key Esc} to exit"))
   }
   leaf <- pick_palette(img,
                        r = r,
@@ -1023,7 +1088,7 @@ measure_disease_iter <- function(img,
 
   # Call pick_disease function
   if(viewopt == "base"){
-    message("Use the first mouse button to pick up DISEASE colors. Press Est to exit")
+    cli::cli_inform(c("i" = "Use the first mouse button to pick up {cli::col_blue('DISEASE')} colors. Press {.key Esc} to exit"))
   }
   disease <- pick_palette(img,
                           r = r,

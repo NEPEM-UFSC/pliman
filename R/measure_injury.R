@@ -38,106 +38,141 @@ measure_injury <- function(img = NULL,
                            workers = NULL,
                            verbose = TRUE) {
 
-  # Function to process a single image
+  # helper to process one image
   process_image <- function(image_path) {
-    # Import image
-    if (is.character(image_path)) {
-      img <- EBImage::readImage(image_path)
+    img_obj <- if (is.character(image_path)) {
+      EBImage::readImage(image_path)
     } else {
-      img <- image_path
+      image_path
     }
 
-    # Binary segmentation
-    seg <- image_binary(img,
-                        index = index,
-                        threshold = threshold,
-                        opening = opening,
-                        closing = closing,
-                        erode = erode,
-                        dilate = dilate,
-                        filter = filter,
-                        invert = invert,
-                        plot = FALSE)[[1]]
+    seg <- image_binary(
+      img_obj, index, threshold,
+      opening = opening, closing = closing,
+      erode = erode, dilate = dilate,
+      filter = filter, invert = invert,
+      plot = FALSE
+    )[[1]]
 
-    # Fill segmentation
     segfill <- EBImage::fillHull(seg)
     lesions <- segfill - seg
-    ID <- which(lesions == 1)
+    idx <- which(lesions == 1)
 
-    # Color lesions
-    img@.Data[,,1][ID] <- 165 / 255
-    img@.Data[,,2][ID] <- 42 / 255
-    img@.Data[,,3][ID] <- 42 / 255
+    img_obj@.Data[,,1][idx] <- 165/255
+    img_obj@.Data[,,2][idx] <-  42/255
+    img_obj@.Data[,,3][idx] <-  42/255
 
-    # Plot if required
-    if (plot) {
-      plot(img)
+    if (plot){
+      plot(img_obj)
     }
 
-    # Calculate injury percentage
-    injury_percentage <- (sum(segfill) - sum(seg)) / sum(segfill) * 100
-
-    return(injury_percentage)
+    pct <- (sum(segfill) - sum(seg)) / sum(segfill) * 100
+    pct
   }
 
-  if (is.null(img) & !is.null(pattern)) {
-    # Batch processing mode
-    if (is.null(dir_original)) {
-      dir_original <- "./"
-    }
-    image_files <- list.files(dir_original, pattern = pattern, full.names = TRUE)
-
-    if (length(image_files) == 0) {
-      stop("No images found matching the pattern.")
-    }
-
-    if(parallel == TRUE){
-      init_time <- Sys.time()
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.3), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-
-      if(verbose == TRUE){
-        message("Processing ", length(image_files), " images in multiple sessions (",nworkers, "). Please, wait.")
-      }
-
-      results <-
-        foreach::foreach(i = seq_along(image_files)) %dofut%{
-          process_image(image_files[i])
-        }
-
-    } else{
-      init_time <- Sys.time()
-      pb <- progress(max = length(image_files), style = 4)
-      foo <- function(plants, ...){
-        if(verbose == TRUE){
-          run_progress(pb, ...)
-        }
-        process_image(plants)
-      }
-      results <-
-        lapply(seq_along(image_files), function(i){
-          foo(image_files[i],
-              actual = i,
-              text = paste("Processing image", file_name(image_files[i])))
-        })
-    }
-
-    names(results) <- basename(image_files)
-    results <- data.frame(do.call(rbind, results))
-    results$img <- rownames(results)
-    rownames(results) <- NULL
-    colnames(results) <- c("injury", "img")
-    return(results[, 2:1])
-  } else if (!is.null(img)) {
+  # single-image mode
+  if (!is.null(img)) {
     result <- process_image(img)
-    return(result)
     if (verbose) {
-      cat("Injury percentage for the image:", result, "%\n")
+      cli::cli_alert_info("Injury percentage: {.val {round(result, 2)}}%")
     }
-  } else {
-    stop("Either 'img' or 'pattern' must be provided.")
+    return(result)
   }
+
+  # batch mode
+  if (is.null(pattern)) {
+    cli::cli_abort("{.arg pattern} must be provided for batch processing.")
+  }
+  dir_original <- dir_original %||% "./"
+  files <- list.files(dir_original, pattern, full.names = TRUE)
+
+  if (length(files) == 0) {
+    cli::cli_abort(c(
+      "x" = "No images found matching {.val {pattern}} in {.path {dir_original}}.",
+      "i" = "Check your working directory: {.path {getwd()}}"
+    ))
+  }
+
+  init_time <- Sys.time()
+
+  if (parallel) {
+    # setup
+    # capture start time
+    init_time <- Sys.time()
+
+    # decide number of workers
+    nworkers <- if (is.null(workers)) trunc(parallel::detectCores() * 0.3) else workers
+
+    # start mirai daemons
+    mirai::daemons(nworkers)
+    on.exit(mirai::daemons(0), add = TRUE)
+
+    # header + dispatch message
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_blue("Parallel injury measurement of {.val {length(files)}} images"),
+        right = cli::col_blue("Started at {.val {format(init_time, '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+      cli::cli_progress_step(
+        msg        = "Dispatching batches...",
+        msg_done   = "All batches complete!",
+        msg_failed = "Batch run failed."
+      )
+    }
+
+    # run all images in parallel
+    raw <- mirai::mirai_map(
+      .x = files,
+      .f = process_image
+    )[.progress]
+
+    # final completion rule
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_green("Parallel processing finished"),
+        right = cli::col_blue("Ended at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+    }
+
+
+  } else {
+    # sequential
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_blue("Sequential injury measurement of {.val {length(files)}} images"),
+        right = cli::col_blue("Started at {.val {format(init_time, '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+      cli::cli_progress_bar(
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
+        total  = length(files),
+        clear  = FALSE
+      )
+    }
+
+    raw <- vector("numeric", length(files))
+    for (i in seq_along(files)) {
+      if (verbose) cli::cli_progress_update(status = basename(files[i]))
+      raw[i] <- process_image(files[i])
+    }
+
+    if (verbose) {
+      cli::cli_progress_done()
+      cli::cli_rule(
+        left  = cli::col_green("Sequential processing finished"),
+        right = cli::col_blue("Ended at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+    }
+  }
+
+  # assemble and return
+  names(raw) <- basename(files)
+  df <- data.frame(
+    img    = names(raw),
+    injury = raw,
+    row.names = NULL,
+    stringsAsFactors = FALSE
+  )
+  df
 }
+
 

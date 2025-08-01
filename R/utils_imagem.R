@@ -152,16 +152,14 @@ image_import <- function(img,
     path <- ifelse(is.null(path), getwd(), path)
     imgs <- list.files(pattern = pattern, path)
     if(length(grep(pattern, imgs)) == 0){
-      stop(paste("'", pattern, "' pattern not found in '",
-                 paste0(dir)),
-           call. = FALSE)
+      cli::cli_abort("Pattern {.val {pattern}} not found in {.dir {path}}.")
     }
     extensions <- as.character(sapply(imgs, file_extension))
     all_valid <- extensions %in% valid_extens
-    if(any(all_valid == FALSE)){
-      warning("'", paste(imgs[which(all_valid == FALSE)], collapse = ", "),
-              "' of invalid format ignored.", call. = FALSE)
+    if (any(!all_valid)) {
+      cli::cli_warn("Image{?s} {.val {imgs[!all_valid]}} of invalid format ignored.")
     }
+
     imgs <- paste0(path, "/", imgs[all_valid])
     list_img <-
       lapply(imgs, function(x){
@@ -173,7 +171,7 @@ image_import <- function(img,
     }
     if(resize != FALSE){
       if(!is.numeric(resize)){
-        stop("Argument `resize` must be numeric.", call. = FALSE)
+        cli::cli_abort("Argument {.val resize} must be numeric.")
       }
       list_img <- image_resize(list_img, resize)
     }
@@ -184,7 +182,7 @@ image_import <- function(img,
     img_name <- file_name(img)
     test <- img_name %in% file_name(list.files(img_dir))
     if(!any(grepl("http", img_dir, fixed = TRUE)) & !all(test)){
-      stop(" '",img_name[which(test == FALSE)],"' not found in ", img_dir[which(test == FALSE)],  call. = FALSE)
+      cli::cli_abort("Image {.val {img_name[which(test == FALSE)]}} not found in {.dir {img_dir[which(test == FALSE)]}}.")
     }
     fext <- file_extension(img)
     img_name <- paste0(img_dir, "/", img_name , ".", fext[length(fext)])
@@ -206,7 +204,7 @@ image_import <- function(img,
       }
       if(resize != FALSE){
         if(!is.numeric(resize)){
-          stop("Argument `resize` must be numeric.", call. = FALSE)
+          cli::cli_abort("Argument {.val resize} must be numeric.")
         }
         ls <- image_resize(ls, resize)
       }
@@ -223,7 +221,7 @@ image_import <- function(img,
       }
       if(resize != FALSE){
         if(!is.numeric(resize)){
-          stop("Argument `resize` must be numeric.", call. = FALSE)
+          cli::cli_abort("Argument {.val resize} must be numeric.")
         }
         img <- image_resize(img, resize)
       }
@@ -250,13 +248,16 @@ image_export <- function(img,
   }
   if(is.list(img)){
     if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+      cli::cli_abort("All images must be of class {.code Image}.")
     }
     name <- file_name(names(img))
     extens <- file_extension(names(img))
     if(any(sapply(extens, length)) ==  0 & is.null(extension)){
       extens <- rep("jpg", length(img))
-      message("Image(s) exported as *.jpg file(s).")
+      cli::cli_inform(c(
+        "v" = "Image{?s} exported as {.val *.jpg} file{?s}."
+      ))
+
     }
     if(!is.null(extension)){
       extens <- rep(extension, length(img))
@@ -287,7 +288,9 @@ image_export <- function(img,
       extens <- extens
     } else if(length(extens) ==  0 & is.null(extension)){
       extens <- "jpg"
-      message("Image(s) exported as *.jpg file(s).")
+      cli::cli_inform(c(
+        "v" = "Image{?s} exported as {.val *.jpg} file{?s}."
+      ))
     } else if(!is.null(extension)){
       extens <- extension
     }
@@ -326,7 +329,10 @@ image_pliman <- function(img, plot = FALSE){
   files <- list.files(path)
   if(!missing(img)){
     if(!img %in% files){
-      stop("Image not available in pliman.\nAvaliable images: ", paste(files, collapse = ", "), call. = FALSE)
+      cli::cli_abort(c(
+        "!" = "Image not available in {.pkg pliman}.",
+        "i" = "Available images: {.val {paste(files, collapse = ', ')}}"
+      ))
     }
     im <- image_import(system.file(paste0("tmp_images/", img), package = "pliman"))
     if(isTRUE(plot)){
@@ -372,7 +378,7 @@ image_pliman <- function(img, plot = FALSE){
 #'
 #' @name utils_transform
 #' @inheritParams image_view
-#' @inheritParams object_coord
+#' @inheritParams analyze_objects
 #' @param img An image or a list of images of class `Image`.
 #' @param index The index to segment the image. See [image_index()] for more
 #'   details. Defaults to `"NB"` (normalized blue).
@@ -484,21 +490,35 @@ image_autocrop <- function(img,
       img <- lapply(img, function(x){x[[1]]})
     }
     if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+      cli::cli_abort("All images must be of class {.code Image}.")
     }
     if(parallel == TRUE){
       nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
+      # start mirai daemons
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
 
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+      # verbose header with cli
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Image processing using {nworkers} workers"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%S')}")
+        )
       }
-      res <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_autocrop(img[[i]], index, edge)
-        }
+
+      # run image_autocrop in parallel with built-in progress
+      res <- mirai::mirai_map(
+        .x       = img,
+        .f       = function(image) image_autocrop(image, index, edge),
+        .promise = if (verbose) cli::cli_progress_update
+      )[.progress]
+
+      # final completion message
+      if (verbose) {
+        cli::cli_rule(
+          left = cli::col_green("All {length(img)} images processed")
+        )
+      }
     } else{
       res <- lapply(img, image_autocrop, index, edge)
     }
@@ -545,20 +565,41 @@ image_crop <- function(img,
       img <- lapply(img, function(x){x[[1]]})
     }
     if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+      cli::cli_abort("All images must be of class {.code Image}.")
     }
     if(parallel == TRUE){
       nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+      # start mirai daemons
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      # optional verbose message
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Parallel processing using {nworkers} cores"),
+          right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(names_plant)}} images in parallel...",
+          msg_done   = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
+        )
       }
-      res <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_crop(img[[i]],  width, height, viewer, downsample, max_pixels)
+
+      # run image_crop in parallel using mirai
+      raw <- mirai::mirai_map(
+        .x = img,
+        .f = function(image) {
+          pliman::image_crop(
+            image,
+            width,
+            height,
+            viewer,
+            downsample,
+            max_pixels
+          )
         }
+      )[.progress]
     } else{
       res <- lapply(img, image_crop, width, height, viewer, downsample, max_pixels)
     }
@@ -577,13 +618,14 @@ image_crop <- function(img,
         height <- height
       }
       if (!is.numeric(width) | !is.numeric(height)) {
-        stop("Vectors must be numeric.")
+        cli::cli_abort("Vectors {.val width} and {.val height} must be numeric.")
       }
       img@.Data <- img@.Data[width, height, ]
     }
     if (is.null(width) & is.null(height)) {
       if(vieweropt == "base"){
-        message("Use the left mouse buttom to crop the image.")
+        cli::cli_inform(c("i" = "Use the {cli::col_blue(cli::style_bold('left mouse button'))} to crop the image."))
+
         if(EBImage::numberOfFrames(img) > 2){
           plot(EBImage::Image(img[,,1:3], colormode = "Color"))
         } else if(EBImage::numberOfFrames(img) == 1){
@@ -626,64 +668,68 @@ image_dimension <- function(img,
                             parallel = FALSE,
                             workers = NULL,
                             verbose = TRUE){
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
-      }
-      res <-
-        as.data.frame(
-          do.call(rbind,
-                  foreach::foreach(i = seq_along(img)) %dofut%{
-                    image_dimension(img[[i]], verbose =  FALSE)
-                  }
-          )
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Parallel dimension extraction of {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
         )
-      res <- transform(res, image = rownames(res))[,c(3, 1, 2)]
-    } else{
-      res <-
-        do.call(rbind,
-                lapply(img, function(x){
-                  dim <- image_dimension(x, verbose = FALSE)
-                  data.frame(width = dim[[1]],
-                             height = dim[[2]])
-                }))
-      res <- transform(res, image = rownames(res))[,c(3, 1, 2)]
+      }
+
+      raw <- mirai::mirai_map(
+        .x = img,
+        .f = function(image) {
+          pliman::image_dimension(image, verbose = FALSE)
+        }
+      )[.progress]
+
+      res <- as.data.frame(do.call(rbind, raw))
+
+    } else {
+      res <- do.call(rbind, lapply(img, function(x) {
+        dim <- image_dimension(x, verbose = FALSE)
+        data.frame(width = dim[[1]], height = dim[[2]])
+      }))
+      res <- transform(res, image = rownames(res))[, c(3, 1, 2)]
       rownames(res) <- NULL
     }
-    if(verbose == TRUE){
-      cat("\n----------------------\n")
-      cat("Image dimension\n")
-      cat("----------------------\n")
+
+    if (verbose) {
+      cli::cli_rule("Image dimension summary")
+      cli::cli_alert_info("Processed {.val {nrow(res)}} image(s)")
       print(res, row.names = FALSE)
-      cat("\n")
     }
+
     invisible(res)
-  } else{
-    width <- dim(img)[[1]]
+
+  } else {
+    width  <- dim(img)[[1]]
     height <- dim(img)[[2]]
-    if(verbose == TRUE){
-      cat("\n----------------------\n")
-      cat("Image dimension\n")
-      cat("----------------------\n")
-      cat("Width : ", width, "\n")
-      cat("Height: ", height, "\n")
-      cat("\n")
+
+    if (verbose) {
+      cli::cli_rule("Image dimension")
+      cli::cli_text("Width : {.val {width}}")
+      cli::cli_text("Height: {.val {height}}")
     }
+
     invisible(list(width = width, height = height))
   }
 }
+
 #' @name utils_transform
 #' @export
 image_rotate <- function(img,
@@ -692,203 +738,385 @@ image_rotate <- function(img,
                          parallel = FALSE,
                          workers = NULL,
                          verbose = TRUE,
-                         plot = TRUE){
+                         plot = TRUE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All images must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Rotating {length(img)} images in parallel"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images in parallel...",
+          msg_done   = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
+        )
       }
-      res <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_rotate(img[[i]], angle, bg_col)
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) {
+          EBImage::rotate(im, angle, bg.col = bg_col)
         }
-    } else{
-      lapply(img, image_rotate, angle, bg_col)
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left = cli::col_blue("Rotating {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images sequentially...",
+          msg_done   = "Processing complete",
+          msg_failed = "Sequential processing failed"
+        )
+      }
+
+      res <- lapply(img, function(im) {
+        EBImage::rotate(im, angle, bg.col = bg_col)
+      })
     }
-  } else{
-    img <- EBImage::rotate(img, angle, bg.col = bg_col)
-    if (isTRUE(plot) & EBImage::numberOfFrames(img) > 2) {
-      plot(EBImage::Image(img[,,1:3], colormode = "Color"))
+
+    if (isTRUE(plot)) {
+      for (r in res) {
+        if (EBImage::numberOfFrames(r) > 2) {
+          plot(EBImage::Image(r[,,1:3], colormode = "Color"))
+        }
+      }
     }
-    invisible(img)
+
+    invisible(res)
+
+  } else {
+    rotated <- EBImage::rotate(img, angle, bg.col = bg_col)
+
+    if (isTRUE(plot) && EBImage::numberOfFrames(rotated) > 2) {
+      plot(EBImage::Image(rotated[,,1:3], colormode = "Color"))
+    }
+
+    invisible(rotated)
   }
 }
+
+
 #' @name utils_transform
 #' @export
 image_horizontal <- function(img,
                              parallel = FALSE,
                              workers = NULL,
                              verbose = TRUE,
-                             plot = FALSE){
+                             plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All images must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Ensuring horizontal orientation of {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images in parallel...",
+          msg_done   = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_horizontal(img[[i]])
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) {
+          w <- dim(im)[[1]]
+          h <- dim(im)[[2]]
+          if (w < h) {
+            EBImage::rotate(im, 90)
+          } else {
+            im
+          }
+        }
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left = cli::col_blue("Processing images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images sequentially...",
+          msg_done   = "Sequential processing complete",
+          msg_failed = "Sequential processing failed"
+        )
       }
-    } else{
-      lapply(img, image_horizontal)
+
+      res <- lapply(img, function(im) {
+        w <- dim(im)[[1]]
+        h <- dim(im)[[2]]
+        if (w < h) {
+          EBImage::rotate(im, 90)
+        } else {
+          im
+        }
+      })
     }
-  } else{
-    width <- dim(img)[[1]]
-    height <- dim(img)[[2]]
-    if(width < height){
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    w <- dim(img)[[1]]
+    h <- dim(img)[[2]]
+    if (w < h) {
       img <- EBImage::rotate(img, 90)
-    } else{
-      img <- img
     }
+
     if (isTRUE(plot)) {
       plot(img)
     }
+
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_vertical <- function(img,
                            parallel = FALSE,
                            workers = NULL,
                            verbose = TRUE,
-                           plot = FALSE){
+                           plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All images must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Ensuring vertical orientation of {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images in parallel...",
+          msg_done   = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_vertical(img[[i]])
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) {
+          w <- dim(im)[[1]]
+          h <- dim(im)[[2]]
+          if (w > h) {
+            EBImage::rotate(im, 90)
+          } else {
+            im
+          }
+        }
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Processing images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images sequentially...",
+          msg_done   = "Sequential processing complete",
+          msg_failed = "Sequential processing failed"
+        )
       }
-    } else{
-      lapply(img, image_vertical)
+
+      res <- lapply(img, function(im) {
+        w <- dim(im)[[1]]
+        h <- dim(im)[[2]]
+        if (w > h) {
+          EBImage::rotate(im, 90)
+        } else {
+          im
+        }
+      })
     }
-  } else{
-    width <- dim(img)[[1]]
-    height <- dim(img)[[2]]
-    if(width > height){
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    w <- dim(img)[[1]]
+    h <- dim(img)[[2]]
+    if (w > h) {
       img <- EBImage::rotate(img, 90)
-    } else{
-      img <- img
     }
+
     if (isTRUE(plot)) {
       plot(img)
     }
+
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_hreflect <- function(img,
                            parallel = FALSE,
                            workers = NULL,
                            verbose = TRUE,
-                           plot = FALSE){
+                           plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All images must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Horizontal reflection of {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg = "Processing images in parallel...",
+          msg_done = "Reflection complete.",
+          msg_failed = "Parallel reflection failed."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_hreflect(img[[i]])
-      }
-    } else{
-      lapply(img, image_hreflect)
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) EBImage::flop(im)
+      )[.progress]
+
+    } else {
+      res <- lapply(img, EBImage::flop)
     }
-  } else{
-    img <- EBImage::flop(img)
+
     if (isTRUE(plot)) {
-      plot(img)
+      for (r in res) plot(r)
     }
+
+    invisible(res)
+
+  } else {
+    img <- EBImage::flop(img)
+    if (isTRUE(plot)) plot(img)
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_vreflect <- function(img,
                            parallel = FALSE,
                            workers = NULL,
                            verbose = TRUE,
-                           plot = FALSE){
+                           plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All images must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Vertical reflection of {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg = "Processing images in parallel...",
+          msg_done = "Reflection complete.",
+          msg_failed = "Parallel reflection failed."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_vreflect(img[[i]])
-      }
-    } else{
-      lapply(img, image_vreflect)
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) EBImage::flip(im)
+      )[.progress]
+
+    } else {
+      res <- lapply(img, EBImage::flip)
     }
-  } else{
-    img <- EBImage::flip(img)
+
     if (isTRUE(plot)) {
-      plot(img)
+      for (r in res) plot(r)
     }
+
+    invisible(res)
+
+  } else {
+    img <- EBImage::flip(img)
+    if (isTRUE(plot)) plot(img)
     invisible(img)
   }
 }
+
 
 #' @name utils_transform
 #' @export
@@ -899,98 +1127,173 @@ image_resize <- function(img,
                          parallel = FALSE,
                          workers = NULL,
                          verbose = TRUE,
-                         plot = FALSE){
+                         plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All images must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    resize_fun <- function(im) {
+      w <- dim(im)[[1]]
+      new_width <- if (missing(width)) w * rel_size / 100 else width
+      EBImage::resize(im, new_width, height)
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Resizing {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg = "Resizing images in parallel...",
+          msg_done = "Resize complete.",
+          msg_failed = "Parallel resize failed."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_resize(img[[i]], rel_size)
-      }
-    } else{
-      lapply(img, image_resize, rel_size, width, height)
+
+      res <- mirai::mirai_map(.x = img, .f = resize_fun)[.progress]
+
+    } else {
+      res <- lapply(img, resize_fun)
     }
-  } else{
-    nrow <- dim(img)[[1]]
-    new_row <- nrow * rel_size / 100
-    width <- ifelse(missing(width), new_row, width)
-    img <- EBImage::resize(img, width, height)
+
     if (isTRUE(plot)) {
-      plot(img)
+      for (r in res) plot(r)
     }
+
+    invisible(res)
+
+  } else {
+    w <- dim(img)[[1]]
+    new_width <- if (missing(width)) w * rel_size / 100 else width
+    img <- EBImage::resize(img, new_width, height)
+    if (isTRUE(plot)) plot(img)
     invisible(img)
   }
 }
+
 
 #' @name utils_transform
 #' @export
 image_trim <- function(img,
                        edge = NULL,
-                       top  = NULL,
-                       bottom  = NULL,
+                       top = NULL,
+                       bottom = NULL,
                        left = NULL,
                        right = NULL,
                        parallel = FALSE,
                        workers = NULL,
                        verbose = TRUE,
-                       plot = FALSE){
+                       plot = FALSE) {
   check_ebi()
-  if(is.null(edge) & all(sapply(list(top, bottom, left, right), is.null))){
+
+  # define bordas
+  if (is.null(edge) && all(sapply(list(top, bottom, left, right), is.null))) {
     edge <- 20
   }
-  if(is.null(edge) & !all(sapply(list(top, bottom, left, right), is.null))){
+  if (is.null(edge) && !all(sapply(list(top, bottom, left, right), is.null))) {
     edge <- 0
   }
-  top <- ifelse(is.null(top), edge, top)
+
+  top    <- ifelse(is.null(top), edge, top)
   bottom <- ifelse(is.null(bottom), edge, bottom)
-  left <- ifelse(is.null(left), edge, left)
-  right <- ifelse(is.null(right), edge, right)
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+  left   <- ifelse(is.null(left), edge, left)
+  right  <- ifelse(is.null(right), edge, right)
+
+  # processamento em lista
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    # modo paralelo
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Trimming {length(img)} images in parallel"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Trimming images...",
+          msg_done   = "Trim completed.",
+          msg_failed = "Parallel trimming failed."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_trim(img[[i]], edge, top, bottom, left, right)
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) {
+          im <- im[, -c(1:top), ]
+          im <- im[, -c((dim(im)[2] - bottom + 1):dim(im)[2]), ]
+          im <- im[-c((dim(im)[1] - right + 1):dim(im)[1]), , ]
+          im <- im[-c(1:left), , ]
+          im
+        }
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Trimming images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Trimming images...",
+          msg_done   = "Trim completed.",
+          msg_failed = "Sequential trimming failed."
+        )
       }
-    } else{
-      lapply(img, image_trim, edge, top, bottom, left, right)
+
+      res <- lapply(img, function(im) {
+        im <- im[, -c(1:top), ]
+        im <- im[, -c((dim(im)[2] - bottom + 1):dim(im)[2]), ]
+        im <- im[-c((dim(im)[1] - right + 1):dim(im)[1]), , ]
+        im <- im[-c(1:left), , ]
+        im
+      })
     }
-  } else{
-    img <- img[, -c(1:top) ,]
-    img <- img[, -c((dim(img)[2] - bottom + 1):dim(img)[2]) ,]
-    img <- img[-c((dim(img)[1] - right + 1):dim(img)[1]) ,  ,]
-    img <- img[-c(1:left), ,]
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    img <- img[, -c(1:top), ]
+    img <- img[, -c((dim(img)[2] - bottom + 1):dim(img)[2]), ]
+    img <- img[-c((dim(img)[1] - right + 1):dim(img)[1]), , ]
+    img <- img[-c(1:left), , ]
+
     if (isTRUE(plot)) {
       plot(img)
     }
+
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_dilate <- function(img,
@@ -1000,46 +1303,94 @@ image_dilate <- function(img,
                          parallel = FALSE,
                          workers = NULL,
                          verbose = TRUE,
-                         plot = FALSE){
+                         plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    # função auxiliar para cada imagem
+    dilate_image <- function(im) {
+      if (is.null(kern)) {
+        d <- dim(im)
+        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
+        s <- ifelse(s == 0, 2, s)
+        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
+      } else {
+        k <- kern
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_dilate(img[[i]], kern, size, shape)
-      }
-    } else{
-      lapply(img, image_dilate, kern, size, shape)
+      EBImage::dilate(im, k)
     }
-  } else{
-    if(is.null(kern)){
-      dim <- dim(img)
-      size <- ifelse(is.null(size), round(dim[[1]]*dim[[2]] / 1e06 * 5, 0), size)
-      size <- ifelse(size == 0, 2, size)
-      kern <- suppressWarnings(EBImage::makeBrush(size, shape = shape))
-    } else{
-      kern <- kern
+
+    # modo paralelo
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Dilating {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images in parallel...",
+          msg_done   = "Dilation complete.",
+          msg_failed = "Parallel dilation failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = dilate_image
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Dilating {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images...",
+          msg_done   = "Dilation complete.",
+          msg_failed = "Sequential dilation failed."
+        )
+      }
+
+      res <- lapply(img, dilate_image)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    if (is.null(kern)) {
+      d <- dim(img)
+      s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
+      s <- ifelse(s == 0, 2, s)
+      kern <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
     }
     img <- EBImage::dilate(img, kern)
+
     if (isTRUE(plot)) {
       plot(img)
     }
+
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_erode <- function(img,
@@ -1049,46 +1400,96 @@ image_erode <- function(img,
                         parallel = FALSE,
                         workers = NULL,
                         verbose = TRUE,
-                        plot = FALSE){
+                        plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    # função auxiliar para cada imagem
+    erode_image <- function(im) {
+      if (is.null(kern)) {
+        d <- dim(im)
+        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
+        s <- ifelse(s == 0, 2, s)
+        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
+      } else {
+        k <- kern
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_erode(img[[i]], kern, size, shape)
-      }
-    } else{
-      lapply(img, image_erode, size, kern, shape)
+      EBImage::erode(im, k)
     }
-  } else{
-    if(is.null(kern)){
-      dim <- dim(img)
-      size <- ifelse(is.null(size), round(dim[[1]]*dim[[2]] / 1e06 * 5, 0), size)
+
+    # modo paralelo
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Eroding {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images in parallel...",
+          msg_done   = "Erosion complete.",
+          msg_failed = "Parallel erosion failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = erode_image
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Eroding {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images...",
+          msg_done   = "Erosion complete.",
+          msg_failed = "Sequential erosion failed."
+        )
+      }
+
+      res <- lapply(img, erode_image)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    if (is.null(kern)) {
+      d <- dim(img)
+      size <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
       size <- ifelse(size == 0, 2, size)
       kern <- suppressWarnings(EBImage::makeBrush(size, shape = shape))
-    } else{
-      kern <- kern
     }
+
     img <- EBImage::erode(img, kern)
+
     if (isTRUE(plot)) {
       plot(img)
     }
+
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_opening <- function(img,
@@ -1098,46 +1499,93 @@ image_opening <- function(img,
                           parallel = FALSE,
                           workers = NULL,
                           verbose = TRUE,
-                          plot = FALSE){
+                          plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    # função auxiliar para aplicar abertura
+    opening_image <- function(im) {
+      if (is.null(kern)) {
+        d <- dim(im)
+        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
+        s <- ifelse(s == 0, 2, s)
+        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
+      } else {
+        k <- kern
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_opening(img[[i]], kern, size, shape)
-      }
-    } else{
-      lapply(img, image_opening, size, kern, shape)
+      EBImage::opening(im, k)
     }
-  } else{
-    if(is.null(kern)){
-      dim <- dim(img)
-      size <- ifelse(is.null(size), round(dim[[1]]*dim[[2]] / 1e06 * 5, 0), size)
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Opening {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images in parallel...",
+          msg_done   = "Opening complete.",
+          msg_failed = "Parallel opening failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = opening_image
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Opening {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images...",
+          msg_done   = "Opening complete.",
+          msg_failed = "Sequential opening failed."
+        )
+      }
+
+      res <- lapply(img, opening_image)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    if (is.null(kern)) {
+      d <- dim(img)
+      size <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
       size <- ifelse(size == 0, 2, size)
       kern <- suppressWarnings(EBImage::makeBrush(size, shape = shape))
-    } else{
-      kern <- kern
     }
     img <- EBImage::opening(img, kern)
+
     if (isTRUE(plot)) {
       plot(img)
     }
+
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_closing <- function(img,
@@ -1147,43 +1595,91 @@ image_closing <- function(img,
                           parallel = FALSE,
                           workers = NULL,
                           verbose = TRUE,
-                          plot = FALSE){
+                          plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    # função auxiliar para aplicar fechamento
+    closing_image <- function(im) {
+      if (is.null(kern)) {
+        d <- dim(im)
+        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
+        s <- ifelse(s == 0, 2, s)
+        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
+      } else {
+        k <- kern
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_closing(img[[i]], kern, size, shape)
-      }
-    } else{
-      lapply(img, image_closing, size, kern, shape)
+      EBImage::closing(im, k)
     }
-  } else{
-    if(is.null(kern)){
-      dim <- dim(img)
-      size <- ifelse(is.null(size), round(dim[[1]]*dim[[2]] / 1e06 * 5, 0), size)
+
+    # modo paralelo
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Closing {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images in parallel...",
+          msg_done   = "Closing complete.",
+          msg_failed = "Parallel closing failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = closing_image
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Closing {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing images...",
+          msg_done   = "Closing complete.",
+          msg_failed = "Sequential closing failed."
+        )
+      }
+
+      res <- lapply(img, closing_image)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    if (is.null(kern)) {
+      d <- dim(img)
+      size <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
       size <- ifelse(size == 0, 2, size)
       kern <- suppressWarnings(EBImage::makeBrush(size, shape = shape))
-    } else{
-      kern <- kern
     }
+
     img <- EBImage::closing(img, kern)
+
     if (isTRUE(plot)) {
       plot(img)
     }
+
     invisible(img)
   }
 }
@@ -1196,51 +1692,101 @@ image_skeleton <- function(img,
                            workers = NULL,
                            verbose = TRUE,
                            plot = FALSE,
-                           ...){
+                           ...) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    # função auxiliar para aplicar skeletonization
+    skel_fun <- function(im) {
+      if (EBImage::colorMode(im) != 0) {
+        im <- help_binary(im, ..., resize = FALSE)
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_skeleton(img[[i]])
+
+      s <- matrix(1, nrow(im), ncol(im))
+      skel <- matrix(0, nrow(im), ncol(im))
+      k <- if (is.null(kern)) suppressWarnings(EBImage::makeBrush(2, shape = "diamond")) else kern
+
+      while (max(s) == 1) {
+        opened <- EBImage::opening(im, k)
+        s <- im - opened
+        skel <- skel | s
+        im <- EBImage::erode(im, k)
       }
-    } else{
-      lapply(img, image_skeleton)
+
+      EBImage::Image(skel)
     }
-  } else{
-    if(EBImage::colorMode(img) != 0){
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Skeletonizing {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing in parallel...",
+          msg_done   = "Skeletonization complete.",
+          msg_failed = "Skeletonization failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = skel_fun
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Skeletonizing {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Skeletonization complete.",
+          msg_failed = "Sequential skeletonization failed."
+        )
+      }
+
+      res <- lapply(img, skel_fun)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    invisible(res)
+
+  } else {
+    if (EBImage::colorMode(img) != 0) {
       img <- help_binary(img, ..., resize = FALSE)
     }
+
     s <- matrix(1, nrow(img), ncol(img))
     skel <- matrix(0, nrow(img), ncol(img))
-    if(is.null(kern)){
-      kern <- suppressWarnings(EBImage::makeBrush(2, shape = "diamond"))
-    } else{
-      kern <- kern
-    }
+    kern <- if (is.null(kern)) suppressWarnings(EBImage::makeBrush(2, shape = "diamond")) else kern
+
     while (max(s) == 1) {
-      k <- EBImage::opening(img, kern)
-      s <- img - k
+      opened <- EBImage::opening(img, kern)
+      s <- img - opened
       skel <- skel | s
       img <- EBImage::erode(img, kern)
     }
+
     img <- EBImage::Image(skel)
-    if (plot == TRUE) {
-      plot(img)
-    }
+    if (isTRUE(plot)) plot(img)
     invisible(img)
   }
 }
@@ -1253,57 +1799,110 @@ image_thinning <- function(img,
                            workers = NULL,
                            verbose = TRUE,
                            plot = FALSE,
-                           ...){
+                           ...) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    thin_fun <- function(im) {
+      if (EBImage::colorMode(im) != 0) {
+        im <- help_binary(im, ..., resize = FALSE)
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_thinning(img[[i]], niter)
+
+      if (is.null(niter)) {
+        li <- sum(im)
+        lf <- 1
+        while ((li - lf) != 0) {
+          li <- sum(im)
+          im <- help_edge_thinning(im)
+          lf <- sum(im)
+        }
+      } else {
+        for (i in seq_len(niter)) {
+          im <- help_edge_thinning(im)
+        }
       }
-    } else{
-      lapply(img, image_thinning, niter)
+
+      EBImage::Image(im)
     }
-  } else{
-    if(EBImage::colorMode(img) != 0){
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Thinning {.val {length(img)}} images"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing in parallel...",
+          msg_done   = "Thinning complete.",
+          msg_failed = "Thinning failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = thin_fun
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Thinning {.val {length(img)}} images sequentially"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Thinning complete.",
+          msg_failed = "Sequential thinning failed."
+        )
+      }
+
+      res <- lapply(img, thin_fun)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    return(invisible(res))
+
+  } else {
+    if (EBImage::colorMode(img) != 0) {
       img <- help_binary(img, ..., resize = FALSE)
     }
 
-    if(is.null(niter)){
+    if (is.null(niter)) {
       li <- sum(img)
       lf <- 1
-      while((li - lf) != 0){
+      while ((li - lf) != 0) {
         li <- sum(img)
-        tin <- help_edge_thinning(img)
-        img <- tin
+        img <- help_edge_thinning(img)
         lf <- sum(img)
       }
-    } else{
-      for(i in 1:niter){
-        tin <- help_edge_thinning(img)
-        img <- tin
+    } else {
+      for (i in seq_len(niter)) {
+        img <- help_edge_thinning(img)
       }
     }
+
     img <- EBImage::Image(img)
-    if (plot == TRUE) {
-      plot(img)
-    }
+    if (isTRUE(plot)) plot(img)
     invisible(img)
   }
 }
+
 
 
 #' Perform Guo-Hall thinning on a binary image or list of binary images
@@ -1340,51 +1939,89 @@ image_thinning <- function(img,
 #' image_thinning_guo_hall(img, index = "R", plot = TRUE)
 #' }
 #'
-#'
 image_thinning_guo_hall <- function(img,
                                     parallel = FALSE,
                                     workers = NULL,
                                     verbose = TRUE,
                                     plot = FALSE,
-                                    ...){
+                                    ...) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    thin_fun <- function(im) {
+      if (EBImage::colorMode(im) != 0) {
+        im <- help_binary(im, ..., resize = FALSE)
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_thinning_guo_hall(img[[i]])
-      }
-    } else{
-      lapply(img, image_thinning_guo_hall)
+      helper_guo_hall(im)
     }
-  } else{
-    if(EBImage::colorMode(img) != 0){
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Guo-Hall thinning {.val {length(img)}} images"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing in parallel...",
+          msg_done   = "Thinning complete.",
+          msg_failed = "Thinning failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = thin_fun
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Guo-Hall thinning {.val {length(img)}} images (sequential)"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Thinning complete.",
+          msg_failed = "Sequential thinning failed."
+        )
+      }
+
+      res <- lapply(img, thin_fun)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    return(invisible(res))
+
+  } else {
+    if (EBImage::colorMode(img) != 0) {
       img <- help_binary(img, ..., resize = FALSE)
     }
+
     thin <- helper_guo_hall(img)
-    if(isTRUE(plot)){
+
+    if (isTRUE(plot)) {
       plot(thin)
     }
+
     invisible(thin)
   }
 }
-
-
-
-
 
 #' @name utils_transform
 #' @export
@@ -1394,34 +2031,67 @@ image_filter <- function(img,
                          parallel = FALSE,
                          workers = NULL,
                          verbose = TRUE,
-                         plot = FALSE){
+                         plot = FALSE) {
   check_ebi()
-  if(size < 2){
-    stop("Using `size` < 2 will crash you R section. Please, consider using 2 or more.")
+
+  if (size < 2) {
+    cli::cli_abort("Using {.arg size} < 2 may crash the R session. Use 2 or more.")
   }
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    filter_fun <- function(im) {
+      EBImage::medianFilter(im, size, cache)
+    }
+    cli::cli_rule(
+      left  = cli::col_blue("Median filtering {.val {length(img)}} images"),
+      right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+    )
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing in parallel...",
+          msg_done   = "Filtering complete.",
+          msg_failed = "Parallel filtering failed."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_filter(img[[i]], size, cache)
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = filter_fun
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Filtering complete.",
+          msg_failed = "Sequential filtering failed."
+        )
       }
-    } else{
-      lapply(img, image_filter, size, cache)
+
+      res <- lapply(img, filter_fun)
     }
-  } else{
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    return(invisible(res))
+
+  } else {
     img <- EBImage::medianFilter(img, size, cache)
     if (isTRUE(plot)) {
       plot(img)
@@ -1429,6 +2099,7 @@ image_filter <- function(img,
     invisible(img)
   }
 }
+
 #' @name utils_transform
 #' @export
 image_blur <- function(img,
@@ -1438,29 +2109,65 @@ image_blur <- function(img,
                        verbose = TRUE,
                        plot = FALSE){
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
     }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+    blur_fun <- function(im) {
+      EBImage::gblur(im, sigma)
+    }
+
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_blue("Blurring {.val {length(img)}} images"),
+        right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+      )
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing in parallel...",
+          msg_done   = "Blurring complete.",
+          msg_failed = "Parallel blurring failed."
+        )
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_blur(img[[i]], sigma)
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = blur_fun
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Blurring complete.",
+          msg_failed = "Sequential blurring failed."
+        )
       }
-    } else{
-      lapply(img, image_blur, sigma)
+
+      res <- lapply(img, blur_fun)
     }
-  } else{
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    return(invisible(res))
+
+  } else {
     img <- EBImage::gblur(img, sigma)
     if (isTRUE(plot)) {
       plot(img)
@@ -1474,73 +2181,113 @@ image_contrast <- function(img,
                            parallel = FALSE,
                            workers = NULL,
                            verbose = TRUE,
-                           plot = FALSE){
+                           plot = FALSE) {
   check_ebi()
-  if(is.list(img)){
-    if(class(img) %in% c("binary_list", "segment_list", "index_list",
-                         "img_mat_list", "palette_list")){
-      img <- lapply(img, function(x){x[[1]]})
-    }
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
-    }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+  get_factors <- function(x) {
+    factors <- vector()
+    for (i in 1:x) {
+      if ((x %% i) == 0) {
+        factors[i] <- i
       }
-      foreach::foreach(i = seq_along(img)) %dofut%{
-        image_contrast(img[[i]], sigma)
-      }
-    } else{
-      lapply(img, image_contrast)
     }
-  } else{
-    get_factors <- function(x) {
-      factors <- vector()
-      for(i in 1:x) {
-        if((x %% i) == 0) {
-          factors[i] <- i
-        }
-      }
-      invisible(factors[!is.na(factors)])
-    }
-    img_width <- dim(img)[1]
-    img_height <- dim(img)[2]
+    factors[!is.na(factors)]
+  }
+
+  contrast_fun <- function(im) {
+    img_width <- dim(im)[1]
+    img_height <- dim(im)[2]
+
     fx <- get_factors(img_width)
     nx <- suppressWarnings(fx[max(which(fx > 1 & fx < 100))])
+
     fy <- get_factors(img_height)
     ny <- suppressWarnings(fy[max(which(fy > 1 & fy < 100))])
-    testx <- any(fx > 1 & fx < 100) == FALSE
-    if(testx == TRUE){
-      while(testx == TRUE){
+
+    testx <- !any(fx > 1 & fx < 100)
+    if (testx) {
+      while (testx) {
         img_width <- img_width + 1
         fx <- get_factors(img_width)
         testx <- !any(fx > 1 & fx < 100)
-        if(any(fx) > 100){
-          break
-        }
+        if (any(fx) > 100) break
       }
-      img <- EBImage::resize(img, w = img_width, h = img_height)
+      im <- EBImage::resize(im, w = img_width, h = img_height)
       nx <- suppressWarnings(fx[max(which(fx > 1 & fx < 100))])
     }
-    testy <- any(fy > 1 & fy < 100) == FALSE
-    if(testy == TRUE){
-      while(testy == TRUE){
+
+    testy <- !any(fy > 1 & fy < 100)
+    if (testy) {
+      while (testy) {
         img_height <- img_height + 1
         fy <- get_factors(img_height)
         testy <- !any(fy > 1 & fy < 100)
-        if(any(fy) > 100){
-          break
-        }
+        if (any(fy) > 100) break
       }
-      img <- EBImage::resize(img, w = img_width, h = img_height)
+      im <- EBImage::resize(im, w = img_width, h = img_height)
       ny <- suppressWarnings(fy[max(which(fy > 1 & fy < 100))])
     }
-    img <- EBImage::clahe(img, nx = nx, ny = ny, bins = 256)
+
+    EBImage::clahe(im, nx = nx, ny = ny, bins = 256)
+  }
+
+  if (is.list(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+
+    if (!all(sapply(img, inherits, "Image"))) {
+      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
+    }
+
+    if (verbose) {
+      cli::cli_rule(
+        left = cli::col_blue("Contrast adjustment"),
+        right = cli::col_blue("Processing {length(img)} images")
+      )
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers),
+                         trunc(parallel::detectCores() * 0.4),
+                         workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Running contrast enhancement in parallel...",
+          msg_done   = "Contrast enhancement complete.",
+          msg_failed = "Contrast enhancement failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = contrast_fun
+      )[.progress]
+
+    } else {
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Running contrast enhancement...",
+          msg_done   = "Contrast enhancement complete.",
+          msg_failed = "Contrast enhancement failed."
+        )
+      }
+
+      res <- lapply(img, contrast_fun)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+
+    return(invisible(res))
+
+  } else {
+    img <- contrast_fun(img)
     if (isTRUE(plot)) {
       plot(img)
     }
@@ -1699,194 +2446,105 @@ image_binary <- function(img,
                          ncol = NULL,
                          parallel = FALSE,
                          workers = NULL,
-                         verbose = TRUE){
+                         verbose = TRUE) {
   check_ebi()
   threshold <- threshold[[1]]
-  if(is.list(img)){
-    if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
-    }
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+
+  bin_img <- function(imgs) {
+    if(threshold == "adaptive"){
+      if(is.null(windowsize)){
+        windowsize <- min(dim(imgs)) / 3
+        if(windowsize %% 2 == 0) windowsize <- as.integer(windowsize + 1)
       }
-      res <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_binary(img[[i]],
-                       index,
-                       r,
-                       g,
-                       b,
-                       re,
-                       nir,
-                       return_class,
-                       threshold,
-                       k,
-                       windowsize,
-                       has_white_bg,
-                       resize,
-                       fill_hull,
-                       filter,
-                       erode,
-                       dilate,
-                       closing,
-                       opening,
-                       re,
-                       nir,
-                       invert,
-                       plot,
-                       nrow,
-                       ncol)
-        }
-    } else{
-      res <- lapply(img,
-                    image_binary,
-                    index,
-                    r,
-                    g,
-                    b,
-                    re,
-                    nir,
-                    return_class,
-                    threshold,
-                    k,
-                    windowsize,
-                    has_white_bg,
-                    resize,
-                    fill_hull,
-                    filter,
-                    erode,
-                    dilate,
-                    closing,
-                    opening,
-                    re,
-                    nir,
-                    invert,
-                    plot,
-                    nrow,
-                    ncol)
+      if (windowsize <= 2) {
+        cli::cli_abort("{.arg windowsize} must be >= 3")
+      }
+      if (windowsize %% 2 == 0) windowsize <- as.integer(windowsize + 1)
+      if (windowsize >= dim(imgs)[[1]] || windowsize >= dim(imgs)[[2]]) {
+        windowsize <- min(dim(imgs)) / 3
+      }
+      if (k > 1) {
+        cli::cli_abort("{.arg k} must be in [0, 1].")
+      }
+      imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
+    } else {
+      if(threshold == "Otsu"){
+        threshold_val <- help_otsu(imgs@.Data[!is.infinite(imgs@.Data) & !is.na(imgs@.Data)])
+      } else if(is.numeric(threshold)) {
+        threshold_val <- threshold
+      } else {
+        pixels <- terra::rast(t(imgs@.Data))
+        terra::plot(pixels, col = custom_palette(n = 100), axes = FALSE, asp = NA)
+        threshold_val <- readline("Selected threshold: ")
+      }
+      imgs <- EBImage::Image(imgs < threshold_val)
+    }
+
+    if(invert) imgs <- 1 - imgs
+    imgs[is.na(imgs)] <- FALSE
+    if(isTRUE(fill_hull)) imgs <- EBImage::fillHull(imgs)
+    if(is.numeric(erode) & erode > 0) imgs <- image_erode(imgs, size = erode)
+    if(is.numeric(dilate) & dilate > 0) imgs <- image_dilate(imgs, size = dilate)
+    if(is.numeric(opening) & opening > 0) imgs <- image_opening(imgs, size = opening)
+    if(is.numeric(closing) & closing > 0) imgs <- image_closing(imgs, size = closing)
+    if(is.numeric(filter) & filter > 1) imgs <- EBImage::medianFilter(imgs, filter)
+    invisible(imgs)
+  }
+
+  process_image <- function(im) {
+    imgs <- lapply(
+      image_index(im, index, r, g, b, re, nir, return_class,
+                  resize, re, nir, has_white_bg, plot = FALSE,
+                  nrow, ncol, verbose = verbose),
+      bin_img
+    )
+    imgs
+  }
+
+  if(is.list(img) && all(sapply(img, inherits, what = "Image"))){
+    cli::cli_rule("Image binarization")
+    if (isTRUE(parallel)) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * .4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+      cli::cli_progress_step(
+        msg = "Processing {.val {length(img)}} images in parallel...",
+        msg_done = "Batch processing finished",
+        msg_failed = "Oops, something went wrong."
+      )
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = process_image
+      )[.progress]
+    } else {
+      res <- lapply(img, process_image)
     }
     invisible(structure(res, class = "binary_list"))
-  } else{
-    bin_img <- function(imgs,
-                        invert,
-                        fill_hull,
-                        threshold,
-                        filter,
-                        erode,
-                        dilate,
-                        closing,
-                        opening){
-      # adapted from imagerExtra  https://bit.ly/3Wp4pwv
-      if(threshold == "adaptive"){
-        if(is.null(windowsize)){
-          windowsize <- min(dim(imgs)) / 3
-          if(windowsize %% 2 == 0){
-            windowsize <- as.integer(windowsize + 1)
-          }
-        }
-        if (windowsize <= 2){
-          stop("windowsize must be greater than or equal to 3", call. = FALSE)
-        }
-        if (windowsize %% 2 == 0){
-          warning(sprintf("windowsize is even (%d). windowsize will be treated as %d", windowsize, windowsize + 1), call. = FALSE)
-          windowsize <- as.integer(windowsize + 1)
-        }
-        if (windowsize >= dim(imgs)[[1]] || windowsize >= dim(imgs)[[2]]){
-          warning("windowsize is too large. Setting to `min(dim(img)) / 3`", call. = FALSE)
-          windowsize <- min(dim(imgs)) / 3
-        }
-        if (k > 1){
-          stop("k is out of range. k must be in [0, 1].", call. = FALSE)
-        }
-        imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
-      }
-
-      if(threshold != "adaptive"){
-        if(threshold == "Otsu"){
-          if(any(is.infinite(imgs)) | any(is.na(imgs))){
-            threshold <- help_otsu(imgs@.Data[!is.infinite(imgs@.Data) & !is.na(imgs@.Data)])
-          } else{
-            threshold <- help_otsu(imgs@.Data)
-          }
-        } else{
-          if(is.numeric(threshold)){
-            threshold <- threshold
-          } else{
-            pixels <- terra::rast(t(imgs@.Data))
-            terra::plot(pixels, col = custom_palette(n = 100),  axes = FALSE, asp = NA)
-            threshold <- readline("Selected threshold: ")
-          }
-        }
-        imgs <- EBImage::Image(imgs < threshold)
-      }
-
-      if(invert == TRUE){
-        imgs <- 1 - imgs
-      }
-
-      imgs[which(is.na(imgs))] <- FALSE
-      if(isTRUE(fill_hull)){
-        imgs <- EBImage::fillHull(imgs)
-      }
-      if(is.numeric(erode) & erode > 0){
-        imgs <- image_erode(imgs, size = erode)
-      }
-      if(is.numeric(dilate) & dilate > 0){
-        imgs <- image_dilate(imgs, size = dilate)
-      }
-      if(is.numeric(opening) & opening > 0){
-        imgs <- image_opening(imgs, size = opening)
-      }
-      if(is.numeric(closing) & closing > 0){
-        imgs <- image_closing(imgs, size = closing)
-      }
-      if(is.numeric(filter) & filter > 1){
-        imgs <- EBImage::medianFilter(imgs, filter)
-      }
-      invisible(imgs)
-    }
-
-    imgs <- lapply(image_index(img, index, r, g, b, re, nir, return_class, resize, re, nir, has_white_bg, plot = FALSE, nrow, ncol, verbose = verbose),
-                   bin_img,
-                   invert,
-                   fill_hull,
-                   threshold,
-                   filter,
-                   erode,
-                   dilate,
-                   closing,
-                   opening)
-    if(plot == TRUE){
+  } else {
+    imgs <- process_image(img)
+    if (isTRUE(plot)) {
       num_plots <- length(imgs)
       if (is.null(nrow) && is.null(ncol)){
         ncol <- ifelse(num_plots == 3, 3, ceiling(sqrt(num_plots)))
         nrow <- ceiling(num_plots/ncol)
       }
-      if (is.null(ncol)){
-        ncol <- ceiling(num_plots/nrow)
-      }
-      if (is.null(nrow)){
-        nrow <- ceiling(num_plots/ncol)
-      }
+      if (is.null(ncol)) ncol <- ceiling(num_plots/nrow)
+      if (is.null(nrow)) nrow <- ceiling(num_plots/ncol)
       op <- par(mfrow = c(nrow, ncol))
       on.exit(par(op))
-      index <- names(imgs)
-      for(i in 1:length(imgs)){
+      index_names <- names(imgs)
+      for(i in seq_along(imgs)){
         plot(imgs[[i]])
-        if(verbose == TRUE){
+        if(verbose){
           dim <- image_dimension(imgs[[i]], verbose = FALSE)
-          text(0, dim[[2]]*0.075, index[[i]], pos = 4, col = "red")
+          text(0, dim[[2]]*0.075, index_names[[i]], pos = 4, col = "red")
         }
       }
     }
     invisible(imgs)
   }
 }
+
 
 #' Image indexes
 #'
@@ -1982,20 +2640,24 @@ image_index <- function(img,
   return_classopt <- return_classopt[pmatch(return_class[1], return_classopt)]
   if(is.list(img)){
     if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+      cli::cli_abort("All images must be of class {.cls Image}.")
     }
     if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
-      }
-      res <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_index(img[[i]], index, r, g, b, re, nir, resize, has_white_bg, plot, nrow, ncol, max_pixels)
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+      cli::cli_progress_step(
+        msg = "Processing {.val {length(img)}} images in parallel...",
+        msg_done = "Image index extraction finished",
+        msg_failed = "Something went wrong during image index extraction."
+      )
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) {
+          image_index(im, index, r, g, b, re, nir, resize, has_white_bg, plot, nrow, ncol, max_pixels)
         }
+      )[.progress]
+
     } else{
       res <- lapply(img, image_index, index, r, g, b, re, nir, resize, has_white_bg, plot, nrow, ncol, max_pixels)
     }
@@ -2045,19 +2707,20 @@ image_index <- function(img,
     }
     if(any(index %in% nir_ind)){
       if(isTRUE(test_multi)){
-        stop("Near-Infrared and RedeEdge bands are not available in the provided image.", call. = FALSE)
+        cli::cli_abort("Near-Infrared and RedeEdge bands are not available in the provided image.")
       }
     }
     if(isTRUE(test_band)){
-      stop("At least 3 bands (RGB) are necessary to calculate indices available in pliman.", call. = FALSE)
+      cli::cli_abort("At least 3 bands (RGB) are necessary to calculate indices available in pliman.")
     }
     imgs <- list()
     for(i in 1:length(index)){
       indx <- index[[i]]
       if(!indx %in% ind$Index){
-        if(isTRUE(verbose)){
-          message(paste("Index '",indx,"' is not available. Trying to compute your own index.",sep = ""))
+        if (isTRUE(verbose)) {
+          cli::cli_inform(c("i" = "Index {.val {indx}} is not available. Trying to compute your own index."))
         }
+
       }
       if(isTRUE(has_white_bg)){
         R[which(R == 1 & G == 1 & B == 1)] <- NA
@@ -2139,7 +2802,7 @@ plot.image_index <- function(x,
   typeop <- typeop[pmatch(type[1], typeop)]
 
   if(!typeop %in% c("raster", "density")){
-    stop("`type` must be one of the 'raster' or 'density'. ")
+    cli::cli_abort("`type` must be one of the 'raster' or 'density'. ")
   }
   if(typeop == "density"){
     mat <-
@@ -2280,20 +2943,33 @@ image_segment <- function(img,
   }
   if(is.list(img)){
     if(!all(sapply(img, class)  %in% c("Image", "img_segment"))){
-      stop("All images must be of class 'Image'")
+      cli::cli_abort("All images must be of class {.code Image}.")
     }
     if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
-      }
-      res <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_segment(img[[i]], index, r, g, b, re, nir, threshold, k, windowsize, col_background, has_white_bg, fill_hull, erode, dilate, opening, closing, filter,invert, plot = plot, nrow, ncol)
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      cli::cli_progress_step(
+        msg        = "Processing {.val {length(img)}} images in parallel...",
+        msg_done   = "Image segmentation finished",
+        msg_failed = "Something went wrong during image segmentation."
+      )
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) {
+          image_segment(
+            im, index, r, g, b, re, nir,
+            threshold, k, windowsize,
+            col_background, has_white_bg,
+            fill_hull, erode, dilate,
+            opening, closing, filter,
+            invert, plot = plot, nrow, ncol
+          )
         }
+      )[.progress]
     } else{
       res <- lapply(img, image_segment, index, r, g, b, re, nir, threshold, k, windowsize, col_background, has_white_bg, fill_hull, erode, dilate, opening, closing, filter, invert, plot = plot, nrow, ncol)
     }
@@ -2431,20 +3107,26 @@ image_segment_iter <- function(img,
   check_ebi()
   if(is.list(img)){
     if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+      cli::cli_abort("All images must be of class {.code Image}.")
     }
     if(parallel == TRUE){
       nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if(verbose){
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images in parallel...",
+          msg_done   = "Image segmentation (iterative) finished",
+          msg_failed = "Something went wrong during the segmentation process."
+        )
       }
-      a <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_segment_iter(img[[i]], nseg, index, invert, threshold, has_white_bg, plot, verbose, nrow, ncol,  ...)
+      a <- mirai::mirai_map(
+        .x = img,
+        .f = function(im){
+          image_segment_iter(im, nseg, index, invert, threshold, has_white_bg, plot, verbose, nrow, ncol,  ...)
         }
+      )[.progress]
     } else{
       a <- lapply(img, image_segment_iter, nseg, index, invert, threshold, has_white_bg, plot, verbose, nrow, ncol, ...)
     }
@@ -2523,7 +3205,7 @@ image_segment_iter <- function(img,
                  "GRAY", "GLAI", "SAT", "CI", "SHP", "RI", "G-B", "G-R", "R-G", "R-B", "B-R", "B-G", "DGCI", "GRAY2")
       } else{
         if(length(index) != nseg){
-          stop("Length of 'index' must be equal 'nseg'.", call. = FALSE)
+          cli::cli_abort("Length of {.code index} must be equal to {.code nseg}.")
         }
         indx <- index[1]
       }
@@ -2786,7 +3468,10 @@ image_segment_manual <-  function(img,
     if(shape == "free"){
       if(vieweropt == "base"){
         plot(img)
-        message("Please, draw a perimeter to select/remove objects. Click 'Esc' to finish.")
+        cli::cli_inform(c(
+          "i" = "Please, draw a perimeter to select/remove objects. Click {.key Esc} to finish."
+        ))
+
         stop <- FALSE
         n <- 1e+06
         coor <- NULL
@@ -2819,9 +3504,9 @@ image_segment_manual <-  function(img,
     if(shape == "circle"){
       if(vieweropt == "base"){
         plot(img)
-        message("Click on the center of the circle")
+        cli::cli_alert_info("Click on the center of the circle")
         cent = unlist(locator(type = "p", n = 1, col = "red", pch = 19))
-        message("Click on the edge of the circle")
+        cli::cli_alert_info("Click on the edge of the circle")
         ext = unlist(locator(type = "p", n = 1, col = "red", pch = 19))
         radius = sqrt(sum((cent - ext)^2))
         x1 = seq(-1, 1, l = 2000)
@@ -2847,7 +3532,7 @@ image_segment_manual <-  function(img,
     if(shape == "rectangle"){
       if(vieweropt == "base"){
         plot(img)
-        message("Select 2 points drawing the diagonal that includes the area of interest.")
+        cli::cli_alert_info("Select {.val 2} points drawing the diagonal that includes the area of interest.")
         cord <- unlist(locator(type = "p", n = 2, col = "red", pch = 19))
         coor <-
           rbind(c(cord[1], cord[3]),
@@ -2946,20 +3631,37 @@ image_to_mat <- function(img,
   check_ebi()
   if(is.list(img)){
     if(!all(sapply(img, class) == "Image")){
-      stop("All images must be of class 'Image'")
+      cli::cli_abort("All images must be of class {.code Image}.")
     }
     if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.4), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
+      # decide number of workers
+      nworkers <- ifelse(is.null(workers),
+                         trunc(parallel::detectCores() * 0.4),
+                         workers)
+
+      # start mirai daemons
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      # CLI header + progress step
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Converting {.val {length(img)}} images to matrices"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images in parallel...",
+          msg_done   = "Matrix conversion complete.",
+          msg_failed = "Matrix conversion failed."
+        )
       }
-      res <-
-        foreach::foreach(i = seq_along(img)) %dofut%{
-          image_to_mat(img[[i]])
-        }
+
+      # run image_to_mat in parallel
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = pliman::image_to_mat
+      )[.progress]
+
     } else{
       res <- lapply(img, image_to_mat)
     }
@@ -3062,10 +3764,14 @@ image_palette <- function (img,
       name_ori <- match.call()[[2]]
       extens_ori <- "jpg"
     }
-    if(!colorspace[[1]]  %in% c("rgb", "hsb")){
-      warning("`colorspace` must be one of 'rgb' or 'hsb'. Setting to 'rgb'", call. = FALSE)
+    if (!colorspace[[1]] %in% c("rgb", "hsb")) {
+      cli::cli_warn(c(
+        "!" = "`colorspace` must be one of {.val 'rgb'} or {.val 'hsb'}.",
+        " " = "Setting to {.val 'rgb'}."
+      ))
       colorspace <- "rgb"
     }
+
     # remove BG if needed
     if(remove_bg){
       mask <- image_binary(img, index = "B-R", opening = 5, plot = FALSE, verbose = FALSE)[[1]]
@@ -3078,7 +3784,7 @@ image_palette <- function (img,
     nr <- nrow(img)
     if(length(dim(img)) == 1){
       if(colorspace[[1]] == "hsb"){
-        stop("HSB can only be computed with an 3 layers array (RGB)")
+        cli::cli_abort("HSB can only be computed with an 3 layers array (RGB).")
       } else{
         imb <- data.frame(B1 = rgb_to_hsb(img)[,3])
       }
@@ -3231,72 +3937,129 @@ image_palette <- function (img,
                 proportions = props))
   }
   if(missing(pattern)){
+    if(verbose){
+      cli::cli_progress_step(
+        msg = "Processing a single image. Please, wait.",
+        msg_done = "Image {.emph Successfully} analyzed!",
+        msg_failed = "Oops, something went wrong."
+      )
+    }
     help_pal(img, npal, proportional, colorspace, plot, save_image, prefix)
-  } else{
-    if(pattern %in% c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")){
+  } else {
+    # anchor purely-numeric patterns
+    if (pattern %in% as.character(0:9)) {
       pattern <- "^[0-9].*$"
     }
-    plants <- list.files(pattern = pattern, diretorio_original)
-    extensions <- as.character(sapply(plants, file_extension))
-    names_plant <- as.character(sapply(plants, file_name))
-    if(length(grep(pattern, names_plant)) == 0){
-      stop(paste("Pattern '", pattern, "' not found in '",
-                 paste(getwd(), sub(".", "", diretorio_original), sep = ""), "'", sep = ""),
-           call. = FALSE)
-    }
-    if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
-      stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
-    }
-    if(parallel == TRUE){
-      init_time <- Sys.time()
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.3), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
 
-      if(verbose == TRUE){
-        message("Processing ", length(names_plant), " images in multiple sessions (",nworkers, "). Please, wait.")
+    # list files
+    plants      <- list.files(pattern = pattern, diretorio_original)
+    extensions  <- tolower(vapply(plants, tools::file_ext,   ""))
+    names_plant <-         vapply(plants, tools::file_path_sans_ext, "")
+
+    # abort if no matches
+    if (length(plants) == 0) {
+      cli::cli_abort(c(
+        "x" = "Pattern {.val {pattern}} not found in {.path {diretorio_original}}.",
+        "i" = "Check working dir: {.path {getwd()}}"
+      ))
+    }
+
+    # abort on bad extensions
+    bad_ext <- setdiff(extensions, c("png","jpeg","jpg","tiff"))
+    if (length(bad_ext)) {
+      cli::cli_abort(c(
+        "x" = "Unsupported extension{?s}: {.val {unique(bad_ext)}} found.",
+        "i" = "Allowed: {.val png}, {.val jpeg}, {.val jpg}, {.val tiff}."
+      ))
+    }
+
+
+    if (parallel) {
+      # parallel setup
+      nworkers <- if (is.null(workers)) trunc(parallel::detectCores() * 0.3) else workers
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = "Parallel palette extraction of {.val {length(names_plant)}} images",
+          right = "Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}"
+        )
+        cli::cli_progress_step(
+          msg        = "Dispatching batches...",
+          msg_done   = "All batches complete!",
+          msg_failed = "Batch failed."
+        )
       }
 
-      results <-
-        foreach::foreach(i = seq_along(names_plant), .options.future = list(seed = TRUE)) %dofut%{
-          help_pal(names_plant[i], npal, proportional, colorspace, plot, save_image, prefix)
+      # run help_pal in parallel with mirai
+      results <- mirai::mirai_map(
+        .x = names_plant,
+        .f = function(img_path) {
+          help_pal(
+            img          = img_path,
+            npal          = npal,
+            proportional  = proportional,
+            colorspace    = colorspace,
+            plot          = plot,
+            save_image    = save_image,
+            prefix        = prefix
+          )
         }
+      )[.progress]
 
-    } else{
-      init_time <- Sys.time()
-      pb <- progress(max = length(plants), style = 4)
-      foo <- function(plants, ...){
-        if(verbose == TRUE){
-          run_progress(pb, ...)
-        }
-        help_pal(plants, npal, proportional, colorspace, plot, save_image, prefix)
+    } else {
+      # sequential processing
+      if (verbose) {
+        cli::cli_rule(
+          left  = "Sequential palette extraction of {.val {length(names_plant)}} images",
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+        cli::cli_progress_bar(
+          format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
+          total  = length(names_plant),
+          clear  = FALSE
+        )
       }
-      results <-
-        lapply(seq_along(names_plant), function(i){
-          foo(names_plant[i],
-              actual = i,
-              text = paste("Processing image", names_plant[i]))
-        })
+
+      results <- vector("list", length(names_plant))
+      for (i in seq_along(names_plant)) {
+        if (verbose) cli::cli_progress_update(status = names_plant[i])
+        results[[i]] <- help_pal(
+          img          = names_plant[i],
+          npal, proportional, colorspace, plot,
+          save_image, prefix
+        )
+      }
+
+
     }
+
+    # assemble outputs
     names(results) <- names_plant
-    proportions <- do.call(rbind, lapply(seq_along(results), function(i){
-      results[[i]]$proportions |> dplyr::mutate(img = names(results[i]), .before = 1)
+    proportions  <- do.call(rbind, lapply(seq_along(results), function(i) {
+      results[[i]]$proportions |>
+        dplyr::mutate(img = names_plant[i], .before = 1)
     }))
-    palette_list <- lapply(seq_along(results), function(i){
-      results[[i]]$palette_list
-    })
-    joint <- lapply(seq_along(results), function(i){
-      results[[i]]$joint
-    })
+    palette_list <- lapply(results, `[[`, "palette_list")
+    joint        <- lapply(results, `[[`, "joint")
     names(joint) <- names_plant
 
-    message("Done!")
-    message("Elapsed time: ", sec_to_hms(as.numeric(difftime(Sys.time(),  init_time, units = "secs"))))
-    return(list(proportions = proportions,
-                palette_list = palette_list,
-                joint = joint))
+    if (verbose) {
+      cli::cli_progress_done()
+      cli::cli_rule(
+        left  = cli::col_green("All {.val {length(names_plant)}} images processed"),
+        right = cli::col_blue("Finished on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+    }
+
+    return(list(
+      proportions  = proportions,
+      palette_list = palette_list,
+      joint        = joint
+    ))
   }
+
 }
 
 
@@ -3355,22 +4118,23 @@ image_expand <- function(img,
     right <- edge
     bottom <- edge
   }
-  if(sample_left < 2){
-    warning("`sample_left` must be > 1. Setting to 2", call. = FALSE)
+  if (sample_left < 2) {
+    cli::cli_warn("{.arg sample_left} must be > {.val 1}. Setting to {.val 2}.")
     sample_left <- 2
   }
-  if(sample_top < 2){
-    warning("`sample_top` must be > 1. Setting to 2", call. = FALSE)
+  if (sample_top < 2) {
+    cli::cli_warn("{.arg sample_top} must be > {.val 1}. Setting to {.val 2}.")
     sample_top <- 2
   }
-  if(sample_right < 2){
-    warning("`sample_right` must be > 1. Setting to 2", call. = FALSE)
+  if (sample_right < 2) {
+    cli::cli_warn("{.arg sample_right} must be > {.val 1}. Setting to {.val 2}.")
     sample_right <- 2
   }
-  if(sample_bottom < 2){
-    warning("`sample_bottom` must be > 1. Setting to 2", call. = FALSE)
+  if (sample_bottom < 2) {
+    cli::cli_warn("{.arg sample_bottom} must be > {.val 1}. Setting to {.val 2}.")
     sample_bottom <- 2
   }
+
   if(!is.null(left)){
     left_img <- img@.Data[1:sample_left,,] |> EBImage::Image(colormode = "Color")
     left_img <- EBImage::resize(left_img, w = left, h = dim(img)[2])
@@ -3583,7 +4347,7 @@ cm_to_pixels <- function(cm, dpi){
 #' @export
 npixels <- function(img){
   if(!inherits(img, "Image")){
-    stop("Image must be of class 'Image'.")
+    cli::cli_abort("Image must be of class 'Image'.")
   }
   dim <- dim(img)
   dim[[1]] * dim[[2]]
@@ -3612,7 +4376,7 @@ distance <- function(img,
   if(isTRUE(interactive())){
     if(vieweropt == "base"){
       plot(img)
-      message("Use the first mouse button to create a line in the plot.")
+      cli::cli_alert_info("Use the first mouse button to create a line in the plot.")
       coords <- locator(type = "l",
                         n = 2,
                         lwd = 2,
@@ -3703,7 +4467,11 @@ rgb_to_hsb <- function(object){
       colnames(hsb)[1] <- "id"
       colnames(hsb)[2:4] <- c("h", "s", "b")
     } else{
-      stop("Cannot obtain the RGB for each object since `object_index` argument was not used. \nHave you accidentally missed the argument `pixel_level_index = TRUE`?")
+      cli::cli_abort(c(
+        "!" = "Cannot obtain the RGB for each object since the {.arg object_index} argument was not used.",
+        "i" = "Have you accidentally missed the argument {.arg pixel_level_index} = TRUE?"
+      ))
+
     }
   }
   if (any(class(object) == "Image")){
@@ -3738,7 +4506,11 @@ rgb_to_srgb <- function(object){
         colnames(srgb)[2:4] <- c("sR", "sG", "sB")
       }
     } else{
-      stop("Cannot obtain the RGB for each object since `object_index` argument was not used. \nHave you accidentally missed the argument `pixel_level_index = TRUE`?")
+      cli::cli_abort(c(
+        "!" = "Cannot obtain the RGB for each object since the {.arg object_index} argument was not used.",
+        "i" = "Have you accidentally missed the argument {.arg pixel_level_index} = TRUE?"
+      ))
+
     }
   }
   if (any(class(object) == "Image")){
@@ -3862,20 +4634,28 @@ help_binary <- function(img,
           windowsize <- as.integer(windowsize + 1)
         }
       }
-      if (windowsize <= 2){
-        stop("windowsize must be greater than or equal to 3", call. = FALSE)
+      if (windowsize <= 2) {
+        cli::cli_abort("{.arg windowsize} must be greater than or equal to {.val 3}.")
       }
-      if (windowsize %% 2 == 0){
-        warning(sprintf("windowsize is even (%d). windowsize will be treated as %d", windowsize, windowsize + 1), call. = FALSE)
+
+      if (windowsize %% 2 == 0) {
+        cli::cli_warn(
+          "{.arg windowsize} is even ({.val {windowsize}}). It will be treated as {.val {windowsize + 1}}."
+        )
         windowsize <- as.integer(windowsize + 1)
       }
-      if (windowsize >= dim(imgs)[[1]] || windowsize >= dim(imgs)[[2]]){
-        warning("windowsize is too large. Setting to `min(dim(img)) / 3`", call. = FALSE)
+
+      if (windowsize >= dim(imgs)[[1]] || windowsize >= dim(imgs)[[2]]) {
+        cli::cli_warn(
+          "{.arg windowsize} is too large. Setting to {.code min(dim(img)) / 3}."
+        )
         windowsize <- min(dim(imgs)) / 3
       }
-      if (k > 1){
-        stop("k is out of range. k must be in [0, 1].", call. = FALSE)
+
+      if (k > 1) {
+        cli::cli_abort("{.arg k} must be in range {.val [0, 1]}.")
       }
+
       imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
     }
     if(threshold != "adaptive"){
@@ -3971,7 +4751,7 @@ help_imageindex <- function(img,
   if(any(index %in% nir_ind)){
     test_multi <- any(sapply(list(RE, NIR), class) == "try-error")
     if(isTRUE(test_multi)){
-      stop("Near-Infrared and RedeEdge bands are not available in the provided image.", call. = FALSE)
+      cli::cli_abort("Near-Infrared and RedeEdge bands are not available in the provided image.")
     }
   }
   if(isTRUE(has_white_bg)){
@@ -4073,7 +4853,7 @@ image_alpha <- function(img, mask) {
   check_ebi()
   # Check if the input image is an RGB image
   if (EBImage::colorMode(img) != 2) {
-    stop("Input image must be in RGB format.")
+    cli::cli_abort("Input image must be in RGB format.")
   }
   r <- img[,,1]
   g <- img[,,2]
@@ -4088,7 +4868,7 @@ image_alpha <- function(img, mask) {
   else if (all(dim(mask) == dim(r))) {
     alpha_layer <- array(as.numeric(mask), dim = dim(img)[1:2])
   } else {
-    stop("Mask must be either a single numeric value or a matrix with the same dimensions as the image channels.")
+    cli::cli_abort("Mask must be either a single numeric value or a matrix with the same dimensions as the image channels.")
   }
   img_with_alpha <- EBImage::combine(r, g, b, alpha_layer)
   EBImage::colorMode(img_with_alpha) <- "Color"

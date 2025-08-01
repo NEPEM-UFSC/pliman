@@ -71,12 +71,14 @@ analyze_objects_minimal <- function(img,
                                     verbose = TRUE){
   check_ebi()
   lower_noise <- ifelse(isTRUE(reference_larger), lower_noise * 3, lower_noise)
-  if(!object_size %in% c("small", "medium", "large", "elarge")){
-    stop("'object_size' must be one of 'small', 'medium', 'large', or 'elarge'")
+  if (!object_size %in% c("small", "medium", "large", "elarge")) {
+    cli::cli_abort("{.arg object_size} must be one of {.val small}, {.val medium}, {.val large}, or {.val elarge}.")
   }
-  if(!missing(img) & !missing(pattern)){
-    stop("Only one of `img` or `pattern` arguments can be used.", call. = FALSE)
+
+  if (!missing(img) && !missing(pattern)) {
+    cli::cli_abort("Only one of {.arg img} or {.arg pattern} can be used.")
   }
+
   if(is.null(dir_original)){
     diretorio_original <- paste0("./")
   } else{
@@ -161,7 +163,8 @@ analyze_objects_minimal <- function(img,
       } else{
         # when reference is used
         if(is.null(reference_area)){
-          stop("A known area must be declared when a template is used.", call. = FALSE)
+          cli::cli_abort("A known area must be declared when a template is used.")
+
         }
         if(isFALSE(reference_larger) & isFALSE(reference_smaller)){
           # segment back and fore
@@ -313,7 +316,7 @@ analyze_objects_minimal <- function(img,
 
 
       if(!is.null(lower_size) & !is.null(topn_lower) | !is.null(upper_size) & !is.null(topn_upper)){
-        stop("Only one of 'lower_*' or 'topn_*' can be used.")
+        cli::cli_abort("Only one of {.arg lower_*} or {.arg topn_*} can be used.")
       }
       ifelse(!is.null(lower_size),
              shape <- shape[shape$area > lower_size, ],
@@ -382,11 +385,14 @@ analyze_objects_minimal <- function(img,
         }
         show_mark <- ifelse(isFALSE(marker), FALSE, TRUE)
         marker <- ifelse(is.null(marker), "id", marker)
-        if(!isFALSE(show_mark) & marker != "point" & !marker %in% colnames(shape)){
-          warning("Accepted 'marker' are: {", paste(colnames(shape), collapse = ", "),
-                  "}. Drawing the object id.", call. = FALSE)
+        if (!isFALSE(show_mark) && marker != "point" && !marker %in% colnames(shape)) {
+          cli::cli_warn(c(
+            "!" = "{.arg marker} must be one of: {.val {colnames(shape)}}.",
+            "i" = "Defaulting to {.val 'id'} (object ID will be drawn)."
+          ))
           marker <- "id"
         }
+
         marker_col <- ifelse(is.null(marker_col), "white", marker_col)
         marker_size <- ifelse(is.null(marker_size), 0.75, marker_size)
         # correct the contour
@@ -464,55 +470,94 @@ analyze_objects_minimal <- function(img,
     }
 
   if(missing(pattern)){
+    if(verbose){
+      cli::cli_progress_step(
+        msg = "Processing a single image. Please, wait.",
+        msg_done = "Image {.emph Successfully} analyzed!",
+        msg_failed = "Oops, something went wrong."
+      )
+    }
     help_count(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
                show_original,  marker, marker_col, marker_size,
                save_image, prefix, dir_original, dir_processed, verbose,
                col_background, col_foreground, lower_noise)
   } else{
-    if(pattern %in% c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")){
+    if (pattern %in% as.character(0:9)) {
+      old_pattern <- pattern
       pattern <- "^[0-9].*$"
+      cli::cli_alert_info(
+        "Numeric pattern {.val {old_pattern}} converted to {.val {pattern}}."
+      )
     }
-    plants <- list.files(pattern = pattern, diretorio_original)
-    extensions <- as.character(sapply(plants, file_extension))
-    names_plant <- as.character(sapply(plants, file_name))
-    if(length(grep(pattern, names_plant)) == 0){
-      stop(paste("Pattern '", pattern, "' not found in '",
-                 paste(getwd(), sub(".", "", diretorio_original), sep = ""), "'", sep = ""),
-           call. = FALSE)
+
+    # List files
+    plants      <- list.files(path = diretorio_original, pattern = pattern)
+    extensions  <- tolower(vapply(plants, tools::file_ext,   ""))
+    names_plant <-        vapply(plants, tools::file_path_sans_ext, "")
+    imgpath <- file.path(getwd(), sub('./', '', diretorio_original)) |> trunc_path(max_chars = 50)
+
+    # Error if no matches
+    if (length(plants) == 0) {
+      cli::cli_abort(c(
+        "x" = "Pattern {.val {pattern}} not found in {.path {diretorio_original}}",
+        "i" = "Check your working directory: {.path {getwd()}}"
+      ))
     }
-    if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
-      stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
+
+    # Error on unsupported extensions
+    bad_ext <- setdiff(extensions, c("png", "jpeg", "jpg", "tiff"))
+    if (length(bad_ext) > 0) {
+      cli::cli_abort(c(
+        "x" = "Unsupported extension{?s}: {.val {unique(bad_ext)}} found.",
+        "i" = "Allowed extensions are {.val png}, {.val jpeg}, {.val jpg}, {.val tiff}."
+      ))
     }
+
     if(parallel == TRUE){
       init_time <- Sys.time()
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores()*.3), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.3), workers)
 
-      cli::cli_h2("🔄 Parallel processing started")
-      cli::cli_alert_info("Processing {length(names_plant)} images using {nworkers} workers...")
+      # Inicia workers persistentes do mirai
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0))
 
-      results <- foreach::foreach(i = seq_along(names_plant)) %dofut% {
-        help_count(
-          names_plant[i],
-          fill_hull, threshold, opening, closing, filter, erode, dilate,
-          tolerance, extension, plot, show_original, marker, marker_col,
-          marker_size, save_image, prefix, dir_original, dir_processed,
-          verbose, col_background, col_foreground, lower_noise
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Parallel processing using {nworkers} cores"),
+          right = cli::col_blue("Started on  {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg       = "Processing {.val {length(names_plant)}} images found on {.path {imgpath}}. Please, wait.",
+          msg_done  = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
         )
       }
 
-      cli::cli_alert_success("✅ Parallel processing completed in {round(Sys.time() - init_time, 2)}.")
+      # Define a função para processar cada imagem
+      process_image <- function(img) {
+        help_count(
+          img,
+          fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension, plot,
+          show_original, marker, marker_col, marker_size,
+          save_image, prefix, dir_original, dir_processed, verbose,
+          col_background, col_foreground, lower_noise
+        )
+      }
+
+      # Executa paralelamente com barra de progresso
+      results <- mirai::mirai_map(
+        .x = names_plant,
+        .f = process_image
+      )[.progress]
 
     } else{
-      init_time <- Sys.time()
-      cli::cli_h2("🔄 Sequential processing started")
-      cli::cli_alert_info("Processing {length(names_plant)} images...")
-
+      cli::cli_rule(
+        left = cli::col_blue("Analyzing {length(names_plant)} images"),
+        right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%S')}")
+      )
+      cli::cli_alert_info("Directory: {.path {imgpath}}")
       cli::cli_progress_bar(
-        name = "image_bar",
-        format = "📸 {cli::pb_bar} {cli::pb_percent} ({cli::pb_eta})",
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta} | {.val {cli::pb_status}}",
         total = length(names_plant),
         clear = FALSE
       )
@@ -520,18 +565,17 @@ analyze_objects_minimal <- function(img,
       results <- vector("list", length(names_plant))
       for (i in seq_along(names_plant)) {
         img_name <- names_plant[i]
-        cli::cli_progress_update()
+        cli::cli_progress_update(status = names_plant[i])
 
         results[[i]] <- help_count(
           img = names_plant[i],
-          fill_hull, threshold, filter, tolerance, extension, plot,
-          show_original, marker, marker_col, marker_size,
+          fill_hull, threshold, opening, closing, filter, erode, dilate,
+          tolerance, extension,  plot, show_original,  marker, marker_col, marker_size,
           save_image, prefix, dir_original, dir_processed, verbose,
           col_background, col_foreground, lower_noise
         )
       }
       cli::cli_progress_done()
-      cli::cli_alert_success("✅ Sequential processing completed in {round(Sys.time() - init_time, 2)}.")
     }
 
 
@@ -557,21 +601,102 @@ analyze_objects_minimal <- function(img,
     if("img" %in% colnames(results)){
       results <- results[, c(ncol(results), 1:ncol(results) - 1)]
     }
-    summ <- stats[stats$stat == "n", c(1, 3)]
-    if(verbose == TRUE){
-      names(summ) <- c("img", "objects")
-      cat("--------------------------------------------\n")
-      print(summ, row.names = FALSE)
-      cat("--------------------------------------------\n")
-      message("Done!")
-      message("Elapsed time: ", sec_to_hms(as.numeric(difftime(Sys.time(),  init_time, units = "secs"))))
+    nimages <- length(unique(stats$id))
+    n_img <-
+      results |>
+      dplyr::group_by(img) |>
+      dplyr::summarise(
+        n = dplyr::n(),
+        area_mean = mean(area, na.rm = TRUE),
+        area_min = min(area, na.rm = TRUE),
+        area_max = max(area, na.rm = TRUE),
+        area_sum = sum(area, na.rm = TRUE),
+        area_sd = sd(area, na.rm = TRUE)
+      )
 
+
+    if(verbose == TRUE){
+      average_n <- mean(n_img$n)
+      min_n <- min(n_img$n)
+      max_n <- max(n_img$n)
+      average_area <- mean(n_img$area_mean)
+      min_area <- min(n_img$area_max)
+      max_area <- max(n_img$area_min)
+
+      # Global statistics
+      glob_stat <- cli::ansi_columns(
+        paste(
+          c(
+            "Total objects:",
+            "Total area:",
+            "Overall mean area:",
+            "Overall SD:",
+            "Min area:",
+            "Max area:"
+          ),
+          c(
+            sum(n_img$n),
+            round(sum(n_img$area_sum, na.rm = TRUE), 2),
+            round(mean(results$area, na.rm = TRUE), 2),
+            round(sd(results$area, na.rm = TRUE), 2),
+            round(min(results$area, na.rm = TRUE), 2),
+            round(max(results$area, na.rm = TRUE), 2)
+          )
+        ),
+        width = 60,
+        fill = "rows",
+        align = "left",
+        sep = "",
+        max_cols = 2
+      )
+      cli::boxx(glob_stat, header = "Global statistics ")  |> cat(sep = "\n")
+
+      cross_imgstat <-
+        cli::ansi_columns(
+          paste(
+            c(
+              "Avg objects:",
+              "Avg sum area:",
+              "Min objects:",
+              "Max objects:",
+              "Avg area:",
+              "Avg SD area:",
+              "Min mean area:",
+              "Max mean area:"
+            ),
+            c(
+              round(mean(n_img$n), 2),
+              round(mean(n_img$area_sum, na.rm = TRUE), 2),
+              min(n_img$n),
+              max(n_img$n),
+              round(mean(n_img$area_mean, na.rm = TRUE), 2),
+              round(mean(n_img$area_sd, na.rm = TRUE), 2),
+              round(min(n_img$area_mean, na.rm = TRUE), 2),
+              round(max(n_img$area_mean, na.rm = TRUE), 2)
+            )
+          ),
+          width = 60,
+          fill = "rows",
+          align = "left",
+          sep = "",
+          max_cols = 2
+        )
+
+      cli::boxx(cross_imgstat,
+                header = "Across-image statistics (per-image averages)",
+                footer = paste0("Based on ", nimages, " images")) |>
+        cat(sep = "\n")
+
+      cli::cli_rule(
+        left = cli::col_blue("Processing successfully finished"),
+        right = cli::col_blue("on {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
+      )
     }
 
     invisible(
       structure(
         list(statistics = stats,
-             count = summ,
+             count = stats[stats$stat == "n", c(1, 3)],
              results = results),
         class = "anal_obj_ls_minimal"
       )
@@ -605,14 +730,18 @@ plot.anal_obj_minimal <- function(x,
                                   measure = "area",
                                   type = c("density", "histogram"),
                                   ...){
-  if(!which %in% c("measure", "index")){
-    stop("'which' must be one of 'measure' or 'index'", call. = FALSE)
+  if (!which %in% c("measure", "index")) {
+    cli::cli_abort("{.arg which} must be one of {.val measure} or {.val index}.")
   }
+
   nam <- colnames(x$results)
-  if(!measure %in% nam){
-    stop("Measure '", measure, "' not available in 'x'. Try one of the '",
-         paste0(nam, collapse = ", "), call. = FALSE)
+  if (!measure %in% nam) {
+    cli::cli_abort(c(
+      "x" = "Measure {.val {measure}} not available in {.arg x}.",
+      "i" = "Try one of {.val {paste(nam, collapse = \", \")}}."
+    ))
   }
+
   temp <- x$results[[measure]]
   types <- c("density", "histogram")
   matches <- grepl(type[1], types)
@@ -632,13 +761,16 @@ plot.anal_obj_ls_minimal <- function(x,
                                      measure = "area",
                                      type = c("density", "histogram"),
                                      ...){
-  if(!which %in% c("measure", "index")){
-    stop("'which' must be one of 'measure' or 'index'", call. = FALSE)
+  if (!which %in% c("measure", "index")) {
+    cli::cli_abort("{.arg which} must be one of {.val measure} or {.val index}.")
   }
+
   nam <- colnames(x$results)
-  if(!measure %in% nam){
-    stop("Measure '", measure, "' not available in 'x'. Try one of the '",
-         paste0(nam, collapse = ", "), call. = FALSE)
+  if (!measure %in% nam) {
+    cli::cli_abort(c(
+      "x" = "Measure {.val {measure}} not available in {.arg x}.",
+      "i" = "Try one of {.val {paste(nam, collapse = \", \")}}."
+    ))
   }
   temp <- x$results[[measure]]
   types <- c("density", "histogram")
