@@ -30,8 +30,8 @@ column_to_rownames <- function(.data, var = "rowname"){
   df <-
     as.data.frame(.data)  |>
     remove_rownames()
-  if(!var %in% colnames(df)){
-    stop("Variable '", var, "' not in data.", call. = FALSE)
+  if (!var %in% colnames(df)) {
+    cli::cli_abort("Variable {.val {var}} not found in data (columns are: {.val {colnames(df)}}).")
   }
   rownames(df) <- df[[var]]
   df[[var]] <- NULL
@@ -42,7 +42,7 @@ column_to_rownames <- function(.data, var = "rowname"){
 rownames_to_column <-  function(.data, var = "rowname"){
   col_names <- colnames(.data)
   if (var %in% col_names) {
-    stop("Column `", var, "` already exists in `.data`.")
+    cli::cli_abort("Column {.field {var}} already exists in {.obj .data}.")
   }
   .data[, var] <- rownames(.data)
   rownames(.data) <- NULL
@@ -237,10 +237,10 @@ get_biplot <- function(x,
                        show_unit_circle = TRUE,
                        expand = NULL){
   if(!show %in% c("both", "var", "ind")){
-    stop("`show` must be one of 'var', 'ind', or 'both'", call. = FALSE)
+    cli::cli_abort("Invalid value for {.arg show}. Must be one of 'var', 'ind', or 'both'.")
   }
   if(!inherits(x, "pca")){
-    stop("`x` must be an object computed with 'pca()'", call. = FALSE)
+    cli::cli_abort("Invalid object type for {.arg x}. Must be an object computed with {.fn pca()}.")
   }
   var <- x$var$coord
   ind <- x$ind$coord
@@ -390,10 +390,10 @@ plot.pca <- function(x,
                      axis = 1,
                      ...){
   if(!which %in% c("contrib", "cos2", "coord")){
-    stop("`show` must be one of 'contrib', 'cos2', or 'coord'", call. = FALSE)
+    cli::cli_abort("Invalid value for {.arg show}. Must be one of 'contrib', 'cos2', or 'coord'.")
   }
   if(!type %in% c("var", "ind", "biplot")){
-    stop("`show` must be one of 'var', 'ind', or 'biplot'", call. = FALSE)
+    cli::cli_abort("{.arg show} must be one of 'var', 'ind', or 'biplot'.")
   }
   rotate_x <- function(data, column_to_plot, labels_vec, rot_angle, ...) {
     data <- data[order(data[,column_to_plot], decreasing = TRUE), ]
@@ -498,39 +498,50 @@ run_progress <- function(pb,
 }
 
 check_names_dir <- function(name, names_dir, dir){
-  if(!name %in% names_dir){
-    stop(paste("'", name, "' not found in '",
-               paste(getwd(), sub(".", "", dir), sep = ""), "'", sep = ""),
-         call. = FALSE)
+  if (!name %in% names_dir) {
+    cli::cli_abort("{.val {name}} not found in {.path {file.path(getwd(), sub('.', '', dir))}}.")
   }
 }
 
 check_ebi <- function() {
   if (!requireNamespace("EBImage", quietly = TRUE)) {
+
     if (interactive()) {
-      inst <- switch(menu(c("Yes", "No"),
-                          title = "Package {EBImage} is required but not installed.\nDo you want to install it now?"),
-                     "yes", "no")
+      inst <- switch(
+        menu(c("Yes", "No"),
+             title = cli::cli_alert_danger(
+               "Package {.pkg EBImage} is required but not installed.\nDo you want to install it now?")),
+        "yes", "no"
+      )
+
       if (inst == "yes") {
         if (!requireNamespace("BiocManager", quietly = TRUE)) {
+          cli::cli_alert_info("Installing {.pkg BiocManager}...")
           install.packages("BiocManager", quiet = TRUE)
         }
+
+        cli::cli_alert_info("Installing {.pkg EBImage} from Bioconductor...")
         BiocManager::install("EBImage", update = FALSE, ask = FALSE, quiet = TRUE)
+
         if (!requireNamespace("EBImage", quietly = TRUE)) {
-          message("Installation of {EBImage} failed. Please install it manually.")
+          cli::cli_alert_danger("Installation of {.pkg EBImage} failed. Please install it manually.")
           return(FALSE)
         }
+
       } else {
-        message("To use {pliman}, please install {EBImage} following the directions at 'https://bioconductor.org/packages/EBImage'")
+        cli::cli_alert_warning("To use {.pkg pliman}, please install {.pkg EBImage} from {.url https://bioconductor.org/packages/EBImage}")
         return(FALSE)
       }
+
     } else {
-      message("Package {EBImage} is required. Please install it following the directions at 'https://bioconductor.org/packages/EBImage'")
+      cli::cli_alert_danger("Package {.pkg EBImage} is required. Please install it from {.url https://bioconductor.org/packages/EBImage}")
       return(FALSE)
     }
   }
+
   return(TRUE)
 }
+
 
 
 
@@ -559,27 +570,31 @@ correct_coords <- function(coords, nrowimg, ncolimg, nrow, ncol){
 
 check_mapview <- function() {
   packages <- c("mapview", "mapedit", "leaflet", "leafem")
-  mapv <- !requireNamespace("mapview", quietly = TRUE)
-  mape <- !requireNamespace("mapedit", quietly = TRUE)
-  leafl <- !requireNamespace("leaflet", quietly = TRUE)
-  leafe <- !requireNamespace("leafem", quietly = TRUE)
-  missing_packages <- packages[c(mapv, mape, leafl, leafe)]
-  if (length(missing_packages) > 0) {
+  missing <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]
+
+  if (length(missing) > 0) {
     if (interactive()) {
-      inst <- switch(menu(c("Yes", "No"),
-                          title = paste("Packages", paste(missing_packages, collapse = ", "),
-                                        "are required to use the `viewer = 'mapview' option`.\nDo you want to install them now?")),
-                     "yes", "no")
+      msg <- cli::cli_alert_danger(
+        "The following packages are required to use {.arg viewer = 'mapview'}: {.pkg {missing}}"
+      )
+      inst <- switch(menu(
+        c("Yes", "No"),
+        title = paste0(msg, "\nDo you want to install them now?")
+      ), "yes", "no")
+
       if (inst == "yes") {
-        install.packages(missing_packages, quiet = TRUE)
+        cli::cli_alert_info("Installing packages: {.pkg {missing}}")
+        install.packages(missing, quiet = TRUE)
       } else {
-        message("To use viewer = 'mapview', first install the required packages:", paste(missing_packages, collapse = ", "))
+        cli::cli_alert_warning("To use {.arg viewer = 'mapview'}, please install: {.pkg {missing}}")
       }
+
     } else {
-      message("To use viewer = 'mapview', first install the required packages:", paste(missing_packages, collapse = ", "))
+      cli::cli_alert_warning("To use {.arg viewer = 'mapview'}, install the following packages: {.pkg {missing}}")
     }
   }
 }
+
 
 
 # get RGB values from a mask computed with EBImage::watershed()
@@ -595,9 +610,13 @@ check_inf <- function(data){
   indx <- apply(data, 2, function(x){
     any(is.na(x) | is.infinite(x))
   })
-  if(any(indx) == TRUE){
-    warning("Columns ", paste(colnames(data[indx]), collapse = ", "), " with infinite/NA values removed.", call. = FALSE)
+  if (any(indx)) {
+    cli::cli_warn(c(
+      "!" = "The following columns contain {.val Inf} or {.val NA} values and were removed:",
+      " " = "{.val {colnames(data[indx])}}"
+    ))
   }
+
   data[,colnames(data[!indx])]
 }
 
@@ -705,97 +724,134 @@ ggplot_color <- function(n = 1){
 #' set_wd_here()
 #' open_wd_here()
 #' }
-set_wd_here <- function(path = NULL){
-  if(!requireNamespace("rstudioapi", quietly = TRUE)) {
-    if(interactive() == TRUE){
-      inst <-
-        switch(menu(c("Yes", "No"), title = "Package {rstudioapi} required but not installed.\nDo you want to install it now?"),
-               "yes", "no")
-      if(inst == "yes"){
+set_wd_here <- function(path = NULL) {
+  if (!requireNamespace("rstudioapi", quietly = TRUE)) {
+    if (interactive()) {
+      inst <- switch(menu(c("Yes", "No"),
+                          title = cli::cli_alert_danger(
+                            "Package {.pkg rstudioapi} is required but not installed.\nDo you want to install it now?"
+                          )),
+                     "yes", "no")
+
+      if (inst == "yes") {
+        cli::cli_alert_info("Installing {.pkg rstudioapi}...")
         install.packages("rstudioapi", quiet = TRUE)
-      } else{
-        message("To use `set_wd_here()`, first install {rstudioapi}.")
+      } else {
+        cli::cli_alert_warning("To use {.fn set_wd_here}, please install {.pkg rstudioapi}.")
+        return(invisible(NULL))
       }
+    } else {
+      cli::cli_alert_warning("To use {.fn set_wd_here}, please install {.pkg rstudioapi}.")
+      return(invisible(NULL))
     }
-  } else{
-    dir_path <- dirname(rstudioapi::documentPath())
-    if(!is.null(path)){
-      dir_path <- paste0(dir_path, "/", path)
-    }
-    d <- try(setwd(dir_path), TRUE)
-    if(inherits(d, "try-error")){
-      cat(paste0("Cannot change working directory to '", dir_path, "'."))
+  }
+
+  dir_path <- dirname(rstudioapi::documentPath())
+
+  if (!is.null(path)) {
+    dir_path <- file.path(dir_path, path)
+  }
+
+  d <- try(setwd(dir_path), silent = TRUE)
+
+  if (inherits(d, "try-error")) {
+    cli::cli_alert_danger("Cannot change working directory to {.path {dir_path}}.")
+    if (interactive()) {
       done <- readline(prompt = "Do you want to create this folder now? (y/n) ")
-      if(done == "y"){
-        dir.create(dir_path)
-        message("Directory '", dir_path, "' created.")
+      if (tolower(done) == "y") {
+        dir.create(dir_path, recursive = TRUE)
+        cli::cli_alert_success("Directory {.path {dir_path}} created.")
         setwd(dir_path)
-        message("Working directory set to '", dir_path, "'")
+        cli::cli_alert_success("Working directory set to {.path {dir_path}}.")
       }
-    } else{
-      message("Working directory set to '", dir_path, "'")
     }
+  } else {
+    cli::cli_alert_success("Working directory set to {.path {dir_path}}.")
   }
+
+  invisible(getwd())
 }
 
 #' @export
 #' @name utils_wd
-get_wd_here <- function(path = NULL){
-  if(!requireNamespace("rstudioapi", quietly = TRUE)) {
-    if(interactive() == TRUE){
-      inst <-
-        switch(menu(c("Yes", "No"), title = "Package {rstudioapi} required but not installed.\nDo you want to install it now?"),
-               "yes", "no")
-      if(inst == "yes"){
+get_wd_here <- function(path = NULL) {
+  if (!requireNamespace("rstudioapi", quietly = TRUE)) {
+    if (interactive()) {
+      inst <- switch(menu(c("Yes", "No"),
+                          title = cli::cli_alert_danger(
+                            "Package {.pkg rstudioapi} is required but not installed.\nDo you want to install it now?"
+                          )),
+                     "yes", "no")
+      if (inst == "yes") {
+        cli::cli_alert_info("Installing {.pkg rstudioapi}...")
         install.packages("rstudioapi", quiet = TRUE)
-      } else{
-        message("To use `get_wd_here()`, first install {rstudioapi}.")
+      } else {
+        cli::cli_alert_warning("To use {.fn get_wd_here}, please install {.pkg rstudioapi}.")
+        return(invisible(NULL))
       }
+    } else {
+      cli::cli_alert_warning("To use {.fn get_wd_here}, please install {.pkg rstudioapi}.")
+      return(invisible(NULL))
     }
-  } else{
-    dir_path <- dirname(rstudioapi::documentPath())
-    if(!is.null(path)){
-      dir_path <- paste0(dir_path, "/", path)
-    }
-    dir_path
   }
-}
-#' @export
-#' @name utils_wd
-open_wd_here <- function(path = get_wd_here()){
-  if(!requireNamespace("utils", quietly = TRUE)) {
-    if(interactive() == TRUE){
-      inst <-
-        switch(menu(c("Yes", "No"), title = "Package {utils} required but not installed.\nDo you want to install it now?"),
-               "yes", "no")
-      if(inst == "yes"){
-        install.packages("utils", quiet = TRUE)
-      } else{
-        message("To use `open_wd_here()`, first install {utils}.")
-      }
-    }
-  } else{
-    utils::browseURL(url = path)
-  }
-}
 
+  dir_path <- dirname(rstudioapi::documentPath())
+  if (!is.null(path)) {
+    dir_path <- file.path(dir_path, path)
+  }
+  return(dir_path)
+}
 #' @export
 #' @name utils_wd
-open_wd <- function(path = getwd()){
-  if(!requireNamespace("utils", quietly = TRUE)) {
-    if(interactive() == TRUE){
-      inst <-
-        switch(menu(c("Yes", "No"), title = "Package {utils} required but not installed.\nDo you want to install it now?"),
-               "yes", "no")
-      if(inst == "yes"){
+open_wd_here <- function(path = get_wd_here()) {
+  if (!requireNamespace("utils", quietly = TRUE)) {
+    if (interactive()) {
+      inst <- switch(menu(c("Yes", "No"),
+                          title = cli::cli_alert_danger(
+                            "Package {.pkg utils} is required but not installed.\nDo you want to install it now?"
+                          )),
+                     "yes", "no")
+      if (inst == "yes") {
+        cli::cli_alert_info("Installing {.pkg utils}...")
         install.packages("utils", quiet = TRUE)
-      } else{
-        message("To use `open_wd()`, first install {utils}.")
+      } else {
+        cli::cli_alert_warning("To use {.fn open_wd_here}, please install {.pkg utils}.")
+        return(invisible(NULL))
       }
+    } else {
+      cli::cli_alert_warning("To use {.fn open_wd_here}, please install {.pkg utils}.")
+      return(invisible(NULL))
     }
-  } else{
-    utils::browseURL(url = path)
   }
+
+  cli::cli_alert_info("Opening directory: {.path {path}}")
+  utils::browseURL(url = path)
+}
+#' @export
+#' @name utils_wd
+open_wd <- function(path = getwd()) {
+  if (!requireNamespace("utils", quietly = TRUE)) {
+    if (interactive()) {
+      inst <- switch(menu(c("Yes", "No"),
+                          title = cli::cli_alert_danger(
+                            "Package {.pkg utils} is required but not installed.\nDo you want to install it now?"
+                          )),
+                     "yes", "no")
+      if (inst == "yes") {
+        cli::cli_alert_info("Installing {.pkg utils}...")
+        install.packages("utils", quiet = TRUE)
+      } else {
+        cli::cli_alert_warning("To use {.fn open_wd}, please install {.pkg utils}.")
+        return(invisible(NULL))
+      }
+    } else {
+      cli::cli_alert_warning("To use {.fn open_wd}, please install {.pkg utils}.")
+      return(invisible(NULL))
+    }
+  }
+
+  cli::cli_alert_info("Opening directory: {.path {path}}")
+  utils::browseURL(url = path)
 }
 
 
@@ -807,6 +863,12 @@ used_layers <- function(indices, formula) {
   vars_extracted <- unique(unlist(regmatches(formula_lower, gregexpr("[a-z]+", formula_lower))))
   used_names <- names(indices)[names(indices) %in% vars_extracted & !is.na(indices)]
   as.numeric(indices[used_names])
+}
+unavailable_layers <- function(indices, formula) {
+  formula_lower <- tolower(formula)
+  vars_extracted <- unique(unlist(regmatches(formula_lower, gregexpr("[a-z]+", formula_lower))))
+  used_names <- names(indices)[names(indices) %in% vars_extracted & is.na(indices)]
+  which(names(indices) %in% used_names)
 }
 compute_outsize <- function(pct) {
   if (length(pct) == 1) {
@@ -835,38 +897,45 @@ add_missing_columns <- function(data) {
 }
 
 check_and_install_package <- function(pkg, reason = NULL) {
-  # Reason is optional and can describe why the package is needed
   if (!requireNamespace(pkg, quietly = TRUE)) {
 
-    # Construct the message for the package requirement
-    package_message <- paste0("Package {", pkg, "} is required", if (!is.null(reason)) paste0(" to ", reason), " but is not available.")
+    # Mensagem personalizada com ou sem razão
+    pkg_msg <- if (!is.null(reason)) {
+      cli::cli_alert_danger("Package {.pkg {pkg}} is required to {reason}, but it is not installed.")
+    } else {
+      cli::cli_alert_danger("Package {.pkg {pkg}} is required but not installed.")
+    }
 
     if (interactive()) {
-      # Interactive mode: ask the user if they want to install the package
       inst <- menu(
         choices = c("Yes", "No"),
-        title = paste0(package_message, "\nDo you want to install it now?")
+        title = paste0("Do you want to install {.pkg ", pkg, "} now?")
       )
 
-      if (inst == 1) {  # If the user selects "Yes"
-        message("Installing '", pkg, "' package...")
+      if (inst == 1) {
+        cli::cli_alert_info("Installing {.pkg {pkg}}...")
         install.packages(pkg, quiet = TRUE)
 
         if (requireNamespace(pkg, quietly = TRUE)) {
-          message("Package '", pkg, "' successfully installed.")
+          cli::cli_alert_success("Package {.pkg {pkg}} successfully installed.")
         } else {
-          stop("Package '", pkg, "' installation failed. Please try again.")
+          cli::cli_abort("Installation of {.pkg {pkg}} failed. Please try again manually.")
         }
+
       } else {
-        message("You chose not to install '", pkg, "'. The feature depending on this package will not be available.")
+        cli::cli_alert_warning("You chose not to install {.pkg {pkg}}. The feature requiring it will not be available.")
       }
 
     } else {
-      # Non-interactive mode: stop with an error message
-      stop(package_message, " Please install it manually: install.packages('", pkg, "')")
+      # Modo não interativo: erro direto
+      cli::cli_abort(c(
+        "!" = "Package {.pkg {pkg}} is required{if (!is.null(reason)) paste0(' to ', reason)}.",
+        "i" = "Please install it manually with {.code install.packages('{pkg}')}"
+      ))
     }
   }
 }
+
 
 #' Generate Version 7 UUIDs or Random UUIDs
 #'
@@ -957,14 +1026,14 @@ entropy <- function(x){
 #' filename, using a regular expression that specifically identifies the
 #' standard UUID format.
 #'
-#' @param filename A string containing the filename.
-#' @return Returns the UUID extracted from the filename as a string.
+#' @param filename A character vector containing filenames or strings
+#' @return A character vector with extracted UUIDs (or NA if none found)
+#' @export
 #' @examples
 #' library(pliman)
 #' file <- "Grãos - contagem_f68bca60-c8cf-4272-9448-3f28891a97cd.jpg"
 #' file2 <- "Grãos - contagem_f68bca60-c8cf-4272-9448-3f8891a97cd.jpg"
 #' get_uuid(file)
-#' @export
 get_uuid <- function(filename) {
   patterns <- "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"
   uuidtext <- regmatches(filename, regexpr(patterns, filename))
@@ -980,11 +1049,11 @@ get_uuid <- function(filename) {
   )
   no_uuid_idx <- which(is.na(texts))
   if (length(no_uuid_idx) > 0) {
-    warning("No UUID found in the following entries: ", paste(no_uuid_idx, collapse = ", "),
-            call. = FALSE)
+    cli::cli_warn("No UUID found in {length(no_uuid_idx)} entr{?y/ies} ({.val {filename[no_uuid_idx]}})")
   }
   return(texts)
 }
+
 
 #' Lin's Concordance Correlation Coefficient (CCC)
 #'
@@ -1047,4 +1116,16 @@ ccc <- function(data, real, predito) {
     ccc <- (2 * cov_xy) / (var_x + var_y + (mean_x - mean_y)^2)
     return(data.frame(r = r, ccc = ccc,  rmse = rmse))
   }
+}
+
+trunc_path <- function(path, max_chars = 100, sep = "...") {
+  n <- nchar(path)
+  if (n <= max_chars) return(path)
+  # allocate half the remaining length to prefix/suffix
+  half <- floor((max_chars - nchar(sep)) / 2)
+  paste0(
+    substr(path, 1, half),
+    sep,
+    substr(path, n - half + 1, n)
+  )
 }

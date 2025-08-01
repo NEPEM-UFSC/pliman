@@ -160,7 +160,7 @@ and columns, respectively) for creating a DTM using a moving window.
 Default is c(5, 5).}
 
 \item{simplify}{Removes vertices in polygons to form simpler shapes. The
-function implementation uses the Douglas–Peucker algorithm using
+function implementation uses the Douglas-Peucker algorithm using
 \code{\link[sf:geos_unary]{sf::st_simplify()}} for simplification.}
 
 \item{map_individuals}{If \code{TRUE}, the distance between objects within plots

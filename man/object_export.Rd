@@ -30,6 +30,7 @@ object_export(
   edge = 20,
   remove_bg = FALSE,
   parallel = FALSE,
+  workers = NULL,
   verbose = TRUE
 )
 }
@@ -147,6 +148,10 @@ speed up the processing time, especially when \code{pattern} is used is informed
 When \code{object_index} is informed, multiple sections will be used to extract
 the RGB values for each object in the image. This may significantly speed up
 processing time when an image has lots of objects (say >1000).}
+
+\item{workers}{A positive numeric scalar or a function specifying the number
+of parallel processes that can be active at the same time. By default, the
+number of sections is set up to 30\% of available cores.}
 
 \item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
 }

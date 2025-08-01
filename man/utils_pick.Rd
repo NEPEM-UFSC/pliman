@@ -80,7 +80,7 @@ all functions.}
 
 \item{external_device}{Logical. If \code{TRUE} (default), opens an external
 graphics window when running inside RStudio to ensure accurate point
-selection using \code{locator()}. Ignored when not in RStudio or when using
+selection using \code{\link[=locator]{locator()}}. Ignored when not in RStudio or when using
 \code{viewer = "mapview"}.}
 
 \item{plot}{Call a new \code{plot(img)} before processing? Defaults to \code{TRUE}.}

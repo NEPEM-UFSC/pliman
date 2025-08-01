@@ -56,7 +56,7 @@ image_shp <- function(img,
   viewopt <- viewopt[pmatch(viewer[[1]], viewopt)]
   if(isTRUE(interactive)){
     if(viewopt == "base"){
-      message("Select 2 points drawing the diagonal that includes the objects of interest.")
+      cli::cli_inform("Click on the image to select the corners of the bounding box.")
       plot(img)
       cord <- locator(type = "p", n = 2, col = "red", pch = 19)
       c1 <- data.frame(do.call(rbind, cord)) |> t()
@@ -212,7 +212,7 @@ object_split_shp <- function(img,
     imgs <- img
   }
   invisible(list(imgs = imgs,
-              shapefile = shps))
+                 shapefile = shps))
 }
 
 
@@ -267,144 +267,218 @@ object_export_shp <- function(img,
                               buffer_y = 0,
                               interactive = FALSE,
                               parallel = FALSE,
+                              workers = NULL,
                               verbose = TRUE,
-                              viewer = get_pliman_viewer()){
-  if(is.null(pattern)){
-    list_objects <- object_split_shp(img,
-                                     nrow = nrow,
-                                     ncol = ncol,
-                                     buffer_x = buffer_x,
-                                     buffer_y = buffer_y,
-                                     interactive = interactive,
-                                     viewer = viewer)[["imgs"]]
+                              viewer = pliman::get_pliman_viewer()) {
 
-    a <- lapply(seq_along(list_objects), function(i){
+
+  if (is.null(pattern)) {
+    if (verbose) {
+      cli::cli_rule(
+        left  = "Exporting objects from single image",
+        right = "Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}"
+      )
+    }
+
+    list_objects <- object_split_shp(
+      img,
+      nrow        = nrow,
+      ncol        = ncol,
+      buffer_x    = buffer_x,
+      buffer_y    = buffer_y,
+      interactive = interactive,
+      viewer      = viewer
+    )[["imgs"]]
+
+    lapply(seq_along(list_objects), function(i) {
       tmp <- list_objects[[i]]
-      if(isTRUE(squarize)){
-        tmp <- image_square(tmp,
-                            plot = FALSE,
-                            sample_left = 10,
-                            sample_top = 10,
-                            sample_right = 10,
-                            sample_bottom = 10)
+      if (squarize) {
+        tmp <- image_square(
+          tmp,
+          plot          = FALSE,
+          sample_left   = 10,
+          sample_top    = 10,
+          sample_right  = 10,
+          sample_bottom = 10
+        )
       }
-      image_export(tmp,
-                   name = paste0(names(list_objects[i]), format),
-                   subfolder = dir_processed)
+      image_export(
+        tmp,
+        name      = paste0(names(list_objects[i]), format),
+        subfolder = dir_processed
+      )
     })
-  } else{
-    if(is.null(dir_original)){
-      diretorio_original <- paste0("./")
-    } else{
-      diretorio_original <-
-        ifelse(grepl("[/\\]", dir_original),
-               dir_original,
-               paste0("./", dir_original))
+
+    if (verbose) {
+      cli::cli_alert_success("Done exporting objects from single image.")
     }
-    if(is.null(dir_processed)){
-      diretorio_processada <- paste0("./")
-    } else{
-      diretorio_processada <-
-        ifelse(grepl("[/\\]", dir_processed),
-               dir_processed,
-               paste0("./", dir_processed))
+    return(invisible(NULL))
+  }
+
+  dir_original   <- dir_original   %||% "./"
+  dir_processed  <- dir_processed  %||% "./"
+
+  if (pattern %in% as.character(0:9)) {
+    pattern <- "^[0-9].*$"
+  }
+
+  plants      <- list.files(path = dir_original, pattern = pattern)
+  extensions  <- tolower(vapply(plants, tools::file_ext,   ""))
+  names_plant <-         vapply(plants, tools::file_path_sans_ext, "")
+
+
+  if (length(plants) == 0) {
+    cli::cli_abort(c(
+      "x" = "Pattern {.val {pattern}} not found in {.path {dir_original}}.",
+      "i" = "Check working directory: {.path {getwd()}}"
+    ))
+  }
+  bad_ext <- setdiff(extensions, c("png","jpeg","jpg","tiff"))
+  if (length(bad_ext)) {
+    cli::cli_abort(c(
+      "x" = "Unsupported extension{?s}: {.val {unique(bad_ext)}} found.",
+      "i" = "Allowed: {.val png}, {.val jpeg}, {.val jpg}, {.val tiff}."
+    ))
+  }
+
+  init_time <- Sys.time()
+
+
+  if (parallel) {
+    init_time <- Sys.time()
+
+    # build full list of files
+    plants      <- list.files(path = dir_original, pattern = pattern)
+    names_plant <- tools::file_path_sans_ext(plants)
+
+    # ensure output dir exists up front
+    if (!dir.exists(dir_processed)) {
+      dir.create(dir_processed, recursive = TRUE)
     }
 
-    if(pattern %in% c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")){
-      pattern <- "^[0-9].*$"
+    # decide number of workers
+    nworkers <- if (is.null(workers)) ceiling(parallel::detectCores() * 0.3) else workers
+
+    # start mirai daemons
+    mirai::daemons(nworkers)
+    on.exit(mirai::daemons(0), add = TRUE)
+
+    # CLI header + progress step
+    if (verbose) {
+      cli::cli_rule(
+        left  = "Parallel shape export of {.val {length(plants)}} images",
+        right = "Started at {.val {format(init_time, '%Y-%m-%d | %H:%M:%OS0')}}"
+      )
+      cli::cli_progress_step(
+        msg      = "Dispatching {.val {length(plants)}} export tasks...",
+        msg_done = "All exports finished.",
+        msg_failed = "Export failed."
+      )
     }
-    plants <- list.files(pattern = pattern, diretorio_original)
-    extensions <- as.character(sapply(plants, file_extension))
-    names_plant <- as.character(sapply(plants, file_name))
-    if(length(grep(pattern, names_plant)) == 0){
-      stop(paste("Pattern '", pattern, "' not found in '",
-                 paste(getwd(), sub(".", "", diretorio_original), sep = ""), "'", sep = ""),
-           call. = FALSE)
-    }
-    if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
-      stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
-    }
 
-
-    if(isTRUE(parallel)){
-
-      init_time <- Sys.time()
-      nworkers <- trunc(parallel::detectCores()*.3)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-
-      if(verbose == TRUE){
-        message("Processing ", length(names_plant), " images in multiple sessions (",nworkers, "). Please, wait.")
-      }
-
-      results <-
-        foreach::foreach(i = seq_along(plants)) %dofut%{
-
-          tmpimg <- image_import(plants[[i]], path = diretorio_original)
-
-          list_objects <- object_split_shp(tmpimg,
-                                           nrow = nrow,
-                                           ncol = ncol,
-                                           buffer_x = buffer_x,
-                                           buffer_y = buffer_y,
-                                           interactive = interactive,
-                                           viewer = viewer)[["imgs"]]
-
-          a <- lapply(seq_along(list_objects), function(j){
-            tmp <- list_objects[[j]]
-            if(isTRUE(squarize)){
-              tmp <- image_square(tmp,
-                                  plot = FALSE,
-                                  sample_left = 10,
-                                  sample_top = 10,
-                                  sample_right = 10,
-                                  sample_bottom = 10)
-            }
-            image_export(tmp,
-                         name = paste0(file_name(plants[[i]]), "_", names(list_objects[j]), format),
-                         subfolder = diretorio_processada)
+    # run in parallel, exporting exactly as in the sequential version
+    res <- mirai::mirai_map(
+      .x = seq_along(plants),
+      .f = function(i) {
+        # import and split
+        tmpimg <- pliman::image_import(plants[i], path = dir_original)
+        objs <- pliman::object_split_shp(
+          tmpimg,
+          nrow        = nrow,
+          ncol        = ncol,
+          buffer_x    = buffer_x,
+          buffer_y    = buffer_y,
+          interactive = interactive,
+          viewer      = viewer
+        )[["imgs"]]
+        # for each object, optionally squarize then export
+        for (nm in names(objs)) {
+          obj <- objs[[nm]]
+          if (squarize) {
+            obj <- try(
+              pliman::image_square(
+                obj,
+                plot          = FALSE,
+                sample_left   = 10,
+                sample_top    = 10,
+                sample_right  = 10,
+                sample_bottom = 10
+              ),
+              silent = TRUE
+            ) %||% obj
           }
+
+          out_name <- paste0(
+            names_plant[i],
+            "_",
+            nm,
+            format
+          )
+          out_path <- file.path(dir_processed, out_name)
+
+          pliman::image_export(
+            obj,
+            name      = out_path,
+            subfolder = NULL
           )
         }
 
-      message("Done!")
-      message("Elapsed time: ", sec_to_hms(as.numeric(difftime(Sys.time(),  init_time, units = "secs"))))
-
-    } else{
-
-      for(i in seq_along(plants)){
-        tmpimg <- image_import(plants[[i]], path = diretorio_original)
-
-        list_objects <- object_split_shp(tmpimg,
-                                         nrow = nrow,
-                                         ncol = ncol,
-                                         buffer_x = buffer_x,
-                                         buffer_y = buffer_y,
-                                         interactive = interactive,
-                                         viewer = viewer)[["imgs"]]
-
-        a <- lapply(seq_along(list_objects), function(j){
-          tmp <- list_objects[[j]]
-          if(isTRUE(squarize)){
-            tmp <- image_square(tmp,
-                                plot = FALSE,
-                                sample_left = 10,
-                                sample_top = 10,
-                                sample_right = 10,
-                                sample_bottom = 10)
-          }
-          image_export(tmp,
-                       name = paste0(file_name(plants[[i]]), "_", names(list_objects[j]), format),
-                       subfolder = diretorio_processada)
-        })
+        NULL
       }
+    )[.progress]
+
+  } else {
+    if (verbose) {
+      cli::cli_rule(
+        left  = "Sequential shape export of {.val {length(names_plant)}} images",
+        right = "Started at {.val {format(init_time, '%Y-%m-%d | %H:%M:%OS0')}}"
+      )
+      cli::cli_progress_bar(
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
+        total  = length(names_plant),
+        clear  = FALSE
+      )
     }
 
+    for (i in seq_along(names_plant)) {
+      if (verbose) cli::cli_progress_update(status = names_plant[i])
+      tmpimg <- image_import(plants[i], path = dir_original)
+      objs   <- object_split_shp(
+        tmpimg,
+        nrow        = nrow,
+        ncol        = ncol,
+        buffer_x    = buffer_x,
+        buffer_y    = buffer_y,
+        interactive = interactive,
+        viewer      = viewer
+      )[["imgs"]]
+      lapply(seq_along(objs), function(j) {
+        tmp <- objs[[j]]
+        if (squarize) {
+          tmp <- image_square(
+            tmp,
+            plot          = FALSE,
+            sample_left   = 10,
+            sample_top    = 10,
+            sample_right  = 10,
+            sample_bottom = 10
+          )
+        }
+        image_export(
+          tmp,
+          name      = paste0(tools::file_path_sans_ext(plants[i]), "_", names(objs[j]), format),
+          subfolder = dir_processed
+        )
+      })
+    }
 
+    if (verbose) {
+      cli::cli_progress_done()
+    }
   }
 
 }
+
 
 
 #' Aligns an `Image` object by hand
@@ -412,7 +486,7 @@ object_export_shp <- function(img,
 #' [image_align()] rotate an image given a line of desired aligment along the y
 #' axis that corresponds to the alignment of the objects (e.g., field plots). By
 #' default, the aligment will be to the vertical, which means that if the drawed
-#' line have an angle < 90º parallel to the x axis, the rotation angle wil be
+#' line have an angle < 90 degrees parallel to the x axis, the rotation angle wil be
 #' negative (anticlocwise rotation).
 #'
 #' @details
@@ -460,7 +534,7 @@ image_align <- function(img,
   vieweropt <- c("base", "mapview")
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
   if(vieweropt == "base"){
-    message("Select 2 points drawing a line of desired aligment along the y axis.")
+    cli::cli_inform("Select 2 points drawing a line of desired aligment along the y axis.")
     plot(EBImage::Image(img[,,1:3], colormode = "Color"))
     cord <- locator(type = "p", n = 2, col = "red", pch = 19)
     c1 <- data.frame(do.call(rbind, cord)) |> t()
@@ -484,8 +558,9 @@ image_align <- function(img,
     } else{
       img2 <- image_rotate(img, angle = angleh, plot = plot)
     }
-    message(paste("Angle to align in the vertical: ", round(anglev, 3)))
-    message(paste("Angle to align in the horizontal: ", round(angleh, 3)))
+    cli::cli_inform("Angle to align in the vertical: {.val {round(anglev, 3)}}")
+    cli::cli_inform("Angle to align in the horizontal: {.val {round(angleh, 3)}}")
+
   } else{
     anglev <- 90 - angle
     angleh <- angle * -1
@@ -494,8 +569,8 @@ image_align <- function(img,
     } else{
       img2 <- image_rotate(img, angle = angleh, plot = plot)
     }
-    message(paste("Angle to align in the vertical: ", round(anglev, 3)))
-    message(paste("Angle to align in the horizontal: ", round(angleh, 3)))
+    cli::cli_inform("Angle to align in the vertical: {.val {round(anglev, 3)}}")
+    cli::cli_inform("Angle to align in the horizontal: {.val {round(angleh, 3)}}")
   }
   invisible(img2)
 }
@@ -653,37 +728,60 @@ analyze_objects_shp <- function(img,
   }
 
   if(parallel == TRUE){
-    nworkers <- ifelse(is.null(workers), ceiling(parallel::detectCores() * 0.3), workers)
-    future::plan(future::multisession, workers = nworkers)
-    on.exit(future::plan(future::sequential))
-    `%dofut%` <- doFuture::`%dofuture%`
+    # decide number of workers
+    nworkers <- ifelse(is.null(workers),
+                       ceiling(parallel::detectCores() * 0.3),
+                       workers)
 
-        results <-
-      foreach::foreach(i = seq_along(imgs)) %dofut%{
-        analyze_objects(imgs[[i]],
-                        index = index,
-                        segment_objects = segment_objects,
-                        r = r,
-                        g = g,
-                        b = b,
-                        re = re,
-                        nir = nir,
-                        plot = plot,
-                        object_size = object_size,
-                        object_index = object_index,
-                        veins = veins,
-                        width_at = width_at,
-                        efourier = efourier,
-                        invert = invert,
-                        watershed = watershed,
-                        opening = opening,
-                        closing = closing,
-                        filter = filter,
-                        erode = erode,
-                        dilate = dilate,
-                        return_mask = FALSE,
-                        ...)
+    # start mirai daemons
+    mirai::daemons(nworkers)
+    on.exit(mirai::daemons(0), add = TRUE)
+
+    # CLI header + progress step
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_blue("Analyzing {.val {length(imgs)}} images"),
+        right = cli::col_blue("Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+      cli::cli_progress_step(
+        msg        = "Processing {.val {length(imgs)}} images in parallel...",
+        msg_done   = "Object analysis complete.",
+        msg_failed = "Image analysis failed."
+      )
+    }
+
+    # run analyze_objects in parallel
+    results <- mirai::mirai_map(
+      .x = imgs,
+      .f = function(im) {
+        pliman::analyze_objects(
+          img             = im,
+          index           = index,
+          segment_objects = segment_objects,
+          r               = r,
+          g               = g,
+          b               = b,
+          re              = re,
+          nir             = nir,
+          plot            = plot,
+          object_size     = object_size,
+          object_index    = object_index,
+          veins           = veins,
+          width_at        = width_at,
+          efourier        = efourier,
+          invert          = invert,
+          watershed       = watershed,
+          opening         = opening,
+          closing         = closing,
+          filter          = filter,
+          erode           = erode,
+          dilate          = dilate,
+          return_mask     = FALSE,
+          ...
+        )
       }
+    )[.progress]
+
   } else{
     results <-
       lapply(seq_along(imgs), function(i){
@@ -919,7 +1017,9 @@ object_map <- function(object,
   optdirec <- c("horizontal", "vertical")
   optdirec <- pmatch(direction[[1]], optdirec)
   if(!inherits(object, "anal_obj") | object$results[1,1] != "shp1"){
-    stop("Only objects computed with `analyze_objects_shp()` can be used.")
+    cli::cli_abort(c(
+      "x" = "The object must be of class {.cls anal_obj} and computed with {.fn analyze_objects_shp()}."
+    ))
   }
   coordinates <- object$results[, c(1, 3, 4)]
   unique_values <- unique(coordinates[, by_column])
@@ -975,7 +1075,9 @@ object_map <- function(object,
 #' }
 object_mark <- function(object, col = "white"){
   if(!inherits(object, "anal_obj")){
-    stop("Only objects computed with `analyze_objects_shp()` or `analyze_objects_shp()` can be used.")
+    cli::cli_abort(c(
+      "x" = "The object must be of class {.cls anal_obj} and computed with {.fn analyze_objects_shp()}."
+    ))
   }
   coordinates <- object$results[, c("x", "y")]
   points(coordinates, col = col, pch = 16)
@@ -1072,7 +1174,9 @@ plot_index_shp <- function(object,
     }
     quant_var <- quant_var[order(get_numeric_from_img(quant_var$img)), ]
     if(!attribute %in% names(quant_var)){
-      stop("Attribute not found. Have you included it in the `object_index` argument from `analyze_objects_shp()`?", call. = FALSE)
+      cli::cli_abort(c(
+        "x" = "Attribute {.val {attribute}} not found in the object index. Have you included it in the {.arg object_index} argument from {.fn analyze_objects_shp()}?"
+      ))
     }
     num_rows <- object$shapefiles$nrow
     num_cols <- object$shapefiles$ncol
@@ -1137,8 +1241,9 @@ plot_index_shp <- function(object,
     nr <- dimsto[1]
     nc <- dimsto[2]
     npix <- nc * nr
+
     if(max_pixels > 500000){
-      message("The number of pixels is too high, which might slow the rendering process.")
+      cli::cli_inform(c("i" = "The number of pixels is {.strong very high}, which might slow the rendering process."))
     }
     if(npix > max_pixels){
       possible_downsamples <- 0:50
@@ -1150,7 +1255,7 @@ plot_index_shp <- function(object,
         downsample <- ifelse(downsample == 1, 0, downsample)
       }
       if(downsample > 0){
-        message(paste0("Using downsample = ", downsample, " so that the number of rendered pixels approximates the `max_pixels`"))
+        cli::cli_inform("Using {.arg downsample} = {.val {downsample}} so that the number of rendered pixels approximates {.arg max_pixels}.")
         rgb <- mosaic_aggregate(rgb, pct = round(100 / downsample))
       }
     }
@@ -1177,7 +1282,9 @@ plot_index_shp <- function(object,
     }
     quant_var <- quant_var[order(get_numeric_from_img(quant_var$img)), ]
     if(!attribute %in% names(quant_var)){
-      stop("Attribute not found. Have you included it in the `object_index` argument from `analyze_objects_shp()`?", call. = FALSE)
+      cli::cli_abort(c(
+        "x" = "Attribute {.val {attribute}} not found in the object index. Have you included it in the {.arg object_index} argument from {.fn analyze_objects_shp()}?"
+      ))
     }
     quant_variable <- quant_var[, attribute]
     coords_list <- object$shapefiles$shapefiles
@@ -1410,6 +1517,13 @@ measure_disease_shp <- function(img,
 
   ## apply the function to the image list
   if(missing(pattern)){
+    if(verbose){
+      cli::cli_progress_step(
+        msg = "Processing a single image. Please, wait.",
+        msg_done = "Image {.emph Successfully} analyzed!",
+        msg_failed = "Oops, something went wrong."
+      )
+    }
     results <- help_meas_shp(img,
                              nrow,
                              ncol,
@@ -1421,97 +1535,148 @@ measure_disease_shp <- function(img,
                              invert,
                              show_features,
                              ...)
-  } else{
-    if(pattern %in% c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")){
+  } else {
+
+    if (pattern %in% as.character(0:9)) {
       pattern <- "^[0-9].*$"
     }
-    plants <- list.files(pattern = pattern, diretorio_original)
-    extensions <- as.character(sapply(plants, file_extension))
-    names_plant <- as.character(sapply(plants, file_name))
-    if(length(grep(pattern, names_plant)) == 0){
-      stop(paste("'", pattern, "' pattern not found in '",
-                 paste(getwd(), sub(".", "", diretorio_original), sep = ""), "'", sep = ""),
-           call. = FALSE)
-    }
-    if(!all(extensions %in% c("png", "jpeg", "jpg", "tiff", "PNG", "JPEG", "JPG", "TIFF"))){
-      stop("Allowed extensions are .png, .jpeg, .jpg, .tiff")
+
+
+    plants      <- list.files(pattern = pattern, diretorio_original)
+    extensions  <- tolower(vapply(plants, file_extension, ""))
+    names_plant <-        vapply(plants, file_name,         "")
+
+    if (length(plants) == 0) {
+      cli::cli_abort(c(
+        "x" = "Pattern {.val {pattern}} not found in {.path {diretorio_original}}.",
+        "i" = "Working directory: {.path {getwd()}}"
+      ))
     }
 
-    if(parallel == TRUE){
-      nworkers <- ifelse(is.null(workers), ceiling(parallel::detectCores() * 0.2), workers)
-      future::plan(future::multisession, workers = nworkers)
-      on.exit(future::plan(future::sequential))
-      `%dofut%` <- doFuture::`%dofuture%`
-      if(verbose == TRUE){
-        message("Image processing using multiple sessions (",nworkers, "). Please wait.")
-      }
-      results <-
-        foreach::foreach(i = seq_along(names_plant)) %dofut%{
-          help_meas_shp(names_plant[[i]],
-                        nrow,
-                        ncol,
-                        buffer_x,
-                        buffer_y,
-                        index_lb,
-                        index_dh,
-                        threshold,
-                        invert,
-                        show_features,
-                        ...)
-        }
-    } else{
-      results <- list()
-      pb <- progress(max = length(plants), style = 4)
-      for (i in 1:length(plants)) {
-        if(verbose == TRUE){
-          run_progress(pb, actual = i,
-                       text = paste("Processing image", names_plant[i]))
-        }
-        results[[i]] <- help_meas_shp(img  = names_plant[i],
-                                      nrow,
-                                      ncol,
-                                      buffer_x,
-                                      buffer_y,
-                                      index_lb,
-                                      index_dh,
-                                      threshold,
-                                      invert,
-                                      show_features,
-                                      ...)
-      }
+    bad_ext <- setdiff(extensions, c("png","jpeg","jpg","tiff"))
+    if (length(bad_ext)) {
+      cli::cli_abort(c(
+        "x" = "Unsupported extension{?s}: {.val {unique(bad_ext)}} found.",
+        "i" = "Allowed extensions: {.val png}, {.val jpeg}, {.val jpg}, {.val tiff}."
+      ))
     }
+
+
+    if (parallel) {
+      # decide number of workers
+      nworkers <- if (is.null(workers)) ceiling(parallel::detectCores() * 0.2) else workers
+
+      # start mirai daemons
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      # CLI header + progress step
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Parallel shape measurement of {.val {length(names_plant)}} images"),
+          right = cli::col_blue("Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+        )
+        cli::cli_progress_step(
+          msg      = "Dispatching {.val {length(names_plant)}} measurement tasks...",
+          msg_done = "All measurements complete!",
+          msg_failed = "Batch measurement failed."
+        )
+      }
+
+      # run help_meas_shp in parallel
+      results <- mirai::mirai_map(
+        .x = names_plant,
+        .f = function(img_name) {
+          help_meas_shp(
+            img            = img_name,
+            nrow           = nrow,
+            ncol           = ncol,
+            buffer_x       = buffer_x,
+            buffer_y       = buffer_y,
+            index_lb       = index_lb,
+            index_dh       = index_dh,
+            threshold      = threshold,
+            invert         = invert,
+            show_features  = show_features,
+            ...
+          )
+        }
+      )[.progress]
+
+
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = "Sequential shape measurement of {.val {length(names_plant)}} images",
+          right = "Started at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}"
+        )
+        cli::cli_progress_bar(
+          format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
+          total  = length(names_plant),
+          clear  = FALSE
+        )
+      }
+
+      results <- vector("list", length(names_plant))
+      for (i in seq_along(names_plant)) {
+        if (verbose) cli::cli_progress_update(status = names_plant[i])
+        results[[i]] <- help_meas_shp(
+          img            = names_plant[i],
+          nrow, ncol,
+          buffer_x, buffer_y,
+          index_lb, index_dh,
+          threshold, invert,
+          show_features,
+          ...
+        )
+      }
+
+    }
+
+
     names(results) <- names_plant
-    if(isTRUE(show_features)){
-      stats <-
-        do.call(rbind,
-                lapply(seq_along(results), function(x){
-                  transform(results[[x]][["statistics"]],
-                            shp = img,
-                            img = names(results[x]))
-                }))[, c(1, 4, 2, 3)]
-      shape <-
-        do.call(rbind,
-                lapply(seq_along(results), function(x){
-                  transform(results[[x]][["shape"]],
-                            shp = img,
-                            img = names(results[x]))
-                }))[, c(1, 18, 2:17)]
-    } else{
-      shape <- NULL
-      stats <- NULL
-    }
-    severity <-
-      do.call(rbind,
-              lapply(seq_along(results), function(x){
-                transform(results[[x]][["severity"]],
-                          shp = img,
-                          img = names(results[x]))
-              }))[, c(1, 4, 2, 3)]
 
-    results <- list(severity = severity,
-                    shape = shape,
-                    statistics = stats)
+    # severity always present
+    severity <- do.call(rbind, lapply(seq_along(results), function(x) {
+      transform(results[[x]][["severity"]],
+                shp = names_plant[x],
+                img = names_plant[x])
+    }))[, c(1, 4, 2, 3)]
+
+    # optional features
+    if (isTRUE(show_features)) {
+      stats <- do.call(rbind, lapply(seq_along(results), function(x) {
+        transform(results[[x]][["statistics"]],
+                  shp = names_plant[x],
+                  img = names_plant[x])
+      }))[, c(1, 4, 2, 3)]
+
+      shape <- do.call(rbind, lapply(seq_along(results), function(x) {
+        transform(results[[x]][["shape"]],
+                  shp = names_plant[x],
+                  img = names_plant[x])
+      }))[, c(1, 18, 2:17)]
+    } else {
+      stats <- NULL
+      shape <- NULL
+    }
+
+    # done rule
+    if (verbose) {
+      cli::cli_progress_done()
+      cli::cli_rule(
+        left  = cli::col_green("Finished processing {.val {length(names_plant)}} images"),
+        right = cli::col_blue("Ended at {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
+      )
+    }
+
+    return(list(
+      severity   = severity,
+      shape      = shape,
+      statistics = stats
+    ))
   }
+
   invisible(structure(
     results, class = "plm_disease_byl"
   ))

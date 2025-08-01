@@ -16,7 +16,9 @@ mosaic_index(
   tir = NA,
   plot = TRUE,
   in_memory = TRUE,
-  workers = 1
+  output = c("memory", "disk"),
+  workers = 1,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -43,8 +45,15 @@ in memory. Defaults to \code{TRUE}. In most cases, this is 2-3 times faster, but
 errors can occur if \code{mosaic} is a large \code{SpatRaster}. If \code{FALSE}, raster
 algebra operations are performed on temporary files.}
 
+\item{output}{Character(1), either \code{"memory"} or \code{"disk"}.
+If \code{"memory"}, the function returns a \code{terra::SpatRaster} object assembled in memory.
+If \code{"disk"}, each index layer is written out to a temporary GeoTIFF and the function returns
+a \code{terra::SpatRaster} object that points to those rasters. Default is \code{"memory"}.}
+
 \item{workers}{numeric. The number of workers you want to use for parallel
 processing when computing multiple indexes.}
+
+\item{verbose}{Whether to display progress messages.}
 }
 \value{
 An index layer extracted/computed from the mosaic raster.
