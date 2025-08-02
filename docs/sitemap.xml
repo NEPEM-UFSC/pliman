@@ -20,6 +20,7 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/apply_fun_to_imgs.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/as_image.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/calibrate.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/ccc.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/contours.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/custom_palette.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/dist_transform.html</loc></url>
@@ -31,17 +32,22 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_power.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/efourier_shape.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/ellipse.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/entropy.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/get_pliman_viewer.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/get_uuid.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/ggplot_color.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_align.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_alpha.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_augment.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_binary.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_canny_edge.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_combine.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_contour_line.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_create.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_expand.html</loc></url>
-<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_import_inter.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_index.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_label.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/image_line_segment.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_prepare.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_segment.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/image_segment_kmeans.html</loc></url>
@@ -59,6 +65,7 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/landmarks_dist.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/landmarks_regradi.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/leading_zeros.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/line_on_halfplot.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/make_brush.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/make_mask.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/measure_disease.html</loc></url>
@@ -71,6 +78,8 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_chm.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_chm_extract.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_chm_mask.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_classify.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_clip.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_crop.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_draw.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_epsg.html</loc></url>
@@ -86,12 +95,14 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_prepare.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_project.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_resample.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_rotate.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_segment.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_segment_pick.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_to_pliman.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_to_rgb.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_vectorize.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/mosaic_view.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_bbox.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_edge.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_export.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_export_shp.html</loc></url>
@@ -110,9 +121,11 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/pliman_indexes_ican_compute.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/pliman_viewer.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/plot.image_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_bbox.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_id.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_index.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_index_shp.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_line_segment.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/plot_lw.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/poly_apex_base_angle.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/poly_pcv.html</loc></url>
@@ -127,6 +140,7 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_edit.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_interpolate.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_measures.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_operations.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_plot.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/shapefile_surface.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/summary_index.html</loc></url>
@@ -147,6 +161,7 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_stats.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_transform.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/utils_wd.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/uuid.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/watershed2.html</loc></url>
 </urlset>
 

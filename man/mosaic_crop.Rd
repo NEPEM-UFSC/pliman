@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils_mosaic.R
 \name{mosaic_crop}
 \alias{mosaic_crop}
-\title{Crop a mosaic}
+\title{Crop or Mask a Mosaic Raster}
 \usage{
 mosaic_crop(
   mosaic,
@@ -12,6 +12,7 @@ mosaic_crop(
   re = 4,
   nir = 5,
   shapefile = NULL,
+  in_memory = FALSE,
   mosaic2 = NULL,
   buffer = 0,
   show = c("rgb", "index"),
@@ -23,67 +24,66 @@ mosaic_crop(
 )
 }
 \arguments{
-\item{mosaic}{A mosaic of class \code{SpatRaster}, generally imported with
-\code{\link[=mosaic_input]{mosaic_input()}}.}
+\item{mosaic}{A \code{SpatRaster} object to be cropped.}
 
-\item{r, g, b, re, nir}{The red, green, blue, red-edge, and  near-infrared bands
-of the image, respectively. By default, the function assumes a BGR as input
-(b = 1, g = 2, r = 3). If a multispectral image is provided up to seven
-bands can be used to compute built-in indexes. There are no limitation of
-band numbers if the index is computed using the band name.}
+\item{r, g, b, re, nir}{Integer indices representing the red, green, blue, red-edge, and near-infrared
+bands of the input mosaic. Default assumes BGR format (b = 1, g = 2, r = 3).}
 
-\item{shapefile}{An optional \code{SpatVector}, that can be created with
-\code{\link[=shapefile_input]{shapefile_input()}}.}
+\item{shapefile}{An optional \code{SpatVector} (or \code{sf} object) to use as cropping/masking geometry.
+Can be created interactively with \code{\link[=shapefile_input]{shapefile_input()}}.}
 
-\item{mosaic2}{A second \code{SpatRaster} object to be used to crop the mosaic. If
-declared, \code{mosaic} will be cropped to the extent of \code{mosaic2}.}
+\item{in_memory}{Logical. If \code{TRUE}, raster processing will occur entirely in memory using \code{terra}.
+If \code{FALSE} (default), disk-based processing with GDAL will be used when appropriate.}
 
-\item{buffer}{A buffering factor to be used when a shapefile is used to crop
-the mosaic.}
+\item{mosaic2}{A second \code{SpatRaster} whose extent will be used to crop \code{mosaic}.}
 
-\item{show}{The display option for the map view. Options are "rgb" for RGB
-view and "index" for index view.}
+\item{buffer}{A numeric value indicating a buffer (in CRS units) to apply around the shapefile geometry.}
 
-\item{index}{The index to use for the index view. Defaults to "B".}
+\item{show}{A character value indicating what to display in the interactive viewer. Either \code{"rgb"} or \code{"index"}.}
 
-\item{max_pixels}{Maximum number of pixels to render in the map or plot
-(default: 500000).}
+\item{index}{The index to show if \code{show = "index"}. Default is \code{"R"}.}
 
-\item{downsample}{Downsampling factor to reduce the number of pixels
-(default: NULL). In this case, if the number of pixels in the image (width
-x height) is greater than \code{max_pixels} a downsampling factor will be
-automatically chosen so that the number of plotted pixels approximates the
-\code{max_pixels}.}
+\item{max_pixels}{Maximum number of pixels to render in the interactive viewer.}
 
-\item{type}{The cropping type. Can be either 'crop' (default) or 'mask', to
-mask the mosaic to the shapefile area.}
+\item{downsample}{Optional downsampling factor for display purposes.}
+
+\item{type}{Either \code{"crop"} (default) or \code{"mask"}:
+\itemize{
+\item \code{"crop"} crops the mosaic to the bounding box of the shapefile.
+\item \code{"mask"} sets pixels outside the shapefile geometry to \code{NA} (recommended when using exact shapes).
+}}
 
 \item{...}{Additional arguments passed to \code{\link[=mosaic_view]{mosaic_view()}}.}
 }
 \value{
-A cropped version of \code{mosaic} based on the user-defined selection.
+A cropped or masked \code{SpatRaster} object.
 }
 \description{
-Crop a \code{SpatRaster} object based on user-defined selection using an
-interactive map or plot.
+This function allows cropping of a raster mosaic interactively or programmatically:
+\itemize{
+\item \strong{Interactive Mode}: If neither \code{shapefile} nor \code{mosaic2} is provided, an interactive map
+is shown via \code{\link[=mosaic_view]{mosaic_view()}}, allowing users to draw a rectangle to define the cropping area.
+\item \strong{Shapefile Mode}: If a \code{SpatVector} is provided in \code{shapefile}, cropping or masking is performed
+based on its extent or exact shape, optionally with a buffer.
+\item \strong{Raster Mode}: If \code{mosaic2} is provided, \code{mosaic} will be cropped to match the extent of \code{mosaic2}.
+}
+
+For disk-based mosaics, cropping with shapefiles uses GDAL (\code{sf::gdal_utils()}) to improve efficiency.
 }
 \details{
-This function uses the \code{mosaic_view} function to display an
-interactive map or plot of the mosaic raster, allowing users to draw a
-rectangle to select the cropping area. The selected area is then cropped
-from the input mosaic and returned as a new \code{SpatRaster} object. If
-\code{shapefile} is declared, the mosaic will be cropped to the extent of
-\code{shapefile}.
+Crop or mask a \code{SpatRaster} object (\code{mosaic}) based on user input from an
+interactive map or by using a provided shapefile or another raster.
 }
 \examples{
 if (interactive() && requireNamespace("EBImage")) {
-library(pliman)
-# Load a raster showing the elevation of Luxembourg
-mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
+  library(pliman)
+  # Load a sample raster
+  mosaic <- mosaic_input(system.file("ex/elev.tif", package = "terra"))
 
-# Generate an interactive map using 'mapview' (works only in an interactive section)
-cropped <- mosaic_crop(mosaic)
-mosaic_view(cropped)
+  # Interactive cropping with drawn rectangle
+  cropped <- mosaic_crop(mosaic)
+
+  # View result
+  mosaic_view(cropped)
 }
-
 }
