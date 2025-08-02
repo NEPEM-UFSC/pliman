@@ -134,6 +134,8 @@ reference:
       - mosaic_analyze_iter
       - mosaic_chm
       - mosaic_chm_extract
+      - mosaic_classify
+      - mosaic_clip
       - mosaic_chm_mask
       - mosaic_extract
       - mosaic_hist
@@ -152,6 +154,7 @@ reference:
       - mosaic_prepare
       - mosaic_project
       - mosaic_resample
+      - mosaic_rotate
       - mosaic_to_pliman
       - mosaic_to_rgb
       - mosaic_view
@@ -170,6 +173,7 @@ reference:
       - shapefile_edit
       - shapefile_measures
       - shapefile_interpolate
+      - shapefile_operations
       - shapefile_surface
       - plot_id
 
@@ -187,6 +191,7 @@ reference:
       - image_binary
       - image_canny_edge
       - image_contour_line
+      - image_label
       - image_line_segment
       - image_index
       - utils_indexes
@@ -238,6 +243,7 @@ reference:
       - measure_injury
       - pliman_images
       - utils_objects
+      - object_bbox
       - object_split_shp
       - object_to_color
       - plot.anal_obj
@@ -274,6 +280,13 @@ reference:
       - ggplot_color
       - get_pliman_viewer
       - set_pliman_viewer
+      - ccc
+      - entropy
+      - get_uuid
+      - line_on_halfplot
+      - plot_bbox
+      - plot_line_segment
+      - uuid
 
   - title: "Iterative visualization"
     desc: "Tools to plot images and create polygons, points, and lines using mapview and mapedit packages."

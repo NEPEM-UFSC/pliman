@@ -1,6 +1,6 @@
 * **Package**: pliman
 * **Version**: 3.1.0
-* **Date**: 2025/06/13
+* **Date**: 2025/08/01
 * **Dependencies**
    - {pliman} depends on {EBImage} that is not on CRAN. I check this internally and provide a guide to install it. 
 * **Reverse dependencies**: None
