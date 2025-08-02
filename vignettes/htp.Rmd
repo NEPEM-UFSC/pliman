@@ -323,9 +323,7 @@ mos <-    mosaic_input(paste0(url, "lettuce.tif"), info = FALSE)
 shp <- shapefile_input(paste0(url, "lettuce.rds"), info = FALSE)
 
 # create a basemap
-bm <- mosaic_view(mos, 
-                  r = 1, g = 2, b = 3,
-                  max_pixels = 2e6) # defaults is 1e6.. so here, a bit higher resolution is used
+bm <- mosaic_view(mos, r = 1, g = 2, b = 3) # defaults is 1e6.. so here, a bit higher resolution is used
 bm + shapefile_view(shp, attribute = "p", color_regions = ggplot_color(3))
 ```
 
@@ -340,7 +338,7 @@ By setting `segment_individuals = TRUE`, `mosaic_analyze()` shifts its focus to 
 Using `segment_index = "GLI"`, we configure the analysis to segment soil and identify individual plants based on the GLI index. The analysis will return both summary statistics for each plot and a map showing the segmented individual plants.
 
 ```{r}
-indexes <- c("NGRDI", "GLI", "BGI")
+indexes <- c("NGRDI", "GLI")
 an <- mosaic_analyze(
   mosaic = mos,
   basemap = bm,
@@ -392,8 +390,6 @@ This example demonstrates how to use an orthomosaic from a soybean trial to calc
 The following steps guide you through loading the orthomosaic and corresponding shapefile, calculating vegetation indexes, and visualizing the segmented canopy coverage.
 
 ```{r}
-# Load the necessary library
-library(pliman)
 
 # Define the base URL for the example dataset
 url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/ortho/"
@@ -440,7 +436,7 @@ res <- mosaic_analyze(
 res$map_plot
 
 # create a plot to shows the NGRDI index
-bm + shapefile_view(res$result_plot, attribute = "mean.NGRDI")
+# bm + shapefile_view(res$result_plot, attribute = "mean.NGRDI")
 
 ```
 
@@ -452,6 +448,7 @@ In this example, we use a multispectral orthomosaic to compute important vegetat
 The process involves loading the multispectral mosaic and shapefile, calculating the vegetation indexes, and segmenting the plots based on the NDVI index. Additionally, an interactive map will display the segmented plots and canopy coverage metrics.
 
 ```{r}
+
 # Define the base URL for the example dataset
 url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/wheat/"
 
@@ -507,6 +504,7 @@ A Canopy Height Model (CHM) represents the height of vegetation or structures ab
 
 ### DSM and DTM are available
 ```{r }
+#| 
 # Load DSM, DTM, mask and shapefile
 url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/dsm/"
 dsm <- mosaic_input(paste0(paste0(url, "dsm.tif")), info = FALSE)
@@ -545,6 +543,7 @@ bm + shapefile_view(chmvals, attribute = "coverage")
 In field experiments, the Digital Terrain Model (DTM) is frequently obtained before sowing and represents the bare soil. But, if we could derivate DTM from DSM? If a DTM is not provided, `mosaic_chm()` will derive DTM from DSM using an interpolation strategy.
 
 ```{r }
+
 # Interpolate DTM using a moving window
 res2 <- mosaic_chm(
   dsm,
@@ -556,11 +555,11 @@ res2 <- mosaic_chm(
 # Extract CHM values
 chmvals2 <- mosaic_chm_extract(res2, shp) 
 
-# Quantile 90
-bm + shapefile_view(chmvals2, attribute = "q90")
+# Quantile 95
+bm + shapefile_view(chmvals2, attribute = "q95")
 
 # Entropy
-bm + shapefile_view(chmvals2, attribute = "entropy")
+# bm + shapefile_view(chmvals2, attribute = "entropy")
 
 ```
 
@@ -571,12 +570,13 @@ In this example, we use an RGB orthomosaic from a potato field to analyze and se
 
 
 ```{r}
+#| eval: false
 # Download and load orthomosaic and shapefile
 url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/potato/"
 mos <-    mosaic_input(paste0(url, "potato.tif"))
 shp <- shapefile_input(paste0(url, "potato.rds"))
 
-bm <- mosaic_view(mos, max_pixels = 6e6)
+bm <- mosaic_view(mos)
 
 res <-
   mosaic_analyze(
@@ -603,12 +603,15 @@ p2 <- shapefile_view(res$result_indiv, type = "centroid", attribute = "area")
 The interactive map above shows the segmented potato plants within each row. Note that some plots were not rendered due to the absence of identified plants. It is important to highlight the structure of the `res` object:
 
 ```{r}
+#| eval: false
 names(res)
 ```
 
 When `map_individuals = TRUE` is used, the `result_individ_map` object contains the distances between each plant within the plots. By default, the mapping occurs in the horizontal direction.
 
 ```{r}
+#| eval: false
+#| 
 res[["result_individ_map"]][["distances"]][["B01_P0001"]]
 ```
 
@@ -616,6 +619,7 @@ The objects `means` and `cvs` hold the average distances and coefficients of var
 
 ```{r}
 #| code-fold: true
+#| eval: false
 #| code-summary: "Show me the code"
 
 library(patchwork)
@@ -643,6 +647,8 @@ Below, we’ll explore two contrasting plots to demonstrate how this information
 
 
 ```{r}
+#| eval: false
+
 
 library(dplyr)
 par(mfrow = c(2, 1))
@@ -684,6 +690,7 @@ points(p2$x, p2$y, pch = 16,  cex = 2, col = "red")
 
 
 
+
 ## Handling complex backgrounds
 ### Challenges
 
@@ -694,6 +701,7 @@ For instance, in this section, we use an orthomosaic from a field with complex s
 
 
 ```{r}
+
 url <- "https://github.com/TiagoOlivoto/images/raw/refs/heads/master/pliman/citrus/"
 mosaic <-    mosaic_input(paste0(url, "citrus_mos.tif"), info = FALSE)
 shp <- shapefile_input(paste0(url, "citrus_shp.rds"), info = FALSE)
@@ -704,6 +712,7 @@ bm
 If you take a closer look at the orthomosaic, you'll notice that the soil background is complex, with varying colors and textures that make it challenging to separate from the plants. This complexity poses a significant challenge for threshold-based segmentation methods, which rely on clear distinctions between plants and soil to accurately identify and measure vegetation indexes. Early in this material we've seen that the GLI index is a good option to segment plants from soil. However, in this case, segmentation using threshold-based methods may not be effective due to the complex background.
 
 ```{r}
+#| eval: false
 seg <- mosaic_segment(mosaic, index = "GLI", r = 1, g = 2, b = 3)
 mosaic_plot(seg)
 ```
@@ -766,6 +775,7 @@ The identified plants are displayed on the map, color-coded by their mean NGRDI 
 
 
 ```{r}
+#| eval: false
 bm +
   shapefile_view(mos$result_indiv[-1, ],
                  attribute = "diam_mean",
@@ -778,6 +788,7 @@ The results show that the CHM-based segmentation method effectively isolates pla
 Below, we explore the individual plant data to gain deeper insights into plant health across the field.
 
 ```{r}
+#| eval: false
 coords <- shapefile_measures(mos$result_indiv[-1, ])
 model <- shapefile_interpolate(coords, z = "mean.NGRDI")
 mosaic_plot_rgb(mosaic)
@@ -814,9 +825,7 @@ Through these settings, `mosaic_vectorize()` enables  vectorization tailored to 
 
 
 ```{r}
-bm <- mosaic_view(rgb,
-                  r = 1, g = 2, b = 3,
-                  max_pixels = 5e6)
+bm <- mosaic_view(rgb, r = 1, g = 2, b = 3)
 
 # Vectorize the shapefile
 shp <- mosaic_vectorize(mask, 
@@ -824,21 +833,20 @@ shp <- mosaic_vectorize(mask,
                         erode = 15)
 bm + shapefile_view(shp)
 
-
 ```
 
 
 With the shapefile representing individual plants, we can now extract vegetation indices at the plant level. Instead of applying `mosaic_analyze()`, we’ll use `mosaic_index()` to compute specific multispectral indices.
 
 ```{r}
-
 vind <-
   mosaic_index(mes,
                index = c("RDVI", "NDVI"),
                b = 1,
                r = 2,
                nir = 3,
-               re = 4)
+               re = 4,
+               g = NA)
 
 results <- mosaic_extract(vind, shp)
 
@@ -847,10 +855,6 @@ bm + shapefile_view(
   results,
   attribute = "median.NDVI"
 )
+
 ```
 
-
-
-## Similar tools
-
-This material is focused on the {pliman} R packages. However, this is not the only tool available for high-throughput phenotyping (HTP) in R. I highly recommend exploring the pioneering R package [FIELDimageR](https://github.com/OpenDroneMap/FIELDimageR), as well as its complementary extensions [FIELDimageR-Extra](https://github.com/filipematias23/FIELDimageR.Extra), and [FIELDimageR-QGIS](https://github.com/filipematias23/FIELDimageR-QGIS), which offer additional functionalities for enhanced HTP analysis for non-R users.

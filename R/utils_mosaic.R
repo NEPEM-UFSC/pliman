@@ -703,7 +703,7 @@ mosaic_analyze <- function(mosaic,
   if(verbose){
     cli::cli_progress_bar(
       format = "{cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
-      total = seq_along(created_shapes),
+      total = length(created_shapes),
       clear = FALSE
     )
   }
@@ -1575,9 +1575,9 @@ mosaic_analyze_iter <- function(mosaic,
 
     bind <-
       mirai::mirai_map(
-      seq_along(tempfiles),
-      function(i){worker_fun(tempfiles[i], shapes[[i]])}
-    )[.progress]
+        seq_along(tempfiles),
+        function(i){worker_fun(tempfiles[i], shapes[[i]])}
+      )[.progress]
     # return(bind)
 
   } else{
@@ -2346,49 +2346,56 @@ mosaic_plot_rgb <- function(mosaic, ...){
 }
 
 
-#' Crop a mosaic
+#' Crop or Mask a Mosaic Raster
 #'
-#' Crop a `SpatRaster` object based on user-defined selection using an
-#' interactive map or plot.
+#' Crop or mask a `SpatRaster` object (`mosaic`) based on user input from an
+#' interactive map or by using a provided shapefile or another raster.
 #'
-#' @details This function uses the `mosaic_view` function to display an
-#'   interactive map or plot of the mosaic raster, allowing users to draw a
-#'   rectangle to select the cropping area. The selected area is then cropped
-#'   from the input mosaic and returned as a new `SpatRaster` object. If
-#'   `shapefile` is declared, the mosaic will be cropped to the extent of
-#'   `shapefile`.
-#' @importFrom terra crs
-#' @inheritParams mosaic_view
-#' @inheritParams mosaic_index
-#' @param r,g,b,re,nir The red, green, blue, red-edge, and  near-infrared bands
-#'   of the image, respectively. By default, the function assumes a BGR as input
-#'   (b = 1, g = 2, r = 3). If a multispectral image is provided up to seven
-#'   bands can be used to compute built-in indexes. There are no limitation of
-#'   band numbers if the index is computed using the band name.
-#' @param shapefile An optional `SpatVector`, that can be created with
-#'   [shapefile_input()].
-#' @param mosaic2 A second `SpatRaster` object to be used to crop the mosaic. If
-#'   declared, `mosaic` will be cropped to the extent of `mosaic2`.
-#' @param buffer A buffering factor to be used when a shapefile is used to crop
-#'   the mosaic.
-#' @param type The cropping type. Can be either 'crop' (default) or 'mask', to
-#'   mask the mosaic to the shapefile area.
+#' @description
+#' This function allows cropping of a raster mosaic interactively or programmatically:
+#'
+#' - **Interactive Mode**: If neither `shapefile` nor `mosaic2` is provided, an interactive map
+#'   is shown via [mosaic_view()], allowing users to draw a rectangle to define the cropping area.
+#' - **Shapefile Mode**: If a `SpatVector` is provided in `shapefile`, cropping or masking is performed
+#'   based on its extent or exact shape, optionally with a buffer.
+#' - **Raster Mode**: If `mosaic2` is provided, `mosaic` will be cropped to match the extent of `mosaic2`.
+#'
+#' For disk-based mosaics, cropping with shapefiles uses GDAL (`sf::gdal_utils()`) to improve efficiency.
+#'
+#' @param mosaic A `SpatRaster` object to be cropped.
+#' @param r,g,b,re,nir Integer indices representing the red, green, blue, red-edge, and near-infrared
+#'   bands of the input mosaic. Default assumes BGR format (b = 1, g = 2, r = 3).
+#' @param shapefile An optional `SpatVector` (or `sf` object) to use as cropping/masking geometry.
+#'   Can be created interactively with [shapefile_input()].
+#' @param mosaic2 A second `SpatRaster` whose extent will be used to crop `mosaic`.
+#' @param buffer A numeric value indicating a buffer (in CRS units) to apply around the shapefile geometry.
+#' @param in_memory Logical. If `TRUE`, raster processing will occur entirely in memory using `terra`.
+#'   If `FALSE` (default), disk-based processing with GDAL will be used when appropriate.
+#' @param show A character value indicating what to display in the interactive viewer. Either `"rgb"` or `"index"`.
+#' @param index The index to show if `show = "index"`. Default is `"R"`.
+#' @param max_pixels Maximum number of pixels to render in the interactive viewer.
+#' @param downsample Optional downsampling factor for display purposes.
+#' @param type Either `"crop"` (default) or `"mask"`:
+#'   - `"crop"` crops the mosaic to the bounding box of the shapefile.
+#'   - `"mask"` sets pixels outside the shapefile geometry to `NA` (recommended when using exact shapes).
 #' @param ... Additional arguments passed to [mosaic_view()].
 #'
-#' @return A cropped version of `mosaic` based on the user-defined selection.
+#' @return A cropped or masked `SpatRaster` object.
 #' @export
 #'
 #' @examples
 #' if (interactive() && requireNamespace("EBImage")) {
-#' library(pliman)
-#' # Load a raster showing the elevation of Luxembourg
-#' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
+#'   library(pliman)
+#'   # Load a sample raster
+#'   mosaic <- mosaic_input(system.file("ex/elev.tif", package = "terra"))
 #'
-#' # Generate an interactive map using 'mapview' (works only in an interactive section)
-#' cropped <- mosaic_crop(mosaic)
-#' mosaic_view(cropped)
+#'   # Interactive cropping with drawn rectangle
+#'   cropped <- mosaic_crop(mosaic)
+#'
+#'   # View result
+#'   mosaic_view(cropped)
 #' }
-#'
+
 mosaic_crop <- function(mosaic,
                         r = 3,
                         g = 2,
@@ -2396,6 +2403,7 @@ mosaic_crop <- function(mosaic,
                         re = 4,
                         nir = 5,
                         shapefile = NULL,
+                        in_memory = FALSE,
                         mosaic2 = NULL,
                         buffer = 0,
                         show = c("rgb", "index"),
@@ -2420,6 +2428,7 @@ mosaic_crop <- function(mosaic,
                             edit = TRUE,
                             title = "Use the 'Draw rectangle' tool to select the cropping area.",
                             ...)
+
     if(!is.na(sf::st_crs(mosaic))){
       grids <-
         sf::st_make_grid(controls$finished, n = c(1, 1)) |>
@@ -2430,14 +2439,75 @@ mosaic_crop <- function(mosaic,
         sf::st_make_grid(controls$finished, n = c(1, 1)) |>
         sf::st_transform(sf::st_crs("+proj=utm +zone=32 +datum=WGS84 +units=m"))
     }
-    cropped <- terra::crop(mosaic, grids)
+    if(!in_memory){
+      cropped <- terra::crop(mosaic, grids)
+    } else{
+
+    }
   } else{
     if(!is.null(shapefile)){
-      shp <- shapefile |> terra::vect() |> terra::buffer(buffer)
-      cropped <- terra::crop(mosaic, shp)
-      if(type[[1]] == "mask"){
-        cropped <- terra::mask(mosaic, shp)
+      crop_gdal <- function(mosaic, shp, exact, buffer = 0) {
+        bb   <- shp |> sf::st_buffer(buffer) |> sf::st_bbox()
+        opts <- c(
+          "-overwrite",
+          "-te",
+          bb[["xmin"]], bb[["ymin"]],
+          bb[["xmax"]], bb[["ymax"]]
+        )
+        if (exact) {
+          temp_path <- tempfile(fileext = ".geojson")
+          shapefile |>
+            sf::st_union() |>
+            sf::st_buffer(buffer) |>
+            sf::st_convex_hull() |>
+            sf::st_write(temp_path, driver = "GeoJSON", quiet = TRUE)
+          cutline_path <- temp_path
+          on.exit(unlink(temp_path), add = TRUE)
+          opts <- c(
+            "-cutline", cutline_path,
+            "-crop_to_cutline",
+            "-dstnodata", "nan",    # or a numeric nodata value like "255" or "-9999"
+            "-overwrite"
+          )
+        }
+        if(terra::inMemory(mosaic)){
+          tf <- paste0(tempfile(), ".tif")
+          on.exit(file.remove(tf))
+          terra::writeRaster(mosaic, filename = tf)
+          tempf <- tf
+        } else{
+          tempf <- terra::sources(mosaic)
+        }
+        out <- tempfile(fileext = ".tif")
+        suppressWarnings(
+          sf::gdal_utils(
+            util        = "warp",
+            source      = tempf,
+            destination = out,
+            options     = opts
+          )
+        )
+        return(terra::rast(out))
       }
+
+      if(type[[1]] == "crop"){
+        if(in_memory){
+          shp <- shapefile |> terra::vect() |> terra::buffer(buffer)
+          cropped <- terra::crop(mosaic, shp)
+        } else{
+          cropped <- crop_gdal(mosaic, shapefile, exact = FALSE, buffer)
+        }
+
+      } else{
+        if(in_memory){
+          shp <- shapefile |> terra::vect() |> terra::buffer(buffer)
+          cropped <- terra::mask(mosaic, shp)
+        } else{
+          cropped <- crop_gdal(mosaic, shapefile, exact = TRUE, buffer)
+        }
+
+      }
+
     }
     if(!is.null(mosaic2)){
       cropped <- terra::crop(mosaic, mosaic2)
