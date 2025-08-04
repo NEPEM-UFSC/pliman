@@ -2665,7 +2665,7 @@ mosaic_index <- function(mosaic,
     if (!all(checkind)) {
       missing <- index[!checkind]
       cli::cli_warn(
-        "Index{?es} {.val {paste(missing, collapse = \", \")}} {cli::qty(length(missing))}is/are not available. Trying to compute your own index{?es}."
+        "Index{?es} {.val {paste(missing, collapse = \", \")}} not available. Trying to compute your own index{?es}."
       )
     }
     pattern <- "\\b\\w+\\b"
