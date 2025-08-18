@@ -362,12 +362,15 @@ shapefile_build <- function(mosaic,
                             max_pixels = 1000000,
                             downsample = NULL,
                             quantiles =  c(0, 1)){
+  nomosaic <- missing(mosaic)
   check_mapview()
+  if(nomosaic){
+    mosaic <- terra::rast(nrows=180, ncols=360, nlyrs=3, crs = "EPSG:4326")
+  }
   if(terra::crs(mosaic) == ""){
     terra::crs(mosaic) <- terra::crs("EPSG:4326")
   }
   ress <- terra::res(mosaic)
-  nlyrs <- terra::nlyr(mosaic)
   if(build_shapefile){
     if(verbose){
       cli::cli_progress_step("Building the mosaic",
@@ -382,6 +385,9 @@ shapefile_build <- function(mosaic,
                              max_pixels = max_pixels,
                              downsample = downsample,
                              quantiles = quantiles)
+      if(nomosaic){
+        basemap@map <- leaflet::setView(basemap@map, lng = -51, lat = -14, zoom = 4)
+      }
     }
     if(is.null(controlpoints)){
       points <- mapedit::editMap(basemap,
@@ -398,7 +404,8 @@ shapefile_build <- function(mosaic,
                                    position = "topleft"
                                  ))
       )
-      cpoints <- points$finished |>
+      cpoints <-
+        points$finished |>
         sf::st_transform(sf::st_crs(mosaic)) |>
         point_to_polygon(n_sides = nsides)
     } else{
