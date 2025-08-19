@@ -34,8 +34,9 @@ shapefile_build(
 )
 }
 \arguments{
-\item{mosaic}{A mosaic of class \code{SpatRaster}, generally imported with
-\code{\link[=mosaic_input]{mosaic_input()}}.}
+\item{mosaic}{A \code{SpatRaster} object, typically imported using
+\code{\link[=mosaic_input]{mosaic_input()}}.  If not provided, a latitude/longitude basemap will be
+generated in the "EPSG:4326" coordinate reference system.}
 
 \item{basemap}{An optional \code{mapview} object.}
 

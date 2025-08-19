@@ -306,6 +306,9 @@ plot_id <- function(shapefile,
 #' @param sf_to_polygon Convert sf geometry like POINTS and LINES to POLYGONS?
 #'   Defaults to `FALSE`. Using `TRUE` allows using POINTS to extract values
 #'   from a raster using `exactextractr::exact_extract()`.
+#' @param mosaic A `SpatRaster` object, typically imported using
+#'   [mosaic_input()].  If not provided, a latitude/longitude basemap will be
+#'   generated in the "EPSG:4326" coordinate reference system.
 #' @param basemap An optional `mapview` object.
 #' @param controlpoints An `sf` object created with [mapedit::editMap()],
 #'   containing the polygon that defines the region of interest to be analyzed.
