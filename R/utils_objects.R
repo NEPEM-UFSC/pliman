@@ -1450,3 +1450,257 @@ plot_bbox <- function(bbox_list, col = "red") {
 }
 
 
+#' @title Plot object thumbnails at (x, y) coordinates derived from image features
+#'
+#' @description
+#' Extracts connected objects from an image, computes their features, crops each
+#' object, converts the crop to a raster with alpha, and draws each thumbnail
+#' centered at its corresponding `(x, y)` feature location in a ggplot.
+#' Optionally overlays object IDs. Caching can be used to avoid recomputing
+#' object features on repeated calls.
+#' @param img An image of class `EBImage::Image` (or compatible) from which
+#'   objects will be segmented and measured.
+#' @param x Character scalar. Name of the feature column (returned by
+#'   `get_measures(res)`) to use on the x-axis.
+#' @param y Character scalar. Name of the feature column to use on the y-axis.
+#' @param scale Numeric in (0, 1]. Relative thumbnail size as a fraction of the
+#'   data range along each axis (larger values draw larger thumbnails).
+#' @param xy_ratio Numeric scalar. Factor applied to the vertical scaling
+#'   (y-axis) of thumbnails. Use values other than 1 to stretch or compress
+#'   thumbnails vertically.
+#' @param xlab,ylab Character scalars used as x- and y-axis labels. Defaults to
+#'   `x` and `y`, respectively.
+#' @param erosion,dilatation Integer (non-negative). Size of the structuring
+#'   element for morphological erosion/dilatation of the segmented objects.
+#' @param show_id Logical. If `TRUE`, overlays object IDs at their
+#'   `x, y` locations.
+#' @param color_id Character. Color used for the ID labels when
+#'   `show_id = TRUE`.
+#' @param size_id Numeric. Text size for the ID labels when
+#'   `show_id = TRUE`.
+#' @param cache Logical. If `TRUE` (default), caches results of object
+#'   extraction using a simple key based on image dimensions and parameters.
+#' @param verbose If `TRUE` (default), shows the progress of analysis.
+#' @param ... Additional arguments forwarded to [analyze_objects()].
+#' @return A list with two elements:
+#' * `features` — a data frame (or tibble) with object-level features
+#'   returned by `get_measures(res)`. Must contain columns named `x` and `y`.
+#' * `plot` — a `ggplot` object. The thumbnail scatter plot.
+#'
+#' @section Scaling behavior:
+#' Thumbnails are sized relative to the observed ranges in `x` and `y`.
+#' If the two axes differ substantially in range, perceived thumbnail aspect
+#' on the plotting device may vary. Use `xy_ratio` to adjust vertical scaling.
+#' @importFrom grDevices as.raster rgb extendrange
+#'
+#' @export
+#' @examples
+#' if(interactive()){
+#' img <- image_pliman("potato_leaves.jpg")
+#' plot(img)
+#' res <- object_scatter(
+#'  img = img,
+#'  index = "B",
+#'  x = "area",
+#'  y = "solidity",
+#'  watershed = FALSE,
+#'  scale = 0.5
+#' )
+#' res$plot
+#'
+#' # remove cached data
+#' clear_pliman_cache()
+#' }
+#'
+
+object_scatter <- function(img,
+                           x,
+                           y,
+                           scale = 0.1,
+                           xy_ratio = 1,
+                           xlab = x,
+                           ylab = y,
+                           erosion = 5,
+                           dilatation = FALSE,
+                           show_id = FALSE,
+                           color_id = "black",
+                           size_id = 3,
+                           cache = TRUE,
+                           verbose = TRUE,
+                           ...) {
+  cache_key <- NULL
+  cache_dir <- tools::R_user_dir("pliman", which = "cache")
+
+  # ---- helpers -------------------------------------------------------------
+  ebimg_to_raster <- function(img, flip_vertical = FALSE) {
+    a <- EBImage::imageData(img)
+    w <- dim(a)[1]; h <- dim(a)[2]
+    c <- ifelse(length(dim(a)) == 3, dim(a)[3], 1)
+
+    norm01 <- function(x) {
+      r <- range(x, finite = TRUE)
+      if (!is.finite(r[1]) || r[1] == r[2]) return(ifelse(is.finite(x), 0, x))
+      (x - r[1]) / (r[2] - r[1])
+    }
+
+    if (c == 1) {
+      g <- as.vector(norm01(a)); col <- grDevices::rgb(g, g, g, 1)
+    } else {
+      r <- as.vector(norm01(a[, , 1]))
+      g <- as.vector(norm01(a[, , 2]))
+      b <- as.vector(norm01(a[, , 3]))
+      al <- if (c >= 4) as.vector(norm01(a[, , 4])) else 1
+      col <- grDevices::rgb(r, g, b, alpha = al)
+    }
+    mat <- t(matrix(col, nrow = w, ncol = h))
+    if (flip_vertical) mat <- mat[h:1, , drop = FALSE]
+    grDevices::as.raster(mat)
+  }
+
+  make_key <- function(obj) {
+    rw  <- serialize(obj, NULL, xdr = FALSE)
+    v   <- as.integer(rw)
+    mod <- .Machine$integer.max
+    h <- 0
+    for (i in seq_along(v)) {
+      h <- (h * 131 + v[i] + i) %% mod
+    }
+    sprintf("%08x", as.integer(h))
+  }
+
+  # ---- caching -------------------------------------------------------------
+  if (isTRUE(cache)) {
+    dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
+    key_input <- list(
+      img_dim    = dim(img),
+      erosion    = erosion,
+      dilatation = dilatation,
+      dots       = as.list(match.call(expand.dots = FALSE)$...)
+    )
+    cache_key  <- make_key(key_input)
+  }
+  cache_path <- if (isTRUE(cache)) file.path(cache_dir, paste0("object_scatter_", cache_key, ".rds")) else NULL
+
+  if (isTRUE(cache) && length(cache_path) && file.exists(cache_path)) {
+    if(verbose){
+      cli::cli_progress_step("Getting cached data...")
+    }
+    results <- readRDS(cache_path)
+    vals    <- results$vals
+    rasters <- results$rasters
+  } else {
+    if(verbose){
+      cli::cli_progress_step("Extracting object features...")
+    }
+    res <- analyze_objects(img,
+                           ...,
+                           erode = FALSE,
+                           dilate = FALSE,
+                           plot = FALSE,
+                           show_contour = FALSE,
+                           return_mask = TRUE,
+                           verbose = FALSE)
+
+    bb   <- object_bbox(res[["contours"]])
+    mask <- res$mask
+    if (is.numeric(erosion)) {
+      mask <- image_erode(mask, size = erosion)
+    }
+    if (is.numeric(dilatation)) {
+      mask <- image_dilate(mask, size = dilatation)
+    }
+    ima <- image_alpha(img, mask)
+
+    # base R instead of purrr::map
+    rasters <- lapply(bb, function(b) {
+      ebimg_to_raster(ima[b$x_min:b$x_max, b$y_min:b$y_max, ])
+    })
+
+    vals <- get_measures(res)
+
+    if (isTRUE(cache) && length(cache_path)) {
+      if(verbose){
+        cli::cli_progress_step(
+          "Saving data in cache. You can clear cached data with {.fn clear_pliman_cache}"
+        )
+      }
+      saveRDS(list(vals = vals, rasters = rasters), cache_path)
+    }
+  }
+
+  if(verbose){
+    cli::cli_progress_step("Putting objects in their positions...")
+  }
+
+  if (!(x %in% colnames(vals))) {
+    cli::cli_abort(c(
+      "!" = "Column {.val {x}} not found in computed features.",
+      "i" = "Available columns are: {.val {colnames(vals)}}"
+    ))
+  }
+  if (!(y %in% colnames(vals))) {
+    cli::cli_abort(c(
+      "!" = "Column {.val {y}} not found in computed features.",
+      "i" = "Available columns are: {.val {colnames(vals)}}"
+    ))
+  }
+
+  xval <- vals[[x]]
+  yval <- vals[[y]]
+
+  if (!(length(xval) == length(yval) && length(xval) == length(rasters))) {
+    cli::cli_abort(c(
+      "!" = "Inconsistent lengths detected.",
+      "x" = "`xval` has {length(xval)} values.",
+      "x" = "`yval` has {length(yval)} values.",
+      "x" = "`rasters` has {length(rasters)} elements."
+    ))
+  }
+
+  xlim0 <- range(xval)
+  ylim0 <- range(yval)
+  wpx <- vapply(rasters, ncol, integer(1))
+  hpx <- vapply(rasters, nrow, integer(1))
+  scale_x <- wpx / max(wpx) * scale
+  scale_y <- hpx / max(hpx) * scale * xy_ratio
+  xminp <- xmaxp <- yminp <- ymaxp <- numeric(length(xval))
+  for (i in seq_along(xval)) {
+    wi <- diff(xlim0) / 2 * scale_x[i]
+    hi <- diff(ylim0) / 2 * scale_y[i]
+    xminp[i] <- xval[i] - wi; xmaxp[i] <- xval[i] + wi
+    yminp[i] <- yval[i] - hi; ymaxp[i] <- yval[i] + hi
+  }
+  xlim <- extendrange(range(xminp, xmaxp))
+  ylim <- extendrange(range(yminp, ymaxp))
+  op <- par(no.readonly = TRUE)
+  on.exit(par(op), add = TRUE)
+  par(bg = "white", bty = "n")
+
+  xt <- pretty(xlim, n = 5)
+  yt <- pretty(ylim, n = 5)
+  plot(NA, xlim = range(xt), ylim = range(yt), xlab = xlab, ylab = ylab, type = "n")
+  abline(v = xt, col = "grey85", lty = "dotted")
+  abline(h = yt, col = "grey85", lty = "dotted")
+  axis(1, at = xt, labels = format(xt, trim = TRUE), lwd = 0, lwd.ticks = 1)
+  axis(2, at = yt, labels = format(yt, trim = TRUE), lwd = 0, lwd.ticks = 1)
+  # draw rasters
+  for (i in seq_along(xval)) {
+    graphics::rasterImage(
+      rasters[[i]],
+      xleft   = xminp[i],
+      ybottom = yminp[i],
+      xright  = xmaxp[i],
+      ytop    = ymaxp[i],
+      interpolate = TRUE
+    )
+  }
+
+  if (isTRUE(show_id)) {
+    graphics::text(xval, yval, labels = vals$id, col = color_id, cex = size_id / 3)
+  }
+
+  # capture a replayable plot object
+  rp <- grDevices::recordPlot()
+  invisible(list(features = vals, plot = rp))
+}
+
