@@ -1129,3 +1129,50 @@ trunc_path <- function(path, max_chars = 100, sep = "...") {
     substr(path, n - half + 1, n)
   )
 }
+
+#' Clear cached files created by pliman
+#'
+#' @description
+#' Deletes cached `.rds` files used by functions such as [object_scatter()].
+#' You can either remove the entire cache directory or only files older
+#' than a given number of days.
+#'
+#' @param all Logical. If `TRUE` (default), deletes the entire cache directory.
+#' @param days Integer (optional). If provided, removes only files older than
+#'   `days`. Ignored if `all = TRUE`.
+#'
+#' @return Invisibly returns `TRUE` if the operation was successful.
+#'
+#' @export
+#' @examples
+#' if(interactive()){
+#' # Clear everything
+#' clear_pliman_cache()
+#'
+#' # Clear only files older than 7 days
+#' clear_pliman_cache(all = FALSE, days = 7)
+#' }
+#'
+clear_pliman_cache <- function(all = TRUE, days = NULL) {
+  cache_dir <- tools::R_user_dir("pliman", which = "cache")
+
+  if (!dir.exists(cache_dir)) {
+    cli::cli_alert_info("Cache directory does not exist: {.path {cache_dir}}")
+    return(invisible(FALSE))
+  }
+
+  if (isTRUE(all)) {
+    unlink(cache_dir, recursive = TRUE, force = TRUE)
+    cli::cli_alert_success("All cached files have been removed from {.path {cache_dir}}")
+  } else if (!is.null(days)) {
+    files <- list.files(cache_dir, full.names = TRUE)
+    info  <- file.info(files)
+    old_files <- rownames(info[info$mtime < Sys.time() - days*24*60*60, ])
+    unlink(old_files, force = TRUE)
+    cli::cli_alert_success("Removed {length(old_files)} files older than {days} days from {.path {cache_dir}}")
+  } else {
+    cli::cli_alert_warning("No action taken. Use {.code all = TRUE} or set {.code days}.")
+  }
+
+  invisible(TRUE)
+}

@@ -255,6 +255,7 @@ reference:
       - object_export_shp
       - object_label
       - object_rgb
+      - object_scatter
       - pixel_index
 
 
@@ -287,6 +288,7 @@ reference:
       - plot_bbox
       - plot_line_segment
       - uuid
+      - clear_pliman_cache
 
   - title: "Iterative visualization"
     desc: "Tools to plot images and create polygons, points, and lines using mapview and mapedit packages."

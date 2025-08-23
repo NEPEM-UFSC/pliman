@@ -775,9 +775,24 @@ analyze_objects <- function(img,
                                           data = back_fore))
           pred1 <- round(predict(modelo1, newdata = original, type="response"), 0)
           foreground_background <- matrix(pred1, ncol = dim(img)[[2]])
-          if(is.numeric(filter) & filter > 1){
+
+          if(!isFALSE(filter) & filter > 1){
             foreground_background <- EBImage::medianFilter(foreground_background, size = filter)
           }
+          if(is.numeric(erode) & erode > 0){
+            foreground_background <- image_erode(foreground_background, size = erode)
+          }
+          if(is.numeric(dilate) & dilate > 0){
+            foreground_background <- image_dilate(foreground_background, size = dilate)
+          }
+          if(is.numeric(opening) & opening > 0){
+            foreground_background <- image_opening(foreground_background, size = opening)
+          }
+          if(is.numeric(closing) & closing > 0){
+            foreground_background <- image_closing(foreground_background, size = closing)
+          }
+
+
           ID <- c(foreground_background == 1)
           ID2 <- c(foreground_background == 0)
           if(isTRUE(watershed)){
