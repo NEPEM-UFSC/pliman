@@ -21,6 +21,7 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/as_image.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/calibrate.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/ccc.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/clear_pliman_cache.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/contours.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/custom_palette.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/dist_transform.html</loc></url>
@@ -110,6 +111,7 @@
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_map.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_mark.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_rgb.html</loc></url>
+<url><loc>https://nepem-ufsc.github.io/pliman/reference/object_scatter.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_split.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_split_shp.html</loc></url>
 <url><loc>https://nepem-ufsc.github.io/pliman/reference/object_to_color.html</loc></url>
