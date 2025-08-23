@@ -12,7 +12,7 @@ object_scatter(
   xy_ratio = 1,
   xlab = x,
   ylab = y,
-  erosion = 5,
+  erosion = 2,
   dilatation = FALSE,
   show_id = FALSE,
   color_id = "black",
