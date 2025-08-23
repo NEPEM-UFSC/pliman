@@ -1,3 +1,5 @@
+# pliman 3.1.1
+
 # pliman 3.1.0
 ## New Functions
 * New functions for geometric operation on shapefiles.
