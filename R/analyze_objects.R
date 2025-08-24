@@ -1064,7 +1064,8 @@ analyze_objects <- function(img,
                                     haralick = haralick,
                                     har_nbins = har_nbins,
                                     har_scales = har_scales,
-                                    har_band = har_band)
+                                    har_band = har_band,
+                                    smooth = smooth)
           object_contour <- shape$cont
           ch <- shape$ch
           shape <- shape$shape
@@ -1232,7 +1233,8 @@ analyze_objects <- function(img,
                                     haralick = haralick,
                                     har_nbins = har_nbins,
                                     har_scales = har_scales,
-                                    har_band = har_band)
+                                    har_band = har_band,
+                                    smooth = smooth)
           object_contour <- shape$cont
           ch <- shape$ch
           shape <- shape$shape
