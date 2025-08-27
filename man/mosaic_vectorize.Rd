@@ -46,12 +46,9 @@ which is the highest.}
 \item{extension}{Radius of the neighborhood in pixels for the detection of
 neighboring objects. A higher value smooths out small objects.}
 
-\item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush size)}
+\item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
+size)}, applied in hierarchical order.
 \itemize{
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
 \item \code{opening} performs an erosion followed by a dilation. This helps to
 remove small objects while preserving the shape and size of larger objects.
 \item \code{closing} performs a dilatation followed by an erosion. This helps to
@@ -61,6 +58,10 @@ integer > 1 to indicate the size of the median filtering. Higher values are
 more efficient to remove noise in the background but can dramatically impact
 the perimeter of objects, mainly for irregular perimeters such as leaves
 with serrated edges.
+\item \code{erode} puts the mask over every foreground pixel, and sets it to
+background if any of the pixels covered by the mask is from the background.
+\item \code{dilate} puts the mask over every background pixel, and sets it to
+foreground if any of the pixels covered by the mask is from the foreground.
 }}
 
 \item{fill_hull}{Fill holes in the binary image? Defaults to \code{FALSE}.}
