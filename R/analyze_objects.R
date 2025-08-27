@@ -127,11 +127,8 @@
 #'  background, and reference object, respectively (optional). If a chacarceter
 #'  is used (eg., `foreground = "fore"`), the function will search in the
 #'  current working directory a valid image named "fore".
-#' @param opening,closing,filter,erode,dilate **Morphological operations (brush size)**
-#'  * `dilate` puts the mask over every background pixel, and sets it to
-#'  foreground if any of the pixels covered by the mask is from the foreground.
-#'  * `erode` puts the mask over every foreground pixel, and sets it to
-#'  background if any of the pixels covered by the mask is from the background.
+#' @param opening,closing,filter,erode,dilate **Morphological operations (brush
+#'   size)**, applied in hierarchical order.
 #'  * `opening` performs an erosion followed by a dilation. This helps to
 #'   remove small objects while preserving the shape and size of larger objects.
 #'  * `closing` performs a dilatation followed by an erosion. This helps to
@@ -141,6 +138,10 @@
 #'  more efficient to remove noise in the background but can dramatically impact
 #'  the perimeter of objects, mainly for irregular perimeters such as leaves
 #'  with serrated edges.
+#'  * `erode` puts the mask over every foreground pixel, and sets it to
+#'  background if any of the pixels covered by the mask is from the background.
+#'  * `dilate` puts the mask over every background pixel, and sets it to
+#'  foreground if any of the pixels covered by the mask is from the foreground.
 #' @param pick_palettes  Logical argument indicating wheater the user needs to
 #'   pick up the color palettes for foreground and background for the image. If
 #'   `TRUE` [pick_palette()] will be called internally so that the user can sample
@@ -668,7 +669,8 @@ analyze_objects <- function(img,
              tolerance, extension, randomize, nrows, plot, show_original,
              show_background, marker, marker_col, marker_size, save_image,
              prefix, dir_original, dir_processed, verbose, col_background,
-             col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv){
+             col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv,
+             object_index){
       if(is.character(img)){
         all_files <- sapply(list.files(diretorio_original), file_name)
         check_names_dir(img, all_files, diretorio_original)
@@ -775,7 +777,12 @@ analyze_objects <- function(img,
                                           data = back_fore))
           pred1 <- round(predict(modelo1, newdata = original, type="response"), 0)
           foreground_background <- matrix(pred1, ncol = dim(img)[[2]])
-
+          if(is.numeric(opening) & opening > 0){
+            foreground_background <- image_opening(foreground_background, size = opening)
+          }
+          if(is.numeric(closing) & closing > 0){
+            foreground_background <- image_closing(foreground_background, size = closing)
+          }
           if(!isFALSE(filter) & filter > 1){
             foreground_background <- EBImage::medianFilter(foreground_background, size = filter)
           }
@@ -784,12 +791,6 @@ analyze_objects <- function(img,
           }
           if(is.numeric(dilate) & dilate > 0){
             foreground_background <- image_dilate(foreground_background, size = dilate)
-          }
-          if(is.numeric(opening) & opening > 0){
-            foreground_background <- image_opening(foreground_background, size = opening)
-          }
-          if(is.numeric(closing) & closing > 0){
-            foreground_background <- image_closing(foreground_background, size = closing)
           }
 
 
@@ -938,6 +939,12 @@ analyze_objects <- function(img,
                                             family = binomial("logit"),
                                             data = back_fore))
             img_bf <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
+            if(is.numeric(opening) & opening > 0){
+              img_bf <- image_opening(img_bf, size = opening)
+            }
+            if(is.numeric(closing) & closing > 0){
+              img_bf <- image_closing(img_bf, size = closing)
+            }
             if(!isFALSE(filter) & filter > 1){
               img_bf <- EBImage::medianFilter(img_bf, filter)
             }
@@ -946,12 +953,6 @@ analyze_objects <- function(img,
             }
             if(is.numeric(dilate) & dilate > 0){
               img_bf <- image_dilate(img_bf, size = dilate)
-            }
-            if(is.numeric(opening) & opening > 0){
-              img_bf <- image_opening(img_bf, size = opening)
-            }
-            if(is.numeric(closing) & closing > 0){
-              img_bf <- image_closing(img_bf, size = closing)
             }
           } else{
             img_bf <-
@@ -999,6 +1000,12 @@ analyze_objects <- function(img,
                                             family = binomial("logit"),
                                             data = back_fore))
             img4 <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
+            if(is.numeric(opening) & opening > 0){
+              img4 <- image_opening(img4, size = opening)
+            }
+            if(is.numeric(closing) & closing > 0){
+              img4 <- image_closing(img4, size = closing)
+            }
             if(!isFALSE(filter) & filter > 1){
               img4 <- EBImage::medianFilter(img4, filter)
             }
@@ -1007,12 +1014,6 @@ analyze_objects <- function(img,
             }
             if(is.numeric(dilate) & dilate > 0){
               img4 <- image_dilate(img4, size = dilate)
-            }
-            if(is.numeric(opening) & opening > 0){
-              img4 <- image_opening(img4, size = opening)
-            }
-            if(is.numeric(closing) & closing > 0){
-              img4 <- image_closing(img4, size = closing)
             }
           } else{
             img4 <-
@@ -1425,6 +1426,11 @@ analyze_objects <- function(img,
                       contours = object_contour,
                       parms = list(index = index, object_index = object_index_used))
       class(results) <- "anal_obj"
+      if(!is.null(object_index)){
+        shape_markers <- cbind(shape, indexes)
+      } else{
+        shape_markers <- shape
+      }
       if(plot == TRUE | save_image == TRUE){
         backg <- !is.null(col_background)
         # color for background
@@ -1485,9 +1491,9 @@ analyze_objects <- function(img,
         }
         show_mark <- ifelse(isFALSE(marker), FALSE, TRUE)
         marker <- ifelse(is.null(marker), "id", marker)
-        if (!isFALSE(show_mark) && marker != "point" && !marker %in% colnames(shape)) {
+        if (!isFALSE(show_mark) && marker != "point" && !marker %in% colnames(shape_markers)) {
           cli::cli_warn(
-            "Accepted {.arg marker} values are: {.val {paste(colnames(shape), collapse = \", \")}}. Drawing the object id instead."
+            "Accepted {.arg marker} values are: {.val {paste(colnames(shape_markers), collapse = \", \")}}. Drawing the object id instead."
           )
           marker <- "id"
         }
@@ -1509,9 +1515,9 @@ analyze_objects <- function(img,
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              text(shape[, 2] + 1,
-                   shape[, 3] + 1,
-                   round(shape[, marker], 2),
+              text(shape_markers[, 2] + 1,
+                   shape_markers[, 3] + 1,
+                   round(shape_markers[, marker], 3),
                    col = marker_col,
                    cex = marker_size)
             }
@@ -1527,8 +1533,8 @@ analyze_objects <- function(img,
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              points(shape[, 2] + 1,
-                     shape[, 3] + 1,
+              points(shape_markers[, 2] + 1,
+                     shape_markers[, 3] + 1,
                      col = marker_col,
                      pch = 16,
                      cex = marker_size)
@@ -1563,9 +1569,9 @@ analyze_objects <- function(img,
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              text(shape[, 2] + 1,
-                   shape[, 3] + 1,
-                   round(shape[, marker], 2),
+              text(shape_markers[, 2] + 1,
+                   shape_markers[, 3] + 1,
+                   round(shape_markers[, marker], 3),
                    col = marker_col,
                    cex = marker_size)
             }
@@ -1578,8 +1584,8 @@ analyze_objects <- function(img,
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              points(shape[, 2] + 1,
-                     shape[, 3] + 1,
+              points(shape_markers[, 2] + 1,
+                     shape_markers[, 3] + 1,
                      col = marker_col,
                      pch = 16,
                      cex = marker_size)
@@ -1610,7 +1616,8 @@ analyze_objects <- function(img,
                tolerance , extension, randomize, nrows, plot, show_original,
                show_background, marker, marker_col, marker_size, save_image, prefix,
                dir_original, dir_processed, verbose, col_background,
-               col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv)
+               col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv,
+               object_index)
   } else{
     if(pattern %in% as.character(0:9)){
       pattern <- "^[0-9].*$"
@@ -1651,21 +1658,28 @@ analyze_objects <- function(img,
       }
 
       # Cria uma função wrapper com todos os argumentos
-      process_image <- function(img) {
-        help_count(
-          img = img,
-          foreground, background, pick_palettes, resize, fill_hull, threshold,
-          erode, dilate, opening, closing, filter, tolerance, extension,
-          randomize, nrows, plot, show_original, show_background, marker,
-          marker_col, marker_size, save_image, prefix, dir_original,
-          dir_processed, verbose, col_background, col_foreground,
-          lower_noise, ab_angles, ab_angles_percentiles,
-          width_at, width_at_percentiles, return_mask, pcv
-        )
-      }
+      # process_image <- function(img) {
+      #   help_count(
+      #     img = img,
+      #     foreground, background, pick_palettes, resize, fill_hull, threshold,
+      #     erode, dilate, opening, closing, filter, tolerance, extension,
+      #     randomize, nrows, plot, show_original, show_background, marker,
+      #     marker_col, marker_size, save_image, prefix, dir_original,
+      #     dir_processed, verbose, col_background, col_foreground,
+      #     lower_noise, ab_angles, ab_angles_percentiles,
+      #     width_at, width_at_percentiles, return_mask, pcv, object_index
+      #   )
+      # }
       results <- mirai::mirai_map(
         .x = names_plant,
-        .f = process_image
+        .f = help_count,
+        .args = list(          foreground, background, pick_palettes, resize, fill_hull, threshold,
+                               erode, dilate, opening, closing, filter, tolerance, extension,
+                               randomize, nrows, plot, show_original, show_background, marker,
+                               marker_col, marker_size, save_image, prefix, dir_original,
+                               dir_processed, verbose, col_background, col_foreground,
+                               lower_noise, ab_angles, ab_angles_percentiles,
+                               width_at, width_at_percentiles, return_mask, pcv, object_index)
       )[.progress]
 
     } else {
@@ -1712,7 +1726,7 @@ analyze_objects <- function(img,
       do.call(rbind,
               lapply(seq_along(results), function(i){
                 transform(results[[i]][["statistics"]],
-                          id =  names(results[i]))[,c(3, 1, 2)]
+                          img =  names(results[i]))[,c(3, 1, 2)]
               })
       )
 
