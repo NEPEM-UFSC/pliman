@@ -3785,7 +3785,7 @@ mosaic_chm <- function(dsm,
     cli::cli_abort("{.arg interpolation} must be one of {.val Tps} or {.val Kriging}.")
   }
   # Check if fields is installed
-  # check_and_install_package("fields")
+  check_and_install_package("fields")
   sampp <- NULL
   ch1 <- !inherits(dsm,"SpatRaster") || !terra::nlyr(dsm) == 1 || terra::is.bool(dsm) || is.list(dsm)
   if(ch1){
