@@ -159,7 +159,7 @@ apply_fun_to_imgs <- function(pattern,
       cli::cli_progress_bar(
         format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} [ETA: {cli::pb_eta}] | Current: {.val {cli::pb_status}}",
         total  = length(imgs),
-        clear  = FALSE
+        clear  = TRUE
       )
     }
 

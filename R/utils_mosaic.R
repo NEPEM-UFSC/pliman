@@ -1590,7 +1590,7 @@ mosaic_analyze_iter <- function(mosaic,
       cli::cli_progress_bar(
         format = "{cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
         total  = nrow(shapefile),
-        clear  = FALSE
+        clear  = TRUE
       )
     }
     for (i in seq_along(tempfiles)) {
@@ -2789,7 +2789,7 @@ mosaic_index <- function(mosaic,
         cli::cli_progress_bar(
           format = "{cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
           total  = length(unique(index)),
-          clear  = FALSE
+          clear  = TRUE
         )
       }
 

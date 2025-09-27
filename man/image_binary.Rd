@@ -14,7 +14,7 @@ image_binary(
   nir = 5,
   return_class = "ebimage",
   threshold = c("Otsu", "adaptive"),
-  k = 0.1,
+  k = 0.15,
   windowsize = NULL,
   has_white_bg = FALSE,
   resize = FALSE,

@@ -145,7 +145,7 @@ measure_injury <- function(img = NULL,
       cli::cli_progress_bar(
         format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
         total  = length(files),
-        clear  = FALSE
+        clear  = TRUE
       )
     }
 
