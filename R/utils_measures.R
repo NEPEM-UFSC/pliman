@@ -20,6 +20,7 @@
 #' * `radius_max` The known maximum radius of the object. If the object is a
 #' square, then the `radius_max` of such object according to the Pythagorean
 #' theorem will be `L x sqrt(2) / 2` where `L` is the length of the square side.
+#' @param prefix,suffix A prefix/suffix to be added to the plotted measures.
 #' @param id An object in the image to indicate a known value.
 #' @param dpi A known resolution of the image in DPI (dots per inch).
 #' @param sep Regular expression to manage file names. The function combines in
@@ -485,6 +486,8 @@ get_measures <- function(object,
 #' @export
 plot_measures <- function(object,
                           measure = "id",
+                          prefix = "",
+                          suffix = "",
                           id = NULL,
                           hjust = NULL,
                           vjust = NULL,
@@ -532,7 +535,7 @@ plot_measures <- function(object,
     if(measure %in% colnames(object)){
       text(x = object[,2] + hjust,
            y = object[,3] - vjust,
-           labels = round(object[, which(colnames(object) == measure)], digits),
+           labels = paste0(prefix, round(object[, which(colnames(object) == measure)], digits), suffix),
            col = col,
            cex = size,
            ...)
@@ -548,7 +551,7 @@ plot_measures <- function(object,
         text(
           x = index[, 2] + hjust,
           y = index[, 3] - vjust,
-          labels = round(index[, which(colnames(index) == measure)], digits),
+          labels = paste0(prefix, round(index[, which(colnames(index) == measure)], digits), suffix),
           col = col,
           cex = size,
           ...
@@ -596,7 +599,7 @@ plot_measures <- function(object,
 
       text(x = object[,2] + hjust,
            y = object[,3] - vjust,
-           labels = round(object[, which(colnames(object) == measure)], digits),
+           labels = paste0(prefix, round(object[, which(colnames(object) == measure)], digits), suffix),
            col = col,
            cex = size,
            ...)
@@ -612,10 +615,10 @@ plot_measures <- function(object,
         text(
           x = object[, 2] + hjust,
           y = object[, 3] - vjust,
-          labels = round(
+          labels = paste0(prefix, round(
             index[which(index$id %in% object$id), which(colnames(index) == measure)],
             digits
-          ),
+          ), suffix),
           col = col,
           cex = size,
           ...
