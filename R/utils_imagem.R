@@ -2430,7 +2430,7 @@ image_binary <- function(img,
                          nir = 5,
                          return_class = "ebimage",
                          threshold = c("Otsu", "adaptive"),
-                         k = 0.1,
+                         k = 0.15,
                          windowsize = NULL,
                          has_white_bg = FALSE,
                          resize = FALSE,
@@ -2466,7 +2466,8 @@ image_binary <- function(img,
       if (k > 1) {
         cli::cli_abort("{.arg k} must be in [0, 1].")
       }
-      imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
+      imgs <- EBImage::thresh(imgs, w=windowsize, h=windowsize, offset=k)
+      # imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
     } else {
       if(threshold == "Otsu"){
         threshold_val <- help_otsu(imgs@.Data[!is.infinite(imgs@.Data) & !is.na(imgs@.Data)])
@@ -2482,12 +2483,24 @@ image_binary <- function(img,
 
     if(invert) imgs <- 1 - imgs
     imgs[is.na(imgs)] <- FALSE
-    if(isTRUE(fill_hull)) imgs <- EBImage::fillHull(imgs)
-    if(is.numeric(erode) & erode > 0) imgs <- image_erode(imgs, size = erode)
-    if(is.numeric(dilate) & dilate > 0) imgs <- image_dilate(imgs, size = dilate)
-    if(is.numeric(opening) & opening > 0) imgs <- image_opening(imgs, size = opening)
-    if(is.numeric(closing) & closing > 0) imgs <- image_closing(imgs, size = closing)
-    if(is.numeric(filter) & filter > 1) imgs <- EBImage::medianFilter(imgs, filter)
+    if (is.numeric(erode) & erode > 0) {
+      imgs <- image_erode(imgs, size = erode)
+    }
+    if (is.numeric(dilate) & dilate > 0) {
+      imgs <- image_dilate(imgs, size = dilate)
+    }
+    if (is.numeric(opening) & opening > 0) {
+      imgs <- image_opening(imgs, size = opening)
+    }
+    if (is.numeric(closing) & closing > 0) {
+      imgs <- image_closing(imgs, size = closing)
+    }
+    if (is.numeric(filter) & filter > 1) {
+      imgs <- EBImage::medianFilter(imgs, filter)
+    }
+    if (isTRUE(fill_hull)) {
+      imgs <- EBImage::fillHull(imgs)
+    }
     invisible(imgs)
   }
 
@@ -2591,7 +2604,7 @@ image_binary <- function(img,
 #'   up to 70% of available cores.
 #' @param workers A positive numeric scalar or a function specifying the maximum
 #'   number of parallel processes that can be active at the same time.
-#' @param ... Additional arguments passed on to [plot index()].
+#' @param ... Additional arguments passed on to [plot.image_index()].
 #' @param verbose If `TRUE` (default) a summary is shown in the console.
 #' @references
 #' Nobuyuki Otsu, "A threshold selection method from gray-level
@@ -4018,7 +4031,7 @@ image_palette <- function (img,
         cli::cli_progress_bar(
           format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
           total  = length(names_plant),
-          clear  = FALSE
+          clear  = TRUE
         )
       }
 
@@ -4604,7 +4617,7 @@ help_binary <- function(img,
                         re = 4,
                         nir = 5,
                         threshold = c("Otsu", "adaptive"),
-                        k = 0.1,
+                        k = 0.15,
                         windowsize = NULL,
                         has_white_bg = FALSE,
                         resize = FALSE,
@@ -4655,8 +4668,8 @@ help_binary <- function(img,
       if (k > 1) {
         cli::cli_abort("{.arg k} must be in range {.val [0, 1]}.")
       }
-
-      imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
+      imgs <- EBImage::thresh(imgs, w=windowsize, h=windowsize, offset=k)
+      # imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
     }
     if(threshold != "adaptive"){
       if(threshold == "Otsu"){
@@ -4682,9 +4695,6 @@ help_binary <- function(img,
     }
 
     imgs[which(is.na(imgs))] <- FALSE
-    if(isTRUE(fill_hull)){
-      imgs <- EBImage::fillHull(imgs)
-    }
     if(is.numeric(erode) & erode > 0){
       imgs <- image_erode(imgs, size = erode)
     }
@@ -4699,6 +4709,9 @@ help_binary <- function(img,
     }
     if(is.numeric(filter) & filter > 1){
       imgs <- EBImage::medianFilter(imgs, filter)
+    }
+    if(isTRUE(fill_hull)){
+      imgs <- EBImage::fillHull(imgs)
     }
     invisible(imgs)
   }

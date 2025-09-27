@@ -436,7 +436,7 @@ object_export_shp <- function(img,
       cli::cli_progress_bar(
         format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
         total  = length(names_plant),
-        clear  = FALSE
+        clear  = TRUE
       )
     }
 
@@ -1613,7 +1613,7 @@ measure_disease_shp <- function(img,
         cli::cli_progress_bar(
           format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | Current: {.val {cli::pb_status}}",
           total  = length(names_plant),
-          clear  = FALSE
+          clear  = TRUE
         )
       }
 

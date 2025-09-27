@@ -19,6 +19,8 @@ get_measures(
 plot_measures(
   object,
   measure = "id",
+  prefix = "",
+  suffix = "",
   id = NULL,
   hjust = NULL,
   vjust = NULL,
@@ -64,6 +66,8 @@ multiple images as belonging to a single sample, if desired. Defaults to
 \item{verbose}{If \code{FALSE}, runs the code silently.}
 
 \item{digits}{The number of significant figures. Defaults to \code{2.}}
+
+\item{prefix, suffix}{A prefix/suffix to be added to the plotted measures.}
 
 \item{hjust, vjust}{A numeric value to adjust the labels horizontally and
 vertically. Positive values will move labels to right (hjust) and top

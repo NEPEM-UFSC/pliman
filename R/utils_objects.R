@@ -314,6 +314,10 @@ object_contour <- function(img,
         nmask <- EBImage::bwlabel(img2)
       }
       contour <- EBImage::ocontour(nmask)
+      contour <- lapply(contour, function(x){
+        x + 1
+      })
+
       if(isTRUE(center)){
         contour <-
           lapply(contour, function(x){
