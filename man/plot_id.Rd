@@ -37,7 +37,7 @@ plot_id(
 \item{serpentine}{Create a serpentine-based layout? Defaults to \code{FALSE}.}
 }
 \value{
-A vector of plot IDs with specified layout
+A list of plot IDs with specified layout and updated rows/columns.
 }
 \description{
 Based on a shapefile, number of columns and rows, generate plot IDs with
