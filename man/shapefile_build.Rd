@@ -11,7 +11,7 @@ shapefile_build(
   r = 3,
   g = 2,
   b = 1,
-  crop_to_shape_ext = TRUE,
+  crop_to_shape_ext = FALSE,
   grid = TRUE,
   nrow = 1,
   ncol = 1,

@@ -127,7 +127,7 @@ make_grid <- function(points, nrow, ncol, mosaic, buffer_col = 0, buffer_row = 0
 #'  * `'rlbt'` for right/left bottom/top orientation
 #' @param plot_prefix The plot_id prefix. Defaults to `'P'`.
 #' @param serpentine Create a serpentine-based layout? Defaults to `FALSE`.
-#' @return A vector of plot IDs with specified layout
+#' @return A list of plot IDs with specified layout and updated rows/columns.
 #' @export
 #'
 plot_id <- function(shapefile,
@@ -159,10 +159,12 @@ plot_id <- function(shapefile,
   }
 
   plots_tblr <- paste0(plot_prefix, leading_zeros(1:nrow(shapefile), 4))
+  rows <- shapefile$row
+  cols <- shapefile$column
 
   # Define layout functions
   make_tblr <- function() {
-    plots_tblr
+    return(list(plots = plots_tblr, row = rows, col = cols))
   }
 
   make_tbrl <- function() {
@@ -173,7 +175,9 @@ plot_id <- function(shapefile,
       end <- start + nrow - 1
       plots_tbrl <- c(plots_tbrl, rev(plots_tblr_rev[start:end]))
     }
-    plots_tbrl
+    return(list(plots = plots_tbrl, row = rows, col = rev(cols)))
+
+
   }
 
   make_btrl<- function() {
@@ -184,18 +188,20 @@ plot_id <- function(shapefile,
       end <- start + nrow - 1
       plots_btlr <- c(plots_btlr, plots_rev[start:end])
     }
-    plots_btlr
+    return(list(plots = plots_btlr, row = rev(rows), col = rev(cols)))
+
   }
 
   make_btlr <- function() {
-    plots_btlr_rev <- rev(make_btrl())
+    plots_btlr_rev <- rev(make_btrl()$plots)
     plots_btrl <- NULL
     for (i in seq_len(ncol)) {
       start <- (i - 1) * nrow + 1
       end <- start + nrow - 1
       plots_btrl <- c(plots_btrl, rev(plots_btlr_rev[start:end]))
     }
-    plots_btrl
+    return(list(plots = plots_btrl, row = rev(rows), col = cols))
+
   }
 
   make_lrtb <- function() {
@@ -203,18 +209,18 @@ plot_id <- function(shapefile,
     for (i in 1:ncol) {
       plots_lrtb <- c(plots_lrtb, plots_tblr[seq(i, length(plots_tblr), by = ncol)])
     }
-    plots_lrtb
+    return(list(plots = plots_lrtb, row = rows, col = cols))
   }
 
   make_lrbt <- function() {
     plots_lrbt <- NULL
-    plots_lrtb <- make_lrtb()
+    plots_lrtb <- make_lrtb()$plots
     for (i in 1:ncol) {
       start <- (i - 1) * nrow + 1
       end <- start + nrow - 1
       plots_lrbt <- c(plots_lrbt, rev(plots_lrtb[start:end]))
     }
-    plots_lrbt
+    return(list(plots = plots_lrbt, row = rev(rows), col = cols))
   }
 
   make_rltb <- function() {
@@ -223,30 +229,48 @@ plot_id <- function(shapefile,
       # Columns from right to left
       plots_rltb <- c(plots_rltb, plots_tblr[seq(ncol - i + 1, length(plots_tblr), by = ncol)])
     }
-    plots_rltb
+    return(list(plots = plots_rltb, row = rows, col = rev(cols)))
   }
 
   make_rlbt <- function() {
-    plots_rltb <- make_rltb()
+    plots_rltb <- make_rltb()$plots
     plots_rlbt <- NULL
     for (i in seq_len(ncol)) {
       start <- (i - 1) * nrow + 1
       end <- start + nrow - 1
       plots_rlbt <- c(plots_rlbt, rev(plots_rltb[start:end]))
     }
-    plots_rlbt
+    return(list(plots = plots_rlbt, row = rev(rows), col = rev(cols)))
   }
 
   # Return the appropriate layout
   plots <-  switch(layout,
-                   "tblr" = make_tblr(),
-                   "tbrl" = make_tbrl(),
-                   "btlr" = make_btlr(),
-                   "btrl" = make_btrl(),
-                   "lrtb" = make_lrtb(),
-                   "lrbt" = make_lrbt(),
-                   "rltb" = make_rltb(),
-                   "rlbt" = make_rlbt())
+                   "tblr" = make_tblr()$plots,
+                   "tbrl" = make_tbrl()$plots,
+                   "btlr" = make_btlr()$plots,
+                   "btrl" = make_btrl()$plots,
+                   "lrtb" = make_lrtb()$plots,
+                   "lrbt" = make_lrbt()$plots,
+                   "rltb" = make_rltb()$plots,
+                   "rlbt" = make_rlbt()$plots)
+  newrows <-  switch(layout,
+                     "tblr" = make_tblr()$row,
+                     "tbrl" = make_tbrl()$row,
+                     "btlr" = make_btlr()$row,
+                     "btrl" = make_btrl()$row,
+                     "lrtb" = make_lrtb()$row,
+                     "lrbt" = make_lrbt()$row,
+                     "rltb" = make_rltb()$row,
+                     "rlbt" = make_rlbt()$row)
+  newcols <-  switch(layout,
+                     "tblr" = make_tblr()$col,
+                     "tbrl" = make_tbrl()$col,
+                     "btlr" = make_btlr()$col,
+                     "btrl" = make_btrl()$col,
+                     "lrtb" = make_lrtb()$col,
+                     "lrbt" = make_lrbt()$col,
+                     "rltb" = make_rltb()$col,
+                     "rlbt" = make_rlbt()$col)
   mat <- matrix(plots, ncol = ncol, nrow = nrow)
   if(serpentine){
     # column serpentine
@@ -288,7 +312,7 @@ plot_id <- function(shapefile,
   } else{
     mat2 <- mat
   }
-  return(as.vector(mat2))
+  return(list(plots = as.vector(mat2), rows = newrows, cols = newcols))
 }
 
 #' Build a shapefile from a mosaic raster
@@ -345,7 +369,7 @@ shapefile_build <- function(mosaic,
                             r = 3,
                             g = 2,
                             b = 1,
-                            crop_to_shape_ext = TRUE,
+                            crop_to_shape_ext = FALSE,
                             grid = TRUE,
                             nrow = 1,
                             ncol = 1,
@@ -488,11 +512,14 @@ shapefile_build <- function(mosaic,
         dplyr::mutate(row = rep(1:nrow[k], ncol[k]),
                       column = rep(1:ncol[k], each = nrow[k]),
                       .before = geometry)
+      updateids <- plot_id(pg, nrow = nrow[k], ncol = ncol[k], layout = layout[k], serpentine = serpentine[k])
       pg <-
         pg |>
         dplyr::mutate(unique_id = dplyr::row_number(),
-                      block = paste0("B", leading_zeros(k, 2)),
-                      plot_id = plot_id(pg, nrow = nrow[k], ncol = ncol[k], layout = layout[k], serpentine = serpentine[k]),
+                      block = paste0("B", leading_zeros(1, 2)),
+                      plot_id = updateids$plots,
+                      row = updateids$rows,
+                      column = updateids$cols,
                       .before = 1)
     } else{
       pg <-
