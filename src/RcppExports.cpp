@@ -285,6 +285,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// correct_image_rcpp
+arma::cube correct_image_rcpp(const arma::cube& img, const arma::mat& K);
+RcppExport SEXP _pliman_correct_image_rcpp(SEXP imgSEXP, SEXP KSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::cube& >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type K(KSEXP);
+    rcpp_result_gen = Rcpp::wrap(correct_image_rcpp(img, K));
+    return rcpp_result_gen;
+END_RCPP
+}
 // help_area
 Rcpp::RObject help_area(Rcpp::RObject coord);
 RcppExport SEXP _pliman_help_area(SEXP coordSEXP) {
@@ -612,6 +624,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_uuid_v7", (DL_FUNC) &_pliman_uuid_v7, 0},
     {"_pliman_helper_entropy", (DL_FUNC) &_pliman_helper_entropy, 2},
     {"_pliman_corners_to_wkt", (DL_FUNC) &_pliman_corners_to_wkt, 1},
+    {"_pliman_correct_image_rcpp", (DL_FUNC) &_pliman_correct_image_rcpp, 2},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},

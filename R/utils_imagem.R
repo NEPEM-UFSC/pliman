@@ -5097,3 +5097,92 @@ plot_line_segment <- function(x, col = "red", lwd = 1){
   })
 }
 
+#' Apply 3rd-Order Polynomial Color Correction
+#'
+#' @description
+#' Calibrates the color of an image using a set of known color references
+#' (e.g., from a color checker).
+#'
+#' This function implements a 3rd-order polynomial color correction. It
+#' works by finding a 9x9 transformation matrix (K) that maps the
+#' observed colors (sampled from the image) to their known reference values.
+#' This matrix K is then applied to every pixel in the image.
+#'
+#' @details
+#' The function is interactive: it will pause and prompt the user to click
+#' on the color patches in the image using the `pick_rgb_area()` function.
+#'
+#' The correction model is based on solving the equation `S * K = T`, where:
+#' * `S` is the polynomial matrix (9 terms) of the *source* (sampled) colors.
+#' * `T` is the polynomial matrix (9 terms) of the *target* (known) colors.
+#' * `K` is the 9x9 transformation matrix solved using the
+#'   Moore-Penrose pseudo-inverse.
+#'
+#' @param img An `Image` object to be corrected.
+#' @param known_colors A `data.frame` containing the target reference values.
+#'   Must contain the columns `R`, `G`, and `B` (normalized between 0-1) and
+#'   the number of rows must equal `color_chips`.
+#' @param color_chips The number of color patches to be interactively
+#'   sampled from the image. Defaults to `24`.
+#'
+#' @return An `Image` object with corrected colors.
+#'
+#' @export
+#' @examples
+#' if(interactive()){
+#' # colorcheck image available at https://github.com/HarryCWright/PlantSizeClr
+#' library(pliman)
+#'
+#' # known values in the following sequence (row, column)
+#' # blue (6, 2)
+#' # red (4, 2)
+#' # yellow (3, 2)
+#' # white (1, 1)
+#' known_colors <- data.frame(
+#'  id = c(1, 2, 3, 4),
+#'  R = c(0.09803922, 0.72941176, 0.96078431, 0.97647059),
+#'  G = c(0.2156863, 0.1019608, 0.8039216, 0.9490196),
+#'  B = c(0.5294118, 0.2000000, 0.0000000, 0.9333333)
+#' )
+#' img <- image_pliman("colorcheck.jpg")
+#' # draw four samples, following the order (blue, red, yellow, white)
+#'  img_cor <- image_correction(img, known_colors, color_chips = 4)
+#'  image_combine(img, img_cor)
+#' }
+#'
+#'
+image_correction <- function(img,
+                             known_colors,
+                             color_chips = 24){
+  # Check if known_colors has the correct number of rows
+  if (nrow(known_colors) != color_chips) {
+    cli::cli_abort(
+      c("The number of rows in {.arg known_colors} ({.val {nrow(known_colors)}}) does not equal {.arg color_chips} ({.val {color_chips}}).",
+        "i" = "Please provide the correct reference color data frame.")
+    )
+  }
+
+  # Check if known_colors has R, G, B columns
+  if (!all(c("R", "G", "B") %in% colnames(known_colors))) {
+    cli::cli_abort(
+      c("The {.arg known_colors} data frame must contain columns {.field R}, {.field G}, and {.field B}.",
+        "x" = "Found columns: {.field {colnames(known_colors)}}")
+    )
+  }
+  cli::cli_progress_step(
+    msg        = "Pick the {.val {color_chips}} color chips in the image that correspond to the {.arg known_colors} RGB values...",
+    msg_done   = "Color sampling done",
+    msg_failed = "Oops, something went wrong."
+  )
+  rgbimg <- pick_rgb_area(img, n = color_chips, verbose = FALSE)
+  cli::cli_progress_step(
+    msg        = "Performing color correction...",
+    msg_done   = "Color correction finished",
+    msg_failed = "Oops, something went wrong."
+  )
+  K <- mpinv(create_poly_matrix(rgbimg)) %*% create_poly_matrix(known_colors)
+  return(EBImage::Image(correct_image_rcpp(img, K),
+                        dim = dim(img),
+                        colormode = 'Color'))
+}
+

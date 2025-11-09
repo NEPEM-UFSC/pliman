@@ -7,6 +7,7 @@
 \format{
 \verb{*.jpg} format
 \itemize{
+\item \code{colorcheck.jpg} An image with RGB colorcheck, available at https://github.com/HarryCWright/PlantSizeClr
 \item \code{flax_leaves.jpg} Flax leaves in a white background
 \item \code{flax_grains.jpg} Flax grains with background light.
 \item \code{la_back.jpg} A cyan palette representing the background of images

@@ -89,6 +89,10 @@ corners_to_wkt <- function(cornersList) {
     .Call(`_pliman_corners_to_wkt`, cornersList)
 }
 
+correct_image_rcpp <- function(img, K) {
+    .Call(`_pliman_correct_image_rcpp`, img, K)
+}
+
 help_area <- function(coord) {
     .Call(`_pliman_help_area`, coord)
 }

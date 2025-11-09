@@ -6,6 +6,7 @@
 \alias{pick_coords}
 \alias{pick_rgb}
 \alias{pick_palette}
+\alias{pick_rgb_area}
 \title{Utilities for picking up points in an image}
 \usage{
 pick_count(
@@ -57,6 +58,20 @@ pick_palette(
   size = 0.8,
   plot = TRUE,
   palette = TRUE,
+  verbose = TRUE
+)
+
+pick_rgb_area(
+  img,
+  n = Inf,
+  r = 15,
+  shape = "box",
+  viewer = get_pliman_viewer(),
+  external_device = FALSE,
+  title = "Pick samples in the image",
+  col = "red",
+  size = 0.8,
+  plot = TRUE,
   verbose = TRUE
 )
 }

@@ -1140,3 +1140,42 @@ CharacterVector corners_to_wkt(List cornersList) {
 
   return out;
 }
+// [[Rcpp::export]]
+arma::cube correct_image_rcpp(const arma::cube& img, const arma::mat& K) {
+  int n_rows = img.n_rows;
+  int n_cols = img.n_cols;
+
+  arma::cube out_img(n_rows, n_cols, 3, arma::fill::zeros);
+
+  arma::rowvec S_pixel(9);
+  arma::rowvec T_pixel(9);
+
+  double R, G, B;
+
+  for (int i = 0; i < n_rows; ++i) {
+    for (int j = 0; j < n_cols; ++j) {
+
+      R = img(i, j, 0);
+      G = img(i, j, 1);
+      B = img(i, j, 2);
+
+      S_pixel(0) = R;
+      S_pixel(1) = G;
+      S_pixel(2) = B;
+      S_pixel(3) = R * R;
+      S_pixel(4) = G * G;
+      S_pixel(5) = B * B;
+      S_pixel(6) = R * R * R;
+      S_pixel(7) = G * G * G;
+      S_pixel(8) = B * B * B;
+
+      T_pixel = S_pixel * K;
+
+      out_img(i, j, 0) = T_pixel(0);
+      out_img(i, j, 1) = T_pixel(1);
+      out_img(i, j, 2) = T_pixel(2);
+    }
+  }
+
+  return out_img;
+}
