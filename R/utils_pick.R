@@ -418,3 +418,98 @@ pick_palette <- function(img,
     return(pal)
   }
 }
+
+#' @name utils_pick
+#' @export
+pick_rgb_area <- function(img,
+                          n = Inf,
+                          r = 15,
+                          shape = "box",
+                          viewer = get_pliman_viewer(),
+                          external_device = FALSE,
+                          title = "Pick samples in the image",
+                          col = "red",
+                          size = 0.8,
+                          plot = TRUE,
+                          verbose = TRUE){
+  vieweropt <- c("base", "mapview")
+  vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
+  if (isTRUE(interactive())) {
+    if(vieweropt == "base"){
+      # Handle external device logic
+      is_rstudio <- Sys.getenv("RSTUDIO") == "1"
+      os <- .Platform$OS.type
+      original_device <- dev.cur()
+      new_device <- FALSE
+
+      if (is_rstudio && isTRUE(external_device)) {
+        if (isTRUE(verbose)) {
+          cli::cli_inform("Opening external graphics window for accurate {.fn locator} input...")
+        }
+        new_device <- TRUE
+        dev.new(noRStudioGD = TRUE)
+      }
+
+      on.exit({
+        # Close and restore device
+        if (new_device) {
+          dev.off()
+          dev.set(original_device)
+        }
+      })
+
+      if (isTRUE(plot)) {
+        plot(img)
+      }
+      if(isTRUE(verbose)){
+        cli::cli_inform(c(
+          "i" = "Use the first mouse button to pick up {n} points in the plot.",
+          "i" = "Press {.kbd Esc} to exit."
+        ))
+
+      }
+      bind <- NULL
+      i <- 1
+      while (i <= n) {
+        d <- locator(n = 1)
+        if (is.null(d)) {
+          break
+        }
+        xrmin <- trunc(d$x) - r
+        xrmax <- trunc(d$x) + r
+        yrmin <- trunc(d$y) - r
+        yrmax <- trunc(d$y) + r
+        sqr <- xrmax - xrmin + 1
+        kern <- as.logical(EBImage::makeBrush(sqr, shape = shape))
+        R <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 1][kern])
+        G <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 2][kern])
+        B <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 3][kern])
+        rect(xrmin, yrmin, xrmax, yrmax, border = col, lwd = size)
+        bind <- rbind(bind, cbind(R, G, B))
+        i <- i + 1
+      }
+      if(i == 1){
+        cli::cli_abort("Process interrupted.")
+      }
+      if(i > 1){
+        on.exit(return(bind |> as.data.frame() |>  dplyr::mutate(id = 1:nrow(bind), .before = 1)))
+      }
+    } else{
+      mvpoin <- mv_points(img, show = show, title = title, index = "B")
+      bind <- NULL
+      for (i in 1:nrow(mvpoin)) {
+        xrmin <- trunc(mvpoin[, 1][i]) - r
+        xrmax <- trunc(mvpoin[, 1][i]) + r
+        yrmin <- trunc(mvpoin[, 2][i]) - r
+        yrmax <- trunc(mvpoin[, 2][i]) + r
+        sqr <- xrmax - xrmin + 1
+        kern <- as.logical(EBImage::makeBrush(sqr, shape = shape))
+        R <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 1][kern])
+        G <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 2][kern])
+        B <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 3][kern])
+        bind <- rbind(bind, cbind(R, G, B))
+      }
+    }
+    return(bind |> as.data.frame() |>  dplyr::mutate(id = 1:nrow(bind), .before = 1))
+  }
+}

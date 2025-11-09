@@ -66,6 +66,7 @@ create_buffer <- function(coords, buffer_col, buffer_row) {
   resized_coords <- coords
   resized_coords[, 1] <- (resized_coords[, 1] - x_min) * x_scale_factor + new_x_min
   resized_coords[, 2] <- (resized_coords[, 2] - y_min) * y_scale_factor + new_y_min
+  resized_coords <- rbind(resized_coords, resized_coords[1, ])
   sf::st_polygon(list(resized_coords[, 1:2]))
 }
 
@@ -95,12 +96,13 @@ make_grid <- function(points, nrow, ncol, mosaic, buffer_col = 0, buffer_row = 0
   parms <- cvm$coefficients[2:3, ]
   intercept <- cvm$coefficients[1, ]
   geometry <- sf::st_sf(geometry = grids * parms + intercept, crs = sf::st_crs(mosaic))
-
   if (buffer_row != 0 | buffer_col != 0) {
-    geometry <- lapply(geometry, function(g) {
-      create_buffer(g, buffer_col, buffer_row)
-    }) |>
-      sf::st_sfc(crs = sf::st_crs(mosaic))
+    measures <- shapefile_measures(geometry, 1)
+    wid <- measures$width
+    hei <- measures$height
+    new_height <- hei + buffer_row  * hei
+    new_width <- wid + buffer_col  * wid
+    geometry <- add_width_height(grid = geometry, width = new_width, height = new_height, points_align = points_align[2:3, 1:2])
   }
   if (!is.null(plot_width) & !is.null(plot_height)) {
     geometry <- add_width_height(grid = geometry, width = plot_width, height = plot_height, points_align = points_align[2:3, 1:2])
@@ -862,17 +864,27 @@ shapefile_measures <- function(shapefile, n = NULL) {
     shapefile <- shapefile |> dplyr::slice(1:n)
   }
   results <- lapply(1:nrow(shapefile), function(i) {
-    # Extract points from the current geometry
     geom <- shapefile[i, ]$geometry
     if(nrow(geom[[1]][[1]]) == 5){
       points <- sf::st_cast(geom, "POINT")
-      # Calculate pairwise distances between points
+      coords <- sf::st_coordinates(points) # Obter as coordenadas para análise
       dists <- suppressWarnings(as.matrix(sf::st_distance(points)))
-      # Extract width and height
-      width <- as.numeric(round(dists[[4]], 3))
-      height <- as.numeric(round(dists[[2]], 3))
-      c(width, height)
-    } else{
+      side_A <- as.numeric(dists[[2]])
+      side_B <- as.numeric(dists[[4]])
+      P1 <- coords[1, 1:2]
+      P2 <- coords[2, 1:2]
+      P4 <- coords[4, 1:2]
+      angle_B_rad <- atan2(P4[2] - P1[2], P4[1] - P1[1])
+      cos_angle_B <- abs(cos(angle_B_rad))
+      if (cos_angle_B > 0.707) {
+        width_val <- round(side_B, 3)
+        height_val <- round(side_A, 3)
+      } else {
+        width_val <- round(side_A, 3)
+        height_val <- round(side_B, 3)
+      }
+      c(width_val, height_val)
+    } else {
       c(NA, NA)
     }
   })

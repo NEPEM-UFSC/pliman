@@ -1,6 +1,7 @@
 #' @title Sample images
 #' @description Sample images installed with the \pkg{pliman} package
 #' @format `*.jpg` format
+#' * `colorcheck.jpg` An image with RGB colorcheck, available at https://github.com/HarryCWright/PlantSizeClr
 #' * `flax_leaves.jpg` Flax leaves in a white background
 #' * `flax_grains.jpg` Flax grains with background light.
 #' *  `la_back.jpg` A cyan palette representing the background of images

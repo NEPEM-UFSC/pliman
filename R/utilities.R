@@ -1176,3 +1176,31 @@ clear_pliman_cache <- function(all = TRUE, days = NULL) {
 
   invisible(TRUE)
 }
+# Moore-Penrose inverse using base R
+mpinv <- function(A, tol = .Machine$double.eps) {
+  svdA <- svd(A)
+  d <- svdA$d
+  d_inv <- ifelse(d > tol * max(d), 1 / d, 0)
+  Aplus <- svdA$v %*% (diag(d_inv, length(d_inv))) %*% t(svdA$u)
+  return(Aplus)
+}
+create_poly_matrix <- function(df) {
+  # Garantir que é um dataframe
+  df <- as.data.frame(df)
+
+  # Extrair colunas
+  R <- df$R
+  G <- df$G
+  B <- df$B
+
+  # Criar a matriz de 9 termos
+  poly_matrix <- cbind(
+    R, G, B,
+    R^2, G^2, B^2,
+    R^3, G^3, B^3
+  )
+
+  # Definir nomes de colunas para clareza
+  colnames(poly_matrix) <- c("R", "G", "B", "R2", "G2", "B2", "R3", "G3", "B3")
+  return(poly_matrix)
+}

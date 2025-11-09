@@ -1,3 +1,11 @@
+# pliman 3.1.2
+## New Functions
+* New `image_correction()` function to perform color correction of an image using a set of known color references (e.g., from a color checker)
+* New `pick_rgb_area()` to pick RGB mean values of an area drawn by picking points in the image
+
+## Minor Improvements
+
+
 # pliman 3.1.1
 ## New Functions
 * New `object_scatter()` function to plot object thumbnails at x-y coordinates derived from image features
