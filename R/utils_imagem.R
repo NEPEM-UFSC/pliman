@@ -5097,26 +5097,244 @@ plot_line_segment <- function(x, col = "red", lwd = 1){
   })
 }
 
-#' Apply 3rd-Order Polynomial Color Correction
+#' @title Extract Mean Colors from a Color Checker Card
 #'
 #' @description
-#' Calibrates the color of an image using a set of known color references
-#' (e.g., from a color checker).
+#' This function identifies a color checker card in an image, finds its
+#' four corners to correct for perspective distortion, generates a grid
+#' corresponding to the color patches, and extracts the mean RGB values from
+#' the center of each patch.
+#' @param img An `Image` object from the `EBImage` or `pliman` package.
+#' @param nrow The number of rows of color patches on the card (default: 6).
+#' @param ncol The number of columns of color patches on the card (default: 4).
+#' @param index The vegetation or color index string (e.g., "GRAY", "B", "R")
+#'   passed to `pliman::image_binary()` to segment the card from the
+#'   background. Default is "GRAY".
+#' @param erode The size (in pixels) of the erosion kernel applied to the
+#'   binary mask to shrink the selection and avoid patch edges. Default is 50.
+#' @param xpix The total width (in pixels) of the sampling rectangle at the
+#'   center of each patch. Default is 50.
+#' @param ypix The total height (in pixels) of the sampling rectangle at the
+#'   center of each patch. Default is 50.
+#' @param plot Logical. If `TRUE` (default), displays the original image with
+#'   detected corners (red dots), sampling boxes (red rectangles), and
+#'   patch IDs.
 #'
-#' This function implements a 3rd-order polynomial color correction. It
-#' works by finding a 9x9 transformation matrix (K) that maps the
-#' observed colors (sampled from the image) to their known reference values.
+#' @return a `data.frame` with the RGB values for each color chip.
+#' A `data.frame` with `nrow * ncol` rows and 4 columns:
+#' \itemize{
+#'   \item `id`: The patch identifier (from 1 to `nrow * ncol`).
+#'   \item `R`: The mean Red channel value (typically 0-1).
+#'   \item `G`: The mean Green channel value (typically 0-1).
+#'   \item `B`: The mean Blue channel value (typically 0-1).
+#' }
+#'
+#' @export
+#'
+#' @examples
+#' if(interactive(){
+#' library(pliman)
+#' img <- image_pliman("colorcheck.jpg")
+#' get_card_colors(img, xpix = 20, ypix = 20, erode = 20)
+#' }
+get_card_colors <- function(img,
+                            nrow = 6,
+                            ncol = 4,
+                            index = "GRAY",
+                            erode = 50,
+                            xpix = 50,
+                            ypix = 50,
+                            plot = TRUE){
+
+  bin <-
+    image_binary(img,
+                 index = index,
+                 fill_hull = TRUE,
+                 plot = FALSE)[[1]] |>
+    image_erode(size = erode)
+  lab <- EBImage::bwlabel(bin)
+
+  area <-
+    lab |>
+    EBImage::computeFeatures.shape()
+
+  id_ref <- which.max(area[, 1])
+  lab@.Data[which(lab != id_ref)] <- 0
+  oco <- EBImage::ocontour(lab)[[1]]
+  hull_idx <- chull(oco)
+  corners <- oco[hull_idx, ]
+  order_idx <- order(atan2(corners[,2] - mean(corners[,2]),
+                           corners[,1] - mean(corners[,1])))
+  corners_ordered <- corners[order_idx, ]
+  soma <- corners_ordered[, 1] + corners_ordered[, 2]
+  diferenca <- corners_ordered[, 1] - corners_ordered[, 2]
+  idx_bottom_left <- which.min(soma)
+  idx_top_right <- which.max(soma)
+  idx_bottom_right <- which.max(diferenca)
+  idx_top_left <- which.min(diferenca)
+  bottom_left <- corners_ordered[idx_bottom_left, ]
+  top_right <- corners_ordered[idx_top_right, ]
+  bottom_right <- corners_ordered[idx_bottom_right, ]
+  top_left <- corners_ordered[idx_top_left, ]
+  corners <- rbind(bottom_left, top_right, bottom_right, top_left)
+  grid_points <- matrix(NA, nrow = nrow * ncol, ncol = 2)
+  colnames(grid_points) <- c("x", "y")
+  for (r in 1:nrow) {
+    for (c in 1:ncol) {
+      c_norm <- (c - 0.5) / ncol
+      r_norm <- (r - 0.5) / nrow
+      p_top_x <- corners[4, 1] * (1 - c_norm) + corners[2, 1] * c_norm
+      p_top_y <- corners[4, 2] * (1 - c_norm) + corners[2, 2] * c_norm
+      p_bottom_x <- corners[1, 1] * (1 - c_norm) + corners[3, 1] * c_norm
+      p_bottom_y <- corners[1, 2] * (1 - c_norm) + corners[3, 2] * c_norm
+      grid_x <- p_top_x * (1 - r_norm) + p_bottom_x * r_norm
+      grid_y <- p_top_y * (1 - r_norm) + p_bottom_y * r_norm
+      idx <- (r - 1) * ncol + c
+      grid_points[idx, ] <- c(grid_x, grid_y)
+    }
+  }
+  vals <-
+    grid_points |>
+    as.data.frame() |>
+    mutate(lab = 1:24)
+
+  # criar grid para extrair cor
+  coords <-
+    lapply(1:nrow(vals), function(i){
+      x <- vals[i, 1]
+      y <- vals[i, 2]
+      rx <- c(x - xpix / 2, x + xpix / 2)
+      ry <- c(y - ypix / 2, y + ypix / 2)
+      c(rx, ry)
+    })
+
+  rgbobs <-
+    do.call(rbind, lapply(coords, function(x){
+      apply(img@.Data[x[1]:x[2], x[3]:x[4], ], 3, mean)
+    })) |>
+    as.data.frame() |>
+    dplyr::mutate(id = 1:(nrow * ncol), .before = 1)
+
+  colnames(rgbobs) <- c("id", "R", "G", "B")
+  if(plot){
+    plot(img)
+    coords_matrix <- do.call(rbind, coords)
+    colnames(coords_matrix) <- c("x_min", "x_max", "y_min", "y_max")
+    rect(
+      xleft   = coords_matrix[, "x_min"],
+      ybottom = coords_matrix[, "y_min"],
+      xright  = coords_matrix[, "x_max"],
+      ytop    = coords_matrix[, "y_max"],
+      border = "red",  # Cor da borda
+      lwd = 1.5         # Largura da linha
+    )
+    points(corners, col = "red", pch = 19, cex = 1.5)
+    text(x = vals[, 1], y = vals[, 2], labels = vals[, 3])
+  }
+  return(rgbobs)
+}
+
+#' @title Correct Image Colors using a Color Checker
+#'
+#' @description
+#' Calibrates the color of an image using a set of known color references (e.g.,
+#' from a color checker) by implementing a 3rd-order polynomial color
+#' correction. It works by finding a 9x9 transformation matrix (K) that maps the
+#' observed colors (sampled from the color card) to their known reference values.
 #' This matrix K is then applied to every pixel in the image.
 #'
-#' @details
-#' The function is interactive: it will pause and prompt the user to click
-#' on the color patches in the image using the `pick_rgb_area()` function.
 #'
 #' The correction model is based on solving the equation `S * K = T`, where:
 #' * `S` is the polynomial matrix (9 terms) of the *source* (sampled) colors.
 #' * `T` is the polynomial matrix (9 terms) of the *target* (known) colors.
 #' * `K` is the 9x9 transformation matrix solved using the
 #'   Moore-Penrose pseudo-inverse.
+#'
+#' @param img An `Image` object to be corrected.
+#' @param card_colors A data frame of the *observed* colors from the color
+#'   checker in the image. Typically the output from `get_card_colors()`.
+#'   Must contain 'R', 'G', and 'B' columns.
+#' @param known_colors A data frame of the *known* reference colors for the
+#'   color checker. Must have 'R', 'G', and 'B' columns and the same
+#'   number of rows as `card_colors`.
+#' @param k_mat A pre-calculated 9x9 transformation matrix (**K**). If provided,
+#'   \code{card_colors} and \code{known_colors} are ignored, and the correction
+#'   is applied directly. This allows reusing a calculated matrix for multiple
+#'   images taken in the same light conditions. Defaults to \code{NULL}.
+#' @return
+#' If both \code{card_colors} and \code{known_colors} are provided (or if \code{k_mat} is \code{NULL}
+#' and the required color data frames are present), a list is returned:
+#' \itemize{
+#'   \item **img**: An \code{Image} object with the color correction applied,
+#'     maintaining the original dimensions and color mode (\code{'Color'}).
+#'   \item **k**: The calculated 9x9 transformation matrix (**K**).
+#' }
+#' If only \code{img} and a pre-calculated \code{k_mat} are provided, the function
+#' returns only the corrected \code{Image} object.
+#'
+#' @export
+#' @examples
+#' if(interactive(){
+#' library(pliman)
+#' img <- image_pliman("colorcheck.jpg")
+#' kvals <- data.frame(
+#'   id = 1:24,
+#'   R = c(0.169, 0.098, 0.933, 0.439, 0.314, 0.224, 0.616, 0.773, 0.478, 0.729, 0.325, 0.341,
+#'         0.631, 0.961, 0.765, 0.322, 0.792, 0.753, 0.227, 0.494, 0.976, 0.000, 0.871, 0.384),
+#'   G = c(0.161, 0.216, 0.620, 0.298, 0.314, 0.573, 0.737, 0.569, 0.463, 0.102, 0.227, 0.471,
+#'         0.616, 0.804, 0.310, 0.416, 0.776, 0.294, 0.345, 0.490, 0.949, 0.498, 0.463, 0.733),
+#'   B = c(0.169, 0.529, 0.098, 0.235, 0.306, 0.251, 0.212, 0.490, 0.455, 0.200, 0.416, 0.608,
+#'         0.604, 0.000, 0.373, 0.235, 0.765, 0.569, 0.624, 0.682, 0.933, 0.624, 0.125, 0.651)
+#'         )
+#' card_colors <- get_card_colors(img, xpix = 20, ypix = 20, erode = 20)
+#' corrected <- image_correction(img, card_colors, kvals)
+#' image_combine(img, corrected)
+#' }
+image_correction <- function(img,
+                             card_colors = NULL,
+                             known_colors = NULL,
+                             k_mat = NULL){
+  if(!is.null(card_colors) & !is.null(known_colors)){
+    # Check if known_colors has the correct number of rows
+    if (nrow(card_colors) != nrow(known_colors)) {
+      cli::cli_abort(
+        c("The number of rows in {.arg card_colors} ({.val {nrow(card_colors)}}) does not equal {.arg known_colors} ({.val {nrow(known_colors)}}).",
+          "i" = "Please provide the correct reference color data frame.")
+      )
+    }
+
+    # Check if known_colors has R, G, B columns
+    if (!all(c("R", "G", "B") %in% colnames(known_colors))) {
+      cli::cli_abort(
+        c("The {.arg known_colors} data frame must contain columns {.field R}, {.field G}, and {.field B}.",
+          "x" = "Found columns: {.field {colnames(known_colors)}}")
+      )
+    }
+    K <- mpinv(create_poly_matrix(card_colors)) %*% create_poly_matrix(known_colors)
+    return(list(
+      img = EBImage::Image(correct_image_rcpp(img, K),
+                           dim = dim(img),
+                           colormode = 'Color'),
+      k = K
+    ))
+  } else{
+    return(EBImage::Image(correct_image_rcpp(img, k_mat),
+                          dim = dim(img),
+                          colormode = 'Color'))
+  }
+}
+
+
+#' Interactive Color Correction
+#'
+#' @description
+#' Interactively calibrates the color of an image by prompting the user to
+#' sample color patches. It first calls `pliman::pick_rgb_area()` to pause and
+#' prompt the user to click on `color_chips` patches in the image. These
+#' interactively sampled colors are then used as the *observed* colors to
+#' compute the 3rd-order polynomial transformation matrix (K), which maps the
+#' observed colors to the provided `known_colors`. This matrix K is then applied
+#' to every pixel in the image.
 #'
 #' @param img An `Image` object to be corrected.
 #' @param known_colors A `data.frame` containing the target reference values.
@@ -5151,9 +5369,9 @@ plot_line_segment <- function(x, col = "red", lwd = 1){
 #' }
 #'
 #'
-image_correction <- function(img,
-                             known_colors,
-                             color_chips = 24){
+image_correction_pick <- function(img,
+                                  known_colors,
+                                  color_chips = 24){
   # Check if known_colors has the correct number of rows
   if (nrow(known_colors) != color_chips) {
     cli::cli_abort(
@@ -5161,8 +5379,6 @@ image_correction <- function(img,
         "i" = "Please provide the correct reference color data frame.")
     )
   }
-
-  # Check if known_colors has R, G, B columns
   if (!all(c("R", "G", "B") %in% colnames(known_colors))) {
     cli::cli_abort(
       c("The {.arg known_colors} data frame must contain columns {.field R}, {.field G}, and {.field B}.",
