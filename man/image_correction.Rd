@@ -2,35 +2,43 @@
 % Please edit documentation in R/utils_imagem.R
 \name{image_correction}
 \alias{image_correction}
-\title{Apply 3rd-Order Polynomial Color Correction}
+\title{Correct Image Colors using a Color Checker}
 \usage{
-image_correction(img, known_colors, color_chips = 24)
+image_correction(img, card_colors = NULL, known_colors = NULL, k_mat = NULL)
 }
 \arguments{
 \item{img}{An \code{Image} object to be corrected.}
 
-\item{known_colors}{A \code{data.frame} containing the target reference values.
-Must contain the columns \code{R}, \code{G}, and \code{B} (normalized between 0-1) and
-the number of rows must equal \code{color_chips}.}
+\item{card_colors}{A data frame of the \emph{observed} colors from the color
+checker in the image. Typically the output from \code{get_card_colors()}.
+Must contain 'R', 'G', and 'B' columns.}
 
-\item{color_chips}{The number of color patches to be interactively
-sampled from the image. Defaults to \code{24}.}
+\item{known_colors}{A data frame of the \emph{known} reference colors for the
+color checker. Must have 'R', 'G', and 'B' columns and the same
+number of rows as \code{card_colors}.}
+
+\item{k_mat}{A pre-calculated 9x9 transformation matrix (\strong{K}). If provided,
+\code{card_colors} and \code{known_colors} are ignored, and the correction
+is applied directly. This allows reusing a calculated matrix for multiple
+images taken in the same light conditions. Defaults to \code{NULL}.}
 }
 \value{
-An \code{Image} object with corrected colors.
+If both \code{card_colors} and \code{known_colors} are provided (or if \code{k_mat} is \code{NULL}
+and the required color data frames are present), a list is returned:
+\itemize{
+\item \strong{img}: An \code{Image} object with the color correction applied,
+maintaining the original dimensions and color mode (\code{'Color'}).
+\item \strong{k}: The calculated 9x9 transformation matrix (\strong{K}).
+}
+If only \code{img} and a pre-calculated \code{k_mat} are provided, the function
+returns only the corrected \code{Image} object.
 }
 \description{
-Calibrates the color of an image using a set of known color references
-(e.g., from a color checker).
-
-This function implements a 3rd-order polynomial color correction. It
-works by finding a 9x9 transformation matrix (K) that maps the
-observed colors (sampled from the image) to their known reference values.
+Calibrates the color of an image using a set of known color references (e.g.,
+from a color checker) by implementing a 3rd-order polynomial color
+correction. It works by finding a 9x9 transformation matrix (K) that maps the
+observed colors (sampled from the color card) to their known reference values.
 This matrix K is then applied to every pixel in the image.
-}
-\details{
-The function is interactive: it will pause and prompt the user to click
-on the color patches in the image using the \code{pick_rgb_area()} function.
 
 The correction model is based on solving the equation \code{S * K = T}, where:
 \itemize{
@@ -41,26 +49,20 @@ Moore-Penrose pseudo-inverse.
 }
 }
 \examples{
-if(interactive()){
-# colorcheck image available at https://github.com/HarryCWright/PlantSizeClr
+if(interactive(){
 library(pliman)
-
-# known values in the following sequence (row, column)
-# blue (6, 2)
-# red (4, 2)
-# yellow (3, 2)
-# white (1, 1)
-known_colors <- data.frame(
- id = c(1, 2, 3, 4),
- R = c(0.09803922, 0.72941176, 0.96078431, 0.97647059),
- G = c(0.2156863, 0.1019608, 0.8039216, 0.9490196),
- B = c(0.5294118, 0.2000000, 0.0000000, 0.9333333)
-)
 img <- image_pliman("colorcheck.jpg")
-# draw four samples, following the order (blue, red, yellow, white)
- img_cor <- image_correction(img, known_colors, color_chips = 4)
- image_combine(img, img_cor)
+kvals <- data.frame(
+  id = 1:24,
+  R = c(0.169, 0.098, 0.933, 0.439, 0.314, 0.224, 0.616, 0.773, 0.478, 0.729, 0.325, 0.341,
+        0.631, 0.961, 0.765, 0.322, 0.792, 0.753, 0.227, 0.494, 0.976, 0.000, 0.871, 0.384),
+  G = c(0.161, 0.216, 0.620, 0.298, 0.314, 0.573, 0.737, 0.569, 0.463, 0.102, 0.227, 0.471,
+        0.616, 0.804, 0.310, 0.416, 0.776, 0.294, 0.345, 0.490, 0.949, 0.498, 0.463, 0.733),
+  B = c(0.169, 0.529, 0.098, 0.235, 0.306, 0.251, 0.212, 0.490, 0.455, 0.200, 0.416, 0.608,
+        0.604, 0.000, 0.373, 0.235, 0.765, 0.569, 0.624, 0.682, 0.933, 0.624, 0.125, 0.651)
+        )
+card_colors <- get_card_colors(img, xpix = 20, ypix = 20, erode = 20)
+corrected <- image_correction(img, card_colors, kvals)
+image_combine(img, corrected)
 }
-
-
 }
