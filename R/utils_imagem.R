@@ -173,7 +173,7 @@ image_import <- function(img,
       if(!is.numeric(resize)){
         cli::cli_abort("Argument {.val resize} must be numeric.")
       }
-      list_img <- image_resize(list_img, resize)
+      list_img <- image_resize(list_img, resize, parallel = FALSE)
     }
     invisible(list_img)
   } else{
@@ -1129,22 +1129,23 @@ image_resize <- function(img,
                          verbose = TRUE,
                          plot = FALSE) {
   check_ebi()
-
   if (is.list(img)) {
     if (inherits(img, c("binary_list", "segment_list", "index_list",
                         "img_mat_list", "palette_list"))) {
       img <- lapply(img, function(x) x[[1]])
     }
+
     if (!all(sapply(img, inherits, "Image"))) {
       cli::cli_abort("All images must be of class {.cls Image}.")
     }
 
-    resize_fun <- function(im) {
-      w <- dim(im)[[1]]
-      new_width <- if (missing(width)) w * rel_size / 100 else width
+    # define resize_fun fora do escopo de missing()
+    resize_fun <- function(im, new_width, height) {
       EBImage::resize(im, new_width, height)
     }
 
+    # calcula width/height antes
+    res <- NULL
     if (parallel) {
       nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
       mirai::daemons(nworkers)
@@ -1162,26 +1163,36 @@ image_resize <- function(img,
         )
       }
 
-      res <- mirai::mirai_map(.x = img, .f = resize_fun)[.progress]
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im, width, height) {
+          w <- dim(im)[[1]]
+          new_width <- if (!missing(width)) width else w * rel_size / 100
+          resize_fun(im, new_width, height)
+        }
+      )[.progress]
 
     } else {
-      res <- lapply(img, resize_fun)
+      res <- lapply(img, function(im, width, height) {
+        w <- dim(im)[[1]]
+        new_width <- if (!missing(width)) width else w * rel_size / 100
+        resize_fun(im, new_width, height)
+      })
     }
-
-    if (isTRUE(plot)) {
-      for (r in res) plot(r)
+    if(plot){
+      image_combine(res)
     }
-
     invisible(res)
 
   } else {
     w <- dim(img)[[1]]
-    new_width <- if (missing(width)) w * rel_size / 100 else width
+    new_width <- if (!missing(width)) width else w * rel_size / 100
     img <- EBImage::resize(img, new_width, height)
     if (isTRUE(plot)) plot(img)
     invisible(img)
   }
 }
+
 
 
 #' @name utils_transform
@@ -5104,19 +5115,34 @@ plot_line_segment <- function(x, col = "red", lwd = 1){
 #' four corners to correct for perspective distortion, generates a grid
 #' corresponding to the color patches, and extracts the mean RGB values from
 #' the center of each patch.
+#'
+#' **Note:** The function attempts to automatically guess appropriate values
+#' for the parameters related to the card's dimensions (`nrow`, `ncol`) and
+#' the sampling process (`erode`, `xpix`, `ypix`) based on the detected
+#' coverage area of the card in the image. You may override these guesses
+#' by providing explicit values.
+#'
 #' @param img An `Image` object from the `EBImage` or `pliman` package.
-#' @param nrow The number of rows of color patches on the card (default: 6).
-#' @param ncol The number of columns of color patches on the card (default: 4).
 #' @param index The vegetation or color index string (e.g., "GRAY", "B", "R")
 #'   passed to `pliman::image_binary()` to segment the card from the
-#'   background. Default is "GRAY".
+#'   background. Default is **"GRAY"**.
+#' @param nrow The number of rows of color patches on the card. If **`NULL`**
+#'   (default), the function automatically determines this based on the card's
+#'   aspect ratio (6 for 6x4, 4 for 4x6).
+#' @param ncol The number of columns of color patches on the card. If **`NULL`**
+#'   (default), the function automatically determines this based on the card's
+#'   aspect ratio (4 for 6x4, 6 for 4x6).
 #' @param erode The size (in pixels) of the erosion kernel applied to the
-#'   binary mask to shrink the selection and avoid patch edges. Default is 50.
+#'   binary mask to shrink the selection and avoid patch edges. If **`NULL`**
+#'   (default), a value is automatically calculated based on the card's
+#'   coverage in the image.
 #' @param xpix The total width (in pixels) of the sampling rectangle at the
-#'   center of each patch. Default is 50.
+#'   center of each patch. If **`NULL`** (default), a value is automatically
+#'   calculated based on the card's coverage in the image.
 #' @param ypix The total height (in pixels) of the sampling rectangle at the
-#'   center of each patch. Default is 50.
-#' @param plot Logical. If `TRUE` (default), displays the original image with
+#'   center of each patch. If **`NULL`** (default), a value is automatically
+#'   calculated based on the card's coverage in the image.
+#' @param plot Logical. If **`TRUE`** (default), displays the original image with
 #'   detected corners (red dots), sampling boxes (red rectangles), and
 #'   patch IDs.
 #'
@@ -5130,36 +5156,51 @@ plot_line_segment <- function(x, col = "red", lwd = 1){
 #' }
 #'
 #' @export
-#'
 #' @examples
 #' if(interactive(){
 #' library(pliman)
 #' img <- image_pliman("colorcheck.jpg")
-#' get_card_colors(img, xpix = 20, ypix = 20, erode = 20)
+#' get_card_colors(img, xpix = 30, ypix = 30)
 #' }
 get_card_colors <- function(img,
-                            nrow = 6,
-                            ncol = 4,
                             index = "GRAY",
-                            erode = 50,
-                            xpix = 50,
-                            ypix = 50,
+                            nrow = NULL,
+                            ncol = NULL,
+                            erode = NULL,
+                            xpix = NULL,
+                            ypix = NULL,
                             plot = TRUE){
 
+  cover <- seq(0.05, 0.8, length.out = 50)
+  exp_model <- function(x, a, b, c) {
+    a + b * exp(-c * x)
+  }
+  size <- exp_model(cover, 3, 12, 40)
+  erodeval  <- exp_model(cover, 30, -30, 5) * 1.8
+  cex <-  seq(1.5, 0.4, length.out = 50)
+  cext <-  seq(0.6, 1.5, length.out = 50)
+  erodfact <- seq(0.5, 1, length.out = 50)
   bin <-
     image_binary(img,
                  index = index,
                  fill_hull = TRUE,
-                 plot = FALSE)[[1]] |>
-    image_erode(size = erode)
+                 plot = FALSE)[[1]]
+  #
   lab <- EBImage::bwlabel(bin)
-
   area <-
     lab |>
     EBImage::computeFeatures.shape()
 
   id_ref <- which.max(area[, 1])
   lab@.Data[which(lab != id_ref)] <- 0
+  lab@.Data[which(lab == id_ref)] <- 1
+  coverage <- sum(lab) / length(lab)
+  configp <- which.min(abs(cover - coverage))
+  suggestpix <- round((coverage * 100) * size[configp])
+  erode <- ifelse(is.null(erode), erodeval[configp], erode)
+  xpix <- ifelse(is.null(xpix), suggestpix, xpix)
+  ypix <- ifelse(is.null(ypix), suggestpix, ypix)
+  lab <- image_erode(lab, size = erode)
   oco <- EBImage::ocontour(lab)[[1]]
   hull_idx <- chull(oco)
   corners <- oco[hull_idx, ]
@@ -5177,18 +5218,30 @@ get_card_colors <- function(img,
   bottom_right <- corners_ordered[idx_bottom_right, ]
   top_left <- corners_ordered[idx_top_left, ]
   corners <- rbind(bottom_left, top_right, bottom_right, top_left)
+  dblbr <- sqrt(sum((corners[1, ] - corners[3, ])^2) )
+  dbltl <- sqrt(sum((corners[1, ] - corners[4, ])^2) )
+
+  if (dblbr > dbltl) {
+    nrow <- ifelse(is.null(nrow), 4, nrow)
+    ncol <- ifelse(is.null(ncol), 6, ncol)
+  } else {
+    nrow <- ifelse(is.null(nrow), 6, nrow)
+    ncol <- ifelse(is.null(ncol), 4, ncol)
+  }
   grid_points <- matrix(NA, nrow = nrow * ncol, ncol = 2)
   colnames(grid_points) <- c("x", "y")
   for (r in 1:nrow) {
     for (c in 1:ncol) {
       c_norm <- (c - 0.5) / ncol
-      r_norm <- (r - 0.5) / nrow
+      r_norm <- (nrow - r + 0.5) / nrow # Close to 1 for r=1 (bottom edge), close to 0 for r=nrow (top edge)
       p_top_x <- corners[4, 1] * (1 - c_norm) + corners[2, 1] * c_norm
       p_top_y <- corners[4, 2] * (1 - c_norm) + corners[2, 2] * c_norm
+      # p_bottom is on the line segment connecting BL (1) and BR (3)
       p_bottom_x <- corners[1, 1] * (1 - c_norm) + corners[3, 1] * c_norm
       p_bottom_y <- corners[1, 2] * (1 - c_norm) + corners[3, 2] * c_norm
       grid_x <- p_top_x * (1 - r_norm) + p_bottom_x * r_norm
       grid_y <- p_top_y * (1 - r_norm) + p_bottom_y * r_norm
+
       idx <- (r - 1) * ncol + c
       grid_points[idx, ] <- c(grid_x, grid_y)
     }
@@ -5196,7 +5249,7 @@ get_card_colors <- function(img,
   vals <-
     grid_points |>
     as.data.frame() |>
-    mutate(lab = 1:24)
+    mutate(lab = 1:(nrow * ncol))
 
   # criar grid para extrair cor
   coords <-
@@ -5226,13 +5279,15 @@ get_card_colors <- function(img,
       xright  = coords_matrix[, "x_max"],
       ytop    = coords_matrix[, "y_max"],
       border = "red",  # Cor da borda
-      lwd = 1.5         # Largura da linha
+      lwd = 1.5       # Largura da linha
     )
-    points(corners, col = "red", pch = 19, cex = 1.5)
-    text(x = vals[, 1], y = vals[, 2], labels = vals[, 3])
+    points(corners, col = "red", pch = 19, cex = cex[configp])
+    text(x = vals[, 1], y = vals[, 2], labels = vals[, 3],
+         cex = cext[configp])
   }
   return(rgbobs)
 }
+
 
 #' @title Correct Image Colors using a Color Checker
 #'
@@ -5277,18 +5332,27 @@ get_card_colors <- function(img,
 #' if(interactive(){
 #' library(pliman)
 #' img <- image_pliman("colorcheck.jpg")
-#' kvals <- data.frame(
-#'   id = 1:24,
-#'   R = c(0.169, 0.098, 0.933, 0.439, 0.314, 0.224, 0.616, 0.773, 0.478, 0.729, 0.325, 0.341,
-#'         0.631, 0.961, 0.765, 0.322, 0.792, 0.753, 0.227, 0.494, 0.976, 0.000, 0.871, 0.384),
-#'   G = c(0.161, 0.216, 0.620, 0.298, 0.314, 0.573, 0.737, 0.569, 0.463, 0.102, 0.227, 0.471,
-#'         0.616, 0.804, 0.310, 0.416, 0.776, 0.294, 0.345, 0.490, 0.949, 0.498, 0.463, 0.733),
-#'   B = c(0.169, 0.529, 0.098, 0.235, 0.306, 0.251, 0.212, 0.490, 0.455, 0.200, 0.416, 0.608,
-#'         0.604, 0.000, 0.373, 0.235, 0.765, 0.569, 0.624, 0.682, 0.933, 0.624, 0.125, 0.651)
-#'         )
-#' card_colors <- get_card_colors(img, xpix = 20, ypix = 20, erode = 20)
-#' corrected <- image_correction(img, card_colors, kvals)
-#' image_combine(img, corrected)
+#'
+#'kvals <- data.frame(
+#'  id = 1:24,
+#'  R = c(0.976471, 0, 0.870588, 0.384314, 0.792157, 0.752941, 0.227451,
+#'  0.494118, 0.631373, 0.960784, 0.764706, 0.321569, 0.478431, 0.729412,
+#'  0.32549, 0.341176, 0.313725, 0.223529, 0.615686, 0.772549, 0.168627,
+#'  0.098033, 0.933333, 0.439216),
+#'  G = c(0.94902, 0.498039, 0.462745, 0.733333,
+#'  0.776471, 0.294118, 0.345098, 0.490196, 0.615686, 0.803922, 0.309804,
+#'  0.415686, 0.462745, 0.101961, 0.227451, 0.470588, 0.313725, 0.572549,
+#'  0.737255, 0.568627, 0.160784, 0.215686, 0.619608, 0.298039),
+#'   B = c(0.933333,
+#'  0.623529, 0.12549, 0.65098, 0.764706, 0.568627, 0.623529, 0.682353, 0.60392,
+#'  0, 0.372549, 0.235294, 0.454902, 0.2, 0.415686, 0.607843, 0.305882, 0.25098,
+#'  0.211765, 0.490196, 0.168627, 0.529412, 0.098039, 0.235294)
+#'  )
+#'
+#'
+#'card_colors <- get_card_colors(img, xpix = 20, ypix = 30, erode = 20)
+#'corrected <- image_correction(img, card_colors, kvals)
+#'image_combine(img, corrected$img)
 #' }
 image_correction <- function(img,
                              card_colors = NULL,
@@ -5364,7 +5428,7 @@ image_correction <- function(img,
 #' )
 #' img <- image_pliman("colorcheck.jpg")
 #' # draw four samples, following the order (blue, red, yellow, white)
-#'  img_cor <- image_correction(img, known_colors, color_chips = 4)
+#'  img_cor <- image_correction_pick(img, known_colors, color_chips = 4)
 #'  image_combine(img, img_cor)
 #' }
 #'

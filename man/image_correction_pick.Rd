@@ -46,7 +46,7 @@ known_colors <- data.frame(
 )
 img <- image_pliman("colorcheck.jpg")
 # draw four samples, following the order (blue, red, yellow, white)
- img_cor <- image_correction(img, known_colors, color_chips = 4)
+ img_cor <- image_correction_pick(img, known_colors, color_chips = 4)
  image_combine(img, img_cor)
 }
 
