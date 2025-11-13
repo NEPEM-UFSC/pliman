@@ -6,36 +6,44 @@
 \usage{
 get_card_colors(
   img,
-  nrow = 6,
-  ncol = 4,
   index = "GRAY",
-  erode = 50,
-  xpix = 50,
-  ypix = 50,
+  nrow = NULL,
+  ncol = NULL,
+  erode = NULL,
+  xpix = NULL,
+  ypix = NULL,
   plot = TRUE
 )
 }
 \arguments{
 \item{img}{An \code{Image} object from the \code{EBImage} or \code{pliman} package.}
 
-\item{nrow}{The number of rows of color patches on the card (default: 6).}
-
-\item{ncol}{The number of columns of color patches on the card (default: 4).}
-
 \item{index}{The vegetation or color index string (e.g., "GRAY", "B", "R")
 passed to \code{pliman::image_binary()} to segment the card from the
-background. Default is "GRAY".}
+background. Default is \strong{"GRAY"}.}
+
+\item{nrow}{The number of rows of color patches on the card. If \strong{\code{NULL}}
+(default), the function automatically determines this based on the card's
+aspect ratio (6 for 6x4, 4 for 4x6).}
+
+\item{ncol}{The number of columns of color patches on the card. If \strong{\code{NULL}}
+(default), the function automatically determines this based on the card's
+aspect ratio (4 for 6x4, 6 for 4x6).}
 
 \item{erode}{The size (in pixels) of the erosion kernel applied to the
-binary mask to shrink the selection and avoid patch edges. Default is 50.}
+binary mask to shrink the selection and avoid patch edges. If \strong{\code{NULL}}
+(default), a value is automatically calculated based on the card's
+coverage in the image.}
 
 \item{xpix}{The total width (in pixels) of the sampling rectangle at the
-center of each patch. Default is 50.}
+center of each patch. If \strong{\code{NULL}} (default), a value is automatically
+calculated based on the card's coverage in the image.}
 
 \item{ypix}{The total height (in pixels) of the sampling rectangle at the
-center of each patch. Default is 50.}
+center of each patch. If \strong{\code{NULL}} (default), a value is automatically
+calculated based on the card's coverage in the image.}
 
-\item{plot}{Logical. If \code{TRUE} (default), displays the original image with
+\item{plot}{Logical. If \strong{\code{TRUE}} (default), displays the original image with
 detected corners (red dots), sampling boxes (red rectangles), and
 patch IDs.}
 }
@@ -54,11 +62,17 @@ This function identifies a color checker card in an image, finds its
 four corners to correct for perspective distortion, generates a grid
 corresponding to the color patches, and extracts the mean RGB values from
 the center of each patch.
+
+\strong{Note:} The function attempts to automatically guess appropriate values
+for the parameters related to the card's dimensions (\code{nrow}, \code{ncol}) and
+the sampling process (\code{erode}, \code{xpix}, \code{ypix}) based on the detected
+coverage area of the card in the image. You may override these guesses
+by providing explicit values.
 }
 \examples{
 if(interactive(){
 library(pliman)
 img <- image_pliman("colorcheck.jpg")
-get_card_colors(img, xpix = 20, ypix = 20, erode = 20)
+get_card_colors(img, xpix = 30, ypix = 30)
 }
 }
