@@ -1154,7 +1154,7 @@ trunc_path <- function(path, max_chars = 100, sep = "...") {
 #' }
 #'
 clear_pliman_cache <- function(all = TRUE, days = NULL) {
-  cache_dir <- tools::R_user_dir("pliman", which = "cache")
+  cache_dir <- tools::R_user_dir("plimanshiny", which = "config")
 
   if (!dir.exists(cache_dir)) {
     cli::cli_alert_info("Cache directory does not exist: {.path {cache_dir}}")
@@ -1162,7 +1162,7 @@ clear_pliman_cache <- function(all = TRUE, days = NULL) {
   }
 
   if (isTRUE(all)) {
-    unlink(cache_dir, recursive = TRUE, force = TRUE)
+    unlink(tools::R_user_dir("plimanshiny", which = "config"), recursive = TRUE, force = TRUE)
     cli::cli_alert_success("All cached files have been removed from {.path {cache_dir}}")
   } else if (!is.null(days)) {
     files <- list.files(cache_dir, full.names = TRUE)
@@ -1184,23 +1184,40 @@ mpinv <- function(A, tol = .Machine$double.eps) {
   Aplus <- svdA$v %*% (diag(d_inv, length(d_inv))) %*% t(svdA$u)
   return(Aplus)
 }
-create_poly_matrix <- function(df) {
-  # Garantir que é um dataframe
+create_poly_matrix <- function(df, model = "cubic") {
   df <- as.data.frame(df)
-
-  # Extrair colunas
   R <- df$R
   G <- df$G
   B <- df$B
-
-  # Criar a matriz de 9 termos
-  poly_matrix <- cbind(
-    R, G, B,
-    R^2, G^2, B^2,
-    R^3, G^3, B^3
-  )
-
-  # Definir nomes de colunas para clareza
-  colnames(poly_matrix) <- c("R", "G", "B", "R2", "G2", "B2", "R3", "G3", "B3")
+  if (model == "cubic") {
+    # Modelo cúbico de 9 termos (sem interação)
+    poly_matrix <- cbind(
+      R, G, B,
+      R^2, G^2, B^2,
+      R^3, G^3, B^3
+    )
+    colnames(poly_matrix) <- c("R", "G", "B", "R2", "G2", "B2", "R3", "G3", "B3")
+  } else if (model == "root_polynomial") {
+    # Modelo de 20 termos (com interações)
+    # 1 (Intercept) é adicionado para o ajuste
+    poly_matrix <- cbind(
+      Intercept = 1,
+      R, G, B,
+      R*G, R*B, G*B,
+      R^2, G^2, B^2,
+      R^3, G^3, B^3,
+      (R^2)*G, (R^2)*B,
+      (G^2)*R, (G^2)*B,
+      (B^2)*R, (B^2)*G,
+      R*G*B
+    )
+    # Nomes de colunas para clareza
+    colnames(poly_matrix) <- c(
+      "Int", "R", "G", "B", "RG", "RB", "GB", "R2", "G2", "B2",
+      "R3", "G3", "B3", "R2G", "R2B", "G2R", "G2B", "B2R", "B2G", "RGB"
+    )
+  } else {
+    stop("Model '", model, "' is not accepted. Use 'cubic' or 'root_polynomial'.")
+  }
   return(poly_matrix)
 }

@@ -40,8 +40,9 @@ generated in the "EPSG:4326" coordinate reference system.}
 
 \item{basemap}{An optional \code{mapview} object.}
 
-\item{controlpoints}{An \code{sf} object created with \code{\link[mapedit:editMap]{mapedit::editMap()}},
-containing the polygon that defines the region of interest to be analyzed.}
+\item{controlpoints}{An object created with \code{\link[=mosaic_view]{mosaic_view()}} using the
+argument \code{edit = TRUE}. This must contain the points that defines the
+region of interest to be analyzed.}
 
 \item{r, g, b}{The layer for the Red, Green and Blue band, respectively.
 Defaults to \code{1}, \code{2}, and \code{3}.}
@@ -119,8 +120,8 @@ the coordinates of the drawn polygons.
 \description{
 This function takes a mosaic raster to create a shapefile containing polygons
 for the specified regions. Users can drawn Areas of Interest (AOIs) that can
-be either a polygon with n sides, or a grid, defined by \code{nrow}, and \code{ncol}
-arguments.
+be either a polygon with \code{n} sides or a rectangular/curvilinear grid, defined
+by \code{nrow}, and \code{ncol} arguments.
 }
 \details{
 Since multiple blocks can be created, the length of arguments \code{grid}, \code{nrow},
@@ -128,19 +129,35 @@ Since multiple blocks can be created, the length of arguments \code{grid}, \code
 (the same argument applied to all the drawn blocks), or a vector with the
 same length as the number of drawn blocks. In the last, shapefiles in each
 block can be created with different dimensions.
+
+\strong{Curvilinear Grid Handling:} When defining an AOI using the \strong{Polygon} or \strong{Rectangle}
+tools, the corners drawn by the user establish the \strong{path and orientation}
+of the grid. The function automatically checks the angle formed by these
+drawn control points, creates the grid using user-defined \code{nrow} and \code{ncol}
+and uses a rotation-adjusted \code{layout} to ensure the plot ID sequence follows
+the intended serpentine or linear pattern along the long axis of the drawn
+boundary.
 }
 \examples{
 if (interactive() && requireNamespace("EBImage")) {
 library(pliman)
-mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
+mosaic <- image_pliman("soy_ortho.tif")
+
+# Draw a regular polygon with 7 rows and 3 columns
 shps <-
       shapefile_build(mosaic,
-                      nrow = 6,
+                      nrow = 7,
                       ncol = 3,
-                      buffer_row = -0.05,
-                      buffer_col = -0.25,
-                      check_shapefile = FALSE,
-                      build_shapefile = FALSE) ## Use TRUE to interactively build the plots
+                      build_shapefile = FALSE)
+mosaic_plot(mosaic)
+shapefile_plot(shps[[1]], add = TRUE)
+
+# Here, you'll need to draw the four control points that defines the grid
+# top left, top right, bottom right, bottom left
+shps <-
+      shapefile_build(mosaic,
+                      nrow = 5,
+                      ncol = 3)
 mosaic_plot(mosaic)
 shapefile_plot(shps[[1]], add = TRUE)
 }

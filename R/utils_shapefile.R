@@ -1,113 +1,52 @@
-point_to_polygon <- function(sf_object, n_sides = 500) {
-  # Extract CRS of the input sf object
-  crsobj <- sf::st_crs(sf_object)
-  # Create a new geometry list
-  new_geometries <- lapply(seq_len(nrow(sf_object)), function(i) {
-    geom_type <- sf::st_geometry_type(sf_object[i, ])
-    if (geom_type == "POINT") {
-      # Get the point coordinates
-      point <- sf::st_coordinates(sf_object[i, ])
-      radius <- sf_object[["radius"]][i]
-
-      if (is.na(radius)) {
-        cli::cli_abort("Radius is missing for a POINT geometry!")
-      }
-      angles <- seq(0, 2 * pi, length.out = n_sides + 1)
-      circle_coords <- cbind(
-        point[1] + radius * cos(angles),  # X coordinates
-        point[2] + radius * sin(angles)   # Y coordinates
-      )
-      sf::st_polygon(list(circle_coords))
-    } else {
-      sf::st_geometry(sf_object[i, ])
-    }
-  })
-  # Function to ensure all geometries in a list are valid sfg objects
-  validate_geometries <- function(geometry_list) {
-    lapply(geometry_list, function(geom) {
-      if (inherits(geom, "sfg")) {
-        return(geom)  # Valid sfg object, return as is
-      } else if (inherits(geom, "sfc")) {
-        return(geom[[1]])  # Unnest if it's an sfc object
-      } else if (is.list(geom) && inherits(geom[[1]], "sfg")) {
-        return(geom[[1]])  # Handle nested lists containing sfg objects
-      } else {
-        cli::cli_abort("Invalid geometry found in the list")
-      }
-    })
+make_grid <- function(points,
+                      nrow,
+                      ncol,
+                      buffer_col = 0,
+                      buffer_row = 0,
+                      plot_width = NULL,
+                      plot_height = NULL,
+                      n_spline = 500) {
+  coords <- sf::st_coordinates(points)[, 1:2]
+  if(all(coords[1,] == coords[nrow(coords),])){
+    coords <- coords[1:(nrow(coords)-1), , drop=FALSE]
   }
-  sf_object <-
-    sf::st_set_geometry(sf_object, sf::st_sfc(validate_geometries(new_geometries))) |>
-    sf::st_set_crs(crsobj)
-  return(sf_object)
-}
-add_width_height <- function(grid, width, height, mosaic, points_align) {
-  gridl <-lapply(sf::st_geometry(grid), sf::st_coordinates)
-  gridadj <- add_width_height_cpp(gridl, height, width, points_align)
-  return(sf::st_sf(geometry = sf::st_as_sfc(gridadj, crs = sf::st_crs(grid))))
-}
-create_buffer <- function(coords, buffer_col, buffer_row) {
-  # Calculate the new x-min, x-max, y-min, and y-max after adjustment
-  coords <- sf::st_coordinates(coords)
-  x_min <- min(coords[, 1])
-  x_max <- max(coords[, 1])
-  y_min <- min(coords[, 2])
-  y_max <- max(coords[, 2])
-  new_x_min <- x_min - buffer_col * (x_max - x_min)
-  new_x_max <- x_max + buffer_col * (x_max - x_min)
-  new_y_min <- y_min - buffer_row * (y_max - y_min)
-  new_y_max <- y_max + buffer_row * (y_max - y_min)
-
-  # Calculate the scaling factors for x and y
-  x_scale_factor <- (new_x_max - new_x_min) / (x_max - x_min)
-  y_scale_factor <- (new_y_max - new_y_min) / (y_max - y_min)
-
-  # Apply the scaling to the coordinates
-  resized_coords <- coords
-  resized_coords[, 1] <- (resized_coords[, 1] - x_min) * x_scale_factor + new_x_min
-  resized_coords[, 2] <- (resized_coords[, 2] - y_min) * y_scale_factor + new_y_min
-  resized_coords <- rbind(resized_coords, resized_coords[1, ])
-  sf::st_polygon(list(resized_coords[, 1:2]))
-}
-
-make_grid <- function(points, nrow, ncol, mosaic, buffer_col = 0, buffer_row = 0, plot_width = NULL, plot_height = NULL) {
-  points_align <-
-    sf::st_transform(points, sf::st_crs(mosaic)) |>
-    sf::st_coordinates()
-
-  grids <-
-    sf::st_make_grid(points, n = c(nrow, ncol)) |>
-    sf::st_transform(sf::st_crs(mosaic))
-
-  sxy <-
-    points |>
-    sf::st_make_grid(n = c(1, 1)) |>
-    sf::st_cast("POINT") |>
-    rev() |>
-    sf::st_transform(sf::st_crs(mosaic)) |>
-    sf::st_coordinates()
-  txy <-
-    points |>
-    sf::st_transform(sf::st_crs(mosaic)) |>
-    sf::st_coordinates()
-  txy <- txy[1:4, 1:2]
-
-  cvm <- lm(txy ~ sxy[1:4, ])
-  parms <- cvm$coefficients[2:3, ]
-  intercept <- cvm$coefficients[1, ]
-  geometry <- sf::st_sf(geometry = grids * parms + intercept, crs = sf::st_crs(mosaic))
-  if (buffer_row != 0 | buffer_col != 0) {
-    measures <- shapefile_measures(geometry, 1)
-    wid <- measures$width
-    hei <- measures$height
-    new_height <- hei + buffer_row  * hei
-    new_width <- wid + buffer_col  * wid
-    geometry <- add_width_height(grid = geometry, width = new_width, height = new_height, points_align = points_align[2:3, 1:2])
+  n_pts <- nrow(coords)
+  mid_idx <- ceiling(n_pts / 2)
+  smooth_rail_coords <- function(mtx_coords, n_out) {
+    if(nrow(mtx_coords) < 2) return(mtx_coords)
+    t <- 1:nrow(mtx_coords)
+    t_new <- seq(1, nrow(mtx_coords), length.out = n_out)
+    cbind(
+      x = stats::spline(t, mtx_coords[,1], xout = t_new)$y,
+      y = stats::spline(t, mtx_coords[,2], xout = t_new)$y
+    )
   }
-  if (!is.null(plot_width) & !is.null(plot_height)) {
-    geometry <- add_width_height(grid = geometry, width = plot_width, height = plot_height, points_align = points_align[2:3, 1:2])
-  }
-  return(geometry)
+  c_rail1 <- smooth_rail_coords(coords[1:mid_idx, , drop = FALSE], n_spline)
+  c_rail2 <- smooth_rail_coords(coords[n_pts:(mid_idx + 1), , drop = FALSE], n_spline)
+  raw_list <- rcpp_make_grid_structure(
+    rail1 = c_rail1,
+    rail2 = c_rail2,
+    nrow = nrow,
+    ncol = ncol,
+    buffer_col = buffer_col,
+    buffer_row = buffer_row,
+    plot_width_opt = plot_width,
+    plot_height_opt = plot_height
+  )
+
+  all_x <- c(c_rail1[,1], c_rail2[,1])
+  all_y <- c(c_rail1[,2], c_rail2[,2])
+  bbox <- structure(c(xmin = min(all_x), ymin = min(all_y),
+                      xmax = max(all_x), ymax = max(all_y)),
+                    class = "bbox",
+                    crs = sf::st_crs(points))
+
+  attr(raw_list, "class") <- c("sfc_POLYGON", "sfc")
+  attr(raw_list, "precision") <- 0
+  attr(raw_list, "bbox") <- bbox
+  attr(raw_list, "crs") <- sf::st_crs(points)
+  attr(raw_list, "n_empty") <- 0L
+  sf::st_sf(geometry = raw_list)
 }
 
 #' Generate plot IDs with different layouts
@@ -321,14 +260,24 @@ plot_id <- function(shapefile,
 #'
 #' This function takes a mosaic raster to create a shapefile containing polygons
 #' for the specified regions. Users can drawn Areas of Interest (AOIs) that can
-#' be either a polygon with n sides, or a grid, defined by `nrow`, and `ncol`
-#' arguments.
+#' be either a polygon with `n` sides or a rectangular/curvilinear grid, defined
+#' by `nrow`, and `ncol` arguments.
+#'
 #' @details
 #' Since multiple blocks can be created, the length of arguments `grid`, `nrow`,
 #' `ncol`, `buffer_edge`, `buffer_col`, and `buffer_row` can be either an scalar
 #' (the same argument applied to all the drawn blocks), or a vector with the
 #' same length as the number of drawn blocks. In the last, shapefiles in each
 #' block can be created with different dimensions.
+#'
+#' **Curvilinear Grid Handling:** When defining an AOI using the **Polygon** or **Rectangle**
+#' tools, the corners drawn by the user establish the **path and orientation**
+#' of the grid. The function automatically checks the angle formed by these
+#' drawn control points, creates the grid using user-defined `nrow` and `ncol`
+#' and uses a rotation-adjusted `layout` to ensure the plot ID sequence follows
+#' the intended serpentine or linear pattern along the long axis of the drawn
+#' boundary.
+#'
 #' @param sf_to_polygon Convert sf geometry like POINTS and LINES to POLYGONS?
 #'   Defaults to `FALSE`. Using `TRUE` allows using POINTS to extract values
 #'   from a raster using `exactextractr::exact_extract()`.
@@ -336,8 +285,9 @@ plot_id <- function(shapefile,
 #'   [mosaic_input()].  If not provided, a latitude/longitude basemap will be
 #'   generated in the "EPSG:4326" coordinate reference system.
 #' @param basemap An optional `mapview` object.
-#' @param controlpoints An `sf` object created with [mapedit::editMap()],
-#'   containing the polygon that defines the region of interest to be analyzed.
+#' @param controlpoints An object created with [mosaic_view()] using the
+#'   argument `edit = TRUE`. This must contain the points that defines the
+#'   region of interest to be analyzed.
 #' @param nsides The number of sides if the geometry is generated with `Draw
 #'   Circle` tool.
 #' @inheritParams mosaic_analyze
@@ -351,15 +301,23 @@ plot_id <- function(shapefile,
 #' @examples
 #' if (interactive() && requireNamespace("EBImage")) {
 #' library(pliman)
-#' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
+#' mosaic <- image_pliman("soy_ortho.tif")
+#'
+#' # Draw a regular polygon with 7 rows and 3 columns
 #' shps <-
 #'       shapefile_build(mosaic,
-#'                       nrow = 6,
+#'                       nrow = 7,
 #'                       ncol = 3,
-#'                       buffer_row = -0.05,
-#'                       buffer_col = -0.25,
-#'                       check_shapefile = FALSE,
-#'                       build_shapefile = FALSE) ## Use TRUE to interactively build the plots
+#'                       build_shapefile = FALSE)
+#' mosaic_plot(mosaic)
+#' shapefile_plot(shps[[1]], add = TRUE)
+#'
+#' # Here, you'll need to draw the four control points that defines the grid
+#' # top left, top right, bottom right, bottom left
+#' shps <-
+#'       shapefile_build(mosaic,
+#'                       nrow = 5,
+#'                       ncol = 3)
 #' mosaic_plot(mosaic)
 #' shapefile_plot(shps[[1]], add = TRUE)
 #' }
@@ -433,12 +391,70 @@ shapefile_build <- function(mosaic,
                                    position = "topleft"
                                  ))
       )
-      cpoints <-
-        points$finished |>
-        sf::st_transform(sf::st_crs(mosaic)) |>
-        point_to_polygon(n_sides = nsides)
+      # Check the geometry type of the input
+      geom_type <-
+        sf::st_geometry(points$finished) |>
+        sf::st_geometry_type(by_geometry = FALSE)
+
+      # If the input is POINTS, convert to a POLYGON boundary
+      if (geom_type == "POINT") {
+        pts_coords <-
+          points$finished |>
+          sf::st_transform(sf::st_crs(mosaic)) |>
+          sf::st_coordinates()
+        polygon_geom <- sf::st_polygon(list(rbind(pts_coords, pts_coords[1, ])))
+
+        cpoints <- sf::st_sf(
+          data.frame(id = 1),
+          geometry = sf::st_sfc(polygon_geom),
+          crs = sf::st_crs(mosaic)
+        )
+      } else if (geom_type == "POLYGON") {
+        cpoints <-
+          points$finished |>
+          sf::st_transform(sf::st_crs(mosaic))
+        if (!"id" %in% names(cpoints)) {
+          cpoints$id <- 1
+        }
+      } else {
+        cli::cli_abort(
+          "Unsupported geometry type provided in {.arg points$finished}.",
+          "i" = "Expected {.val POINT} or {.val POLYGON}, but received {.val {geom_type}}."
+        )
+      }
     } else{
-      cpoints <- controlpoints
+      if (!"finished" %in% names(controlpoints)) {
+        cli::cli_abort(
+          "The input {.arg controlpoints} must be an object computed with {.code mosaic_view(..., edit = TRUE)}."
+        )
+      }
+      # Check the geometry type of the input
+      geom_type <-
+        sf::st_geometry(controlpoints$finished) |>
+        sf::st_geometry_type(by_geometry = FALSE)
+
+      # If the input is POINTS, convert to a POLYGON boundary
+      if (geom_type == "POINT") {
+        pts_coords <-
+          controlpoints$finished |>
+          sf::st_transform(sf::st_crs(mosaic)) |>
+          sf::st_coordinates()
+        polygon_geom <- sf::st_polygon(list(rbind(pts_coords, pts_coords[1, ])))
+
+        cpoints <- sf::st_sf(
+          data.frame(id = 1),
+          geometry = sf::st_sfc(polygon_geom),
+          crs = sf::st_crs(mosaic)
+        )
+      } else if (geom_type == "POLYGON") {
+        cpoints <-
+          controlpoints$finished |>
+          sf::st_transform(sf::st_crs(mosaic))
+        if (!"id" %in% names(cpoints)) {
+          cpoints$id <- 1
+        }
+      }
+      #
     }
     if(sf_to_polygon){
       cpoints <- cpoints |> sf_to_polygon()
@@ -501,28 +517,72 @@ shapefile_build <- function(mosaic,
   }
   created_shapes <- list()
   for(k in 1:nrow(cpoints)){
-    if(inherits(cpoints[k, ]$geometry, "sfc_POLYGON") & nrow(sf::st_coordinates(cpoints[k, ])) == 5 & grid[[k]]){
+    if(inherits(cpoints[k, ]$geometry, "sfc_POLYGON") & grid[[k]]){
+      pdata <- cpoints[k, ] |> sf::st_coordinates()
+      if(nrow(pdata) == 5){
+        npdis <- 2
+      } else{
+        npdis <- (nrow(pdata) - 1) / 2
+      }
+      difcoord <- pdata[c(1, npdis), 1:2] |> diff()
+      if(abs(atan2( difcoord[2], difcoord[1]) * ( 180 / pi)) <= 45){
+        pg <-
+          make_grid(cpoints[k, ],
+                    nrow = nrow[k],
+                    ncol = ncol[k],
+                    buffer_col = buffer_col[k],
+                    buffer_row = buffer_row[k],
+                    plot_width = plot_width[k],
+                    plot_height = plot_height[k])
+        pg <-
+          pg |>
+          dplyr::mutate(row = rep(1:nrow[k], ncol[k]),
+                        column = rep(1:ncol[k], each = nrow[k]),
+                        .before = geometry)
+        updateids <- plot_id(pg, nrow = nrow[k], ncol = ncol[k], layout = layout[k], serpentine = serpentine[k])
+        pg <-
+          pg |>
+          dplyr::mutate(unique_id = dplyr::row_number(),
+                        block = paste0("B", leading_zeros(1, 2)),
+                        plot_id = updateids$plots,
+                        row = updateids$rows,
+                        column = updateids$cols,
+                        .before = 1)
+      } else{
+      lay <-
+        switch (layout[k],
+                "rltb" = "tblr",
+                "rlbt" = "tbrl",
+                "lrtb" = "btlr",
+                "lrbt" = "btrl",
+                "tbrl" = "lrtb",
+                "tblr" = "lrbt",
+                "btrl" = "rltb",
+                "btlr" = "rlbt",
+        )
       pg <-
         make_grid(cpoints[k, ],
-                  nrow = nrow[k],
-                  ncol = ncol[k],
-                  mosaic = mosaic,
-                  buffer_col = buffer_col[k],
-                  buffer_row = buffer_row[k],
-                  plot_width = plot_width[k],
-                  plot_height = plot_height[k]) |>
-        dplyr::mutate(row = rep(1:nrow[k], ncol[k]),
-                      column = rep(1:ncol[k], each = nrow[k]),
+                  nrow = ncol[k],
+                  ncol = nrow[k],
+                  buffer_col = buffer_row[k],
+                  buffer_row = buffer_col[k],
+                  plot_width = plot_height[k],
+                  plot_height = plot_width[k]) |>
+        dplyr::mutate(row = rep(1:ncol[k], nrow[k]),
+                      column = rep(1:nrow[k], each = ncol[k]),
                       .before = geometry)
-      updateids <- plot_id(pg, nrow = nrow[k], ncol = ncol[k], layout = layout[k], serpentine = serpentine[k])
+      updateids <- plot_id(pg, nrow = ncol[k], ncol = nrow[k], layout = lay, serpentine = serpentine[k])
       pg <-
         pg |>
         dplyr::mutate(unique_id = dplyr::row_number(),
                       block = paste0("B", leading_zeros(1, 2)),
                       plot_id = updateids$plots,
-                      row = updateids$rows,
-                      column = updateids$cols,
+                      row = updateids$cols,
+                      column = updateids$rows,
                       .before = 1)
+
+      }
+
     } else{
       pg <-
         cpoints[k, ] |>
