@@ -70,7 +70,7 @@ coverage area of the card in the image. You may override these guesses
 by providing explicit values.
 }
 \examples{
-if(interactive(){
+if(interactive()){
 library(pliman)
 img <- image_pliman("colorcheck.jpg")
 get_card_colors(img, xpix = 30, ypix = 30)

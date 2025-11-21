@@ -215,20 +215,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// add_width_height_cpp
-CharacterVector add_width_height_cpp(List grid, double width, double height, NumericVector points_align);
-RcppExport SEXP _pliman_add_width_height_cpp(SEXP gridSEXP, SEXP widthSEXP, SEXP heightSEXP, SEXP points_alignSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< List >::type grid(gridSEXP);
-    Rcpp::traits::input_parameter< double >::type width(widthSEXP);
-    Rcpp::traits::input_parameter< double >::type height(heightSEXP);
-    Rcpp::traits::input_parameter< NumericVector >::type points_align(points_alignSEXP);
-    rcpp_result_gen = Rcpp::wrap(add_width_height_cpp(grid, width, height, points_align));
-    return rcpp_result_gen;
-END_RCPP
-}
 // help_label
 IntegerMatrix help_label(IntegerMatrix matrix, int max_gap);
 RcppExport SEXP _pliman_help_label(SEXP matrixSEXP, SEXP max_gapSEXP) {
@@ -286,14 +272,33 @@ BEGIN_RCPP
 END_RCPP
 }
 // correct_image_rcpp
-arma::cube correct_image_rcpp(const arma::cube& img, const arma::mat& K);
-RcppExport SEXP _pliman_correct_image_rcpp(SEXP imgSEXP, SEXP KSEXP) {
+arma::cube correct_image_rcpp(const arma::cube& img, const arma::mat& K, std::string model);
+RcppExport SEXP _pliman_correct_image_rcpp(SEXP imgSEXP, SEXP KSEXP, SEXP modelSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const arma::cube& >::type img(imgSEXP);
     Rcpp::traits::input_parameter< const arma::mat& >::type K(KSEXP);
-    rcpp_result_gen = Rcpp::wrap(correct_image_rcpp(img, K));
+    Rcpp::traits::input_parameter< std::string >::type model(modelSEXP);
+    rcpp_result_gen = Rcpp::wrap(correct_image_rcpp(img, K, model));
+    return rcpp_result_gen;
+END_RCPP
+}
+// rcpp_make_grid_structure
+List rcpp_make_grid_structure(NumericMatrix rail1, NumericMatrix rail2, int nrow, int ncol, double buffer_col, double buffer_row, Nullable<double> plot_width_opt, Nullable<double> plot_height_opt);
+RcppExport SEXP _pliman_rcpp_make_grid_structure(SEXP rail1SEXP, SEXP rail2SEXP, SEXP nrowSEXP, SEXP ncolSEXP, SEXP buffer_colSEXP, SEXP buffer_rowSEXP, SEXP plot_width_optSEXP, SEXP plot_height_optSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type rail1(rail1SEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type rail2(rail2SEXP);
+    Rcpp::traits::input_parameter< int >::type nrow(nrowSEXP);
+    Rcpp::traits::input_parameter< int >::type ncol(ncolSEXP);
+    Rcpp::traits::input_parameter< double >::type buffer_col(buffer_colSEXP);
+    Rcpp::traits::input_parameter< double >::type buffer_row(buffer_rowSEXP);
+    Rcpp::traits::input_parameter< Nullable<double> >::type plot_width_opt(plot_width_optSEXP);
+    Rcpp::traits::input_parameter< Nullable<double> >::type plot_height_opt(plot_height_optSEXP);
+    rcpp_result_gen = Rcpp::wrap(rcpp_make_grid_structure(rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -618,13 +623,13 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_help_otsu", (DL_FUNC) &_pliman_help_otsu, 1},
     {"_pliman_helper_guo_hall", (DL_FUNC) &_pliman_helper_guo_hall, 1},
     {"_pliman_idw_interpolation_cpp", (DL_FUNC) &_pliman_idw_interpolation_cpp, 6},
-    {"_pliman_add_width_height_cpp", (DL_FUNC) &_pliman_add_width_height_cpp, 4},
     {"_pliman_help_label", (DL_FUNC) &_pliman_help_label, 2},
     {"_pliman_rcpp_st_perimeter", (DL_FUNC) &_pliman_rcpp_st_perimeter, 1},
     {"_pliman_uuid_v7", (DL_FUNC) &_pliman_uuid_v7, 0},
     {"_pliman_helper_entropy", (DL_FUNC) &_pliman_helper_entropy, 2},
     {"_pliman_corners_to_wkt", (DL_FUNC) &_pliman_corners_to_wkt, 1},
-    {"_pliman_correct_image_rcpp", (DL_FUNC) &_pliman_correct_image_rcpp, 2},
+    {"_pliman_correct_image_rcpp", (DL_FUNC) &_pliman_correct_image_rcpp, 3},
+    {"_pliman_rcpp_make_grid_structure", (DL_FUNC) &_pliman_rcpp_make_grid_structure, 8},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},

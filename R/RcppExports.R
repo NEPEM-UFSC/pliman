@@ -65,10 +65,6 @@ idw_interpolation_cpp <- function(x, y, values, new_x, new_y, power = 2) {
     .Call(`_pliman_idw_interpolation_cpp`, x, y, values, new_x, new_y, power)
 }
 
-add_width_height_cpp <- function(grid, width, height, points_align) {
-    .Call(`_pliman_add_width_height_cpp`, grid, width, height, points_align)
-}
-
 help_label <- function(matrix, max_gap = 2L) {
     .Call(`_pliman_help_label`, matrix, max_gap)
 }
@@ -89,8 +85,12 @@ corners_to_wkt <- function(cornersList) {
     .Call(`_pliman_corners_to_wkt`, cornersList)
 }
 
-correct_image_rcpp <- function(img, K) {
-    .Call(`_pliman_correct_image_rcpp`, img, K)
+correct_image_rcpp <- function(img, K, model) {
+    .Call(`_pliman_correct_image_rcpp`, img, K, model)
+}
+
+rcpp_make_grid_structure <- function(rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt) {
+    .Call(`_pliman_rcpp_make_grid_structure`, rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt)
 }
 
 help_area <- function(coord) {

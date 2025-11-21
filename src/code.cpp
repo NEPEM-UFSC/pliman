@@ -852,71 +852,6 @@ NumericMatrix adjust_bbox(NumericMatrix coords, double width, double height) {
   return new_bbox;
 }
 
-// Function to rotate a polygon around its centroid
-NumericMatrix rotate_polygon(NumericMatrix coords, double angle, NumericVector centroid) {
-  NumericMatrix rot_mat(2, 2);
-  rot_mat(0, 0) = cos(angle);
-  rot_mat(0, 1) = -sin(angle);
-  rot_mat(1, 0) = sin(angle);
-  rot_mat(1, 1) = cos(angle);
-
-  NumericMatrix rotated_coords(coords.nrow(), coords.ncol());
-
-  for (int i = 0; i < coords.nrow(); ++i) {
-    NumericVector point = coords(i, _) - centroid;
-    NumericVector rotated_point = NumericVector::create(
-      rot_mat(0, 0) * point[0] + rot_mat(0, 1) * point[1],
-                                                      rot_mat(1, 0) * point[0] + rot_mat(1, 1) * point[1]
-    ) + centroid;
-    rotated_coords(i, _) = rotated_point;
-  }
-
-  return rotated_coords;
-}
-
-// [[Rcpp::export]]
-CharacterVector add_width_height_cpp(
-    List grid,
-    double width,
-    double height,
-    NumericVector points_align) {
-
-    int n = grid.size();
-    CharacterVector wkt(n);
-
-    // unpack alignment points
-    double x1 = points_align[0], x2 = points_align[1],
-                                                  y1 = points_align[2], y2 = points_align[3];
-    double angle = std::atan2(y2 - y1, x2 - x1);
-
-    for(int i = 0; i < n; ++i) {
-      NumericMatrix coords = as<NumericMatrix>(grid[i]);
-
-      // 1) build new bbox around centroid
-      NumericMatrix bbox = adjust_bbox(coords, width, height);
-
-      // 2) compute centroid for rotation
-      NumericVector cent = colMeans(bbox(Range(0,3), _));
-
-      // 3) rotate the bbox
-      NumericMatrix rot = rotate_polygon(bbox, angle, cent);
-
-      // 4) convert to WKT
-      std::ostringstream oss;
-      oss << std::fixed << std::setprecision(6)
-          << "POLYGON((";
-      int m = rot.nrow();
-      for(int j = 0; j < m; ++j) {
-        oss << rot(j,0) << " " << rot(j,1);
-        if(j < m-1) oss << ", ";
-      }
-      oss << "))";
-
-      wkt[i] = oss.str();
-    }
-
-    return wkt;
-  }
 
 // [[Rcpp::export]]
 IntegerMatrix help_label(IntegerMatrix matrix, int max_gap = 2) {
@@ -1141,41 +1076,212 @@ CharacterVector corners_to_wkt(List cornersList) {
   return out;
 }
 // [[Rcpp::export]]
-arma::cube correct_image_rcpp(const arma::cube& img, const arma::mat& K) {
+arma::cube correct_image_rcpp(const arma::cube& img,
+                              const arma::mat& K,
+                              std::string model) {
+
   int n_rows = img.n_rows;
   int n_cols = img.n_cols;
-
   arma::cube out_img(n_rows, n_cols, 3, arma::fill::zeros);
-
-  arma::rowvec S_pixel(9);
-  arma::rowvec T_pixel(9);
-
+  arma::rowvec T_pixel(3); // A saída é sempre 3 (R,G,B)
   double R, G, B;
 
-  for (int i = 0; i < n_rows; ++i) {
-    for (int j = 0; j < n_cols; ++j) {
-
-      R = img(i, j, 0);
-      G = img(i, j, 1);
-      B = img(i, j, 2);
-
-      S_pixel(0) = R;
-      S_pixel(1) = G;
-      S_pixel(2) = B;
-      S_pixel(3) = R * R;
-      S_pixel(4) = G * G;
-      S_pixel(5) = B * B;
-      S_pixel(6) = R * R * R;
-      S_pixel(7) = G * G * G;
-      S_pixel(8) = B * B * B;
-
-      T_pixel = S_pixel * K;
-
-      out_img(i, j, 0) = T_pixel(0);
-      out_img(i, j, 1) = T_pixel(1);
-      out_img(i, j, 2) = T_pixel(2);
+  // --- CAMINHO 1: Modelo "cubic" (9 termos) ---
+  if (model == "cubic") {
+    if (K.n_rows != 9) {
+      Rcpp::stop("Erro: 'k_mat' tem %i linhas, mas o modelo 'cubic' espera 9.", K.n_rows);
     }
+
+    arma::rowvec S_pixel(9); // Vetor de 9 termos
+
+    for (int i = 0; i < n_rows; ++i) {
+      for (int j = 0; j < n_cols; ++j) {
+        R = img(i, j, 0);
+        G = img(i, j, 1);
+        B = img(i, j, 2);
+
+        // Preenche os 9 termos
+        S_pixel(0) = R;
+        S_pixel(1) = G;
+        S_pixel(2) = B;
+        S_pixel(3) = R * R;
+        S_pixel(4) = G * G;
+        S_pixel(5) = B * B;
+        S_pixel(6) = R * R * R;
+        S_pixel(7) = G * G * G;
+        S_pixel(8) = B * B * B;
+
+        // (1x9) * (9x3) = (1x3)
+        T_pixel = S_pixel * K;
+
+        out_img(i, j, 0) = T_pixel(0);
+        out_img(i, j, 1) = T_pixel(1);
+        out_img(i, j, 2) = T_pixel(2);
+      }
+    }
+  } else if (model == "root_polynomial") {
+    if (K.n_rows != 20) {
+      Rcpp::stop("Erro: 'k_mat' tem %i linhas, mas o modelo 'root_polynomial' espera 20.", K.n_rows);
+    }
+
+    arma::rowvec S_pixel(20); // Vetor de 20 termos
+    double R2, G2, B2; // Variáveis intermediárias
+
+    for (int i = 0; i < n_rows; ++i) {
+      for (int j = 0; j < n_cols; ++j) {
+        R = img(i, j, 0);
+        G = img(i, j, 1);
+        B = img(i, j, 2);
+
+        R2 = R * R;
+        G2 = G * G;
+        B2 = B * B;
+
+        // Preenche os 20 termos
+        S_pixel(0) = 1.0; // Intercept
+        S_pixel(1) = R;
+        S_pixel(2) = G;
+        S_pixel(3) = B;
+        S_pixel(4) = R * G;
+        S_pixel(5) = R * B;
+        S_pixel(6) = G * B;
+        S_pixel(7) = R2;
+        S_pixel(8) = G2;
+        S_pixel(9) = B2;
+        S_pixel(10) = R2 * R; // R3
+        S_pixel(11) = G2 * G; // G3
+        S_pixel(12) = B2 * B; // B3
+        S_pixel(13) = R2 * G;
+        S_pixel(14) = R2 * B;
+        S_pixel(15) = G2 * R;
+        S_pixel(16) = G2 * B;
+        S_pixel(17) = B2 * R;
+        S_pixel(18) = B2 * G;
+        S_pixel(19) = R * G * B;
+
+        // (1x20) * (20x3) = (1x3)
+        T_pixel = S_pixel * K;
+
+        out_img(i, j, 0) = T_pixel(0);
+        out_img(i, j, 1) = T_pixel(1);
+        out_img(i, j, 2) = T_pixel(2);
+      }
+    }
+
+    // --- CAMINHO 3: Erro ---
+  } else {
+    Rcpp::stop("Modelo '"+ model +"' não é reconhecido. Use 'cubic' ou 'root_polynomial'.");
   }
 
   return out_img;
+}
+
+double dist_eucl(double x1, double y1, double x2, double y2) {
+  return std::sqrt(std::pow(x2 - x1, 2) + std::pow(y2 - y1, 2));
+}
+
+NumericVector get_point_at_dist(NumericMatrix coords, NumericVector cum_dist, double target_dist) {
+  int n = coords.nrow();
+  if (target_dist <= 0) return coords(0, _);
+  if (target_dist >= cum_dist[n-1]) return coords(n-1, _);
+  int i = 0;
+  while(i < n - 1 && cum_dist[i+1] < target_dist) i++;
+  double segment_len = cum_dist[i+1] - cum_dist[i];
+  if (segment_len == 0) return coords(i, _);
+  double t = (target_dist - cum_dist[i]) / segment_len;
+  NumericVector out(2);
+  out[0] = coords(i, 0) * (1 - t) + coords(i+1, 0) * t;
+  out[1] = coords(i, 1) * (1 - t) + coords(i+1, 1) * t;
+  return out;
+}
+
+// [[Rcpp::export]]
+List rcpp_make_grid_structure(NumericMatrix rail1,
+                              NumericMatrix rail2,
+                              int nrow,
+                              int ncol,
+                              double buffer_col,
+                              double buffer_row,
+                              Nullable<double> plot_width_opt,
+                              Nullable<double> plot_height_opt) {
+  int n1 = rail1.nrow();
+  NumericVector cum_dist1(n1); cum_dist1[0] = 0;
+  for(int i=1; i<n1; i++) cum_dist1[i] = cum_dist1[i-1] + dist_eucl(rail1(i-1,0), rail1(i-1,1), rail1(i,0), rail1(i,1));
+  double total_len1 = cum_dist1[n1-1];
+
+  int n2 = rail2.nrow();
+  NumericVector cum_dist2(n2); cum_dist2[0] = 0;
+  for(int i=1; i<n2; i++) cum_dist2[i] = cum_dist2[i-1] + dist_eucl(rail2(i-1,0), rail2(i-1,1), rail2(i,0), rail2(i,1));
+  double total_len2 = cum_dist2[n2-1];
+
+  double cell_along_avg = (total_len1 / ncol + total_len2 / ncol) / 2.0;
+  double margin_along = 0.0;
+  if (plot_width_opt.isNotNull()) {
+    double pw = as<double>(plot_width_opt);
+    margin_along = std::max(0.0, (cell_along_avg - pw) / 2.0);
+  } else if (buffer_col > 0) {
+    margin_along = buffer_col / 2.0;
+  }
+
+  List out_list(nrow * ncol);
+  int idx = 0;
+
+  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
+
+  for (int i = 0; i < ncol; i++) {
+    double t_base_start = (double)i / ncol;
+    double t_base_end   = (double)(i + 1) / ncol;
+    double dist_start_l1 = t_base_start * total_len1 + margin_along;
+    double dist_end_l1   = t_base_end * total_len1   - margin_along;
+    double dist_start_l2 = t_base_start * total_len2 + margin_along;
+    double dist_end_l2   = t_base_end * total_len2   - margin_along;
+
+    NumericVector p_r1_start = get_point_at_dist(rail1, cum_dist1, dist_start_l1);
+    NumericVector p_r1_end   = get_point_at_dist(rail1, cum_dist1, dist_end_l1);
+    NumericVector p_r2_start = get_point_at_dist(rail2, cum_dist2, dist_start_l2);
+    NumericVector p_r2_end   = get_point_at_dist(rail2, cum_dist2, dist_end_l2);
+
+    double w_top = dist_eucl(p_r1_start[0], p_r1_start[1], p_r2_start[0], p_r2_start[1]);
+    double w_bot = dist_eucl(p_r1_end[0],   p_r1_end[1],   p_r2_end[0],   p_r2_end[1]);
+    double cell_cross_avg = (w_top + w_bot) / 2.0 / nrow;
+
+    double margin_cross = 0.0;
+    if (plot_height_opt.isNotNull()) {
+      double ph = as<double>(plot_height_opt);
+      margin_cross = std::max(0.0, (cell_cross_avg - ph) / 2.0);
+    } else if (buffer_row > 0) {
+      margin_cross = buffer_row / 2.0;
+    }
+    for (int j = 0; j < nrow; j++) {
+      double u_base_start = (double)j / nrow;
+      double u_base_end   = (double)(j + 1) / nrow;
+      double u_margin_top = margin_cross / w_top;
+      double u_margin_bot = margin_cross / w_bot;
+      double u_start_top = u_base_start + u_margin_top;
+      double u_end_top   = u_base_end   - u_margin_top;
+      double u_start_bot = u_base_start + u_margin_bot;
+      double u_end_bot   = u_base_end   - u_margin_bot;
+      double x1 = p_r1_start[0] * (1-u_start_top) + p_r2_start[0] * u_start_top;
+      double y1 = p_r1_start[1] * (1-u_start_top) + p_r2_start[1] * u_start_top;
+      double x2 = p_r1_start[0] * (1-u_end_top)   + p_r2_start[0] * u_end_top;
+      double y2 = p_r1_start[1] * (1-u_end_top)   + p_r2_start[1] * u_end_top;
+      double x3 = p_r1_end[0] * (1-u_end_bot)   + p_r2_end[0] * u_end_bot;
+      double y3 = p_r1_end[1] * (1-u_end_bot)   + p_r2_end[1] * u_end_bot;
+      double x4 = p_r1_end[0] * (1-u_start_bot) + p_r2_end[0] * u_start_bot;
+      double y4 = p_r1_end[1] * (1-u_start_bot) + p_r2_end[1] * u_start_bot;
+      NumericMatrix ring(5, 2);
+      ring(0,0) = x1; ring(0,1) = y1;
+      ring(1,0) = x2; ring(1,1) = y2;
+      ring(2,0) = x3; ring(2,1) = y3;
+      ring(3,0) = x4; ring(3,1) = y4;
+      ring(4,0) = x1; ring(4,1) = y1;
+      List polygon_sfg(1);
+      polygon_sfg[0] = ring;
+      polygon_sfg.attr("class") = sfg_class;
+
+      out_list[idx] = polygon_sfg;
+      idx++;
+    }
+  }
+  return out_list;
 }

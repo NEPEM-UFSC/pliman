@@ -4,7 +4,13 @@
 \alias{image_correction}
 \title{Correct Image Colors using a Color Checker}
 \usage{
-image_correction(img, card_colors = NULL, known_colors = NULL, k_mat = NULL)
+image_correction(
+  img,
+  card_colors = NULL,
+  known_colors = NULL,
+  k_mat = NULL,
+  model = "cubic"
+)
 }
 \arguments{
 \item{img}{An \code{Image} object to be corrected.}
@@ -17,10 +23,24 @@ Must contain 'R', 'G', and 'B' columns.}
 color checker. Must have 'R', 'G', and 'B' columns and the same
 number of rows as \code{card_colors}.}
 
-\item{k_mat}{A pre-calculated 9x9 transformation matrix (\strong{K}). If provided,
-\code{card_colors} and \code{known_colors} are ignored, and the correction
-is applied directly. This allows reusing a calculated matrix for multiple
-images taken in the same light conditions. Defaults to \code{NULL}.}
+\item{k_mat}{A pre-calculated transformation matrix (\strong{K}).
+If provided, \code{card_colors} and \code{known_colors} are ignored, and the
+correction is applied directly using this matrix.
+This allows reusing a calculated matrix for multiple images taken in the same
+light conditions.
+\itemize{
+\item If \code{model = "cubic"}, \code{k_mat} must be a \eqn{9 \times 3} matrix.
+\item If \code{model = "root_polynomial"}, \code{k_mat} must be a \eqn{20 \times 3} matrix.
+}
+Defaults to \code{NULL}.}
+
+\item{model}{The correction model to use.
+\itemize{
+\item \code{"cubic"} (default): Uses a 3rd-order polynomial with 9 terms
+(R, G, B, R^2, G^2, B^2, RG, RB, GB).
+\item \code{"root_polynomial"}: Uses a root-polynomial model with 20 terms,
+which usually provides higher accuracy for non-linear color distortions.
+}}
 }
 \value{
 If both \code{card_colors} and \code{known_colors} are provided (or if \code{k_mat} is \code{NULL}
@@ -28,50 +48,54 @@ and the required color data frames are present), a list is returned:
 \itemize{
 \item \strong{img}: An \code{Image} object with the color correction applied,
 maintaining the original dimensions and color mode (\code{'Color'}).
-\item \strong{k}: The calculated 9x9 transformation matrix (\strong{K}).
+\item \strong{k}: The calculated transformation matrix (\strong{K}). Dimensions are
+\eqn{9 \times 3} or \eqn{20 \times 3} depending on the \code{model}.
 }
 If only \code{img} and a pre-calculated \code{k_mat} are provided, the function
 returns only the corrected \code{Image} object.
 }
 \description{
 Calibrates the color of an image using a set of known color references (e.g.,
-from a color checker) by implementing a 3rd-order polynomial color
-correction. It works by finding a 9x9 transformation matrix (K) that maps the
+from a color checker) by implementing polynomial color correction models.
+It works by finding a transformation matrix (K) that maps the
 observed colors (sampled from the color card) to their known reference values.
 This matrix K is then applied to every pixel in the image.
 
-The correction model is based on solving the equation \code{S * K = T}, where:
+The correction model is based on solving the equation \eqn{S \times K = T}, where:
 \itemize{
-\item \code{S} is the polynomial matrix (9 terms) of the \emph{source} (sampled) colors.
-\item \code{T} is the polynomial matrix (9 terms) of the \emph{target} (known) colors.
-\item \code{K} is the 9x9 transformation matrix solved using the
+\item \code{S} is the source matrix of observed colors extended by polynomial terms.
+Dimensions are \eqn{n \times 9} for \code{model = "cubic"} or \eqn{n \times 20}
+for \code{model = "root_polynomial"}.
+\item \code{T} is the target matrix (\eqn{n \times 3}) of known reference colors (R, G, B).
+\item \code{K} is the transformation matrix (\eqn{P \times 3}) solved using the
 Moore-Penrose pseudo-inverse.
 }
 }
 \examples{
-if(interactive(){
+if(interactive()){
 library(pliman)
 img <- image_pliman("colorcheck.jpg")
 
+# Standard Macbeth ColorChecker values (approximate)
 kvals <- data.frame(
  id = 1:24,
- R = c(0.976471, 0, 0.870588, 0.384314, 0.792157, 0.752941, 0.227451,
- 0.494118, 0.631373, 0.960784, 0.764706, 0.321569, 0.478431, 0.729412,
- 0.32549, 0.341176, 0.313725, 0.223529, 0.615686, 0.772549, 0.168627,
- 0.098033, 0.933333, 0.439216),
- G = c(0.94902, 0.498039, 0.462745, 0.733333,
- 0.776471, 0.294118, 0.345098, 0.490196, 0.615686, 0.803922, 0.309804,
- 0.415686, 0.462745, 0.101961, 0.227451, 0.470588, 0.313725, 0.572549,
- 0.737255, 0.568627, 0.160784, 0.215686, 0.619608, 0.298039),
-  B = c(0.933333,
- 0.623529, 0.12549, 0.65098, 0.764706, 0.568627, 0.623529, 0.682353, 0.60392,
- 0, 0.372549, 0.235294, 0.454902, 0.2, 0.415686, 0.607843, 0.305882, 0.25098,
- 0.211765, 0.490196, 0.168627, 0.529412, 0.098039, 0.235294)
+ R = c(0.976, 0, 0.870, 0.384, 0.792, 0.752, 0.227, 0.494, 0.631, 0.960,
+       0.764, 0.321, 0.478, 0.729, 0.325, 0.341, 0.313, 0.223, 0.615, 0.772,
+       0.168, 0.098, 0.933, 0.439),
+ G = c(0.949, 0.498, 0.462, 0.733, 0.776, 0.294, 0.345, 0.490, 0.615, 0.803,
+       0.309, 0.415, 0.462, 0.101, 0.227, 0.470, 0.313, 0.572, 0.737, 0.568,
+       0.160, 0.215, 0.619, 0.298),
+ B = c(0.933, 0.623, 0.125, 0.650, 0.764, 0.568, 0.623, 0.682, 0.603, 0,
+       0.372, 0.235, 0.454, 0.200, 0.415, 0.607, 0.305, 0.250, 0.211, 0.490,
+       0.168, 0.529, 0.098, 0.235)
  )
 
-
 card_colors <- get_card_colors(img, xpix = 20, ypix = 30, erode = 20)
-corrected <- image_correction(img, card_colors, kvals)
+
+# Correct using the default cubic model
+corrected <- image_correction(img, card_colors, kvals, model = "root-polynomial")
+
+# Compare original and corrected
 image_combine(img, corrected$img)
 }
 }
