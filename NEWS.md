@@ -1,3 +1,5 @@
+# pliman (development version)
+
 # pliman 3.1.2
 ## New Functions
 * New `image_correction()` function to perform color correction of an image using a set of known color references (e.g., from a color checker)
