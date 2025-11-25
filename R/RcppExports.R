@@ -89,8 +89,20 @@ correct_image_rcpp <- function(img, K, model) {
     .Call(`_pliman_correct_image_rcpp`, img, K, model)
 }
 
-rcpp_make_grid_structure <- function(rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt) {
-    .Call(`_pliman_rcpp_make_grid_structure`, rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt)
+make_grid_structure <- function(rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt) {
+    .Call(`_pliman_make_grid_structure`, rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt)
+}
+
+make_grid_curved <- function(rail1, rail2, nrow, ncol, curved = TRUE, density = 20L) {
+    .Call(`_pliman_make_grid_curved`, rail1, rail2, nrow, ncol, curved, density)
+}
+
+make_grid_landmarks <- function(rail1, rail2, anchors1, anchors2, nrow, curved = TRUE, density = 30L) {
+    .Call(`_pliman_make_grid_landmarks`, rail1, rail2, anchors1, anchors2, nrow, curved, density)
+}
+
+transform_polygons <- function(geometries, shift_x, shift_y, angle_deg, scale_x, scale_y) {
+    .Call(`_pliman_transform_polygons`, geometries, shift_x, shift_y, angle_deg, scale_x, scale_y)
 }
 
 help_area <- function(coord) {

@@ -1179,7 +1179,9 @@ arma::cube correct_image_rcpp(const arma::cube& img,
 double dist_eucl(double x1, double y1, double x2, double y2) {
   return std::sqrt(std::pow(x2 - x1, 2) + std::pow(y2 - y1, 2));
 }
-
+double dist_sq(double x1, double y1, double x2, double y2) {
+  return std::pow(x2 - x1, 2) + std::pow(y2 - y1, 2);
+}
 NumericVector get_point_at_dist(NumericMatrix coords, NumericVector cum_dist, double target_dist) {
   int n = coords.nrow();
   if (target_dist <= 0) return coords(0, _);
@@ -1194,16 +1196,30 @@ NumericVector get_point_at_dist(NumericMatrix coords, NumericVector cum_dist, do
   out[1] = coords(i, 1) * (1 - t) + coords(i+1, 1) * t;
   return out;
 }
+int get_closest_idx_forward(NumericMatrix rail, double tx, double ty, int start_idx) {
+  int n = rail.nrow();
+  int best_idx = start_idx;
+  double min_d2 = dist_sq(rail(start_idx, 0), rail(start_idx, 1), tx, ty);
+  int search_limit = std::min(n, start_idx + 1000);
 
+  for(int i = start_idx + 1; i < search_limit; i++) {
+    double d2 = dist_sq(rail(i, 0), rail(i, 1), tx, ty);
+    if (d2 < min_d2) {
+      min_d2 = d2;
+      best_idx = i;
+    }
+  }
+  return best_idx;
+}
 // [[Rcpp::export]]
-List rcpp_make_grid_structure(NumericMatrix rail1,
-                              NumericMatrix rail2,
-                              int nrow,
-                              int ncol,
-                              double buffer_col,
-                              double buffer_row,
-                              Nullable<double> plot_width_opt,
-                              Nullable<double> plot_height_opt) {
+List make_grid_structure(NumericMatrix rail1,
+                         NumericMatrix rail2,
+                         int nrow,
+                         int ncol,
+                         double buffer_col,
+                         double buffer_row,
+                         Nullable<double> plot_width_opt,
+                         Nullable<double> plot_height_opt) {
   int n1 = rail1.nrow();
   NumericVector cum_dist1(n1); cum_dist1[0] = 0;
   for(int i=1; i<n1; i++) cum_dist1[i] = cum_dist1[i-1] + dist_eucl(rail1(i-1,0), rail1(i-1,1), rail1(i,0), rail1(i,1));
@@ -1283,5 +1299,237 @@ List rcpp_make_grid_structure(NumericMatrix rail1,
       idx++;
     }
   }
+  return out_list;
+}
+// [[Rcpp::export]]
+List make_grid_curved(NumericMatrix rail1,
+                      NumericMatrix rail2,
+                      int nrow,
+                      int ncol,
+                      bool curved = true,
+                      int density = 20) {
+
+  int n_dense = rail1.nrow();
+  NumericMatrix centerline(n_dense, 2);
+  NumericVector cl_cum_dist(n_dense);
+  cl_cum_dist[0] = 0;
+
+  centerline(0, _) = (rail1(0, _) + rail2(0, _)) / 2.0;
+
+  for(int i=1; i<n_dense; i++) {
+    centerline(i, 0) = (rail1(i, 0) + rail2(i, 0)) / 2.0;
+    centerline(i, 1) = (rail1(i, 1) + rail2(i, 1)) / 2.0;
+    cl_cum_dist[i] = cl_cum_dist[i-1] + dist_eucl(centerline(i-1,0), centerline(i-1,1), centerline(i,0), centerline(i,1));
+  }
+  double total_cl_len = cl_cum_dist[n_dense-1];
+
+  List out_list(nrow * ncol);
+  int idx = 0;
+  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
+
+  int last_idx_r1 = 0;
+  int last_idx_r2 = 0;
+  int n_steps = curved ? density : 1;
+
+  for (int i = 0; i < ncol; i++) {
+    int idx_r1_s, idx_r2_s, idx_r1_e, idx_r2_e;
+    if (i == 0) {
+      idx_r1_s = 0; idx_r2_s = 0;
+    } else {
+      double dist_s = ((double)i / ncol) * total_cl_len;
+      NumericVector p_cl_s = get_point_at_dist(centerline, cl_cum_dist, dist_s);
+      idx_r1_s = get_closest_idx_forward(rail1, p_cl_s[0], p_cl_s[1], last_idx_r1);
+      idx_r2_s = get_closest_idx_forward(rail2, p_cl_s[0], p_cl_s[1], last_idx_r2);
+    }
+    if (i == ncol - 1) {
+      idx_r1_e = n_dense - 1; idx_r2_e = n_dense - 1;
+    } else {
+      double dist_e = ((double)(i + 1) / ncol) * total_cl_len;
+      NumericVector p_cl_e = get_point_at_dist(centerline, cl_cum_dist, dist_e);
+      idx_r1_e = get_closest_idx_forward(rail1, p_cl_e[0], p_cl_e[1], idx_r1_s);
+      idx_r2_e = get_closest_idx_forward(rail2, p_cl_e[0], p_cl_e[1], idx_r2_s);
+    }
+    last_idx_r1 = idx_r1_s;
+    last_idx_r2 = idx_r2_s;
+
+    for (int j = 0; j < nrow; j++) {
+      double u_top = (double)j / nrow;
+      double u_bot = (double)(j + 1) / nrow;
+
+      NumericMatrix ring(2 * (n_steps + 1) + 1, 2);
+      int pt_idx = 0;
+
+      // Top Edge
+      for (int k = 0; k <= n_steps; k++) {
+        double t = (double)k / n_steps;
+        double curr_idx_r1 = idx_r1_s + t * (idx_r1_e - idx_r1_s);
+        double curr_idx_r2 = idx_r2_s + t * (idx_r2_e - idx_r2_s);
+
+        int i1 = (int)curr_idx_r1;
+        int i2 = (int)curr_idx_r2;
+
+        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
+        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
+
+        ring(pt_idx, 0) = x_r1 * (1 - u_top) + x_r2 * u_top;
+        ring(pt_idx, 1) = y_r1 * (1 - u_top) + y_r2 * u_top;
+        pt_idx++;
+      }
+      for (int k = n_steps; k >= 0; k--) {
+        double t = (double)k / n_steps;
+        double curr_idx_r1 = idx_r1_s + t * (idx_r1_e - idx_r1_s);
+        double curr_idx_r2 = idx_r2_s + t * (idx_r2_e - idx_r2_s);
+
+        int i1 = (int)curr_idx_r1;
+        int i2 = (int)curr_idx_r2;
+
+        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
+        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
+
+        ring(pt_idx, 0) = x_r1 * (1 - u_bot) + x_r2 * u_bot;
+        ring(pt_idx, 1) = y_r1 * (1 - u_bot) + y_r2 * u_bot;
+        pt_idx++;
+      }
+      ring(pt_idx, 0) = ring(0, 0);
+      ring(pt_idx, 1) = ring(0, 1);
+
+      List polygon_sfg(1);
+      polygon_sfg[0] = ring;
+      polygon_sfg.attr("class") = sfg_class;
+      out_list[idx++] = polygon_sfg;
+    }
+  }
+  return out_list;
+}
+
+// [[Rcpp::export]]
+List make_grid_landmarks(NumericMatrix rail1,
+                         NumericMatrix rail2,
+                         IntegerVector anchors1,
+                         IntegerVector anchors2,
+                         int nrow,
+                         bool curved = true,
+                         int density = 30) {
+
+  int n_cols = anchors1.size() - 1;
+  if (anchors2.size() != anchors1.size()) {
+    stop("Rail 1 and Rail 2 must have the same number of control points for manual mode.");
+  }
+
+  List out_list(nrow * n_cols);
+  int idx = 0;
+  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
+  int n_steps = curved ? density : 1;
+
+  for (int i = 0; i < n_cols; i++) {
+    int idx_r1_start = anchors1[i];
+    int idx_r1_end   = anchors1[i+1];
+
+    int idx_r2_start = anchors2[i];
+    int idx_r2_end   = anchors2[i+1];
+
+    double diff_r1 = (double)(idx_r1_end - idx_r1_start);
+    double diff_r2 = (double)(idx_r2_end - idx_r2_start);
+
+    for (int j = 0; j < nrow; j++) {
+      double u_top = (double)j / nrow;
+      double u_bot = (double)(j + 1) / nrow;
+
+      NumericMatrix ring(2 * (n_steps + 1) + 1, 2);
+      int pt_idx = 0;
+      for (int k = 0; k <= n_steps; k++) {
+        double t = (double)k / n_steps;
+
+        int i1 = idx_r1_start + (int)(t * diff_r1);
+        int i2 = idx_r2_start + (int)(t * diff_r2);
+
+        if (k == n_steps) { i1 = idx_r1_end; i2 = idx_r2_end; }
+
+        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
+        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
+
+        ring(pt_idx, 0) = x_r1 * (1 - u_top) + x_r2 * u_top;
+        ring(pt_idx, 1) = y_r1 * (1 - u_top) + y_r2 * u_top;
+        pt_idx++;
+      }
+
+      for (int k = n_steps; k >= 0; k--) {
+        double t = (double)k / n_steps;
+        int i1 = idx_r1_start + (int)(t * diff_r1);
+        int i2 = idx_r2_start + (int)(t * diff_r2);
+        if (k == n_steps) { i1 = idx_r1_end; i2 = idx_r2_end; }
+        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
+        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
+        ring(pt_idx, 0) = x_r1 * (1 - u_bot) + x_r2 * u_bot;
+        ring(pt_idx, 1) = y_r1 * (1 - u_bot) + y_r2 * u_bot;
+        pt_idx++;
+      }
+      ring(pt_idx, 0) = ring(0, 0);
+      ring(pt_idx, 1) = ring(0, 1);
+
+      List polygon_sfg(1);
+      polygon_sfg[0] = ring;
+      polygon_sfg.attr("class") = sfg_class;
+      out_list[idx++] = polygon_sfg;
+    }
+  }
+  return out_list;
+}
+// [[Rcpp::export]]
+List transform_polygons(List geometries,
+                        double shift_x,
+                        double shift_y,
+                        double angle_deg,
+                        double scale_x,
+                        double scale_y) {
+
+  int n_polys = geometries.size();
+  double angle_rad = -angle_deg * M_PI / 180.0;
+  double cos_a = std::cos(angle_rad);
+  double sin_a = std::sin(angle_rad);
+  double min_x = 1e9, max_x = -1e9;
+  double min_y = 1e9, max_y = -1e9;
+  for(int i = 0; i < n_polys; i++) {
+    List poly = geometries[i];
+    NumericMatrix outer_ring = poly[0];
+    for(int j = 0; j < outer_ring.nrow(); j++) {
+      double x = outer_ring(j, 0);
+      double y = outer_ring(j, 1);
+      if(x < min_x) min_x = x;
+      if(x > max_x) max_x = x;
+      if(y < min_y) min_y = y;
+      if(y > max_y) max_y = y;
+    }
+  }
+  double center_x = (min_x + max_x) / 2.0;
+  double center_y = (min_y + max_y) / 2.0;
+  List out_list(n_polys);
+  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
+  for(int i = 0; i < n_polys; i++) {
+    List source_poly = geometries[i];
+    int n_rings = source_poly.size();
+    List new_poly(n_rings);
+    for(int r = 0; r < n_rings; r++) {
+      NumericMatrix ring = source_poly[r];
+      int n_pts = ring.nrow();
+      NumericMatrix new_ring(n_pts, 2);
+      for(int j = 0; j < n_pts; j++) {
+        double x = ring(j, 0);
+        double y = ring(j, 1);
+        double dx = x - center_x;
+        double dy = y - center_y;
+        dx *= scale_x;
+        dy *= scale_y;
+        double x_rot = dx * cos_a - dy * sin_a;
+        double y_rot = dx * sin_a + dy * cos_a;
+        new_ring(j, 0) = x_rot + center_x + shift_x;
+        new_ring(j, 1) = y_rot + center_y + shift_y;
+      }
+      new_poly[r] = new_ring;
+    }
+    new_poly.attr("class") = sfg_class;
+    out_list[i] = new_poly;
+  }
+
   return out_list;
 }

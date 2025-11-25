@@ -5,7 +5,7 @@
 \title{Generate plot IDs with different layouts}
 \usage{
 plot_id(
-  shapefile,
+  shapefile = NULL,
   nrow,
   ncol,
   layout = c("tblr", "tbrl", "btlr", "btrl", "lrtb", "lrbt", "rltb", "rlbt"),

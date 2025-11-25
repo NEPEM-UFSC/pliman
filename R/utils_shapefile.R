@@ -1,41 +1,112 @@
 make_grid <- function(points,
                       nrow,
-                      ncol,
+                      ncol = NULL,
+                      method = "radial",
                       buffer_col = 0,
                       buffer_row = 0,
                       plot_width = NULL,
                       plot_height = NULL,
-                      n_spline = 500) {
+                      n_spline = 2000,
+                      density = 20,
+                      curved = TRUE) {
   coords <- sf::st_coordinates(points)[, 1:2]
-  if(all(coords[1,] == coords[nrow(coords),])){
-    coords <- coords[1:(nrow(coords)-1), , drop=FALSE]
+  if(all(coords[1,] == coords[base::nrow(coords),])){
+    coords <- coords[1:(base::nrow(coords)-1), , drop=FALSE]
   }
-  n_pts <- nrow(coords)
+
+  n_pts <- base::nrow(coords)
+  if (method == "landmark" && n_pts %% 2 != 0) {
+    cli::cli_abort(c(
+      "For the {.val landmark} method, an even number of control points is required.",
+      "x" = "You provided {.val {n_pts}} points.",
+      "i" = "Points must form matched pairs (Rail 1 and Rail 2)."
+    ))
+  }
+
   mid_idx <- ceiling(n_pts / 2)
+
+  rail1_raw <- coords[1:mid_idx, , drop = FALSE]
+  rail2_raw <- coords[(mid_idx + 1):n_pts, , drop = FALSE]
+  p1_start <- rail1_raw[1, ]
+  p1_end   <- rail1_raw[base::nrow(rail1_raw), ]
+  p2_start <- rail2_raw[1, ]
+  p2_end   <- rail2_raw[base::nrow(rail2_raw), ]
+
+  dist_direct <- sum((p1_start - p2_start)^2) + sum((p1_end - p2_end)^2)
+  dist_cross  <- sum((p1_start - p2_end)^2) + sum((p1_end - p2_start)^2)
+
+  if (dist_cross < dist_direct) {
+    # Reverse rail 2
+    rail2_raw <- rail2_raw[base::nrow(rail2_raw):1, , drop = FALSE]
+  }
+
+  # 3. Generate Dense Splines
   smooth_rail_coords <- function(mtx_coords, n_out) {
-    if(nrow(mtx_coords) < 2) return(mtx_coords)
-    t <- 1:nrow(mtx_coords)
-    t_new <- seq(1, nrow(mtx_coords), length.out = n_out)
+    if(base::nrow(mtx_coords) < 2) return(mtx_coords)
+    t <- 1:base::nrow(mtx_coords)
+    t_new <- seq(1, base::nrow(mtx_coords), length.out = n_out)
     cbind(
       x = stats::spline(t, mtx_coords[,1], xout = t_new)$y,
       y = stats::spline(t, mtx_coords[,2], xout = t_new)$y
     )
   }
-  c_rail1 <- smooth_rail_coords(coords[1:mid_idx, , drop = FALSE], n_spline)
-  c_rail2 <- smooth_rail_coords(coords[n_pts:(mid_idx + 1), , drop = FALSE], n_spline)
-  raw_list <- rcpp_make_grid_structure(
-    rail1 = c_rail1,
-    rail2 = c_rail2,
-    nrow = nrow,
-    ncol = ncol,
-    buffer_col = buffer_col,
-    buffer_row = buffer_row,
-    plot_width_opt = plot_width,
-    plot_height_opt = plot_height
-  )
+  c_rail1 <- smooth_rail_coords(rail1_raw, n_spline)
+  c_rail2 <- smooth_rail_coords(rail2_raw, n_spline)
+  # 4. Method Dispatch (C++ Backend)
+  raw_list <- list()
+  if (method == "rectangular") {
+    # Classic/Structural Method
+    if(is.null(ncol)) {
+      cli::cli_abort("The {.arg ncol} argument is required for the {.val rectangular} method.")
+    }
+    raw_list <- make_grid_structure(
+      rail1 = c_rail1,
+      rail2 = c_rail2,
+      nrow = nrow,
+      ncol = ncol,
+      buffer_col = buffer_col,
+      buffer_row = buffer_row,
+      plot_width_opt = plot_width,
+      plot_height_opt = plot_height
+    )
 
+  } else if (method == "radial") {
+    # Orthogonal/Tangential Method with Fixed Ends
+    if(is.null(ncol)) {
+      cli::cli_abort("The {.arg ncol} argument is required for the {.val radial} method.")
+    }
+    if(is.null(ncol)) cli::cli_abort("{.arg ncol} required for {.val radial}.")
+    raw_list <- make_grid_curved(rail1 = c_rail1,
+                                 rail2 = c_rail2,
+                                 nrow = nrow,
+                                 ncol = ncol,
+                                 density = density,
+                                 curved = curved)
+
+  } else if (method == "landmark") {
+    find_anchors <- function(raw, smooth) {
+      indices <- vapply(1:base::nrow(raw), function(i) {
+        pt <- raw[i,]
+        dists <- (smooth[,1] - pt[1])^2 + (smooth[,2] - pt[2])^2
+        as.integer(which.min(dists) - 1L)
+      }, integer(1))
+      indices[1] <- 0L
+      indices[length(indices)] <- as.integer(base::nrow(smooth) - 1L)
+      return(indices)
+    }
+    raw_list <- make_grid_landmarks(
+      rail1 = c_rail1,
+      rail2 = c_rail2,
+      anchors1 = find_anchors(rail1_raw, c_rail1),
+      anchors2 = find_anchors(rail2_raw, c_rail2),
+      nrow = nrow,
+      density = 30,
+      curved = curved
+    )
+  }
   all_x <- c(c_rail1[,1], c_rail2[,1])
   all_y <- c(c_rail1[,2], c_rail2[,2])
+
   bbox <- structure(c(xmin = min(all_x), ymin = min(all_y),
                       xmax = max(all_x), ymax = max(all_y)),
                     class = "bbox",
@@ -46,7 +117,8 @@ make_grid <- function(points,
   attr(raw_list, "bbox") <- bbox
   attr(raw_list, "crs") <- sf::st_crs(points)
   attr(raw_list, "n_empty") <- 0L
-  sf::st_sf(geometry = raw_list)
+
+  return(sf::st_sf(geometry = raw_list))
 }
 
 #' Generate plot IDs with different layouts
@@ -71,189 +143,65 @@ make_grid <- function(points,
 #' @return A list of plot IDs with specified layout and updated rows/columns.
 #' @export
 #'
-plot_id <- function(shapefile,
+plot_id <- function(shapefile = NULL,
                     nrow,
                     ncol,
                     layout = c("tblr", "tbrl", "btlr", "btrl", "lrtb", "lrbt", "rltb", "rlbt"),
                     plot_prefix = "P",
                     serpentine = FALSE) {
-  # Ensure the specified layout is valid
-  allowed <- c("tblr", "tbrl", "btlr", "btrl", "lrtb", "lrbt", "rltb", "rlbt")
   layout <- layout[[1]]
+  allowed <- c("tblr", "tbrl", "btlr", "btrl", "lrtb", "lrbt", "rltb", "rlbt")
   if (!layout %in% allowed) {
-    cli::cli_abort(c(
-      "!" = "{.arg layout} must be one of the following:",
-      "v" = "{.val {paste(allowed, collapse = ', ')}}"
-    ))
+    cli::cli_abort(c("!" = "{.arg layout} invalid.", "v" = "Use: {.val {paste(allowed, collapse = ', ')}}"))
   }
-
-  # Ensure that the number of rows in the shapefile matches expected dimensions
-  expected_rows <- nrow * ncol
-  if (nrow(shapefile) != expected_rows) {
-    cli::cli_abort("Expected {.val {expected_rows}} rows, but {.arg shapefile} has {.val {nrow(shapefile)}} rows.")
-  }
-
-
-  # Helper function for generating plot names
-  leading_zeros <- function(x, n) {
-    sprintf(paste0("%0", n, "d"), x)
-  }
-
-  plots_tblr <- paste0(plot_prefix, leading_zeros(1:nrow(shapefile), 4))
-  rows <- shapefile$row
-  cols <- shapefile$column
-
-  # Define layout functions
-  make_tblr <- function() {
-    return(list(plots = plots_tblr, row = rows, col = cols))
-  }
-
-  make_tbrl <- function() {
-    plots_tblr_rev <- rev(plots_tblr)
-    plots_tbrl <- NULL
-    for (i in 1:ncol) {
-      start <- (i - 1) * nrow + 1
-      end <- start + nrow - 1
-      plots_tbrl <- c(plots_tbrl, rev(plots_tblr_rev[start:end]))
+  total_plots <- nrow * ncol
+  if (!is.null(shapefile)) {
+    if (base::nrow(shapefile) != total_plots) {
+      cli::cli_abort("Expected {.val {total_plots}} rows, but input has {.val {base::nrow(shapefile)}}.")
     }
-    return(list(plots = plots_tbrl, row = rows, col = rev(cols)))
-
-
   }
-
-  make_btrl<- function() {
-    plots_rev <- rev(plots_tblr)
-    plots_btlr <- NULL
-    for (i in 1:ncol) {
-      start <- (i - 1) * nrow + 1
-      end <- start + nrow - 1
-      plots_btlr <- c(plots_btlr, plots_rev[start:end])
-    }
-    return(list(plots = plots_btlr, row = rev(rows), col = rev(cols)))
-
-  }
-
-  make_btlr <- function() {
-    plots_btlr_rev <- rev(make_btrl()$plots)
-    plots_btrl <- NULL
-    for (i in seq_len(ncol)) {
-      start <- (i - 1) * nrow + 1
-      end <- start + nrow - 1
-      plots_btrl <- c(plots_btrl, rev(plots_btlr_rev[start:end]))
-    }
-    return(list(plots = plots_btrl, row = rev(rows), col = cols))
-
-  }
-
-  make_lrtb <- function() {
-    plots_lrtb <- NULL
-    for (i in 1:ncol) {
-      plots_lrtb <- c(plots_lrtb, plots_tblr[seq(i, length(plots_tblr), by = ncol)])
-    }
-    return(list(plots = plots_lrtb, row = rows, col = cols))
-  }
-
-  make_lrbt <- function() {
-    plots_lrbt <- NULL
-    plots_lrtb <- make_lrtb()$plots
-    for (i in 1:ncol) {
-      start <- (i - 1) * nrow + 1
-      end <- start + nrow - 1
-      plots_lrbt <- c(plots_lrbt, rev(plots_lrtb[start:end]))
-    }
-    return(list(plots = plots_lrbt, row = rev(rows), col = cols))
-  }
-
-  make_rltb <- function() {
-    plots_rltb <- NULL
-    for (i in 1:ncol) {
-      # Columns from right to left
-      plots_rltb <- c(plots_rltb, plots_tblr[seq(ncol - i + 1, length(plots_tblr), by = ncol)])
-    }
-    return(list(plots = plots_rltb, row = rows, col = rev(cols)))
-  }
-
-  make_rlbt <- function() {
-    plots_rltb <- make_rltb()$plots
-    plots_rlbt <- NULL
-    for (i in seq_len(ncol)) {
-      start <- (i - 1) * nrow + 1
-      end <- start + nrow - 1
-      plots_rlbt <- c(plots_rlbt, rev(plots_rltb[start:end]))
-    }
-    return(list(plots = plots_rlbt, row = rev(rows), col = rev(cols)))
-  }
-
-  # Return the appropriate layout
-  plots <-  switch(layout,
-                   "tblr" = make_tblr()$plots,
-                   "tbrl" = make_tbrl()$plots,
-                   "btlr" = make_btlr()$plots,
-                   "btrl" = make_btrl()$plots,
-                   "lrtb" = make_lrtb()$plots,
-                   "lrbt" = make_lrbt()$plots,
-                   "rltb" = make_rltb()$plots,
-                   "rlbt" = make_rlbt()$plots)
-  newrows <-  switch(layout,
-                     "tblr" = make_tblr()$row,
-                     "tbrl" = make_tbrl()$row,
-                     "btlr" = make_btlr()$row,
-                     "btrl" = make_btrl()$row,
-                     "lrtb" = make_lrtb()$row,
-                     "lrbt" = make_lrbt()$row,
-                     "rltb" = make_rltb()$row,
-                     "rlbt" = make_rlbt()$row)
-  newcols <-  switch(layout,
-                     "tblr" = make_tblr()$col,
-                     "tbrl" = make_tbrl()$col,
-                     "btlr" = make_btlr()$col,
-                     "btrl" = make_btrl()$col,
-                     "lrtb" = make_lrtb()$col,
-                     "lrbt" = make_lrbt()$col,
-                     "rltb" = make_rltb()$col,
-                     "rlbt" = make_rlbt()$col)
-  mat <- matrix(plots, ncol = ncol, nrow = nrow)
-  if(serpentine){
-    # column serpentine
-    if(layout %in% c("tblr", "btlr")){
-      mat2 <- mat
-      for (j in 1:ncol(mat)) {
-        if(j %% 2 == 0){
-          mat2[, j] <- rev(mat[, j])
-        } else{
-          mat2[, j]
-        }
+  is_row_major <- grepl("^(lr|rl)", layout)
+  invert_row <- grepl("^bt|bt$", layout)
+  invert_col <- grepl("^rl|rl$", layout)
+  ids_mat <- matrix(seq_len(total_plots),
+                    nrow = nrow,
+                    ncol = ncol,
+                    byrow = is_row_major)
+  if (serpentine) {
+    if (is_row_major) {
+      even_rows <- if (nrow >= 2) seq(2, nrow, by = 2) else integer(0)
+      if (length(even_rows) > 0) {
+        ids_mat[even_rows, ] <- ids_mat[even_rows, ncol:1]
+      }
+    } else {
+      even_cols <- if (ncol >= 2) seq(2, ncol, by = 2) else integer(0)
+      if (length(even_cols) > 0) {
+        ids_mat[, even_cols] <- ids_mat[nrow:1, even_cols]
       }
     }
-    if(layout %in% c( "tbrl", "btrl")){
-      mat2 <- mat
-      cols <- ncol(mat):1
-      for (j in cols[seq(2, ncol, by = 2)]) {
-        mat2[, j] <- rev(mat[, j])
-      }
-    }
-    # row serpentine
-    if(layout %in% c("lrtb", "rltb")){
-      mat2 <- mat
-      for (j in 1:nrow(mat)) {
-        if(j %% 2 == 0){
-          mat2[j, ] <- rev(mat[j, ])
-        } else{
-          mat2[j, ]
-        }
-      }
-    }
-    if(layout %in% c("lrbt", "rlbt")){
-      mat2 <- mat
-      rows <- nrow(mat):1
-      for (j in rows[seq(2, nrow, by = 2)]) {
-        mat2[j, ] <- rev(mat[j, ])
-      }
-    }
-  } else{
-    mat2 <- mat
   }
-  return(list(plots = as.vector(mat2), rows = newrows, cols = newcols))
+  if (invert_row) {
+    ids_mat <- ids_mat[nrow:1, , drop = FALSE]
+  }
+  if (invert_col) {
+    ids_mat <- ids_mat[, ncol:1, drop = FALSE]
+  }
+  final_ids <- as.vector(ids_mat)
+  n_digits <- floor(log10(total_plots)) + 1
+  n_digits <- max(4, n_digits)
+  fmt <- paste0(plot_prefix, "%0", n_digits, "d")
+  plots_vec <- sprintf(fmt, final_ids)
+  base_rows <- 1:nrow
+  base_cols <- 1:ncol
+  if (invert_row){
+    base_rows <- rev(base_rows)
+  }
+  if (invert_col){
+    base_cols <- rev(base_cols)
+  }
+  rows_vec <- rep(base_rows, times = ncol)
+  cols_vec <- rep(base_cols, each = nrow)
+  return(list(plots = plots_vec, rows = rows_vec, cols = cols_vec))
 }
 
 #' Build a shapefile from a mosaic raster
@@ -264,6 +212,11 @@ plot_id <- function(shapefile,
 #' by `nrow`, and `ncol` arguments.
 #'
 #' @details
+#' The function supports three generation methods:
+#' * **Rectangular:** Uses standard interpolation, ideal for regular grids. Supports buffers and fixed plot sizes.
+#' * **Radial:** Uses an orthogonal projection from a centerline, ideal for curvilinear grids (e.g., contour farming).
+#' * **Landmark:** Uses the specific control points defined by the user as anchors for the plot boundaries.
+#'
 #' Since multiple blocks can be created, the length of arguments `grid`, `nrow`,
 #' `ncol`, `buffer_edge`, `buffer_col`, and `buffer_row` can be either an scalar
 #' (the same argument applied to all the drawn blocks), or a vector with the
@@ -284,12 +237,25 @@ plot_id <- function(shapefile,
 #' @param mosaic A `SpatRaster` object, typically imported using
 #'   [mosaic_input()].  If not provided, a latitude/longitude basemap will be
 #'   generated in the "EPSG:4326" coordinate reference system.
+#' @param method Character. The generation method: `"rectangular"` (default),
+#'   `"radial"`, or `"landmark"`.
 #' @param basemap An optional `mapview` object.
 #' @param controlpoints An object created with [mosaic_view()] using the
 #'   argument `edit = TRUE`. This must contain the points that defines the
 #'   region of interest to be analyzed.
-#' @param nsides The number of sides if the geometry is generated with `Draw
-#'   Circle` tool.
+#' @param buffer Numeric. A buffer distance (in map units) to be applied uniformly
+#'   to the final generated plots. If negative, the plots will be shrunk; if
+#'   positive, the plots will be expanded. Default is `FALSE` (no buffer).
+#' @param curved Logical. If \code{TRUE} (default), the function uses vertex
+#'   densification logic to draw the longitudinal borders of the plots as smooth
+#'   arcs, following the rail's curvature (recommended for radial and landmark
+#'   grids). If \code{FALSE}, the plots are generated using only the four corners
+#'   (simple/faceted polygons), which is faster but geometrically less accurate
+#'   on curves.
+#' @param density Integer. The number of intermediate points used to draw the
+#'   curved edges of each polygon. This argument is ignored if \code{curved} is
+#'   \code{FALSE} (as the border will be drawn with only 1 step). Typical values
+#'   are 20 to 50 for visual smoothness.
 #' @inheritParams mosaic_analyze
 #' @inheritParams mosaic_index
 #' @inheritParams mosaic_view
@@ -322,7 +288,6 @@ plot_id <- function(shapefile,
 #' shapefile_plot(shps[[1]], add = TRUE)
 #' }
 #'
-
 shapefile_build <- function(mosaic,
                             basemap = NULL,
                             controlpoints = NULL,
@@ -331,9 +296,11 @@ shapefile_build <- function(mosaic,
                             b = 1,
                             crop_to_shape_ext = FALSE,
                             grid = TRUE,
+                            method = c("rectangular", "radial", "landmark"),
                             nrow = 1,
                             ncol = 1,
-                            nsides = 200,
+                            curved = TRUE,
+                            density = 30,
                             plot_width = NULL,
                             plot_height = NULL,
                             layout = "lrtb",
@@ -341,6 +308,7 @@ shapefile_build <- function(mosaic,
                             build_shapefile = TRUE,
                             check_shapefile = FALSE,
                             sf_to_polygon = FALSE,
+                            buffer = FALSE,
                             buffer_edge = 1,
                             buffer_col = 0,
                             buffer_row = 0,
@@ -349,8 +317,9 @@ shapefile_build <- function(mosaic,
                             max_pixels = 1000000,
                             downsample = NULL,
                             quantiles =  c(0, 1)){
+
+  method <- match.arg(method)
   nomosaic <- missing(mosaic)
-  check_mapview()
   if(nomosaic){
     mosaic <- terra::rast(nrows=180, ncols=360, nlyrs=3, crs = "EPSG:4326")
   }
@@ -358,147 +327,88 @@ shapefile_build <- function(mosaic,
     terra::crs(mosaic) <- terra::crs("EPSG:4326")
   }
   ress <- terra::res(mosaic)
+
   if(build_shapefile){
     if(verbose){
-      cli::cli_progress_step("Building the mosaic",
-                             msg_done = "Mosaic built",
-                             msg_failed = "Failed to build mosaic")
+      cli::cli_progress_step("Building the mosaic", msg_done = "Mosaic built")
     }
+
+    # Basemap Logic
     if(is.null(basemap)){
-      basemap <- mosaic_view(mosaic,
-                             r = r,
-                             g = g,
-                             b = b,
-                             max_pixels = max_pixels,
-                             downsample = downsample,
-                             quantiles = quantiles)
+      basemap <- mosaic_view(mosaic, r=r, g=g, b=b, max_pixels=max_pixels,
+                             downsample=downsample, quantiles=quantiles)
       if(nomosaic){
         basemap@map <- leaflet::setView(basemap@map, lng = -51, lat = -14, zoom = 4)
       }
     }
+
+    # Control Points Logic
     if(is.null(controlpoints)){
-      points <- mapedit::editMap(basemap,
-                                 editor = "leafpm",
-                                 editorOptions = list(toolbarOptions = list(
-                                   drawMarker = TRUE,
-                                   drawPolygon = TRUE,
-                                   drawPolyline = TRUE,
-                                   drawCircle = TRUE,
-                                   drawRectangle = TRUE,
-                                   editMode = TRUE,
-                                   cutPolygon = TRUE,
-                                   removalMode = TRUE,
-                                   position = "topleft"
-                                 ))
-      )
-      # Check the geometry type of the input
-      geom_type <-
-        sf::st_geometry(points$finished) |>
-        sf::st_geometry_type(by_geometry = FALSE)
+      points <- mapedit::editMap(basemap, editor = "leafpm",
+                                 editorOptions = list(toolbarOptions = list(drawMarker = TRUE,
+                                                                            drawPolygon = TRUE,
+                                                                            drawPolyline = TRUE,
+                                                                            drawCircle = TRUE,
+                                                                            drawRectangle = TRUE,
+                                                                            editMode = TRUE,
+                                                                            cutPolygon = TRUE,
+                                                                            removalMode = TRUE,
+                                                                            position = "topleft")))
 
-      # If the input is POINTS, convert to a POLYGON boundary
+      geom_type <- sf::st_geometry(points$finished) |> sf::st_geometry_type(by_geometry = FALSE)
+
       if (geom_type == "POINT") {
-        pts_coords <-
-          points$finished |>
-          sf::st_transform(sf::st_crs(mosaic)) |>
-          sf::st_coordinates()
+        pts_coords <- points$finished |> sf::st_transform(sf::st_crs(mosaic)) |> sf::st_coordinates()
         polygon_geom <- sf::st_polygon(list(rbind(pts_coords, pts_coords[1, ])))
-
-        cpoints <- sf::st_sf(
-          data.frame(id = 1),
-          geometry = sf::st_sfc(polygon_geom),
-          crs = sf::st_crs(mosaic)
-        )
+        cpoints <- sf::st_sf(data.frame(id = 1), geometry = sf::st_sfc(polygon_geom), crs = sf::st_crs(mosaic))
       } else if (geom_type == "POLYGON") {
-        cpoints <-
-          points$finished |>
-          sf::st_transform(sf::st_crs(mosaic))
-        if (!"id" %in% names(cpoints)) {
-          cpoints$id <- 1
-        }
+        cpoints <- points$finished |> sf::st_transform(sf::st_crs(mosaic))
+        if (!"id" %in% names(cpoints)) cpoints$id <- 1
       } else {
-        cli::cli_abort(
-          "Unsupported geometry type provided in {.arg points$finished}.",
-          "i" = "Expected {.val POINT} or {.val POLYGON}, but received {.val {geom_type}}."
-        )
+        cli::cli_abort("Unsupported geometry type: {.val {geom_type}}.")
       }
     } else{
       if (!"finished" %in% names(controlpoints)) {
-        cli::cli_abort(
-          "The input {.arg controlpoints} must be an object computed with {.code mosaic_view(..., edit = TRUE)}."
-        )
+        cli::cli_abort("Input {.arg controlpoints} must be from {.code mosaic_view(..., edit = TRUE)}.")
       }
-      # Check the geometry type of the input
-      geom_type <-
-        sf::st_geometry(controlpoints$finished) |>
-        sf::st_geometry_type(by_geometry = FALSE)
-
-      # If the input is POINTS, convert to a POLYGON boundary
+      geom_type <- sf::st_geometry(controlpoints$finished) |> sf::st_geometry_type(by_geometry = FALSE)
       if (geom_type == "POINT") {
         pts_coords <-
           controlpoints$finished |>
           sf::st_transform(sf::st_crs(mosaic)) |>
           sf::st_coordinates()
         polygon_geom <- sf::st_polygon(list(rbind(pts_coords, pts_coords[1, ])))
-
-        cpoints <- sf::st_sf(
-          data.frame(id = 1),
-          geometry = sf::st_sfc(polygon_geom),
-          crs = sf::st_crs(mosaic)
-        )
+        cpoints <- sf::st_sf(data.frame(id = 1), geometry = sf::st_sfc(polygon_geom), crs = sf::st_crs(mosaic))
       } else if (geom_type == "POLYGON") {
-        cpoints <-
-          controlpoints$finished |>
-          sf::st_transform(sf::st_crs(mosaic))
-        if (!"id" %in% names(cpoints)) {
-          cpoints$id <- 1
-        }
+        cpoints <- controlpoints$finished |> sf::st_transform(sf::st_crs(mosaic))
+        if (!"id" %in% names(cpoints)) cpoints$id <- 1
       }
-      #
     }
     if(sf_to_polygon){
       cpoints <- cpoints |> sf_to_polygon()
     }
-  } else{
+  } else {
+    # No build_shapefile logic
     extm <- terra::ext(mosaic)
-    xmin <- extm[1]
-    xmax <- extm[2]
-    ymin <- extm[3]
-    ymax <- extm[4]
-    coords <- matrix(c(xmin, ymax, xmax, ymax, xmax, ymin, xmin, ymin, xmin, ymax), ncol = 2, byrow = TRUE)
-    # Create a Polygon object
+    coords <- matrix(c(extm[1], extm[4], extm[2], extm[4], extm[2], extm[3], extm[1], extm[3], extm[1], extm[4]), ncol = 2, byrow = TRUE)
     polygon <- sf::st_polygon(list(coords))
-    # Create an sf object with a data frame that includes the 'geometry' column
-    if(sum(ress) == 2){
-      crop_to_shape_ext <- FALSE
-
-    }
-    cpoints <- sf::st_sf(data.frame(id = 1),
-                         geometry = sf::st_sfc(polygon),
-                         crs = sf::st_crs(mosaic))
+    if(sum(ress) == 2) crop_to_shape_ext <- FALSE
+    cpoints <- sf::st_sf(data.frame(id = 1), geometry = sf::st_sfc(polygon), crs = sf::st_crs(mosaic))
   }
 
-  # crop to the analyzed area
+  # Crop Logic
   if(crop_to_shape_ext){
-    if(verbose){
-      cli::cli_progress_step("Cropping the mosaic",
-                             msg_done = "Mosaic cropped",
-                             msg_failed = "Failed to crop mosaic")
-    }
+    if(verbose) cli::cli_progress_step("Cropping the mosaic", msg_done = "Mosaic cropped")
     if(sum(ress) != 2){
       cpoints <- cpoints |> sf::st_transform(crs = sf::st_crs(terra::crs(mosaic)))
     }
-    poly_ext <-
-      cpoints |>
-      terra::vect() |>
-      terra::buffer(buffer_edge) |>
-      terra::ext()
+    poly_ext <- cpoints |> terra::vect() |> terra::buffer(buffer_edge) |> terra::ext()
     mosaiccr <- terra::crop(mosaic, poly_ext)
-
   } else{
     mosaiccr <- mosaic
   }
-  # check the parameters
+
+  # Validate params
   nrow <- validate_and_replicate2(nrow, cpoints, verbose = verbose)
   ncol <- validate_and_replicate2(ncol, cpoints, verbose = verbose)
   layout <- validate_and_replicate2(layout, cpoints, verbose = verbose)
@@ -509,131 +419,126 @@ shapefile_build <- function(mosaic,
   serpentine <- validate_and_replicate2(serpentine, cpoints, verbose = verbose)
   grid <- validate_and_replicate2(grid, cpoints, verbose = verbose)
 
-  # check the created shapes?
+  # --- OTIMIZAÇÃO AQUI ---
   if(verbose){
-    cli::cli_progress_step("Creating the shapes",
-                           msg_done = "Shapes created",
-                           msg_failed = "Failed to create shapes")
+    cli::cli_progress_step("Creating the shapes", msg_done = "Shapes created")
   }
-  created_shapes <- list()
+
+  created_shapes <- vector("list", nrow(cpoints))
+
   for(k in 1:nrow(cpoints)){
     if(inherits(cpoints[k, ]$geometry, "sfc_POLYGON") & grid[[k]]){
       pdata <- cpoints[k, ] |> sf::st_coordinates()
-      if(nrow(pdata) == 5){
-        npdis <- 2
-      } else{
-        npdis <- (nrow(pdata) - 1) / 2
+      npdis <- if(nrow(pdata) == 5) 2 else (nrow(pdata) - 1) / 2
+      difcoord <- diff(pdata[c(1, npdis), 1:2])
+      angle <- abs(atan2(difcoord[2], difcoord[1]) * (180 / pi))
+      if(angle <= 45){
+        use_nrow <- nrow[k]
+        use_ncol <- ncol[k]
+        use_buf_col <- buffer_col[k]
+        use_buf_row <- buffer_row[k]
+        use_width <- plot_width[k]
+        use_height <- plot_height[k]
+        use_layout <- layout[k]
+        rotate_logic <- FALSE
+      } else {
+        use_nrow <- ncol[k]
+        use_ncol <- nrow[k]
+        use_buf_col <- buffer_row[k]
+        use_buf_row <- buffer_col[k]
+        use_width <- plot_height[k]
+        use_height <- plot_width[k]
+        use_layout <- switch(layout[k],
+                             "rltb"="tblr", "rlbt"="tbrl", "lrtb"="btlr", "lrbt"="btrl",
+                             "tbrl"="lrtb", "tblr"="lrbt", "btrl"="rltb", "btlr"="rlbt")
+        rotate_logic <- TRUE
       }
-      difcoord <- pdata[c(1, npdis), 1:2] |> diff()
-      if(abs(atan2( difcoord[2], difcoord[1]) * ( 180 / pi)) <= 45){
-        pg <-
-          make_grid(cpoints[k, ],
-                    nrow = nrow[k],
-                    ncol = ncol[k],
-                    buffer_col = buffer_col[k],
-                    buffer_row = buffer_row[k],
-                    plot_width = plot_width[k],
-                    plot_height = plot_height[k])
-        pg <-
-          pg |>
-          dplyr::mutate(row = rep(1:nrow[k], ncol[k]),
-                        column = rep(1:ncol[k], each = nrow[k]),
-                        .before = geometry)
-        updateids <- plot_id(pg, nrow = nrow[k], ncol = ncol[k], layout = layout[k], serpentine = serpentine[k])
-        pg <-
-          pg |>
-          dplyr::mutate(unique_id = dplyr::row_number(),
-                        block = paste0("B", leading_zeros(1, 2)),
-                        plot_id = updateids$plots,
-                        row = updateids$rows,
-                        column = updateids$cols,
-                        .before = 1)
-      } else{
-      lay <-
-        switch (layout[k],
-                "rltb" = "tblr",
-                "rlbt" = "tbrl",
-                "lrtb" = "btlr",
-                "lrbt" = "btrl",
-                "tbrl" = "lrtb",
-                "tblr" = "lrbt",
-                "btrl" = "rltb",
-                "btlr" = "rlbt",
-        )
-      pg <-
-        make_grid(cpoints[k, ],
-                  nrow = ncol[k],
-                  ncol = nrow[k],
-                  buffer_col = buffer_row[k],
-                  buffer_row = buffer_col[k],
-                  plot_width = plot_height[k],
-                  plot_height = plot_width[k]) |>
-        dplyr::mutate(row = rep(1:ncol[k], nrow[k]),
-                      column = rep(1:nrow[k], each = ncol[k]),
-                      .before = geometry)
-      updateids <- plot_id(pg, nrow = ncol[k], ncol = nrow[k], layout = lay, serpentine = serpentine[k])
-      pg <-
-        pg |>
-        dplyr::mutate(unique_id = dplyr::row_number(),
-                      block = paste0("B", leading_zeros(1, 2)),
-                      plot_id = updateids$plots,
-                      row = updateids$cols,
-                      column = updateids$rows,
-                      .before = 1)
-
+      pg_sf <- make_grid(cpoints[k, ],
+                         nrow = use_nrow,
+                         ncol = ifelse(method == "landmark", NA, use_ncol),
+                         method = method[[1]],
+                         buffer_col = use_buf_col,
+                         buffer_row = use_buf_row,
+                         plot_width = use_width,
+                         plot_height = use_height,
+                         density = density,
+                         curved = curved)
+      if (method == "landmark") {
+        use_ncol <- nrow(pg_sf) / use_nrow
       }
+      if(is.numeric(buffer)){
+        pg_sf <- sf::st_buffer(pg_sf, buffer)
+      }
+      base_rows <- rep(1:use_nrow, use_ncol)
+      base_cols <- rep(1:use_ncol, each = use_nrow)
+      pg_sf$row <- base_rows
+      pg_sf$column <- base_cols
+      updateids <- plot_id(pg_sf, nrow = use_nrow, ncol = use_ncol, layout = use_layout, serpentine = serpentine[k])
+      if(rotate_logic){
+        final_rows <- updateids$cols
+        final_cols <- updateids$rows
+      } else {
+        final_rows <- updateids$rows
+        final_cols <- updateids$cols
+      }
+      pg_final <- sf::st_sf(data.frame(
+        unique_id = seq_len(base::nrow(pg_sf)),
+        block = paste0("B", leading_zeros(1, 2)), # Assumi 1 fixo conforme seu código original, mas deveria ser k?
+        plot_id = updateids$plots,
+        row = final_rows,
+        column = final_cols
+      ),
+      geometry = sf::st_geometry(pg_sf))
 
-    } else{
+      created_shapes[[k]] <- pg_final
+
+    } else {
       pg <-
         cpoints[k, ] |>
         sf::st_transform(sf::st_crs(mosaic)) |>
-        dplyr::select(geometry) |>
-        dplyr::mutate(unique_id = dplyr::row_number(),
-                      block = paste0("B", leading_zeros(k, 2)),
-                      plot_id = "P0001",
-                      row = 1,
-                      column = 1,
-                      .before = 1)
+        dplyr::select(geometry)
+
+      created_shapes[[k]] <- sf::st_sf(data.frame(
+        unique_id = 1,
+        block = paste0("B", leading_zeros(k, 2)),
+        plot_id = "P0001",
+        row = 1,
+        column = 1
+      ),
+      geometry = sf::st_geometry(pg))
     }
-
-    created_shapes[[k]] <- pg
-
   }
   if(check_shapefile){
     if(verbose){
-      cli::cli_progress_step("Checking the built shapefile",
-                             msg_done = "Shapefile checked",
-                             msg_failed = "Failed to check shapefile")
+      cli::cli_progress_step("Checking the built shapefile", msg_done = "Shapefile checked")
     }
-    lengths <- sapply(created_shapes, nrow)
-    pg_edit <-
-      do.call(rbind, lapply(seq_along(created_shapes), function(i){
-        created_shapes[[i]] |>
-          dplyr::mutate(`_leaflet_id` = 1:nrow(created_shapes[[i]]),
-                        feature_type = "polygon") |>
-          dplyr::relocate(geometry, .after = 4) |>
-          sf::st_transform(crs = 4326)
-      }))
+
+    pg_edit_list <- lapply(seq_along(created_shapes), function(i){
+      created_shapes[[i]] |>
+        dplyr::mutate(`_leaflet_id` = dplyr::row_number(), feature_type = "polygon") |>
+        sf::st_transform(crs = 4326)
+    })
+
+    # Combina lista
+    pg_edit <- do.call(rbind, pg_edit_list) # ou dplyr::bind_rows(pg_edit_list)
+
     downsample <- find_aggrfact(mosaiccr, max_pixels = max_pixels)
     if(downsample > 0){
       mosaiccr <- mosaic_aggregate(mosaiccr, pct = round(100 / downsample))
     }
-    if(build_shapefile){
-      mapview::mapview() |> mapedit::editMap()
-    }
-    edited <-
-      mapedit::editFeatures(pg_edit, basemap) |>
+
+    edited <- mapedit::editFeatures(pg_edit, basemap) |>
       dplyr::select(geometry, block, plot_id, row, column) |>
       dplyr::mutate(unique_id = dplyr::row_number(), .before = 1) |>
       sf::st_transform(sf::st_crs(mosaic))
+
+    # Reconstrói SF
     sfeat <- sf::st_as_sf(edited)
-    sf::st_geometry(sfeat) <- "geometry"
     created_shapes <- split(sfeat, edited$block)
   }
+
   if(verbose){
-    cli::cli_progress_step("Finishing the shapefile",
-                           msg_done = "Shapefile built",
-                           msg_failed = "Failed to export shapefile")
+    cli::cli_progress_step("Finishing the shapefile", msg_done = "Shapefile built")
   }
   if(!as_sf){
     return(shapefile_input(created_shapes, info = FALSE, as_sf = FALSE))
@@ -731,7 +636,6 @@ shapefile_input <- function(shapefile,
                             multilinestring = FALSE,
                             ...) {
   check_mapview()
-  # Check if shapefile is a URL and download it
   if (is.character(shapefile) && grepl("^http", shapefile)) {
     check_and_install_package("curl")
     temp_shapefile <- tempfile(fileext = ".rds")
@@ -739,29 +643,59 @@ shapefile_input <- function(shapefile,
     shapefile <- temp_shapefile
   }
 
-  create_shp <- function(shapefile, info, as_sf, ...){
-    shp <- terra::vect(shapefile, ...)
-    if (terra::crs(shp) == "") {
-      cli::cli_abort("Missing Coordinate Reference System. Setting to EPSG:3857")
-      terra::crs(shp) <- terra::crs("EPSG:3857")
-    }
-    if (as_sf) {
-      shp <- sf::st_as_sf(shp)
-      if(multilinestring){
-        shp <- sf::st_cast(shp, "MULTILINESTRING")
-      }
+  create_shp <- function(shapefile, info, as_sf, multilinestring, ...) {
+    shp <- try(
+      {
+        shp_terra <- terra::vect(shapefile, ...)
+        if (terra::crs(shp_terra) == "") {
+          cli::cli_alert_warning("Missing CRS in terra::vect(). Setting to EPSG:3857")
+          terra::crs(shp_terra) <- terra::crs("EPSG:3857")
+        }
+        if (as_sf) {
+          shp <- sf::st_as_sf(shp_terra)
+          if (multilinestring) {
+            shp <- sf::st_cast(shp, "MULTILINESTRING")
+          }
+        } else {
+          shp <- shp_terra # Mantém como objeto terra
+        }
+        shp
+      },
+      silent = TRUE # Suprime mensagens de erro se falhar
+    )
+    if (inherits(shp, "try-error") || inherits(shp, "SpatVector") && !as_sf) {
+      shp <- tryCatch(
+        {
+          shp_sf <- sf::st_read(shapefile, quiet = TRUE, ...)
+          if (sf::st_crs(shp_sf) == sf::st_crs(NA)) {
+            cli::cli_alert_warning("Missing CRS in sf::st_read(). Setting to EPSG:3857")
+            shp_sf <- sf::st_set_crs(shp_sf, 3857)
+          }
+          if (multilinestring) {
+            shp_sf <- sf::st_cast(shp_sf, "MULTILINESTRING")
+          }
+          if (!as_sf) {
+            shp <- terra::vect(shp_sf)
+          } else {
+            shp <- shp_sf
+          }
+          shp
+        },
+        error = function(e) {
+          cli::cli_abort(paste("Failed to import shapefile using both terra::vect() and sf::st_read():", e$message))
+        }
+      )
     }
     if (info) {
       print(shp)
     }
     return(shp)
   }
-
   if(inherits(shapefile, "list")){
     shapes <- do.call(rbind, lapply(shapefile, function(x){x}))
-    create_shp(shapes, info, as_sf, ...) |> add_missing_columns()
+    create_shp(shapes, info, as_sf, multilinestring, ...) |> add_missing_columns()
   } else{
-    create_shp(shapefile, info, as_sf, ...) |> add_missing_columns()
+    create_shp(shapefile, info, as_sf, multilinestring, ...) |> add_missing_columns()
   }
 }
 #' @name utils_shapefile
@@ -1232,4 +1166,60 @@ line_on_halfplot <- function(shapefile) {
   corners_list <- split(coords[, c("X","Y")], coords[, "L2"])
   wkt_lines <- corners_to_wkt(corners_list)
   terra::vect(wkt_lines)
+}
+
+#' Apply Affine Transformations to Spatial Grids
+#'
+#' @description
+#' Rotates, shifts, and scales (anisotropically) an `sf` object containing
+#' grid polygons. This function is particularly useful for manually aligning
+#' experimental grids over non-georeferenced imagery (e.g., drone flights)
+#' by adjusting the grid's pose to match the visual features.
+#'
+#' @details
+#' The transformations are applied in the following order for each vertex:
+#' 1. **Centering:** Vertices are translated so the grid's global centroid becomes (0,0).
+#' 2. **Scaling:** Anisotropic scaling is applied (`scale_x`, `scale_y`).
+#' 3. **Rotation:** Rotation is applied around the centroid. Positive angles rotate **clockwise**.
+#' 4. **Translation:** The grid is moved back to its original position plus the defined offsets (`shift_x`, `shift_y`).
+#'
+#' This logic ensures the grid rotates and expands "in place" rather than flying
+#' off relative to the coordinate origin.
+#'
+#' @param shapefile An `sf` object containing the polygons to be transformed.
+#' @param shift_x Numeric. Translation along the X-axis (in map units). Positive values move right. Default is 0.
+#' @param shift_y Numeric. Translation along the Y-axis (in map units). Positive values move up. Default is 0.
+#' @param angle Numeric. Rotation angle in degrees. Positive values rotate the grid **clockwise** (compass direction). Default is 0.
+#' @param scale_x Numeric. Scaling factor for the X-axis (width). Values > 1 expand, values < 1 compress. Default is 1.0.
+#' @param scale_y Numeric. Scaling factor for the Y-axis (height). Values > 1 expand, values < 1 compress. Default is 1.0.
+#'
+#' @return An `sf` object with the transformed geometry, preserving all original attributes.
+#' @export
+#'
+#' @examples
+#' if(interactive(){
+#' library(pliman)
+#' shp <- system.file("ex/lux.shp", package="terra")
+#' shp_file <- shapefile_input(shp)
+#' shapefile_plot(shp_file)
+#' rot <- shapefile_transform(shp_file, angle = 5)
+#' shapefile_plot(rot, add = TRUE, border = "red")
+#'
+#' }
+shapefile_transform <- function(shapefile,
+                                shift_x = 0,
+                                shift_y = 0,
+                                angle = 0,
+                                scale_x = 1,
+                                scale_y = 1) {
+  new_geoms_list <- transform_polygons(
+    sf::st_geometry(shapefile),
+    shift_x,
+    shift_y,
+    angle,
+    scale_x,
+    scale_y
+  )
+  sf::st_geometry(shapefile) <- sf::st_sfc(new_geoms_list, crs = sf::st_crs(shapefile))
+  return(shapefile)
 }

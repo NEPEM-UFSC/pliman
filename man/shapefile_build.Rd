@@ -13,9 +13,11 @@ shapefile_build(
   b = 1,
   crop_to_shape_ext = FALSE,
   grid = TRUE,
+  method = c("rectangular", "radial", "landmark"),
   nrow = 1,
   ncol = 1,
-  nsides = 200,
+  curved = TRUE,
+  density = 30,
   plot_width = NULL,
   plot_height = NULL,
   layout = "lrtb",
@@ -23,6 +25,7 @@ shapefile_build(
   build_shapefile = TRUE,
   check_shapefile = FALSE,
   sf_to_polygon = FALSE,
+  buffer = FALSE,
   buffer_edge = 1,
   buffer_col = 0,
   buffer_row = 0,
@@ -55,11 +58,24 @@ extension.}
 \item{grid}{Logical, indicating whether to use a grid for segmentation
 (default: TRUE).}
 
+\item{method}{Character. The generation method: \code{"rectangular"} (default),
+\code{"radial"}, or \code{"landmark"}.}
+
 \item{nrow}{Number of rows for the grid (default: 1).}
 
 \item{ncol}{Number of columns for the grid (default: 1).}
 
-\item{nsides}{The number of sides if the geometry is generated with \verb{Draw Circle} tool.}
+\item{curved}{Logical. If \code{TRUE} (default), the function uses vertex
+densification logic to draw the longitudinal borders of the plots as smooth
+arcs, following the rail's curvature (recommended for radial and landmark
+grids). If \code{FALSE}, the plots are generated using only the four corners
+(simple/faceted polygons), which is faster but geometrically less accurate
+on curves.}
+
+\item{density}{Integer. The number of intermediate points used to draw the
+curved edges of each polygon. This argument is ignored if \code{curved} is
+\code{FALSE} (as the border will be drawn with only 1 step). Typical values
+are 20 to 50 for visual smoothness.}
 
 \item{plot_width, plot_height}{The width and height of the plot shape (in the
 mosaic unit). It is mutually exclusiv with \code{buffer_col} and \code{buffer_row}.}
@@ -88,6 +104,10 @@ the drawn shapefile by deleting or changing the drawn grids.}
 \item{sf_to_polygon}{Convert sf geometry like POINTS and LINES to POLYGONS?
 Defaults to \code{FALSE}. Using \code{TRUE} allows using POINTS to extract values
 from a raster using \code{exactextractr::exact_extract()}.}
+
+\item{buffer}{Numeric. A buffer distance (in map units) to be applied uniformly
+to the final generated plots. If negative, the plots will be shrunk; if
+positive, the plots will be expanded. Default is \code{FALSE} (no buffer).}
 
 \item{buffer_edge}{Width of the buffer around the shapefile (default: 5).}
 
@@ -124,6 +144,13 @@ be either a polygon with \code{n} sides or a rectangular/curvilinear grid, defin
 by \code{nrow}, and \code{ncol} arguments.
 }
 \details{
+The function supports three generation methods:
+\itemize{
+\item \strong{Rectangular:} Uses standard interpolation, ideal for regular grids. Supports buffers and fixed plot sizes.
+\item \strong{Radial:} Uses an orthogonal projection from a centerline, ideal for curvilinear grids (e.g., contour farming).
+\item \strong{Landmark:} Uses the specific control points defined by the user as anchors for the plot boundaries.
+}
+
 Since multiple blocks can be created, the length of arguments \code{grid}, \code{nrow},
 \code{ncol}, \code{buffer_edge}, \code{buffer_col}, and \code{buffer_row} can be either an scalar
 (the same argument applied to all the drawn blocks), or a vector with the
