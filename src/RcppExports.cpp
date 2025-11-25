@@ -284,9 +284,9 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// rcpp_make_grid_structure
-List rcpp_make_grid_structure(NumericMatrix rail1, NumericMatrix rail2, int nrow, int ncol, double buffer_col, double buffer_row, Nullable<double> plot_width_opt, Nullable<double> plot_height_opt);
-RcppExport SEXP _pliman_rcpp_make_grid_structure(SEXP rail1SEXP, SEXP rail2SEXP, SEXP nrowSEXP, SEXP ncolSEXP, SEXP buffer_colSEXP, SEXP buffer_rowSEXP, SEXP plot_width_optSEXP, SEXP plot_height_optSEXP) {
+// make_grid_structure
+List make_grid_structure(NumericMatrix rail1, NumericMatrix rail2, int nrow, int ncol, double buffer_col, double buffer_row, Nullable<double> plot_width_opt, Nullable<double> plot_height_opt);
+RcppExport SEXP _pliman_make_grid_structure(SEXP rail1SEXP, SEXP rail2SEXP, SEXP nrowSEXP, SEXP ncolSEXP, SEXP buffer_colSEXP, SEXP buffer_rowSEXP, SEXP plot_width_optSEXP, SEXP plot_height_optSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -298,7 +298,56 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type buffer_row(buffer_rowSEXP);
     Rcpp::traits::input_parameter< Nullable<double> >::type plot_width_opt(plot_width_optSEXP);
     Rcpp::traits::input_parameter< Nullable<double> >::type plot_height_opt(plot_height_optSEXP);
-    rcpp_result_gen = Rcpp::wrap(rcpp_make_grid_structure(rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt));
+    rcpp_result_gen = Rcpp::wrap(make_grid_structure(rail1, rail2, nrow, ncol, buffer_col, buffer_row, plot_width_opt, plot_height_opt));
+    return rcpp_result_gen;
+END_RCPP
+}
+// make_grid_curved
+List make_grid_curved(NumericMatrix rail1, NumericMatrix rail2, int nrow, int ncol, bool curved, int density);
+RcppExport SEXP _pliman_make_grid_curved(SEXP rail1SEXP, SEXP rail2SEXP, SEXP nrowSEXP, SEXP ncolSEXP, SEXP curvedSEXP, SEXP densitySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type rail1(rail1SEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type rail2(rail2SEXP);
+    Rcpp::traits::input_parameter< int >::type nrow(nrowSEXP);
+    Rcpp::traits::input_parameter< int >::type ncol(ncolSEXP);
+    Rcpp::traits::input_parameter< bool >::type curved(curvedSEXP);
+    Rcpp::traits::input_parameter< int >::type density(densitySEXP);
+    rcpp_result_gen = Rcpp::wrap(make_grid_curved(rail1, rail2, nrow, ncol, curved, density));
+    return rcpp_result_gen;
+END_RCPP
+}
+// make_grid_landmarks
+List make_grid_landmarks(NumericMatrix rail1, NumericMatrix rail2, IntegerVector anchors1, IntegerVector anchors2, int nrow, bool curved, int density);
+RcppExport SEXP _pliman_make_grid_landmarks(SEXP rail1SEXP, SEXP rail2SEXP, SEXP anchors1SEXP, SEXP anchors2SEXP, SEXP nrowSEXP, SEXP curvedSEXP, SEXP densitySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type rail1(rail1SEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type rail2(rail2SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type anchors1(anchors1SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type anchors2(anchors2SEXP);
+    Rcpp::traits::input_parameter< int >::type nrow(nrowSEXP);
+    Rcpp::traits::input_parameter< bool >::type curved(curvedSEXP);
+    Rcpp::traits::input_parameter< int >::type density(densitySEXP);
+    rcpp_result_gen = Rcpp::wrap(make_grid_landmarks(rail1, rail2, anchors1, anchors2, nrow, curved, density));
+    return rcpp_result_gen;
+END_RCPP
+}
+// transform_polygons
+List transform_polygons(List geometries, double shift_x, double shift_y, double angle_deg, double scale_x, double scale_y);
+RcppExport SEXP _pliman_transform_polygons(SEXP geometriesSEXP, SEXP shift_xSEXP, SEXP shift_ySEXP, SEXP angle_degSEXP, SEXP scale_xSEXP, SEXP scale_ySEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type geometries(geometriesSEXP);
+    Rcpp::traits::input_parameter< double >::type shift_x(shift_xSEXP);
+    Rcpp::traits::input_parameter< double >::type shift_y(shift_ySEXP);
+    Rcpp::traits::input_parameter< double >::type angle_deg(angle_degSEXP);
+    Rcpp::traits::input_parameter< double >::type scale_x(scale_xSEXP);
+    Rcpp::traits::input_parameter< double >::type scale_y(scale_ySEXP);
+    rcpp_result_gen = Rcpp::wrap(transform_polygons(geometries, shift_x, shift_y, angle_deg, scale_x, scale_y));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -629,7 +678,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_helper_entropy", (DL_FUNC) &_pliman_helper_entropy, 2},
     {"_pliman_corners_to_wkt", (DL_FUNC) &_pliman_corners_to_wkt, 1},
     {"_pliman_correct_image_rcpp", (DL_FUNC) &_pliman_correct_image_rcpp, 3},
-    {"_pliman_rcpp_make_grid_structure", (DL_FUNC) &_pliman_rcpp_make_grid_structure, 8},
+    {"_pliman_make_grid_structure", (DL_FUNC) &_pliman_make_grid_structure, 8},
+    {"_pliman_make_grid_curved", (DL_FUNC) &_pliman_make_grid_curved, 6},
+    {"_pliman_make_grid_landmarks", (DL_FUNC) &_pliman_make_grid_landmarks, 7},
+    {"_pliman_transform_polygons", (DL_FUNC) &_pliman_transform_polygons, 6},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},

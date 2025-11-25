@@ -78,7 +78,7 @@ The RGB (Red, Green, Blue) color space is a widely used color representation in 
 | TGI | Triangular Greenness Index | `G - 0.39*R - 0.61*B` | @hunt2013 |
 | VARI | Visible Atmospherically Resistant Index | `(G-R)/(G+R-B)` | @gitelson2002 |
 | VEG | Vegetative Index | `G/(R^0.667 * B^0.334)` | @hague2006 |
-| vNDVI | Visible NDVI | `0.5268 * (R - 0.1294*G**0.3389 * B - 0.3118)` | @costa2020 |
+| vNDVI | Visible NDVI | `0.5268 * (R^-0.1294*G^0.3389 * B^-0.3118)` | @costa2020 |
 | WI | Woebbecke Index | `G - B)/(R - G)` | @d.m.woebbecke1995 |
 
 ## Multispectral vegetation indexes
