@@ -334,7 +334,7 @@ shapefile_build <- function(mosaic,
     }
 
     # Basemap Logic
-    if(is.null(basemap)){
+    if(is.null(basemap) & is.null(controlpoints)){
       basemap <- mosaic_view(mosaic, r=r, g=g, b=b, max_pixels=max_pixels,
                              downsample=downsample, quantiles=quantiles)
       if(nomosaic){
@@ -601,6 +601,7 @@ shapefile_plot <- function(shapefile, ...){
 #'   shapefile to an `sf` object (default is `TRUE`).
 #' @param multilinestring Logical value indicating whether to cast polygon geometries
 #'   to `MULTILINESTRING` geometries (default is `FALSE`).
+#' @param make_valid If `TRUE` makes an invalid geometry valid.
 #' @param type A character string specifying whether to visualize the shapefile
 #'   as `"shape"` or as `"centroid"`. Partial matching is allowed. If set to
 #'   `"centroid"`, the function will convert the shapefile's geometry to
@@ -634,6 +635,7 @@ shapefile_input <- function(shapefile,
                             info = TRUE,
                             as_sf = TRUE,
                             multilinestring = FALSE,
+                            make_valid = FALSE,
                             ...) {
   check_mapview()
   if (is.character(shapefile) && grepl("^http", shapefile)) {
@@ -656,6 +658,9 @@ shapefile_input <- function(shapefile,
           if (multilinestring) {
             shp <- sf::st_cast(shp, "MULTILINESTRING")
           }
+          if(make_valid){
+            shp <- sf::st_make_valid(shp)
+          }
         } else {
           shp <- shp_terra # Mantém como objeto terra
         }
@@ -667,6 +672,9 @@ shapefile_input <- function(shapefile,
       shp <- tryCatch(
         {
           shp_sf <- sf::st_read(shapefile, quiet = TRUE, ...)
+          if(make_valid){
+            shp_sf <- sf::st_make_valid(shp_sf)
+          }
           if (sf::st_crs(shp_sf) == sf::st_crs(NA)) {
             cli::cli_alert_warning("Missing CRS in sf::st_read(). Setting to EPSG:3857")
             shp_sf <- sf::st_set_crs(shp_sf, 3857)
