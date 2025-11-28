@@ -45,6 +45,7 @@ mosaic_analyze(
   include_if = "centroid",
   plot_index = "GLI",
   segment_index = NULL,
+  in_memory = TRUE,
   threshold = "Otsu",
   opening = FALSE,
   closing = FALSE,
@@ -200,6 +201,11 @@ for more details.}
 
 \item{segment_index}{The index used for segmentation. The same rule as
 \code{plot_index}. Defaults to \code{NULL}}
+
+\item{in_memory}{Logical, indicating whether the indexes should be computed
+in memory. Defaults to \code{TRUE}. In most cases, this is 2-3 times faster, but
+errors can occur if \code{mosaic} is a large \code{SpatRaster}. If \code{FALSE}, raster
+algebra operations are performed on temporary files.}
 
 \item{threshold}{By default (threshold = "Otsu"), a threshold value based on
 Otsu's method is used to reduce the grayscale image to a binary image. If a

@@ -235,6 +235,7 @@ mosaic_interpolate <- function(mosaic, points, method = c("bilinear", "loess", "
 #' @inheritParams analyze_objects
 #' @inheritParams image_binary
 #' @inheritParams plot_id
+#' @inheritParams mosaic_index
 #' @param r,g,b,re,nir,swir,tir The red, green, blue, red-edge,  near-infrared,
 #'   shortwave Infrared, and thermal infrared bands of the image, respectively.
 #'   By default, the function assumes a BGR as input (b = 1, g = 2, r = 3). If a
@@ -410,6 +411,7 @@ mosaic_analyze <- function(mosaic,
                            include_if = "centroid",
                            plot_index = "GLI",
                            segment_index = NULL,
+                           in_memory = TRUE,
                            threshold = "Otsu",
                            opening = FALSE,
                            closing = FALSE,
@@ -475,7 +477,7 @@ mosaic_analyze <- function(mosaic,
     terra::crs(mosaic) <- terra::crs("EPSG:4326")
   }
   nlyrs <- terra::nlyr(mosaic)
-  if(is.null(basemap)){
+  if(is.null(basemap) & is.null(shapefile)){
     if(verbose){
       msg <- "Building the basemap..."
       cli::cli_progress_step(
@@ -663,6 +665,8 @@ mosaic_analyze <- function(mosaic,
                            nir = nir,
                            swir = swir,
                            tir = tir,
+                           in_memory = in_memory,
+                           output = ifelse(in_memory, "disk", "memory"),
                            plot = FALSE)
             })
         )

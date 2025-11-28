@@ -12,6 +12,7 @@ shapefile_input(
   info = TRUE,
   as_sf = TRUE,
   multilinestring = FALSE,
+  make_valid = FALSE,
   ...
 )
 
@@ -41,6 +42,8 @@ shapefile to an \code{sf} object (default is \code{TRUE}).}
 
 \item{multilinestring}{Logical value indicating whether to cast polygon geometries
 to \code{MULTILINESTRING} geometries (default is \code{FALSE}).}
+
+\item{make_valid}{If \code{TRUE} makes an invalid geometry valid.}
 
 \item{...}{Additional arguments to be passed to \code{\link[terra:vect]{terra::vect()}}
 (\code{shapefile_input()}), \code{\link[terra:writeVector]{terra::writeVector()}} (\code{shapefile_export()}) or

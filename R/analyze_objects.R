@@ -1612,10 +1612,10 @@ analyze_objects <- function(img,
         msg_failed = "Oops, something went wrong."
       )
     }
-    help_count(img, foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate,  opening, closing, filter,
-               tolerance , extension, randomize, nrows, plot, show_original,
-               show_background, marker, marker_col, marker_size, save_image, prefix,
-               dir_original, dir_processed, verbose, col_background,
+    help_count(img, foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate, opening, closing, filter,
+               tolerance, extension, randomize, nrows, plot, show_original,
+               show_background, marker, marker_col, marker_size, save_image,
+               prefix, dir_original, dir_processed, verbose, col_background,
                col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv,
                object_index)
   } else{
@@ -1673,13 +1673,14 @@ analyze_objects <- function(img,
       results <- mirai::mirai_map(
         .x = names_plant,
         .f = help_count,
-        .args = list(          foreground, background, pick_palettes, resize, fill_hull, threshold,
-                               erode, dilate, opening, closing, filter, tolerance, extension,
-                               randomize, nrows, plot, show_original, show_background, marker,
-                               marker_col, marker_size, save_image, prefix, dir_original,
-                               dir_processed, verbose, col_background, col_foreground,
-                               lower_noise, ab_angles, ab_angles_percentiles,
-                               width_at, width_at_percentiles, return_mask, pcv, object_index)
+        .args = list(foreground, background, pick_palettes, resize, fill_hull,
+                     threshold, erode, dilate, opening, closing, filter,
+                     tolerance, extension, randomize, nrows, plot, show_original,
+                     show_background, marker, marker_col, marker_size, save_image,
+                     prefix, dir_original, dir_processed, verbose, col_background,
+                     col_foreground, lower_noise, ab_angles, ab_angles_percentiles,
+                     width_at, width_at_percentiles, return_mask, pcv,
+                     object_index)
       )[.progress]
 
     } else {
@@ -1703,12 +1704,13 @@ analyze_objects <- function(img,
           help_count(
             img = names_plant[i],
             foreground, background, pick_palettes, resize, fill_hull, threshold,
-            erode, dilate, opening, closing, filter, tolerance, extension,
-            randomize, nrows, plot, show_original, show_background, marker,
-            marker_col, marker_size, save_image, prefix, dir_original,
-            dir_processed, verbose, col_background, col_foreground,
-            lower_noise, ab_angles, ab_angles_percentiles,
-            width_at, width_at_percentiles, return_mask, pcv
+            erode, dilate, opening, closing, filter,
+            tolerance, extension, randomize, nrows, plot, show_original,
+            show_background, marker, marker_col, marker_size, save_image,
+            prefix, dir_original, dir_processed, verbose, col_background,
+            col_foreground, lower_noise, ab_angles, ab_angles_percentiles,
+            width_at, width_at_percentiles, return_mask, pcv,
+            object_index
           )
       }
       if (verbose) {
