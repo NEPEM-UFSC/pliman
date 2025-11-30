@@ -668,7 +668,7 @@ shapefile_input <- function(shapefile,
       },
       silent = TRUE # Suprime mensagens de erro se falhar
     )
-    if (inherits(shp, "try-error") || inherits(shp, "SpatVector") && !as_sf) {
+    if (inherits(shp, "try-error")) {
       shp <- tryCatch(
         {
           shp_sf <- sf::st_read(shapefile, quiet = TRUE, ...)
