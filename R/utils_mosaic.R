@@ -3893,8 +3893,8 @@ mosaic_chm <- function(dsm,
 
     if(verbose){
       cli::cli_progress_step(
-        msg        = "Interpolating ground points...",
-        msg_done   = "Interpolating ground points",
+        msg        = "Building Digital Terrain Model...",
+        msg_done   = "Building Digital Terrain Model",
         msg_failed = "Interpolation failed"
       )
     }
@@ -3976,6 +3976,8 @@ mosaic_chm <- function(dsm,
 #'   metrics are extracted.
 #' @param chm_threshold A numeric value representing the height threshold for
 #'   calculating coverage. If `NULL`, coverage is not computed.
+#' @param quantiles_to_extract A numeric vector specifying the quantiles to be
+#' extracted. Defaults to `c(0, 0.05, 0.5, 0.95, 1)`.
 #' @return An `sf` object containing height summary statistics for each plot,
 #'   including:
 #' * `min`: Minimum height value.
@@ -3991,41 +3993,37 @@ mosaic_chm <- function(dsm,
 #'
 #' @export
 
-mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL) {
+mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL, quantiles = c(0, 0.05, 0.5, 0.95, 1)) {
   custom_summary <- function(values, coverage_fractions, ...) {
     valids <- na.omit(values)
+    if(!is.null(chm_threshold)){
+      included <- valids > chm_threshold
+      coverage <- sum(included) / length(valids)
+      valids <- valids[included]
+    }
     sumvalids <- sum(valids)
-    quantiles <- quantile(valids, c(0, 0.05, 0.5, 0.95, 1))
+    result_df <- as.data.frame(as.list(quantile(valids, quantiles)))
+    colnames(result_df) <- paste0("q", quantiles)
     mean_val <- sumvalids / length(valids)
     volume <- sumvalids * prod(chm[["res"]])
     cv <- mean(valids) / sd(valids)
     entropy <- entropy(valids)
     if (!is.null(chm_threshold)) {
-      coverage <- sum(valids > chm_threshold) / length(valids)
-      data.frame(
-        min = quantiles[[1]],
-        q05 = quantiles[[2]],
-        q50 = quantiles[[3]],
-        q95 = quantiles[[4]],
-        max = quantiles[[5]],
+      cbind(result_df,       data.frame(
         mean = mean_val,
         cv = cv,
         entropy = entropy,
         volume = volume,
         coverage = coverage
-      )
+      ))
+
     } else{
-      data.frame(
-        min = quantiles[[1]],
-        q05 = quantiles[[2]],
-        q50 = quantiles[[3]],
-        q95 = quantiles[[4]],
-        max = quantiles[[5]],
+      cbind(result_df,       data.frame(
         mean = mean_val,
         cv = cv,
         entropy = entropy,
         volume = volume
-      )
+      ))
     }
 
   }

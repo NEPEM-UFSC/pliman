@@ -4,7 +4,12 @@
 \alias{mosaic_chm_extract}
 \title{Extracts height metrics and plot quality from a Canopy Height Model (CHM)}
 \usage{
-mosaic_chm_extract(chm, shapefile, chm_threshold = NULL)
+mosaic_chm_extract(
+  chm,
+  shapefile,
+  chm_threshold = NULL,
+  quantiles = c(0, 0.05, 0.5, 0.95, 1)
+)
 }
 \arguments{
 \item{chm}{An object computed with \code{\link[=mosaic_chm]{mosaic_chm()}}.}
@@ -14,6 +19,9 @@ metrics are extracted.}
 
 \item{chm_threshold}{A numeric value representing the height threshold for
 calculating coverage. If \code{NULL}, coverage is not computed.}
+
+\item{quantiles_to_extract}{A numeric vector specifying the quantiles to be
+extracted. Defaults to \code{c(0, 0.05, 0.5, 0.95, 1)}.}
 }
 \value{
 An \code{sf} object containing height summary statistics for each plot,
