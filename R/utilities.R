@@ -1055,30 +1055,43 @@ get_uuid <- function(filename) {
 }
 
 
-#' Lin's Concordance Correlation Coefficient (CCC)
+#' Model performance statistics
 #'
-#' Computes Lin's Concordance Correlation Coefficient (CCC) between observed and
-#' predicted values. Also returns Pearson's correlation coefficient and root
-#' mean squared error (RMSE). If the input is a grouped data frame
-#' (`grouped_df`), the function will return results for each group.
+#' Computes several statistics to evaluate the agreement and accuracy between
+#' observed (real) and predicted values. It includes Lin's Concordance
+#' Correlation Coefficient (CCC), Pearson's correlation, Willmott's index of
+#' agreement, and error metrics like RMSE and Bias.
 #'
-#' The CCC is defined as:
+#' @details
+#' The function evaluates model performance through different lenses:
+#' * **Precision**: Pearson's `r` and `r2` measure how well the predicted values
+#' follow a linear relationship with the observed values.
+#' * **Accuracy/Agreement**: `ccc` and `d` measure how close the predictions
+#' are to the 1:1 line (perfect agreement).
+#' * **Error magnitude**: `rmse`, `mae`, and `rrmse` quantify the average
+#' deviation in absolute and relative terms.
+#' * **Directional Bias**: `bias` indicates if the model consistently overestimates
+#' (positive) or underestimates (negative) the real values.
 #'
+#' Lin's CCC is defined as:
 #' \deqn{\rho_c = \frac{2 \cdot \text{Cov}(x, y)}{\text{Var}(x) + \text{Var}(y) + (\bar{x} - \bar{y})^2}}
 #'
-#' where:
-#' * \eqn{\text{Cov}(x, y)} is the covariance between observed and predicted values
-#' * \eqn{\text{Var}(x)} and \eqn{\text{Var}(y)} are the variances of the observed and predicted values
-#' * \eqn{\bar{x}} and \eqn{\bar{y}} are the means of the observed and predicted values
+#' Willmott's index of agreement (d) is defined as:
+#' \deqn{d = 1 - \frac{\sum (y - x)^2}{\sum (|y - \bar{x}| + |x - \bar{x}|)^2}}
 #'
-#' @param data A data frame containing the columns for observed and predicted values.
-#' @param real The column name (unquoted) corresponding to the observed values.
-#' @param predito The column name (unquoted) corresponding to the predicted values.
+#' @param data A data frame or a grouped data frame (`grouped_df`).
+#' @param real The column containing the observed/reference values.
+#' @param predito The column containing the predicted/estimated values.
 #'
 #' @return A data frame with the following columns:
-#' * `r`: Pearson correlation coefficient
-#' * `ccc`: Lin's Concordance Correlation Coefficient
-#' * `rmse`: Root mean squared error
+#' * `r`: Pearson correlation coefficient.
+#' * `r2`: Coefficient of determination (R-squared).
+#' * `ccc`: Lin's Concordance Correlation Coefficient.
+#' * `d`: Willmott's Index of Agreement.
+#' * `rmse`: Root Mean Squared Error.
+#' * `rrmse`: Relative Root Mean Squared Error (%).
+#' * `mae`: Mean Absolute Error.
+#' * `bias`: Mean bias error.
 #'
 #' @export
 #' @examples
@@ -1106,15 +1119,40 @@ ccc <- function(data, real, predito) {
   } else{
     x <- data |> dplyr::select({{real}}) |> dplyr::pull()
     y <- data |> dplyr::select({{predito}}) |> dplyr::pull()
+    n <- length(x)
+
     mean_x <- mean(x)
     mean_y <- mean(y)
     var_x  <- var(x)
     var_y  <- var(y)
     cov_xy <- cov(x, y)
+
+    # Métricas Base
     r <- cov_xy / (sqrt(var_x) * sqrt(var_y))
     rmse <- sqrt(mean((x - y)^2))
-    ccc <- (2 * cov_xy) / (var_x + var_y + (mean_x - mean_y)^2)
-    return(data.frame(r = r, ccc = ccc,  rmse = rmse))
+    ccc_val <- (2 * cov_xy) / (var_x + var_y + (mean_x - mean_y)^2)
+
+    # Novas Métricas
+    bias <- mean(y - x)
+    mae <- mean(abs(y - x))
+    r_2 <- summary(lm(y ~ x))$r.squared
+
+    # Índice de concordância de Willmott (d)
+    d <- 1 - (sum((y - x)^2) / sum((abs(y - mean_x) + abs(x - mean_x))^2))
+
+    # Erro relativo (%)
+    rrmse <- (rmse / mean_x) * 100
+
+    return(data.frame(
+      r = r,
+      r2 = r_2,
+      ccc = ccc_val,
+      d = d,
+      rmse = rmse,
+      rrmse = rrmse,
+      mae = mae,
+      bias = bias
+    ))
   }
 }
 
@@ -1221,3 +1259,4 @@ create_poly_matrix <- function(df, model = "cubic") {
   }
   return(poly_matrix)
 }
+

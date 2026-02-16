@@ -2,42 +2,54 @@
 % Please edit documentation in R/utilities.R
 \name{ccc}
 \alias{ccc}
-\title{Lin's Concordance Correlation Coefficient (CCC)}
+\title{Model performance statistics}
 \usage{
 ccc(data, real, predito)
 }
 \arguments{
-\item{data}{A data frame containing the columns for observed and predicted values.}
+\item{data}{A data frame or a grouped data frame (\code{grouped_df}).}
 
-\item{real}{The column name (unquoted) corresponding to the observed values.}
+\item{real}{The column containing the observed/reference values.}
 
-\item{predito}{The column name (unquoted) corresponding to the predicted values.}
+\item{predito}{The column containing the predicted/estimated values.}
 }
 \value{
 A data frame with the following columns:
 \itemize{
-\item \code{r}: Pearson correlation coefficient
-\item \code{ccc}: Lin's Concordance Correlation Coefficient
-\item \code{rmse}: Root mean squared error
+\item \code{r}: Pearson correlation coefficient.
+\item \code{r2}: Coefficient of determination (R-squared).
+\item \code{ccc}: Lin's Concordance Correlation Coefficient.
+\item \code{d}: Willmott's Index of Agreement.
+\item \code{rmse}: Root Mean Squared Error.
+\item \code{rrmse}: Relative Root Mean Squared Error (\%).
+\item \code{mae}: Mean Absolute Error.
+\item \code{bias}: Mean bias error.
 }
 }
 \description{
-Computes Lin's Concordance Correlation Coefficient (CCC) between observed and
-predicted values. Also returns Pearson's correlation coefficient and root
-mean squared error (RMSE). If the input is a grouped data frame
-(\code{grouped_df}), the function will return results for each group.
+Computes several statistics to evaluate the agreement and accuracy between
+observed (real) and predicted values. It includes Lin's Concordance
+Correlation Coefficient (CCC), Pearson's correlation, Willmott's index of
+agreement, and error metrics like RMSE and Bias.
 }
 \details{
-The CCC is defined as:
+The function evaluates model performance through different lenses:
+\itemize{
+\item \strong{Precision}: Pearson's \code{r} and \code{r2} measure how well the predicted values
+follow a linear relationship with the observed values.
+\item \strong{Accuracy/Agreement}: \code{ccc} and \code{d} measure how close the predictions
+are to the 1:1 line (perfect agreement).
+\item \strong{Error magnitude}: \code{rmse}, \code{mae}, and \code{rrmse} quantify the average
+deviation in absolute and relative terms.
+\item \strong{Directional Bias}: \code{bias} indicates if the model consistently overestimates
+(positive) or underestimates (negative) the real values.
+}
 
+Lin's CCC is defined as:
 \deqn{\rho_c = \frac{2 \cdot \text{Cov}(x, y)}{\text{Var}(x) + \text{Var}(y) + (\bar{x} - \bar{y})^2}}
 
-where:
-\itemize{
-\item \eqn{\text{Cov}(x, y)} is the covariance between observed and predicted values
-\item \eqn{\text{Var}(x)} and \eqn{\text{Var}(y)} are the variances of the observed and predicted values
-\item \eqn{\bar{x}} and \eqn{\bar{y}} are the means of the observed and predicted values
-}
+Willmott's index of agreement (d) is defined as:
+\deqn{d = 1 - \frac{\sum (y - x)^2}{\sum (|y - \bar{x}| + |x - \bar{x}|)^2}}
 }
 \examples{
 library(dplyr)

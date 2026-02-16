@@ -5,6 +5,7 @@ extern "C" {
 #include "smooth_contours.h"
 }
 
+
 // [[Rcpp::export]]
 List utils_contours(NumericVector image, int X, int Y, double Q = 2.0)
 {

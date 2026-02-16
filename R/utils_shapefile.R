@@ -830,6 +830,7 @@ shapefile_edit <- function(shapefile,
 #'   polygonal geometries for which the measures will be calculated.
 #' @param n An integer specifying the number of polygons to process. If `NULL`,
 #'   all polygons are considered.
+#' @param verbose Trigger an alert when complex geometries are used?
 #' @return A modified `sf` object with added columns for:
 #' - `xcoord`: The x-coordinate of the centroid.
 #' - `ycoord`: The y-coordinate of the centroid.
@@ -858,37 +859,39 @@ shapefile_edit <- function(shapefile,
 #'
 #'
 
-shapefile_measures <- function(shapefile, n = NULL) {
+shapefile_measures <- function(shapefile, n = NULL, verbose = TRUE) {
   if (inherits(shapefile, "list")) {
     shapefile <- shapefile_input(shapefile, info = FALSE)
   }
   if(!is.null(n)){
     shapefile <- shapefile |> dplyr::slice(1:n)
   }
+  if(nrow(sf::st_coordinates(shapefile[1, ])) > 5){
+    if(verbose){
+      cli::cli_alert_warning("Complex geometries detected (> 5 vertices). Length and width are being estimated using the Minimum Rotated Rectangle.")
+    }
+    shapefile <- sf::st_minimum_rotated_rectangle(shapefile)
+  }
   results <- lapply(1:nrow(shapefile), function(i) {
     geom <- shapefile[i, ]$geometry
-    if(nrow(geom[[1]][[1]]) == 5){
-      points <- sf::st_cast(geom, "POINT")
-      coords <- sf::st_coordinates(points) # Obter as coordenadas para análise
-      dists <- suppressWarnings(as.matrix(sf::st_distance(points)))
-      side_A <- as.numeric(dists[[2]])
-      side_B <- as.numeric(dists[[4]])
-      P1 <- coords[1, 1:2]
-      P2 <- coords[2, 1:2]
-      P4 <- coords[4, 1:2]
-      angle_B_rad <- atan2(P4[2] - P1[2], P4[1] - P1[1])
-      cos_angle_B <- abs(cos(angle_B_rad))
-      if (cos_angle_B > 0.707) {
-        width_val <- round(side_B, 3)
-        height_val <- round(side_A, 3)
-      } else {
-        width_val <- round(side_A, 3)
-        height_val <- round(side_B, 3)
-      }
-      c(width_val, height_val)
+    points <- sf::st_cast(geom, "POINT")
+    coords <- sf::st_coordinates(points) # Obter as coordenadas para análise
+    dists <- suppressWarnings(as.matrix(sf::st_distance(points)))
+    side_A <- as.numeric(dists[[2]])
+    side_B <- as.numeric(dists[[4]])
+    P1 <- coords[1, 1:2]
+    P2 <- coords[2, 1:2]
+    P4 <- coords[4, 1:2]
+    angle_B_rad <- atan2(P4[2] - P1[2], P4[1] - P1[1])
+    cos_angle_B <- abs(cos(angle_B_rad))
+    if (cos_angle_B > 0.707) {
+      width_val <- round(side_B, 3)
+      height_val <- round(side_A, 3)
     } else {
-      c(NA, NA)
+      width_val <- round(side_A, 3)
+      height_val <- round(side_B, 3)
     }
+    c(width_val, height_val)
   })
   wh <- do.call(rbind, results)
 
@@ -1205,7 +1208,7 @@ line_on_halfplot <- function(shapefile) {
 #' @export
 #'
 #' @examples
-#' if(interactive(){
+#' if(interactive()){
 #' library(pliman)
 #' shp <- system.file("ex/lux.shp", package="terra")
 #' shp_file <- shapefile_input(shp)

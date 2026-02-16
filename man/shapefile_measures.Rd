@@ -4,7 +4,7 @@
 \alias{shapefile_measures}
 \title{Extract geometric measures from a shapefile object}
 \usage{
-shapefile_measures(shapefile, n = NULL)
+shapefile_measures(shapefile, n = NULL, verbose = TRUE)
 }
 \arguments{
 \item{shapefile}{An \code{sf} object representing the shapefile. It should contain
@@ -12,6 +12,8 @@ polygonal geometries for which the measures will be calculated.}
 
 \item{n}{An integer specifying the number of polygons to process. If \code{NULL},
 all polygons are considered.}
+
+\item{verbose}{Trigger an alert when complex geometries are used?}
 }
 \value{
 A modified \code{sf} object with added columns for:
