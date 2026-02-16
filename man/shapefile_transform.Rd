@@ -48,7 +48,7 @@ This logic ensures the grid rotates and expands "in place" rather than flying
 off relative to the coordinate origin.
 }
 \examples{
-if(interactive(){
+if(interactive()){
 library(pliman)
 shp <- system.file("ex/lux.shp", package="terra")
 shp_file <- shapefile_input(shp)
