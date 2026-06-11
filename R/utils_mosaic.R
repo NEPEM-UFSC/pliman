@@ -3795,6 +3795,11 @@ mosaic_chm <- function(dsm,
   if(ch1){
     cli::cli_abort("{.arg dsm} must be single-layer {.code SpatRaster} objects")
   }
+  is_lonlat <- terra::is.lonlat(dsm)
+  aRange_val <- 20
+  if (is_lonlat) {
+    aRange_val <- 20 / 111320
+  }
   # mensagens CLI
   if (verbose) {
     cli::cli_rule(
@@ -3827,7 +3832,7 @@ mosaic_chm <- function(dsm,
       )
     }
     if(interpolation[[1]] == "Kriging"){
-      fit <- fields::Krig(xy, z, aRange=20, give.warnings = FALSE)
+      fit <- fields::Krig(xy, z, aRange=aRange_val, give.warnings = FALSE)
     }
     if(interpolation[[1]] == "Tps"){
       fit <- fields::Tps(xy, z, give.warnings = FALSE)
@@ -3862,8 +3867,16 @@ mosaic_chm <- function(dsm,
     extens <- terra::ext(dsm)
     wide <- extens[2] - extens[1]
     heig <- extens[4] - extens[3]
-    nr <- ceiling( heig / window_size[[1]])
-    nc <- ceiling( wide / window_size[[2]])
+    if (is_lonlat) {
+      latitude <- mean(c(extens[3], extens[4]))
+      window_size_deg_y <- window_size[[1]] / 111320
+      window_size_deg_x <- window_size[[2]] / (111320 * cos(latitude * pi / 180))
+      nr <- ceiling(heig / window_size_deg_y)
+      nc <- ceiling(wide / window_size_deg_x)
+    } else {
+      nr <- ceiling(heig / window_size[[1]])
+      nc <- ceiling(wide / window_size[[2]])
+    }
     if(verbose){
       cli::cli_progress_step(
         msg        = "Extracting ground points for each moving window...",
@@ -3899,7 +3912,7 @@ mosaic_chm <- function(dsm,
       )
     }
     if(interpolation[[1]] == "Kriging"){
-      fit <- fields::Krig(xy, z, aRange=20, give.warnings = FALSE)
+      fit <- fields::Krig(xy, z, aRange=aRange_val, give.warnings = FALSE)
     }
     if(interpolation[[1]] == "Tps"){
       fit <- fields::Tps(xy, z, give.warnings = FALSE)
@@ -3994,6 +4007,17 @@ mosaic_chm <- function(dsm,
 #' @export
 
 mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL, quantiles = c(0, 0.05, 0.5, 0.95, 1)) {
+  if (terra::is.lonlat(chm$chm)) {
+    ext_chm <- terra::ext(chm$chm)
+    lat_center <- mean(c(ext_chm[3], ext_chm[4]))
+    lat_rad <- lat_center * pi / 180
+    res_x <- chm[["res"]][1]
+    res_y <- chm[["res"]][2]
+    cell_area <- res_x * res_y * (111320^2) * cos(lat_rad)
+  } else {
+    cell_area <- prod(chm[["res"]])
+  }
+
   custom_summary <- function(values, coverage_fractions, ...) {
     valids <- na.omit(values)
     if(!is.null(chm_threshold)){
@@ -4005,7 +4029,7 @@ mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL, quantiles =
     result_df <- as.data.frame(as.list(quantile(valids, quantiles)))
     colnames(result_df) <- paste0("q", quantiles)
     mean_val <- sumvalids / length(valids)
-    volume <- sumvalids * prod(chm[["res"]])
+    volume <- sumvalids * cell_area
     cv <- mean(valids) / sd(valids)
     entropy <- entropy(valids)
     if (!is.null(chm_threshold)) {
