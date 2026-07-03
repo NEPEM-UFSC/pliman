@@ -20,7 +20,7 @@ metrics are extracted.}
 \item{chm_threshold}{A numeric value representing the height threshold for
 calculating coverage. If \code{NULL}, coverage is not computed.}
 
-\item{quantiles_to_extract}{A numeric vector specifying the quantiles to be
+\item{quantiles}{A numeric vector specifying the quantiles to be
 extracted. Defaults to \code{c(0, 0.05, 0.5, 0.95, 1)}.}
 }
 \value{
