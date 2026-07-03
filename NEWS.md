@@ -1,4 +1,4 @@
-# pliman (development version)
+# pliman 3.2.0
 
 # pliman 3.1.2
 ## New Functions
