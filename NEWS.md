@@ -1,12 +1,43 @@
 # pliman 3.2.0
-
-# pliman 3.1.2
 ## New Functions
-* New `image_correction()` function to perform color correction of an image using a set of known color references (e.g., from a color checker)
-* New `pick_rgb_area()` to pick RGB mean values of an area drawn by picking points in the image
+* New `image_correction()` function to perform color correction of an image using a set of known color references (e.g., from a color checker).
+* New `pick_rgb_area()` to pick RGB mean values of an area drawn by picking points in the image.
+* New `object_scatter()` function to plot object thumbnails at x-y coordinates derived from image features.
+* New functions for geometric operation on shapefiles.
+* New `mosaic_classify()` function to classify orthomosaics based on break values defined by users.
+* New `image_contour_line()` function allows users to detect smooth contour lines in an image.
+* New `image_canny_edge()` function, which implements Canny Edge detection.
+* New `image_line_segment()` function that enables automatic line segment detection using the Line Segment Detector (LSD) algorithm.
+* New `measure_injury()` function to compute injury.
+* New `image_alpha()` function to create or manipulate alpha channels.
+* New `get_uuid()` function for generating unique identifiers.
 
 ## Minor Improvements
+* Removed dependencies on **future**, **foreach** and **doFuture** in favour of the new **mirai** background engine. This simplifies installation and delivers faster, more reliable parallel processing across all image-based functions.
+* Added **cli**-based messages (rules, progress steps and alerts) throughout both parallel and sequential workflows to provide clear, informative status updates during long-running image processing tasks.
+* Include morphologic operation when `foreground` and `background` arguments are used in `analyze_objects()`.
+* Include option to draw circles in `shapefile_build()`.
+* Remove dependency on `lwgeom` package to compute perimeter.
+* `mosaic_crop()` now have a `type` argument, that allows returning a cropped or masked raster.
+* `image_autocrop()` now has `threshold` and `invert` arguments.
+* Include option to compute leaf area using sample images.
+* Add `smooth` argument to all `compute_measures()` calls.
+* Add prefix and suffix options to measures.
+* Include opening/closing in top of morphological operations.
+* Update `mosaic_analyze()` to avoid generating basemap when shapefile is available.
+* Include shapefile transform and update `shapefile_build()`.
+* Include curvilinear layout and color correction.
+* Update `ccc` function.
+* Clear progress bar after finishing batch processing.
+* Include erode and dilate options.
 
+## Bug fixes
+* Fix bug with `mosaic_chm()` with lat/lon projection.
+* Fix error in `mosaic_chm_extract()`.
+* Fix bug with `as_sf = FALSE`.
+* Fix bug with `get_measures()` when `verbose = FALSE`.
+* Fix bug when importing mosaics with blocks.
+* Fix bug when using palettes with reference.
 
 # pliman 3.1.1
 ## New Functions
@@ -14,26 +45,6 @@
 
 ## Minor Improvements
 Include morphologic operation when `foreground` and `background` arguments are used in `analyze_objects()`.
-
-# pliman 3.1.0
-## New Functions
-* New functions for geometric operation on shapefiles.
-* New `mosaic_classify()` function to classify orthomosaics based on break values defined by users.
-* New `new image_contour_line()` function allows users to detect smooth contour lines in an image.
-* New `image_canny_edge()` function, which implements Canny Edge detection.
-* New `image_line_segment()` function that enables automatic line segment detection using the Line Segment Detector (LSD) algorithm.
-
-## Minor Improvements
-* Include option to draw circles in `shapefile_build()`
-* Remove dependency on `lwgeom` package to compute perimeter.
-* `mosaic_crop()` now have a `type` argument, that allows returning a cropped or masked raster.
-* `image_autocrop()` now has `threshold` and `invert` arguments.
-* Removed dependencies on **future**, **foreach** and **doFuture** in favour of
-the new **mirai** background engine.  This simplifies installation and delivers
-faster, more reliable parallel processing across all image-based functions.
-* Added **cli**-based messages (rules, progress steps and alerts) throughout both 
-parallel and sequential workflows to provide clear, informative status updates 
-during long-running image processing tasks.
 
 # pliman 3.0.0
 ## New Functions
