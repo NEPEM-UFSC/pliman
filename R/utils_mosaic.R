@@ -3989,7 +3989,7 @@ mosaic_chm <- function(dsm,
 #'   metrics are extracted.
 #' @param chm_threshold A numeric value representing the height threshold for
 #'   calculating coverage. If `NULL`, coverage is not computed.
-#' @param quantiles_to_extract A numeric vector specifying the quantiles to be
+#' @param quantiles A numeric vector specifying the quantiles to be
 #' extracted. Defaults to `c(0, 0.05, 0.5, 0.95, 1)`.
 #' @return An `sf` object containing height summary statistics for each plot,
 #'   including:
