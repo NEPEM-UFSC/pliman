@@ -15,6 +15,7 @@ measure_injury(
   filter = FALSE,
   erode = FALSE,
   dilate = FALSE,
+  filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   plot = TRUE,
   dir_original = NULL,
   parallel = FALSE,
@@ -76,6 +77,9 @@ background if any of the pixels covered by the mask is from the background.
 \item \code{dilate} puts the mask over every background pixel, and sets it to
 foreground if any of the pixels covered by the mask is from the foreground.
 }}
+
+\item{filter_order}{A character vector indicating the order in which morphological
+operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
 
 \item{plot}{Show image after processing?}
 

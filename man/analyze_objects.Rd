@@ -46,6 +46,7 @@ analyze_objects(
   opening = FALSE,
   closing = FALSE,
   filter = FALSE,
+  filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   invert = FALSE,
   object_size = "medium",
   index = "NB",
@@ -274,6 +275,9 @@ background if any of the pixels covered by the mask is from the background.
 \item \code{dilate} puts the mask over every background pixel, and sets it to
 foreground if any of the pixels covered by the mask is from the foreground.
 }}
+
+\item{filter_order}{A character vector indicating the order in which morphological
+operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
 
 \item{invert}{Inverts the binary image if desired. This is useful to process
 images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}

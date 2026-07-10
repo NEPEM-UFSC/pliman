@@ -32,6 +32,7 @@ measure_injury <- function(img = NULL,
                            filter = FALSE,
                            erode = FALSE,
                            dilate = FALSE,
+                           filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
                            plot = TRUE,
                            dir_original = NULL,
                            parallel = FALSE,
@@ -51,6 +52,7 @@ measure_injury <- function(img = NULL,
       opening = opening, closing = closing,
       erode = erode, dilate = dilate,
       filter = filter, invert = invert,
+      filter_order = filter_order,
       plot = FALSE
     )[[1]]
 

@@ -10,6 +10,7 @@ get_card_colors(
   nrow = NULL,
   ncol = NULL,
   erode = NULL,
+  filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   xpix = NULL,
   ypix = NULL,
   plot = TRUE

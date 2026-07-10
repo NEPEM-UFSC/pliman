@@ -24,6 +24,7 @@ image_binary(
   opening = FALSE,
   closing = FALSE,
   filter = FALSE,
+  filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   invert = FALSE,
   plot = TRUE,
   nrow = NULL,
@@ -102,6 +103,9 @@ with serrated edges.
 
 Hierarchically, the operations are performed as opening > closing > filter.
 The value declared in each argument will define the brush size.}
+
+\item{filter_order}{A character vector indicating the order in which morphological
+operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
 
 \item{invert}{Inverts the binary image, if desired.}
 

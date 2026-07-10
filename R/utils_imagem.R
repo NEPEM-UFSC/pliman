@@ -2400,6 +2400,8 @@ image_create <- function(color,
 #'
 #'   Hierarchically, the operations are performed as opening > closing > filter.
 #'   The value declared in each argument will define the brush size.
+#' @param filter_order A character vector indicating the order in which morphological
+#'   operations are applied. Defaults to `c("erode", "dilate", "opening", "closing", "filter", "fill_hull")`.
 #' @param invert Inverts the binary image, if desired.
 #' @param plot Show image after processing?
 #' @param nrow,ncol The number of rows or columns in the plot grid. Defaults to
@@ -2451,6 +2453,7 @@ image_binary <- function(img,
                          opening = FALSE,
                          closing = FALSE,
                          filter = FALSE,
+                         filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"), # <- Novo argumento
                          invert = FALSE,
                          plot = TRUE,
                          nrow = NULL,
@@ -2478,7 +2481,6 @@ image_binary <- function(img,
         cli::cli_abort("{.arg k} must be in [0, 1].")
       }
       imgs <- EBImage::thresh(imgs, w=windowsize, h=windowsize, offset=k)
-      # imgs <- EBImage::Image(threshold_adaptive(as.matrix(imgs), k, windowsize, 0.5))
     } else {
       if(threshold == "Otsu"){
         threshold_val <- help_otsu(imgs@.Data[!is.infinite(imgs@.Data) & !is.na(imgs@.Data)])
@@ -2494,24 +2496,25 @@ image_binary <- function(img,
 
     if(invert) imgs <- 1 - imgs
     imgs[is.na(imgs)] <- FALSE
-    if (is.numeric(erode) & erode > 0) {
-      imgs <- image_erode(imgs, size = erode)
+
+    # --- Nova lógica de aplicação sequencial de filtros baseada no filter_order ---
+    for (op in filter_order) {
+      if (op == "erode" && is.numeric(erode) && erode > 0) {
+        imgs <- image_erode(imgs, size = erode)
+      } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
+        imgs <- image_dilate(imgs, size = dilate)
+      } else if (op == "opening" && is.numeric(opening) && opening > 0) {
+        imgs <- image_opening(imgs, size = opening)
+      } else if (op == "closing" && is.numeric(closing) && closing > 0) {
+        imgs <- image_closing(imgs, size = closing)
+      } else if (op == "filter" && is.numeric(filter) && filter > 1) {
+        imgs <- EBImage::medianFilter(imgs, filter)
+      } else if (op == "fill_hull" && isTRUE(fill_hull)) {
+        imgs <- EBImage::fillHull(imgs)
+      }
     }
-    if (is.numeric(dilate) & dilate > 0) {
-      imgs <- image_dilate(imgs, size = dilate)
-    }
-    if (is.numeric(opening) & opening > 0) {
-      imgs <- image_opening(imgs, size = opening)
-    }
-    if (is.numeric(closing) & closing > 0) {
-      imgs <- image_closing(imgs, size = closing)
-    }
-    if (is.numeric(filter) & filter > 1) {
-      imgs <- EBImage::medianFilter(imgs, filter)
-    }
-    if (isTRUE(fill_hull)) {
-      imgs <- EBImage::fillHull(imgs)
-    }
+    # ------------------------------------------------------------------------------
+
     invisible(imgs)
   }
 
@@ -3750,6 +3753,7 @@ image_palette <- function (img,
                            colorspace = c("rgb", "hsb"),
                            remove_bg = FALSE,
                            index = "B",
+                           filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
                            plot = TRUE,
                            save_image = FALSE,
                            prefix = "proc_",
@@ -3798,7 +3802,7 @@ image_palette <- function (img,
 
     # remove BG if needed
     if(remove_bg){
-      mask <- image_binary(img, index = "B-R", opening = 5, plot = FALSE, verbose = FALSE)[[1]]
+      mask <- image_binary(img, index = "B-R", opening = 5, filter_order = filter_order, plot = FALSE, verbose = FALSE)[[1]]
       ID <- which(mask == FALSE)
       img@.Data[,,1][ID] <- NA
       img@.Data[,,2][ID] <- NA
@@ -5167,6 +5171,7 @@ get_card_colors <- function(img,
                             nrow = NULL,
                             ncol = NULL,
                             erode = NULL,
+                            filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
                             xpix = NULL,
                             ypix = NULL,
                             plot = TRUE){
@@ -5184,6 +5189,7 @@ get_card_colors <- function(img,
     image_binary(img,
                  index = index,
                  fill_hull = TRUE,
+                 filter_order = filter_order,
                  plot = FALSE)[[1]]
   #
   lab <- EBImage::bwlabel(bin)
