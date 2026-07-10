@@ -589,6 +589,7 @@ analyze_objects <- function(img,
                             opening = FALSE,
                             closing = FALSE,
                             filter = FALSE,
+                            filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
                             invert = FALSE,
                             object_size = "medium",
                             index = "NB",
@@ -665,7 +666,7 @@ analyze_objects <- function(img,
              paste0("./", dir_processed))
   }
   help_count <-
-    function(img, foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate, opening, closing, filter,
+    function(img, foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate, opening, closing, filter, filter_order,
              tolerance, extension, randomize, nrows, plot, show_original,
              show_background, marker, marker_col, marker_size, save_image,
              prefix, dir_original, dir_processed, verbose, col_background,
@@ -777,20 +778,20 @@ analyze_objects <- function(img,
                                           data = back_fore))
           pred1 <- round(predict(modelo1, newdata = original, type="response"), 0)
           foreground_background <- matrix(pred1, ncol = dim(img)[[2]])
-          if(is.numeric(opening) & opening > 0){
-            foreground_background <- image_opening(foreground_background, size = opening)
-          }
-          if(is.numeric(closing) & closing > 0){
-            foreground_background <- image_closing(foreground_background, size = closing)
-          }
-          if(!isFALSE(filter) & filter > 1){
-            foreground_background <- EBImage::medianFilter(foreground_background, size = filter)
-          }
-          if(is.numeric(erode) & erode > 0){
-            foreground_background <- image_erode(foreground_background, size = erode)
-          }
-          if(is.numeric(dilate) & dilate > 0){
-            foreground_background <- image_dilate(foreground_background, size = dilate)
+          for (op in filter_order) {
+            if (op == "erode" && is.numeric(erode) && erode > 0) {
+              foreground_background <- image_erode(foreground_background, size = erode)
+            } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
+              foreground_background <- image_dilate(foreground_background, size = dilate)
+            } else if (op == "opening" && is.numeric(opening) && opening > 0) {
+              foreground_background <- image_opening(foreground_background, size = opening)
+            } else if (op == "closing" && is.numeric(closing) && closing > 0) {
+              foreground_background <- image_closing(foreground_background, size = closing)
+            } else if (op == "filter" && !isFALSE(filter) && filter > 1) {
+              foreground_background <- EBImage::medianFilter(foreground_background, size = filter)
+            } else if (op == "fill_hull" && isTRUE(fill_hull)) {
+              foreground_background <- EBImage::fillHull(foreground_background)
+            }
           }
 
 
@@ -939,20 +940,20 @@ analyze_objects <- function(img,
                                             family = binomial("logit"),
                                             data = back_fore))
             img_bf <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
-            if(is.numeric(opening) & opening > 0){
-              img_bf <- image_opening(img_bf, size = opening)
-            }
-            if(is.numeric(closing) & closing > 0){
-              img_bf <- image_closing(img_bf, size = closing)
-            }
-            if(!isFALSE(filter) & filter > 1){
-              img_bf <- EBImage::medianFilter(img_bf, filter)
-            }
-            if(is.numeric(erode) & erode > 0){
-              img_bf <- image_erode(img_bf, size = erode)
-            }
-            if(is.numeric(dilate) & dilate > 0){
-              img_bf <- image_dilate(img_bf, size = dilate)
+            for (op in filter_order) {
+              if (op == "erode" && is.numeric(erode) && erode > 0) {
+                img_bf <- image_erode(img_bf, size = erode)
+              } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
+                img_bf <- image_dilate(img_bf, size = dilate)
+              } else if (op == "opening" && is.numeric(opening) && opening > 0) {
+                img_bf <- image_opening(img_bf, size = opening)
+              } else if (op == "closing" && is.numeric(closing) && closing > 0) {
+                img_bf <- image_closing(img_bf, size = closing)
+              } else if (op == "filter" && !isFALSE(filter) && filter > 1) {
+                img_bf <- EBImage::medianFilter(img_bf, filter)
+              } else if (op == "fill_hull" && isTRUE(fill_hull)) {
+                img_bf <- EBImage::fillHull(img_bf)
+              }
             }
           } else{
             img_bf <-
@@ -1000,20 +1001,20 @@ analyze_objects <- function(img,
                                             family = binomial("logit"),
                                             data = back_fore))
             img4 <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
-            if(is.numeric(opening) & opening > 0){
-              img4 <- image_opening(img4, size = opening)
-            }
-            if(is.numeric(closing) & closing > 0){
-              img4 <- image_closing(img4, size = closing)
-            }
-            if(!isFALSE(filter) & filter > 1){
-              img4 <- EBImage::medianFilter(img4, filter)
-            }
-            if(is.numeric(erode) & erode > 0){
-              img4 <- image_erode(img4, size = erode)
-            }
-            if(is.numeric(dilate) & dilate > 0){
-              img4 <- image_dilate(img4, size = dilate)
+            for (op in filter_order) {
+              if (op == "erode" && is.numeric(erode) && erode > 0) {
+                img4 <- image_erode(img4, size = erode)
+              } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
+                img4 <- image_dilate(img4, size = dilate)
+              } else if (op == "opening" && is.numeric(opening) && opening > 0) {
+                img4 <- image_opening(img4, size = opening)
+              } else if (op == "closing" && is.numeric(closing) && closing > 0) {
+                img4 <- image_closing(img4, size = closing)
+              } else if (op == "filter" && !isFALSE(filter) && filter > 1) {
+                img4 <- EBImage::medianFilter(img4, filter)
+              } else if (op == "fill_hull" && isTRUE(fill_hull)) {
+                img4 <- EBImage::fillHull(img4)
+              }
             }
           } else{
             img4 <-

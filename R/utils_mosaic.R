@@ -2090,8 +2090,8 @@ mosaic_input <- function(mosaic,
     if (terra::is.lonlat(mosaic)) {
       eps <- mosaic_epsg(mosaic)
       cli::cli_warn(c(
-        "!" = "The current raster is in a {.emph lat/lon} coordinate system, which may lead to processing errors in {.fn mosaic_analyze()}.",
-        "i" = "It is highly recommended to reproject the raster using {.fn mosaic_project()} with {.val {eps}}."
+        "!" = "The current raster is in a {.emph lat/lon} coordinate system, which may lead to processing errors in {.fn mosaic_analyze}.",
+        "i" = "It is highly recommended to reproject the raster using {.fn mosaic_project} with {.val {eps}}."
       ))
     }
 

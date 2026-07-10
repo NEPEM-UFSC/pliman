@@ -17,6 +17,7 @@ object_label(
   filter = FALSE,
   erode = FALSE,
   dilate = FALSE,
+  filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   watershed = FALSE,
   tolerance = NULL,
   extension = NULL,
@@ -77,6 +78,9 @@ with serrated edges.
 
 Hierarchically, the operations are performed as opening > closing > filter.
 The value declared in each argument will define the brush size.}
+
+\item{filter_order}{A character vector indicating the order in which morphological
+operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
 
 \item{watershed}{If \code{TRUE} (default) performs watershed-based object
 detection. This will detect objects even when they are touching one other.

@@ -13,6 +13,7 @@ image_palette(
   colorspace = c("rgb", "hsb"),
   remove_bg = FALSE,
   index = "B",
+  filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   plot = TRUE,
   save_image = FALSE,
   prefix = "proc_",
@@ -49,6 +50,9 @@ algorithm be applied.}
 
 \item{index}{An image index used to remove the background, passed to
 \code{\link[=image_binary]{image_binary()}}.}
+
+\item{filter_order}{A character vector indicating the order in which morphological
+operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
 
 \item{plot}{Plot the generated palette? Defaults to \code{TRUE}.}
 
