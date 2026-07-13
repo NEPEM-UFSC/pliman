@@ -2462,6 +2462,7 @@ image_binary <- function(img,
                          workers = NULL,
                          verbose = TRUE) {
   check_ebi()
+  check_filter_order(filter_order, verbose, erode, dilate, opening, closing, filter, fill_hull)
   threshold <- threshold[[1]]
 
   bin_img <- function(imgs) {
@@ -4582,7 +4583,8 @@ help_segment <- function(img,
                          filter = FALSE,
                          dilate = FALSE,
                          erode = FALSE,
-                         invert = FALSE){
+                         invert = FALSE,
+                         filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull")){
   img2 <- help_binary(img,
                       index = index,
                       r = r,
@@ -4601,7 +4603,8 @@ help_segment <- function(img,
                       filter = filter,
                       dilate = dilate,
                       erode = erode,
-                      invert = invert)
+                      invert = invert,
+                      filter_order = filter_order)
   ID <- which(img2@.Data == FALSE)
   if(dim(img)[3] == 3){
     img@.Data[,,r][ID] <- 1
@@ -4642,7 +4645,9 @@ help_binary <- function(img,
                         opening = FALSE,
                         closing = FALSE,
                         filter = FALSE,
-                        invert = FALSE){
+                        invert = FALSE,
+                        filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull")){
+  check_filter_order(filter_order, verbose = FALSE, erode, dilate, opening, closing, filter, fill_hull)
   threshold <- threshold[[1]]
 
   bin_img <- function(imgs,
@@ -4653,7 +4658,8 @@ help_binary <- function(img,
                       dilate,
                       opening,
                       closing,
-                      filter){
+                      filter,
+                      filter_order){
     # adapted from imagerExtra  https://bit.ly/3Wp4pwv
     if(threshold == "adaptive"){
       if(is.null(windowsize)){
@@ -4710,24 +4716,24 @@ help_binary <- function(img,
     }
 
     imgs[which(is.na(imgs))] <- FALSE
-    if(is.numeric(erode) & erode > 0){
-      imgs <- image_erode(imgs, size = erode)
+
+    # Sequential filter application based on filter_order
+    for (op in filter_order) {
+      if (op == "erode" && is.numeric(erode) && erode > 0) {
+        imgs <- image_erode(imgs, size = erode)
+      } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
+        imgs <- image_dilate(imgs, size = dilate)
+      } else if (op == "opening" && is.numeric(opening) && opening > 0) {
+        imgs <- image_opening(imgs, size = opening)
+      } else if (op == "closing" && is.numeric(closing) && closing > 0) {
+        imgs <- image_closing(imgs, size = closing)
+      } else if (op == "filter" && is.numeric(filter) && filter > 1) {
+        imgs <- EBImage::medianFilter(imgs, filter)
+      } else if (op == "fill_hull" && isTRUE(fill_hull)) {
+        imgs <- EBImage::fillHull(imgs)
+      }
     }
-    if(is.numeric(dilate) & dilate > 0){
-      imgs <- image_dilate(imgs, size = dilate)
-    }
-    if(is.numeric(opening) & opening > 0){
-      imgs <- image_opening(imgs, size = opening)
-    }
-    if(is.numeric(closing) & closing > 0){
-      imgs <- image_closing(imgs, size = closing)
-    }
-    if(is.numeric(filter) & filter > 1){
-      imgs <- EBImage::medianFilter(imgs, filter)
-    }
-    if(isTRUE(fill_hull)){
-      imgs <- EBImage::fillHull(imgs)
-    }
+
     invisible(imgs)
   }
 
@@ -4740,7 +4746,8 @@ help_binary <- function(img,
                      dilate,
                      opening,
                      closing,
-                     filter)
+                     filter,
+                     filter_order)
   invisible(bin_img)
 }
 
@@ -5508,3 +5515,34 @@ image_correction_pick <- function(img,
                         colormode = 'Color'))
 }
 
+check_filter_order <- function(filter_order, verbose, erode, dilate, opening, closing, filter, fill_hull) {
+  valid_filters <- c("erode", "dilate", "opening", "closing", "filter", "fill_hull")
+  invalid <- setdiff(filter_order, valid_filters)
+  if (length(invalid) > 0) {
+    cli::cli_warn("The following filter{?s} {?is/are} not recognized: {.val {invalid}}.")
+  }
+  if (isTRUE(verbose)) {
+    used <- character()
+    for (op in filter_order) {
+      if (op %in% valid_filters) {
+        if (op == "erode" && is.numeric(erode) && erode > 0) {
+          used <- c(used, "erode")
+        } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
+          used <- c(used, "dilate")
+        } else if (op == "opening" && is.numeric(opening) && opening > 0) {
+          used <- c(used, "opening")
+        } else if (op == "closing" && is.numeric(closing) && closing > 0) {
+          used <- c(used, "closing")
+        } else if (op == "filter" && is.numeric(filter) && filter > 1) {
+          used <- c(used, "filter")
+        } else if (op == "fill_hull" && isTRUE(fill_hull)) {
+          used <- c(used, "fill_hull")
+        }
+      }
+    }
+    if (length(used) > 0) {
+      cli::cli_alert_info("Filter order: {.val {paste(used, collapse = ' -> ')}}")
+    }
+  }
+  invisible(filter_order)
+}

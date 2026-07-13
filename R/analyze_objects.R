@@ -640,6 +640,7 @@ analyze_objects <- function(img,
                             dir_processed = NULL,
                             verbose = TRUE){
   check_ebi()
+  check_filter_order(filter_order, verbose, erode, dilate, opening, closing, filter, fill_hull)
   lower_noise <- ifelse(isTRUE(reference_larger), lower_noise * 3, lower_noise)
   if (!object_size %in% c("small", "medium", "large", "elarge")) {
     cli::cli_abort("Argument {.arg object_size} must be one of {.val small}, {.val medium}, {.val large}, or {.val elarge}.")
@@ -832,7 +833,8 @@ analyze_objects <- function(img,
                                 opening = opening,
                                 closing = closing,
                                 filter = filter,
-                                resize = FALSE)
+                                resize = FALSE,
+                                filter_order = filter_order)
             if(isTRUE(watershed)){
               parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
               res <- length(img2)
@@ -973,7 +975,8 @@ analyze_objects <- function(img,
                           k = k,
                           windowsize = windowsize,
                           invert = invert1,
-                          fill_hull = fill_hull)
+                          fill_hull = fill_hull,
+                          filter_order = filter_order)
           }
 
           img3 <- img
@@ -1033,7 +1036,8 @@ analyze_objects <- function(img,
                           filter = filter,
                           k = k,
                           windowsize = windowsize,
-                          invert = invert2)
+                          invert = invert2,
+                          filter_order = filter_order)
           }
 
           mask <- img_bf
@@ -1208,7 +1212,8 @@ analyze_objects <- function(img,
                           closing = closing,
                           filter = filter,
                           invert = invert,
-                          fill_hull = fill_hull)
+                          fill_hull = fill_hull,
+                          filter_order = filter_order)
             ID <-  which(mask == 1) # IDs for foreground
             ID2 <- which(mask == 0) # IDs for background
             if(isTRUE(watershed)){
@@ -1613,7 +1618,7 @@ analyze_objects <- function(img,
         msg_failed = "Oops, something went wrong."
       )
     }
-    help_count(img, foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate, opening, closing, filter,
+    help_count(img, foreground, background, pick_palettes, resize, fill_hull, threshold, erode, dilate, opening, closing, filter, filter_order,
                tolerance, extension, randomize, nrows, plot, show_original,
                show_background, marker, marker_col, marker_size, save_image,
                prefix, dir_original, dir_processed, verbose, col_background,
@@ -1675,7 +1680,7 @@ analyze_objects <- function(img,
         .x = names_plant,
         .f = help_count,
         .args = list(foreground, background, pick_palettes, resize, fill_hull,
-                     threshold, erode, dilate, opening, closing, filter,
+                     threshold, erode, dilate, opening, closing, filter, filter_order,
                      tolerance, extension, randomize, nrows, plot, show_original,
                      show_background, marker, marker_col, marker_size, save_image,
                      prefix, dir_original, dir_processed, verbose, col_background,
@@ -1705,7 +1710,7 @@ analyze_objects <- function(img,
           help_count(
             img = names_plant[i],
             foreground, background, pick_palettes, resize, fill_hull, threshold,
-            erode, dilate, opening, closing, filter,
+            erode, dilate, opening, closing, filter, filter_order,
             tolerance, extension, randomize, nrows, plot, show_original,
             show_background, marker, marker_col, marker_size, save_image,
             prefix, dir_original, dir_processed, verbose, col_background,
