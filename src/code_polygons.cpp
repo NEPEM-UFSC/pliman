@@ -461,8 +461,522 @@ NumericVector get_area_mask(IntegerVector mask) {
 }
 
 
+// helper for convex hull using Andrew's Monotone Chain
+arma::mat get_convex_hull(const arma::mat& P) {
+    int n = P.n_rows, k = 0;
+    if (n <= 3) return P;
+    arma::mat H(2*n, 2);
 
+    std::vector<std::pair<double, double>> pts(n);
+    for(int i=0; i<n; i++) pts[i] = {P(i, 0), P(i, 1)};
 
+    std::sort(pts.begin(), pts.end(), [](const std::pair<double, double>& a, const std::pair<double, double>& b) {
+        return a.first < b.first || (a.first == b.first && a.second < b.second);
+    });
+
+    auto cross = [](const std::pair<double, double>& O, const std::pair<double, double>& A, const std::pair<double, double>& B) {
+        return (A.first - O.first) * (B.second - O.second) - (A.second - O.second) * (B.first - O.first);
+    };
+
+    std::vector<std::pair<double, double>> hull(2*n);
+
+    // Lower hull
+    for (int i = 0; i < n; ++i) {
+        while (k >= 2 && cross(hull[k - 2], hull[k - 1], pts[i]) <= 0) k--;
+        hull[k++] = pts[i];
+    }
+
+    // Upper hull
+    for (int i = n - 2, t = k + 1; i >= 0; i--) {
+        while (k >= t && cross(hull[k - 2], hull[k - 1], pts[i]) <= 0) k--;
+        hull[k++] = pts[i];
+    }
+
+    arma::mat res(k - 1, 2);
+    for (int i = 0; i < k - 1; i++) {
+        res(i, 0) = hull[i].first;
+        res(i, 1) = hull[i].second;
+    }
+    return res;
+}
+
+// Forward declaration
+NumericMatrix help_smoth(NumericMatrix coords, int niter);
+
+// [[Rcpp::export]]
+DataFrame poly_measures_cpp(List contours) {
+    int n_contours = contours.size();
+
+    NumericVector mass_x(n_contours);
+    NumericVector mass_y(n_contours);
+    NumericVector area(n_contours);
+    NumericVector area_ch(n_contours);
+    NumericVector perimeter(n_contours);
+    NumericVector radius_mean(n_contours);
+    NumericVector radius_min(n_contours);
+    NumericVector radius_max(n_contours);
+    NumericVector radius_sd(n_contours);
+    NumericVector radius_ratio(n_contours);
+    NumericVector diam_mean(n_contours);
+    NumericVector diam_min(n_contours);
+    NumericVector diam_max(n_contours);
+    NumericVector caliper(n_contours);
+    NumericVector length_m(n_contours);
+    NumericVector width_m(n_contours);
+    NumericVector solidity(n_contours);
+    NumericVector convexity(n_contours);
+    NumericVector elongation(n_contours);
+    NumericVector circularity(n_contours);
+    NumericVector circularity_haralick(n_contours);
+    NumericVector circularity_norm(n_contours);
+    NumericVector eccentricity(n_contours);
+    NumericVector maj_axis(n_contours);
+    NumericVector min_axis(n_contours);
+    NumericVector theta(n_contours);
+    NumericVector pcv(n_contours, NA_REAL);
+    
+    // Initialize mass_x to NA_REAL to easily filter invalid rows in R
+    mass_x.fill(NA_REAL);
+
+    for (int i = 0; i < n_contours; i++) {
+        SEXP curr_contour = contours[i];
+        if (Rf_isNull(curr_contour)) continue;
+        
+        NumericMatrix coord = as<NumericMatrix>(curr_contour);
+        arma::mat C = as<arma::mat>(coord);
+        int n_pts = C.n_rows;
+        if (n_pts < 3) continue;
+
+        // 1. mass
+        arma::vec cm = centmass(C);
+        mass_x[i] = cm(0);
+        mass_y[i] = cm(1);
+
+        // 2. Area
+        double a = 0;
+        for (int j = 0; j < n_pts; ++j) {
+            int next_j = (j + 1) % n_pts;
+            a += C(j, 0) * C(next_j, 1) - C(next_j, 0) * C(j, 1);
+        }
+        area[i] = std::abs(a / 2.0);
+
+        // 3. Convex hull
+        arma::mat ch = get_convex_hull(C);
+
+        // 4. Area CH
+        double a_ch = 0;
+        int n_ch = ch.n_rows;
+        for (int j = 0; j < n_ch; ++j) {
+            int next_j = (j + 1) % n_ch;
+            a_ch += ch(j, 0) * ch(next_j, 1) - ch(next_j, 0) * ch(j, 1);
+        }
+        area_ch[i] = std::abs(a_ch / 2.0);
+
+        // 5. Perimeter (distpts)
+        double p = 0;
+        for (int j = 0; j < n_pts - 1; j++) {
+            double dx = C(j+1, 0) - C(j, 0);
+            double dy = C(j+1, 1) - C(j, 1);
+            p += std::sqrt(dx*dx + dy*dy);
+        }
+        perimeter[i] = p;
+
+        // 5.1 Perimeter of Convex Hull (for convexity)
+        double p_ch = 0;
+        if (n_ch > 0) {
+            // Convex hull might not close the loop automatically like contours do
+            // Wait, get_convex_hull returns k-1 points, which means the last point is NOT the first point.
+            // Monotone chain: hull[0] to hull[k-1]. hull[k-1] == hull[0].
+            // I returned k-1 points, so res(0) to res(k-2).
+            // To compute perimeter, we need to close the loop!
+            for (int j = 0; j < n_ch; j++) {
+                int next_j = (j + 1) % n_ch;
+                double dx = ch(next_j, 0) - ch(j, 0);
+                double dy = ch(next_j, 1) - ch(j, 1);
+                p_ch += std::sqrt(dx*dx + dy*dy);
+            }
+        }
+
+        // 6. Centdist (mean/sd of distances to centroid calculated as simple average)
+        double cent_x = 0, cent_y = 0;
+        for (int j = 0; j < n_pts; j++) {
+            cent_x += C(j, 0);
+            cent_y += C(j, 1);
+        }
+        cent_x /= n_pts;
+        cent_y /= n_pts;
+
+        arma::vec cdists(n_pts);
+        double c_mean = 0, c_min = 1e9, c_max = -1e9;
+
+        for (int j = 0; j < n_pts; j++) {
+            double dx = C(j, 0) - cent_x;
+            double dy = C(j, 1) - cent_y;
+            double d = std::sqrt(dx*dx + dy*dy);
+            cdists[j] = d;
+            c_mean += d;
+            if (d < c_min) c_min = d;
+            if (d > c_max) c_max = d;
+        }
+        c_mean /= n_pts;
+
+        double c_var = 0;
+        for (int j = 0; j < n_pts; j++) {
+            c_var += (cdists[j] - c_mean) * (cdists[j] - c_mean);
+        }
+        double c_sd = std::sqrt(c_var / (n_pts - 1));
+
+        radius_mean[i] = c_mean;
+        radius_min[i] = c_min;
+        radius_max[i] = c_max;
+        radius_sd[i] = c_sd;
+        radius_ratio[i] = c_max / c_min;
+        diam_mean[i] = c_mean * 2.0;
+        diam_min[i] = c_min * 2.0;
+        diam_max[i] = c_max * 2.0;
+
+        // 7. Length and Width (from help_lw)
+        arma::mat covmat = arma::cov(C);
+        arma::vec eigval;
+        arma::mat eigvec;
+        arma::eig_sym(eigval, eigvec, covmat);
+        arma::mat rotated = arma::flipud(C * eigvec);
+        double l = arma::max(rotated.col(1)) - arma::min(rotated.col(1));
+        double w = arma::max(rotated.col(0)) - arma::min(rotated.col(0));
+
+        caliper[i] = l;
+        length_m[i] = l;
+        width_m[i] = w;
+
+        // 8. Shape factors
+        solidity[i] = area[i] / area_ch[i];
+        convexity[i] = p_ch / p;
+        elongation[i] = 1.0 - (w / l);
+        circularity[i] = (p * p) / area[i];
+        circularity_haralick[i] = c_mean / c_sd;
+        circularity_norm[i] = (area[i] * 4.0 * datum::pi) / (p * p);
+        
+        // Eigenvalues from population covariance for exact match with help_moments
+        double sum_x = 0, sum_y = 0, sum_x2 = 0, sum_y2 = 0, sum_xy = 0;
+        for (int j = 0; j < n_pts; j++) {
+            double x = C(j, 0);
+            double y = C(j, 1);
+            sum_x += x;
+            sum_y += y;
+            sum_x2 += x * x;
+            sum_y2 += y * y;
+            sum_xy += x * y;
+        }
+        double cov_xy = sum_xy / n_pts - sum_x * sum_y / n_pts / n_pts;
+        double var_x = sum_x2 / n_pts - sum_x * sum_x / n_pts / n_pts;
+        double var_y = sum_y2 / n_pts - sum_y * sum_y / n_pts / n_pts;
+        double t = 0.5 * std::atan2(2 * cov_xy, var_x - var_y);
+        double a_maj = std::sqrt(0.5 * (var_x + var_y + std::sqrt(std::pow(var_x - var_y, 2) + 4 * std::pow(cov_xy, 2))));
+        double b_min = std::sqrt(0.5 * (var_x + var_y - std::sqrt(std::pow(var_x - var_y, 2) + 4 * std::pow(cov_xy, 2))));
+        
+        maj_axis[i] = std::fmax(a_maj, b_min);
+        min_axis[i] = std::fmin(a_maj, b_min);
+        eccentricity[i] = std::sqrt(1 - std::pow(min_axis[i] / maj_axis[i], 2));
+        theta[i] = t;
+
+        // 9. PCV (poly_pcv)
+        // Mathematically correct Jacobi update (symmetric moving average)
+        arma::mat smoth = C;
+        int niter = 100;
+        arma::mat smoothed(n_pts, 2);
+        for (int a = 0; a < niter; a++) {
+            for (int k = 0; k < n_pts; k++) {
+                int prev = (k == 0) ? (n_pts - 1) : (k - 1);
+                int next = (k == n_pts - 1) ? 0 : (k + 1);
+                smoothed(k, 0) = (smoth(k, 0) + smoth(prev, 0) + smoth(next, 0)) / 3.0;
+                smoothed(k, 1) = (smoth(k, 1) + smoth(prev, 1) + smoth(next, 1)) / 3.0;
+            }
+            smoth = smoothed;
+        }
+        
+        double sum_dists = 0;
+        arma::vec smooth_dists(n_pts);
+        for (int k = 0; k < n_pts; k++) {
+            double dx = C(k, 0) - smoth(k, 0);
+            double dy = C(k, 1) - smoth(k, 1);
+            double d = std::sqrt(dx*dx + dy*dy);
+            smooth_dists[k] = d;
+            sum_dists += d;
+        }
+        double mean_sdists = sum_dists / n_pts;
+        double var_sdists = 0;
+        for (int k = 0; k < n_pts; k++) {
+            var_sdists += (smooth_dists[k] - mean_sdists) * (smooth_dists[k] - mean_sdists);
+        }
+        double sd_sdists = std::sqrt(var_sdists / (n_pts - 1));
+
+        pcv[i] = (sum_dists * sd_sdists) / p;
+    }
+
+    return DataFrame::create(
+        Named("x") = mass_x,
+        Named("y") = mass_y,
+        Named("area") = area,
+        Named("area_ch") = area_ch,
+        Named("perimeter") = perimeter,
+        Named("radius_mean") = radius_mean,
+        Named("radius_min") = radius_min,
+        Named("radius_max") = radius_max,
+        Named("radius_sd") = radius_sd,
+        Named("radius_ratio") = radius_ratio,
+        Named("diam_mean") = diam_mean,
+        Named("diam_min") = diam_min,
+        Named("diam_max") = diam_max,
+        Named("caliper") = caliper,
+        Named("length") = length_m,
+        Named("width") = width_m,
+        Named("solidity") = solidity,
+        Named("convexity") = convexity,
+        Named("elongation") = elongation,
+        Named("circularity") = circularity,
+        Named("circularity_haralick") = circularity_haralick,
+        Named("circularity_norm") = circularity_norm,
+        Named("eccentricity") = eccentricity,
+        Named("maj_axis") = maj_axis,
+        Named("min_axis") = min_axis,
+        Named("theta") = theta,
+        Named("pcv") = pcv
+    );
+}
+
+// [[Rcpp::export]]
+DataFrame poly_measures_minimal_cpp(List contours) {
+    int n_contours = contours.size();
+    
+    NumericVector mass_x(n_contours, NA_REAL);
+    NumericVector mass_y(n_contours);
+    NumericVector area(n_contours);
+    NumericVector perimeter(n_contours);
+    NumericVector length_m(n_contours);
+    NumericVector width_m(n_contours);
+    NumericVector circularity_norm(n_contours);
+    NumericVector eccentricity(n_contours);
+    NumericVector maj_axis(n_contours);
+    NumericVector min_axis(n_contours);
+
+    for (int i = 0; i < n_contours; i++) {
+        SEXP curr_contour = contours[i];
+        if (Rf_isNull(curr_contour)) continue;
+        
+        NumericMatrix coord = as<NumericMatrix>(curr_contour);
+        arma::mat C = as<arma::mat>(coord);
+        int n_pts = C.n_rows;
+        if (n_pts < 3) continue;
+
+        // 1. mass
+        arma::vec cm = centmass(C);
+        mass_x[i] = cm(0);
+        mass_y[i] = cm(1);
+
+        // 2. Area
+        double a = 0;
+        for (int j = 0; j < n_pts; ++j) {
+            int next_j = (j + 1) % n_pts;
+            a += C(j, 0) * C(next_j, 1) - C(next_j, 0) * C(j, 1);
+        }
+        area[i] = std::abs(a / 2.0);
+
+        // 5. Perimeter (distpts)
+        double p = 0;
+        for (int j = 0; j < n_pts - 1; j++) {
+            double dx = C(j+1, 0) - C(j, 0);
+            double dy = C(j+1, 1) - C(j, 1);
+            p += std::sqrt(dx*dx + dy*dy);
+        }
+        perimeter[i] = p;
+
+        // 7. Length and Width (from help_lw)
+        arma::mat covmat = arma::cov(C);
+        arma::vec eigval;
+        arma::mat eigvec;
+        arma::eig_sym(eigval, eigvec, covmat);
+        arma::mat rotated = arma::flipud(C * eigvec);
+        double l = arma::max(rotated.col(1)) - arma::min(rotated.col(1));
+        double w = arma::max(rotated.col(0)) - arma::min(rotated.col(0));
+        length_m[i] = l;
+        width_m[i] = w;
+
+        // 8. Shape factors
+        circularity_norm[i] = (area[i] * 4.0 * datum::pi) / (p * p);
+        
+        // Eigenvalues from population covariance for exact match with help_moments
+        double sum_x = 0, sum_y = 0, sum_x2 = 0, sum_y2 = 0, sum_xy = 0;
+        for (int j = 0; j < n_pts; j++) {
+            double x = C(j, 0);
+            double y = C(j, 1);
+            sum_x += x;
+            sum_y += y;
+            sum_x2 += x * x;
+            sum_y2 += y * y;
+            sum_xy += x * y;
+        }
+        double cov_xy = sum_xy / n_pts - sum_x * sum_y / n_pts / n_pts;
+        double var_x = sum_x2 / n_pts - sum_x * sum_x / n_pts / n_pts;
+        double var_y = sum_y2 / n_pts - sum_y * sum_y / n_pts / n_pts;
+        double a_maj = std::sqrt(0.5 * (var_x + var_y + std::sqrt(std::pow(var_x - var_y, 2) + 4 * std::pow(cov_xy, 2))));
+        double b_min = std::sqrt(0.5 * (var_x + var_y - std::sqrt(std::pow(var_x - var_y, 2) + 4 * std::pow(cov_xy, 2))));
+        
+        maj_axis[i] = std::fmax(a_maj, b_min);
+        min_axis[i] = std::fmin(a_maj, b_min);
+        eccentricity[i] = std::sqrt(1 - std::pow(min_axis[i] / maj_axis[i], 2));
+    }
+
+    return DataFrame::create(
+        Named("x") = mass_x,
+        Named("y") = mass_y,
+        Named("area") = area,
+        Named("perimeter") = perimeter,
+        Named("length") = length_m,
+        Named("width") = width_m,
+        Named("circularity_norm") = circularity_norm,
+        Named("eccentricity") = eccentricity,
+        Named("maj_axis") = maj_axis,
+        Named("min_axis") = min_axis
+    );
+}
+
+// [[Rcpp::export]]
+DataFrame poly_measures_disease_cpp(List contours) {
+    int n_contours = contours.size();
+    
+    NumericVector mass_x(n_contours, NA_REAL);
+    NumericVector mass_y(n_contours);
+    NumericVector area(n_contours);
+    NumericVector perimeter(n_contours);
+    NumericVector radius_mean(n_contours);
+    NumericVector radius_min(n_contours);
+    NumericVector radius_max(n_contours);
+    NumericVector radius_sd(n_contours);
+    NumericVector diam_mean(n_contours);
+    NumericVector diam_min(n_contours);
+    NumericVector diam_max(n_contours);
+    NumericVector length_m(n_contours);
+    NumericVector width_m(n_contours);
+    NumericVector maj_axis(n_contours);
+    NumericVector min_axis(n_contours);
+
+    for (int i = 0; i < n_contours; i++) {
+        SEXP curr_contour = contours[i];
+        if (Rf_isNull(curr_contour)) continue;
+        
+        NumericMatrix coord = as<NumericMatrix>(curr_contour);
+        arma::mat C = as<arma::mat>(coord);
+        int n_pts = C.n_rows;
+        if (n_pts < 3) continue;
+
+        // 1. mass
+        arma::vec cm = centmass(C);
+        mass_x[i] = cm(0);
+        mass_y[i] = cm(1);
+
+        // 2. Area
+        double a = 0;
+        for (int j = 0; j < n_pts; ++j) {
+            int next_j = (j + 1) % n_pts;
+            a += C(j, 0) * C(next_j, 1) - C(next_j, 0) * C(j, 1);
+        }
+        area[i] = std::abs(a / 2.0);
+
+        // 5. Perimeter (distpts)
+        double p = 0;
+        for (int j = 0; j < n_pts - 1; j++) {
+            double dx = C(j+1, 0) - C(j, 0);
+            double dy = C(j+1, 1) - C(j, 1);
+            p += std::sqrt(dx*dx + dy*dy);
+        }
+        perimeter[i] = p;
+
+        // 6. Centdist
+        double cent_x = 0, cent_y = 0;
+        for (int j = 0; j < n_pts; j++) {
+            cent_x += C(j, 0);
+            cent_y += C(j, 1);
+        }
+        cent_x /= n_pts;
+        cent_y /= n_pts;
+
+        arma::vec cdists(n_pts);
+        double c_mean = 0, c_min = 1e9, c_max = -1e9;
+        for (int j = 0; j < n_pts; j++) {
+            double dx = C(j, 0) - cent_x;
+            double dy = C(j, 1) - cent_y;
+            double d = std::sqrt(dx*dx + dy*dy);
+            cdists[j] = d;
+            c_mean += d;
+            if (d < c_min) c_min = d;
+            if (d > c_max) c_max = d;
+        }
+        c_mean /= n_pts;
+
+        double c_var = 0;
+        for (int j = 0; j < n_pts; j++) {
+            c_var += (cdists[j] - c_mean) * (cdists[j] - c_mean);
+        }
+        double c_sd = std::sqrt(c_var / (n_pts - 1));
+
+        radius_mean[i] = c_mean;
+        radius_min[i] = c_min;
+        radius_max[i] = c_max;
+        radius_sd[i] = c_sd;
+        diam_mean[i] = c_mean * 2.0;
+        diam_min[i] = c_min * 2.0;
+        diam_max[i] = c_max * 2.0;
+
+        // 7. Length and Width (from help_lw)
+        arma::mat covmat = arma::cov(C);
+        arma::vec eigval;
+        arma::mat eigvec;
+        arma::eig_sym(eigval, eigvec, covmat);
+        arma::mat rotated = arma::flipud(C * eigvec);
+        double l = arma::max(rotated.col(1)) - arma::min(rotated.col(1));
+        double w = arma::max(rotated.col(0)) - arma::min(rotated.col(0));
+        length_m[i] = l;
+        width_m[i] = w;
+        
+        // Eigenvalues from population covariance for exact match with help_moments
+        double sum_x = 0, sum_y = 0, sum_x2 = 0, sum_y2 = 0, sum_xy = 0;
+        for (int j = 0; j < n_pts; j++) {
+            double x = C(j, 0);
+            double y = C(j, 1);
+            sum_x += x;
+            sum_y += y;
+            sum_x2 += x * x;
+            sum_y2 += y * y;
+            sum_xy += x * y;
+        }
+        double cov_xy = sum_xy / n_pts - sum_x * sum_y / n_pts / n_pts;
+        double var_x = sum_x2 / n_pts - sum_x * sum_x / n_pts / n_pts;
+        double var_y = sum_y2 / n_pts - sum_y * sum_y / n_pts / n_pts;
+        double a_maj = std::sqrt(0.5 * (var_x + var_y + std::sqrt(std::pow(var_x - var_y, 2) + 4 * std::pow(cov_xy, 2))));
+        double b_min = std::sqrt(0.5 * (var_x + var_y - std::sqrt(std::pow(var_x - var_y, 2) + 4 * std::pow(cov_xy, 2))));
+        
+        maj_axis[i] = std::fmax(a_maj, b_min);
+        min_axis[i] = std::fmin(a_maj, b_min);
+    }
+
+    return DataFrame::create(
+        Named("x") = mass_x,
+        Named("y") = mass_y,
+        Named("area") = area,
+        Named("perimeter") = perimeter,
+        Named("radius_mean") = radius_mean,
+        Named("radius_min") = radius_min,
+        Named("radius_max") = radius_max,
+        Named("radius_sd") = radius_sd,
+        Named("diam_mean") = diam_mean,
+        Named("diam_min") = diam_min,
+        Named("diam_max") = diam_max,
+        Named("length") = length_m,
+        Named("width") = width_m,
+        Named("maj_axis") = maj_axis,
+        Named("min_axis") = min_axis
+    );
+}
 
 // Function to check if a point is inside a polygon
 bool pointInPolygon(NumericMatrix polygon, double x, double y) {
@@ -554,21 +1068,25 @@ NumericVector help_poly_angles(NumericMatrix coords) {
 // [[Rcpp::export]]
 NumericMatrix help_smoth(NumericMatrix coords, int niter) {
   int p = coords.nrow();
-  NumericMatrix smoothedCoords(p, 2);
+  NumericMatrix current = clone(coords);
+  NumericMatrix next(p, 2);
 
   for (int a = 0; a < niter; a++) {
     for (int i = 0; i < p; i++) {
       int prevIndex = (i == 0) ? (p - 1) : (i - 1);
       int nextIndex = (i == p - 1) ? 0 : (i + 1);
 
-      smoothedCoords(i, 0) = (coords(i, 0) + coords(prevIndex, 0) + coords(nextIndex, 0)) / 3.0;
-      smoothedCoords(i, 1) = (coords(i, 1) + coords(prevIndex, 1) + coords(nextIndex, 1)) / 3.0;
+      next(i, 0) = (current(i, 0) + current(prevIndex, 0) + current(nextIndex, 0)) / 3.0;
+      next(i, 1) = (current(i, 1) + current(prevIndex, 1) + current(nextIndex, 1)) / 3.0;
     }
 
-    coords = smoothedCoords;
+    for (int i = 0; i < p; i++) {
+      current(i, 0) = next(i, 0);
+      current(i, 1) = next(i, 1);
+    }
   }
 
-  return smoothedCoords;
+  return current;
 }
 
 // [[Rcpp::export]]

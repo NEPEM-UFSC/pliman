@@ -1460,14 +1460,14 @@ analyze_objects <- function(img,
           im2 <- img[,,1:3]
           EBImage::colorMode(im2) <- "Color"
           if(backg){
-            im3 <- EBImage::colorLabels(nmask)
+            im3 <- image_color_labels(nmask)
             im2@.Data[,,1][which(im3@.Data[,,1]==0)] <- col_background[1]
             im2@.Data[,,2][which(im3@.Data[,,2]==0)] <- col_background[2]
             im2@.Data[,,3][which(im3@.Data[,,3]==0)] <- col_background[3]
           }
         }
         if(show_original == TRUE & show_segmentation == TRUE){
-          im2 <- EBImage::colorLabels(nmask)
+          im2 <- image_color_labels(nmask)
           if(backg){
             im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- col_background[1]
             im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- col_background[2]
@@ -1480,7 +1480,7 @@ analyze_objects <- function(img,
         }
         if(show_original == FALSE){
           if(show_segmentation == TRUE){
-            im2 <- EBImage::colorLabels(nmask)
+            im2 <- image_color_labels(nmask)
             im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- col_background[1]
             im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- col_background[2]
             im2@.Data[,,3][which(im2@.Data[,,3]==0)] <- col_background[3]

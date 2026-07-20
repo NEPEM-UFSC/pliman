@@ -751,7 +751,7 @@ poly_measures <- function(x){
   if (inherits(x, "list")) {
     valid <- which(sapply(x, function(x){length(as.matrix(x))}) > 2)
     coord <- x[valid]
-    res <- do.call(rbind, lapply(coord, poly_measures))
+    res <- poly_measures_cpp(coord)
     res$id <- 1:nrow(res)
     shape <- res[, c(ncol(res), 1:ncol(res) -1) ]
     return(shape)
