@@ -930,45 +930,33 @@ compute_measures <- function(mask,
                              har_scales = 1,
                              har_band = "GRAY",
                              smooth = FALSE){
-  ocont <- EBImage::ocontour(mask)
+  ocont <- contour(mask)
   if(is.numeric(smooth) & smooth > 0){
     ocont <- poly_smooth(ocont, niter = smooth, plot = FALSE) |> poly_close()
   }
-  shape <-
-    cbind(features_moment(ocont),
-          cbind(area = get_area_mask(mask), features_shape(ocont)))
-  valid <- which(shape$mx != "NaN")
-  shape <- shape[valid, ]
-  coverage <- length(which(mask != 0)) / length(mask)
-  ocont <- ocont[valid]
-  names(ocont) <- valid
-  ch <- conv_hull(ocont)
-  area_ch <- help_area(ch)
-  caliper = poly_caliper(ocont)
-  lw <- help_lw(ocont)
+
+  shape <- poly_measures_cpp(ocont)
+
+  # Calculate algebraic combinations
   shape <- transform(shape,
-                     id = as.numeric(valid),
-                     radius_ratio = radius_max / radius_min,
-                     diam_mean = radius_mean * 2,
-                     diam_min = radius_min * 2,
-                     diam_max = radius_max * 2,
-                     length = lw[, 1],
-                     width = lw[, 2],
+                     id = 1:nrow(shape),
                      coverage = area / length(mask),
-                     area_ch =   area_ch,
-                     solidity = area / area_ch,
-                     caliper = caliper,
                      form_factor = 4 * pi * area / perimeter ^ 2,
-                     narrow_factor =  caliper / lw[, 1],
-                     asp_ratio = lw[, 1] / lw[, 2],
-                     rectangularity = lw[, 1]  * lw[, 2] / area,
+                     narrow_factor = caliper / length,
+                     asp_ratio = length / width,
+                     rectangularity = length * width / area,
                      pd_ratio = perimeter / caliper,
-                     plw_ratio = perimeter / (lw[, 1]  + lw[, 2]),
-                     convexity = poly_convexity(ocont),
-                     elongation = poly_elongation(ocont),
-                     circularity = perimeter ^ 2 / area,
-                     circularity_haralick = radius_mean / radius_sd,
-                     circularity_norm = poly_circularity_norm(ocont))
+                     plw_ratio = perimeter / (length + width)
+  )
+
+  # Keep only valid rows
+  valid <- which(!is.na(shape$x))
+  shape <- shape[valid, ]
+
+  # Rename columns to match old compute_measures
+  colnames(shape)[which(colnames(shape) == "x")] <- "mx"
+  colnames(shape)[which(colnames(shape) == "y")] <- "my"
+
   shape <- shape[, c("id",
                      "mx",
                      "my",
@@ -1024,6 +1012,10 @@ compute_measures <- function(mask,
     shape <- cbind(shape, hal[valid, ])
     colnames(shape) <- c(names_measures(), har_names())
   }
+
+  # Return the missing 'ch' object
+  ch <- conv_hull(ocont)
+
   invisible(list(shape = shape,
                  cont = ocont,
                  ch = ch))
@@ -1031,19 +1023,21 @@ compute_measures <- function(mask,
 
 ## helper function to compute the measures based on a mask
 compute_measures_minimal <- function(mask){
-  ocont <- EBImage::ocontour(mask)
-  shape <- cbind(features_moment(ocont), cbind(area = get_area_mask(mask)))
-  valid <- which(shape$mx != "NaN")
-  shape <- shape[valid, ]
-  ocont <- ocont[valid]
-  names(ocont) <- valid
-  lw <- help_lw(ocont)
+  ocont <- contour(mask)
+  
+  shape <- poly_measures_minimal_cpp(ocont)
+  shape$area <- get_area_mask(mask)
+  
   shape <- transform(shape,
-                     id = as.numeric(valid),
-                     length = lw[, 1],
-                     width = lw[, 2],
-                     asp_ratio = lw[, 1] / lw[, 2],
-                     circularity_norm = poly_circularity_norm(ocont))
+                     id = 1:nrow(shape),
+                     asp_ratio = length / width)
+  
+  valid <- which(!is.na(shape$x))
+  shape <- shape[valid, ]
+  
+  colnames(shape)[which(colnames(shape) == "x")] <- "mx"
+  colnames(shape)[which(colnames(shape) == "y")] <- "my"
+  
   shape <- shape[, c("id",
                      "mx",
                      "my",
@@ -1072,24 +1066,21 @@ compute_measures_minimal <- function(mask){
 
 ## helper function to compute the measures based on a mask
 compute_measures_disease <- function(mask){
-  ocont <- EBImage::ocontour(mask)
-  shape <-
-    cbind(features_moment(ocont),
-          cbind(area = get_area_mask(mask), features_shape(ocont)))
-  valid <- which(shape$mx != "NaN")
-  shape <- shape[valid, ]
-  ocont <- ocont[valid]
-  names(ocont) <- valid
-  lw <- help_lw(ocont)
+  ocont <- contour(mask)
+  
+  shape <- poly_measures_disease_cpp(ocont)
+  shape$area <- get_area_mask(mask)
+  
   shape <- transform(shape,
-                     id = as.numeric(valid),
-                     radius_ratio = radius_max / radius_min,
-                     diam_mean = radius_mean * 2,
-                     diam_min = radius_min * 2,
-                     diam_max = radius_max * 2,
-                     length = lw[, 1],
-                     width = lw[, 2],
+                     id = 1:nrow(shape),
                      form_factor = 4 * pi * area / perimeter ^ 2)
+  
+  valid <- which(!is.na(shape$x))
+  shape <- shape[valid, ]
+  
+  colnames(shape)[which(colnames(shape) == "x")] <- "mx"
+  colnames(shape)[which(colnames(shape) == "y")] <- "my"
+  
   shape <- shape[, c("id",
                      "mx",
                      "my",

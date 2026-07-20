@@ -1,39 +1,141 @@
-#' Alternative watershed algorithm
+# nova função
+
+
+#' Intelligent Morphological Watershed (Spanning Forest + Union-Find)
 #'
-#' This is a basic watershed algorithm that can be used as a faster alternative
-#' to [EBImage::watershed()]. I strongly suggest using this only with round
-#' objects, since it doesn't consider both 'extension' and 'tolerance' arguments
-#' of [EBImage::watershed()].
+#' This function performs a morphological watershed segmentation on a binary image.
+#' It implements a highly optimized Spanning Forest algorithm coupled with a Disjoint-Set
+#' (Union-Find) data structure. This approach eliminates the need for slow iterative scans
+#' ($O(N^2)$ complexity), allowing the algorithm to execute in milliseconds even when
+#' resolving tens of thousands of distinct objects. It also features a mechanism to merge
+#' highly connected objects, effectively preventing over-segmentation.
 #'
-#' @param binary A binary image
-#' @param dist_thresh The distance threshold to create the
-#' @param plot If `TRUE` (default) plots the labeled objects
-#' @return The labelled version of `binary`.
+#' @param img           A binary `Image` object or a matrix/array.
+#' @param sensitivity   Text ("low", "medium", "high", "extreme") or Number (e.g. 2.5).
+#'                      Automatically defines the best parameters for optimal precision.
+#'                      (Overrides manual adjustment of tolerance).
+#' @param tolerance     Manual Fine-Tuning. If provided, overrides `sensitivity`
+#'                      and directly controls the merging threshold for connected components.
+#' @param ext           Pixel neighborhood radius (default = 1). Specifies the extension radius
+#'                      used during the regional maxima calculation and watershed flooding.
+#'
+#' @return A grayscale `Image` object containing the labels.
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
-#' library(pliman)
-#' img <- image_pliman("soybean_touch.jpg")
-#' binary <- image_binary(img, "B")[[1]]
-#' wts <- watershed2(binary)
-#' range(wts)
+#' \dontrun{
+#'   library(pliman)
+#'   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
+#'   w_med <- image_watershed(bin$B)
 #' }
+image_watershed <- function(img, sensitivity = "medium", tolerance = NULL, ext = 1) {
+  if (!requireNamespace("cli", quietly = TRUE))
+    stop("{cli} package is required.")
 
-watershed2 <- function(binary,
-                       dist_thresh = 0.75,
-                       plot = TRUE){
-  check_ebi()
-  dt <- help_dist_transform(1 - binary)
-  sure_fg <- dt > dist_thresh * max(dt)
-  markers <- EBImage::bwlabel(sure_fg)
-  wts <- EBImage::Image(help_watershed(binary, markers, dt))
-  if(isTRUE(plot)){
-    plot(EBImage::colorLabels(wts))
+  if (!inherits(img, "Image") && !is.matrix(img) && !is.array(img))
+    cli::cli_abort(c("{.arg img} must be an {.cls Image} object, a matrix or an array."))
+
+  if (storage.mode(img) != "logical")
+    cli::cli_abort("Image must be binarized and have storage.mode 'logical'.")
+
+  if (isS4(img) && .hasSlot(img, ".Data")) {
+    mat <- img@.Data
+  } else {
+    mat <- as.array(img)
   }
-  invisible(wts)
+
+  if (length(dim(mat)) == 3L) {
+    d2 <- mat[, , 1L]
+    for (k in seq_len(dim(mat)[3L])[-1L]) d2 <- d2 | mat[, , k]
+    mat <- d2
+  }
+
+  # Intelligent Mapping
+  if (is.null(tolerance)) {
+    if (is.character(sensitivity)) {
+      sens_str <- tolower(trimws(sensitivity[1]))
+      lvl <- switch(sens_str,
+                    "low"     = 1.0,
+                    "medium"  = 2.0,
+                    "high"    = 3.0,
+                    "extreme" = 4.0,
+                    cli::cli_abort("Invalid sensitivity '{sens_str}'. Use: 'low', 'medium', 'high', 'extreme'."))
+    } else if (is.numeric(sensitivity)) {
+      lvl <- as.double(sensitivity[1])
+    } else {
+      cli::cli_abort("Sensitivity must be text or numeric.")
+    }
+
+    # The higher lvl (more aggressive to separate), the lower the tolerance
+    # Scale proportionally to the image size (reference: max dimension 612px)
+    scale_factor <- max(dim(mat)) / 1280
+    tolerancia <- (3.5 * exp(-1.0 * (lvl - 1.0))) * scale_factor
+  } else {
+    tolerancia <- as.double(tolerance)
+  }
+
+  res <- watershed_cpp(mat, tolerance = tolerancia, ext = as.integer(ext))
+
+  return(EBImage::Image(res, colormode = "Grayscale"))
 }
 
+#' Label connected components in a binary image
+#'
+#' This function performs Connected Component Labeling (CCL) on a binary image.
+#' It implements a highly optimized 2-pass Union-Find algorithm, providing
+#' lightning-fast execution even for massive images. It serves as an optimized
+#' drop-in replacement for [EBImage::bwlabel()].
+#'
+#' @param binary A binary `Image` object or a logical matrix/array.
+#'
+#' @return A grayscale `Image` object containing the labels, where each isolated
+#' object is assigned a unique integer value. Background pixels are 0.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#'   library(pliman)
+#'   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
+#'   labels <- image_bwlabel(bin$B)
+#' }
+image_bwlabel <- function(binary) {
+  if (storage.mode(binary) != "logical") {
+    cli::cli_abort("The input must be a logical matrix or binary Image.")
+  }
+
+  res <- bwlabel_cpp(binary)
+
+  return(EBImage::Image(res, colormode = "Grayscale"))
+}
+
+#' Colorize Labeled Images
+#'
+#' Colorizes a labeled image by allocating a different color to each object.
+#' Background pixels (value 0) are colorized with black.
+#'
+#' @param labels A labeled image (an `Image` object or a matrix containing integer labels).
+#'
+#' @return A color `Image` object.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#'   library(pliman)
+#'   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
+#'   lbl <- image_bwlabel(bin$B)
+#'   color_lbl <- image_color_labels(lbl)
+#'   plot(color_lbl)
+#' }
+image_color_labels <- function(labels) {
+  if (inherits(labels, "Image")) {
+    mat <- labels@.Data
+  } else {
+    mat <- labels
+  }
+
+  res <- color_labels_cpp(mat)
+  return(EBImage::Image(res, colormode = "Color"))
+}
 
 #' Distance map transform
 #'
@@ -56,7 +158,16 @@ watershed2 <- function(binary,
 #'}
 
 dist_transform <- function(binary){
-  help_dist_transform(1 - binary)
+  if (storage.mode(binary) != "logical") {
+    cli::cli_abort("The input must be a logical matrix or binary Image.")
+  }
+
+  res <- help_dist_transform(binary)
+
+  if (inherits(binary, "Image")) {
+    return(EBImage::Image(res, colormode = "Grayscale"))
+  }
+  return(res)
 }
 
 
@@ -137,7 +248,7 @@ object_label <- function(img,
                                         tolerance = tol,
                                         ext = ext)
     } else{
-      labels[[i]] <- EBImage::bwlabel(tmp)
+      labels[[i]] <- image_bwlabel(tmp)
     }
   }
   if(plot == TRUE){
@@ -156,7 +267,7 @@ object_label <- function(img,
     on.exit(par(op))
     index <- names(labels)
     for(i in 1:length(labels)){
-      plot( EBImage::colorLabels(labels[[i]]))
+      plot(image_color_labels(labels[[i]]))
       if(verbose == TRUE){
         dim <- image_dimension(labels[[i]], verbose = FALSE)
         text(0, dim[[2]]*0.075, index[[i]], pos = 4, col = "red")

@@ -1305,395 +1305,6 @@ image_trim <- function(img,
   }
 }
 
-#' @name utils_transform
-#' @export
-image_dilate <- function(img,
-                         kern = NULL,
-                         size = NULL,
-                         shape = "disc",
-                         parallel = FALSE,
-                         workers = NULL,
-                         verbose = TRUE,
-                         plot = FALSE) {
-  check_ebi()
-
-  if (is.list(img)) {
-    if (inherits(img, c("binary_list", "segment_list", "index_list",
-                        "img_mat_list", "palette_list"))) {
-      img <- lapply(img, function(x) x[[1]])
-    }
-
-    if (!all(sapply(img, inherits, "Image"))) {
-      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
-    }
-
-    # função auxiliar para cada imagem
-    dilate_image <- function(im) {
-      if (is.null(kern)) {
-        d <- dim(im)
-        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-        s <- ifelse(s == 0, 2, s)
-        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
-      } else {
-        k <- kern
-      }
-      EBImage::dilate(im, k)
-    }
-
-    # modo paralelo
-    if (parallel) {
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
-      mirai::daemons(nworkers)
-      on.exit(mirai::daemons(0), add = TRUE)
-
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Dilating {length(img)} images"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images in parallel...",
-          msg_done   = "Dilation complete.",
-          msg_failed = "Parallel dilation failed."
-        )
-      }
-
-      res <- mirai::mirai_map(
-        .x = img,
-        .f = dilate_image
-      )[.progress]
-
-    } else {
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Dilating {length(img)} images sequentially"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images...",
-          msg_done   = "Dilation complete.",
-          msg_failed = "Sequential dilation failed."
-        )
-      }
-
-      res <- lapply(img, dilate_image)
-    }
-
-    if (isTRUE(plot)) {
-      for (r in res) plot(r)
-    }
-
-    invisible(res)
-
-  } else {
-    if (is.null(kern)) {
-      d <- dim(img)
-      s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-      s <- ifelse(s == 0, 2, s)
-      kern <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
-    }
-    img <- EBImage::dilate(img, kern)
-
-    if (isTRUE(plot)) {
-      plot(img)
-    }
-
-    invisible(img)
-  }
-}
-
-#' @name utils_transform
-#' @export
-image_erode <- function(img,
-                        kern = NULL,
-                        size = NULL,
-                        shape = "disc",
-                        parallel = FALSE,
-                        workers = NULL,
-                        verbose = TRUE,
-                        plot = FALSE) {
-  check_ebi()
-
-  if (is.list(img)) {
-    if (inherits(img, c("binary_list", "segment_list", "index_list",
-                        "img_mat_list", "palette_list"))) {
-      img <- lapply(img, function(x) x[[1]])
-    }
-
-    if (!all(sapply(img, inherits, "Image"))) {
-      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
-    }
-
-    # função auxiliar para cada imagem
-    erode_image <- function(im) {
-      if (is.null(kern)) {
-        d <- dim(im)
-        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-        s <- ifelse(s == 0, 2, s)
-        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
-      } else {
-        k <- kern
-      }
-      EBImage::erode(im, k)
-    }
-
-    # modo paralelo
-    if (parallel) {
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
-
-      mirai::daemons(nworkers)
-      on.exit(mirai::daemons(0), add = TRUE)
-
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Eroding {length(img)} images"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images in parallel...",
-          msg_done   = "Erosion complete.",
-          msg_failed = "Parallel erosion failed."
-        )
-      }
-
-      res <- mirai::mirai_map(
-        .x = img,
-        .f = erode_image
-      )[.progress]
-
-    } else {
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Eroding {length(img)} images sequentially"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images...",
-          msg_done   = "Erosion complete.",
-          msg_failed = "Sequential erosion failed."
-        )
-      }
-
-      res <- lapply(img, erode_image)
-    }
-
-    if (isTRUE(plot)) {
-      for (r in res) plot(r)
-    }
-
-    invisible(res)
-
-  } else {
-    if (is.null(kern)) {
-      d <- dim(img)
-      size <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-      size <- ifelse(size == 0, 2, size)
-      kern <- suppressWarnings(EBImage::makeBrush(size, shape = shape))
-    }
-
-    img <- EBImage::erode(img, kern)
-
-    if (isTRUE(plot)) {
-      plot(img)
-    }
-
-    invisible(img)
-  }
-}
-
-#' @name utils_transform
-#' @export
-image_opening <- function(img,
-                          kern = NULL,
-                          size = NULL,
-                          shape = "disc",
-                          parallel = FALSE,
-                          workers = NULL,
-                          verbose = TRUE,
-                          plot = FALSE) {
-  check_ebi()
-
-  if (is.list(img)) {
-    if (inherits(img, c("binary_list", "segment_list", "index_list",
-                        "img_mat_list", "palette_list"))) {
-      img <- lapply(img, function(x) x[[1]])
-    }
-
-    if (!all(sapply(img, inherits, "Image"))) {
-      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
-    }
-
-    # função auxiliar para aplicar abertura
-    opening_image <- function(im) {
-      if (is.null(kern)) {
-        d <- dim(im)
-        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-        s <- ifelse(s == 0, 2, s)
-        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
-      } else {
-        k <- kern
-      }
-      EBImage::opening(im, k)
-    }
-
-    if (parallel) {
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
-      mirai::daemons(nworkers)
-      on.exit(mirai::daemons(0), add = TRUE)
-
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Opening {length(img)} images"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images in parallel...",
-          msg_done   = "Opening complete.",
-          msg_failed = "Parallel opening failed."
-        )
-      }
-
-      res <- mirai::mirai_map(
-        .x = img,
-        .f = opening_image
-      )[.progress]
-
-    } else {
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Opening {length(img)} images sequentially"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images...",
-          msg_done   = "Opening complete.",
-          msg_failed = "Sequential opening failed."
-        )
-      }
-
-      res <- lapply(img, opening_image)
-    }
-
-    if (isTRUE(plot)) {
-      for (r in res) plot(r)
-    }
-
-    invisible(res)
-
-  } else {
-    if (is.null(kern)) {
-      d <- dim(img)
-      size <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-      size <- ifelse(size == 0, 2, size)
-      kern <- suppressWarnings(EBImage::makeBrush(size, shape = shape))
-    }
-    img <- EBImage::opening(img, kern)
-
-    if (isTRUE(plot)) {
-      plot(img)
-    }
-
-    invisible(img)
-  }
-}
-
-#' @name utils_transform
-#' @export
-image_closing <- function(img,
-                          kern = NULL,
-                          size = NULL,
-                          shape = "disc",
-                          parallel = FALSE,
-                          workers = NULL,
-                          verbose = TRUE,
-                          plot = FALSE) {
-  check_ebi()
-
-  if (is.list(img)) {
-    if (inherits(img, c("binary_list", "segment_list", "index_list",
-                        "img_mat_list", "palette_list"))) {
-      img <- lapply(img, function(x) x[[1]])
-    }
-
-    if (!all(sapply(img, inherits, "Image"))) {
-      cli::cli_abort("All elements in the list must be of class {.cls Image}.")
-    }
-
-    # função auxiliar para aplicar fechamento
-    closing_image <- function(im) {
-      if (is.null(kern)) {
-        d <- dim(im)
-        s <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-        s <- ifelse(s == 0, 2, s)
-        k <- suppressWarnings(EBImage::makeBrush(s, shape = shape))
-      } else {
-        k <- kern
-      }
-      EBImage::closing(im, k)
-    }
-
-    # modo paralelo
-    if (parallel) {
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
-      mirai::daemons(nworkers)
-      on.exit(mirai::daemons(0), add = TRUE)
-
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Closing {length(img)} images"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images in parallel...",
-          msg_done   = "Closing complete.",
-          msg_failed = "Parallel closing failed."
-        )
-      }
-
-      res <- mirai::mirai_map(
-        .x = img,
-        .f = closing_image
-      )[.progress]
-
-    } else {
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Closing {length(img)} images sequentially"),
-          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg        = "Processing images...",
-          msg_done   = "Closing complete.",
-          msg_failed = "Sequential closing failed."
-        )
-      }
-
-      res <- lapply(img, closing_image)
-    }
-
-    if (isTRUE(plot)) {
-      for (r in res) plot(r)
-    }
-
-    invisible(res)
-
-  } else {
-    if (is.null(kern)) {
-      d <- dim(img)
-      size <- ifelse(is.null(size), round(d[[1]] * d[[2]] / 1e06 * 5, 0), size)
-      size <- ifelse(size == 0, 2, size)
-      kern <- suppressWarnings(EBImage::makeBrush(size, shape = shape))
-    }
-
-    img <- EBImage::closing(img, kern)
-
-    if (isTRUE(plot)) {
-      plot(img)
-    }
-
-    invisible(img)
-  }
-}
 
 #' @name utils_transform
 #' @export
@@ -2043,10 +1654,38 @@ image_filter <- function(img,
                          workers = NULL,
                          verbose = TRUE,
                          plot = FALSE) {
-  check_ebi()
 
-  if (size < 2) {
-    cli::cli_abort("Using {.arg size} < 2 may crash the R session. Use 2 or more.")
+  size <- as.integer(size)
+  if (size < 1L) {
+    cli::cli_abort("Using {.arg size} < 1 may crash. Use 1 or more.")
+  }
+
+  filter_fun <- function(im) {
+    if (inherits(im, "Image")) {
+      arr <- im@.Data
+    } else {
+      arr <- as.array(im)
+    }
+
+    dm  <- dim(arr)
+    nr  <- dm[1L]
+    nc  <- dm[2L]
+    nch <- if (length(dm) == 3L) dm[3L] else 1L
+
+    # Garante array 3D para o C++
+    if (length(dm) == 2L) dim(arr) <- c(nr, nc, 1L)
+
+    if (storage.mode(arr) == "logical") {
+      res <- median_filter_binary_cpp(arr, nr, nc, nch, size)
+    } else {
+      res <- median_filter_cpp(arr, nr, nc, nch, size)
+    }
+    dim(res) <- dm
+
+    if (inherits(im, "Image")) {
+      return(EBImage::Image(res, colormode = im@colormode))
+    }
+    res
   }
 
   if (is.list(img)) {
@@ -2059,13 +1698,13 @@ image_filter <- function(img,
       cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
 
-    filter_fun <- function(im) {
-      EBImage::medianFilter(im, size, cache)
+    if (verbose) {
+      cli::cli_rule(
+        left  = cli::col_blue("Median filtering {.val {length(img)}} images"),
+        right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
+      )
     }
-    cli::cli_rule(
-      left  = cli::col_blue("Median filtering {.val {length(img)}} images"),
-      right = cli::col_blue("Started at {.val {format(Sys.time(), '%H:%M:%OS0')}}")
-    )
+
     if (parallel) {
       nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
       mirai::daemons(nworkers)
@@ -2103,11 +1742,11 @@ image_filter <- function(img,
     return(invisible(res))
 
   } else {
-    img <- EBImage::medianFilter(img, size, cache)
+    res <- filter_fun(img)
     if (isTRUE(plot)) {
-      plot(img)
+      plot(res)
     }
-    invisible(img)
+    invisible(res)
   }
 }
 

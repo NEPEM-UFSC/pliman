@@ -11,6 +11,17 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// bwlabel_cpp
+IntegerMatrix bwlabel_cpp(SEXP img_sexp);
+RcppExport SEXP _pliman_bwlabel_cpp(SEXP img_sexpSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img_sexp(img_sexpSEXP);
+    rcpp_result_gen = Rcpp::wrap(bwlabel_cpp(img_sexp));
+    return rcpp_result_gen;
+END_RCPP
+}
 // threshold_adaptive
 Rcpp::NumericMatrix threshold_adaptive(Rcpp::NumericMatrix mat, double k, int windowsize, double maxsd);
 RcppExport SEXP _pliman_threshold_adaptive(SEXP matSEXP, SEXP kSEXP, SEXP windowsizeSEXP, SEXP maxsdSEXP) {
@@ -68,30 +79,6 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< NumericMatrix >::type img(imgSEXP);
     rcpp_result_gen = Rcpp::wrap(help_edge_thinning(img));
-    return rcpp_result_gen;
-END_RCPP
-}
-// help_dist_transform
-NumericMatrix help_dist_transform(const LogicalMatrix& bin);
-RcppExport SEXP _pliman_help_dist_transform(SEXP binSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const LogicalMatrix& >::type bin(binSEXP);
-    rcpp_result_gen = Rcpp::wrap(help_dist_transform(bin));
-    return rcpp_result_gen;
-END_RCPP
-}
-// help_watershed
-IntegerMatrix help_watershed(IntegerMatrix binary, IntegerMatrix labels, IntegerMatrix distances);
-RcppExport SEXP _pliman_help_watershed(SEXP binarySEXP, SEXP labelsSEXP, SEXP distancesSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< IntegerMatrix >::type binary(binarySEXP);
-    Rcpp::traits::input_parameter< IntegerMatrix >::type labels(labelsSEXP);
-    Rcpp::traits::input_parameter< IntegerMatrix >::type distances(distancesSEXP);
-    rcpp_result_gen = Rcpp::wrap(help_watershed(binary, labels, distances));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -540,6 +527,39 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// poly_measures_cpp
+DataFrame poly_measures_cpp(List contours);
+RcppExport SEXP _pliman_poly_measures_cpp(SEXP contoursSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type contours(contoursSEXP);
+    rcpp_result_gen = Rcpp::wrap(poly_measures_cpp(contours));
+    return rcpp_result_gen;
+END_RCPP
+}
+// poly_measures_minimal_cpp
+DataFrame poly_measures_minimal_cpp(List contours);
+RcppExport SEXP _pliman_poly_measures_minimal_cpp(SEXP contoursSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type contours(contoursSEXP);
+    rcpp_result_gen = Rcpp::wrap(poly_measures_minimal_cpp(contours));
+    return rcpp_result_gen;
+END_RCPP
+}
+// poly_measures_disease_cpp
+DataFrame poly_measures_disease_cpp(List contours);
+RcppExport SEXP _pliman_poly_measures_disease_cpp(SEXP contoursSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type contours(contoursSEXP);
+    rcpp_result_gen = Rcpp::wrap(poly_measures_disease_cpp(contours));
+    return rcpp_result_gen;
+END_RCPP
+}
 // polygon_to_binary
 LogicalMatrix polygon_to_binary(NumericMatrix polygon);
 RcppExport SEXP _pliman_polygon_to_binary(SEXP polygonSEXP) {
@@ -597,6 +617,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// color_labels_cpp
+NumericVector color_labels_cpp(SEXP labels_sexp);
+RcppExport SEXP _pliman_color_labels_cpp(SEXP labels_sexpSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type labels_sexp(labels_sexpSEXP);
+    rcpp_result_gen = Rcpp::wrap(color_labels_cpp(labels_sexp));
+    return rcpp_result_gen;
+END_RCPP
+}
 // detect_line_segments
 List detect_line_segments(NumericVector image, int X, int Y, double scale, double sigma_scale, double quant, double ang_th, double log_eps, double density_th, int n_bins, int need_to_union, double union_ang_th, int union_use_NFA, double union_log_eps, double length_threshold, double dist_threshold);
 RcppExport SEXP _pliman_detect_line_segments(SEXP imageSEXP, SEXP XSEXP, SEXP YSEXP, SEXP scaleSEXP, SEXP sigma_scaleSEXP, SEXP quantSEXP, SEXP ang_thSEXP, SEXP log_epsSEXP, SEXP density_thSEXP, SEXP n_binsSEXP, SEXP need_to_unionSEXP, SEXP union_ang_thSEXP, SEXP union_use_NFASEXP, SEXP union_log_epsSEXP, SEXP length_thresholdSEXP, SEXP dist_thresholdSEXP) {
@@ -623,17 +654,108 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// utils_contours
-List utils_contours(NumericVector image, int X, int Y, double Q);
-RcppExport SEXP _pliman_utils_contours(SEXP imageSEXP, SEXP XSEXP, SEXP YSEXP, SEXP QSEXP) {
+// median_filter_cpp
+NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol, int nch, int radius);
+RcppExport SEXP _pliman_median_filter_cpp(SEXP imgSEXP, SEXP nrowSEXP, SEXP ncolSEXP, SEXP nchSEXP, SEXP radiusSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericVector >::type image(imageSEXP);
-    Rcpp::traits::input_parameter< int >::type X(XSEXP);
-    Rcpp::traits::input_parameter< int >::type Y(YSEXP);
-    Rcpp::traits::input_parameter< double >::type Q(QSEXP);
-    rcpp_result_gen = Rcpp::wrap(utils_contours(image, X, Y, Q));
+    Rcpp::traits::input_parameter< NumericVector >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< int >::type nrow(nrowSEXP);
+    Rcpp::traits::input_parameter< int >::type ncol(ncolSEXP);
+    Rcpp::traits::input_parameter< int >::type nch(nchSEXP);
+    Rcpp::traits::input_parameter< int >::type radius(radiusSEXP);
+    rcpp_result_gen = Rcpp::wrap(median_filter_cpp(img, nrow, ncol, nch, radius));
+    return rcpp_result_gen;
+END_RCPP
+}
+// median_filter_binary_cpp
+LogicalVector median_filter_binary_cpp(SEXP img_sexp, int nrow, int ncol, int nch, int radius);
+RcppExport SEXP _pliman_median_filter_binary_cpp(SEXP img_sexpSEXP, SEXP nrowSEXP, SEXP ncolSEXP, SEXP nchSEXP, SEXP radiusSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img_sexp(img_sexpSEXP);
+    Rcpp::traits::input_parameter< int >::type nrow(nrowSEXP);
+    Rcpp::traits::input_parameter< int >::type ncol(ncolSEXP);
+    Rcpp::traits::input_parameter< int >::type nch(nchSEXP);
+    Rcpp::traits::input_parameter< int >::type radius(radiusSEXP);
+    rcpp_result_gen = Rcpp::wrap(median_filter_binary_cpp(img_sexp, nrow, ncol, nch, radius));
+    return rcpp_result_gen;
+END_RCPP
+}
+// erode_external_cpp
+LogicalMatrix erode_external_cpp(LogicalMatrix img, int raio, std::string forma);
+RcppExport SEXP _pliman_erode_external_cpp(SEXP imgSEXP, SEXP raioSEXP, SEXP formaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< LogicalMatrix >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< int >::type raio(raioSEXP);
+    Rcpp::traits::input_parameter< std::string >::type forma(formaSEXP);
+    rcpp_result_gen = Rcpp::wrap(erode_external_cpp(img, raio, forma));
+    return rcpp_result_gen;
+END_RCPP
+}
+// erode_cpp
+LogicalMatrix erode_cpp(LogicalMatrix img, int raio, std::string forma);
+RcppExport SEXP _pliman_erode_cpp(SEXP imgSEXP, SEXP raioSEXP, SEXP formaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< LogicalMatrix >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< int >::type raio(raioSEXP);
+    Rcpp::traits::input_parameter< std::string >::type forma(formaSEXP);
+    rcpp_result_gen = Rcpp::wrap(erode_cpp(img, raio, forma));
+    return rcpp_result_gen;
+END_RCPP
+}
+// dilate_cpp
+LogicalMatrix dilate_cpp(LogicalMatrix img, int raio, std::string forma);
+RcppExport SEXP _pliman_dilate_cpp(SEXP imgSEXP, SEXP raioSEXP, SEXP formaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< LogicalMatrix >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< int >::type raio(raioSEXP);
+    Rcpp::traits::input_parameter< std::string >::type forma(formaSEXP);
+    rcpp_result_gen = Rcpp::wrap(dilate_cpp(img, raio, forma));
+    return rcpp_result_gen;
+END_RCPP
+}
+// fill_holes_cpp
+LogicalMatrix fill_holes_cpp(LogicalMatrix img);
+RcppExport SEXP _pliman_fill_holes_cpp(SEXP imgSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< LogicalMatrix >::type img(imgSEXP);
+    rcpp_result_gen = Rcpp::wrap(fill_holes_cpp(img));
+    return rcpp_result_gen;
+END_RCPP
+}
+// erosao_conservativa
+LogicalMatrix erosao_conservativa(LogicalMatrix img, int raio_erosao, int raio_dilatacao, std::string forma);
+RcppExport SEXP _pliman_erosao_conservativa(SEXP imgSEXP, SEXP raio_erosaoSEXP, SEXP raio_dilatacaoSEXP, SEXP formaSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< LogicalMatrix >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< int >::type raio_erosao(raio_erosaoSEXP);
+    Rcpp::traits::input_parameter< int >::type raio_dilatacao(raio_dilatacaoSEXP);
+    Rcpp::traits::input_parameter< std::string >::type forma(formaSEXP);
+    rcpp_result_gen = Rcpp::wrap(erosao_conservativa(img, raio_erosao, raio_dilatacao, forma));
+    return rcpp_result_gen;
+END_RCPP
+}
+// extract_contours_cpp
+List extract_contours_cpp(IntegerMatrix labels);
+RcppExport SEXP _pliman_extract_contours_cpp(SEXP labelsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerMatrix >::type labels(labelsSEXP);
+    rcpp_result_gen = Rcpp::wrap(extract_contours_cpp(labels));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -654,15 +776,38 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// watershed_cpp
+IntegerMatrix watershed_cpp(LogicalMatrix img_r, double tolerance, int ext);
+RcppExport SEXP _pliman_watershed_cpp(SEXP img_rSEXP, SEXP toleranceSEXP, SEXP extSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< LogicalMatrix >::type img_r(img_rSEXP);
+    Rcpp::traits::input_parameter< double >::type tolerance(toleranceSEXP);
+    Rcpp::traits::input_parameter< int >::type ext(extSEXP);
+    rcpp_result_gen = Rcpp::wrap(watershed_cpp(img_r, tolerance, ext));
+    return rcpp_result_gen;
+END_RCPP
+}
+// help_dist_transform
+NumericMatrix help_dist_transform(LogicalMatrix bin);
+RcppExport SEXP _pliman_help_dist_transform(SEXP binSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< LogicalMatrix >::type bin(binSEXP);
+    rcpp_result_gen = Rcpp::wrap(help_dist_transform(bin));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_pliman_bwlabel_cpp", (DL_FUNC) &_pliman_bwlabel_cpp, 1},
     {"_pliman_threshold_adaptive", (DL_FUNC) &_pliman_threshold_adaptive, 4},
     {"_pliman_sobel_help", (DL_FUNC) &_pliman_sobel_help, 1},
     {"_pliman_rgb_to_hsb_help", (DL_FUNC) &_pliman_rgb_to_hsb_help, 3},
     {"_pliman_rgb_to_srgb_help", (DL_FUNC) &_pliman_rgb_to_srgb_help, 1},
     {"_pliman_help_edge_thinning", (DL_FUNC) &_pliman_help_edge_thinning, 1},
-    {"_pliman_help_dist_transform", (DL_FUNC) &_pliman_help_dist_transform, 1},
-    {"_pliman_help_watershed", (DL_FUNC) &_pliman_help_watershed, 3},
     {"_pliman_help_get_rgb", (DL_FUNC) &_pliman_help_get_rgb, 4},
     {"_pliman_help_get_renir", (DL_FUNC) &_pliman_help_get_renir, 3},
     {"_pliman_bounding_box", (DL_FUNC) &_pliman_bounding_box, 2},
@@ -699,14 +844,27 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_help_limits", (DL_FUNC) &_pliman_help_limits, 1},
     {"_pliman_help_moments", (DL_FUNC) &_pliman_help_moments, 1},
     {"_pliman_get_area_mask", (DL_FUNC) &_pliman_get_area_mask, 1},
+    {"_pliman_poly_measures_cpp", (DL_FUNC) &_pliman_poly_measures_cpp, 1},
+    {"_pliman_poly_measures_minimal_cpp", (DL_FUNC) &_pliman_poly_measures_minimal_cpp, 1},
+    {"_pliman_poly_measures_disease_cpp", (DL_FUNC) &_pliman_poly_measures_disease_cpp, 1},
     {"_pliman_polygon_to_binary", (DL_FUNC) &_pliman_polygon_to_binary, 1},
     {"_pliman_sum_true_cols", (DL_FUNC) &_pliman_sum_true_cols, 1},
     {"_pliman_help_poly_angles", (DL_FUNC) &_pliman_help_poly_angles, 1},
     {"_pliman_help_smoth", (DL_FUNC) &_pliman_help_smoth, 2},
     {"_pliman_smoothContours", (DL_FUNC) &_pliman_smoothContours, 2},
+    {"_pliman_color_labels_cpp", (DL_FUNC) &_pliman_color_labels_cpp, 1},
     {"_pliman_detect_line_segments", (DL_FUNC) &_pliman_detect_line_segments, 16},
-    {"_pliman_utils_contours", (DL_FUNC) &_pliman_utils_contours, 4},
+    {"_pliman_median_filter_cpp", (DL_FUNC) &_pliman_median_filter_cpp, 5},
+    {"_pliman_median_filter_binary_cpp", (DL_FUNC) &_pliman_median_filter_binary_cpp, 5},
+    {"_pliman_erode_external_cpp", (DL_FUNC) &_pliman_erode_external_cpp, 3},
+    {"_pliman_erode_cpp", (DL_FUNC) &_pliman_erode_cpp, 3},
+    {"_pliman_dilate_cpp", (DL_FUNC) &_pliman_dilate_cpp, 3},
+    {"_pliman_fill_holes_cpp", (DL_FUNC) &_pliman_fill_holes_cpp, 1},
+    {"_pliman_erosao_conservativa", (DL_FUNC) &_pliman_erosao_conservativa, 4},
+    {"_pliman_extract_contours_cpp", (DL_FUNC) &_pliman_extract_contours_cpp, 1},
     {"_pliman_canny_edge_detector", (DL_FUNC) &_pliman_canny_edge_detector, 7},
+    {"_pliman_watershed_cpp", (DL_FUNC) &_pliman_watershed_cpp, 3},
+    {"_pliman_help_dist_transform", (DL_FUNC) &_pliman_help_dist_transform, 1},
     {NULL, NULL, 0}
 };
 

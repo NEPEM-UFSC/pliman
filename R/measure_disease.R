@@ -408,14 +408,14 @@ measure_disease <- function(img,
                 im2@.Data[,,3][!ID] <- col_lesions[3]
               }
               if(backg){
-                im3 <- EBImage::colorLabels(nmask)
+                im3 <- image_color_labels(nmask)
                 im2@.Data[,,1][which(im3@.Data[,,1]==0)] <- img@.Data[,,1][which(im3@.Data[,,1]==0)]
                 im2@.Data[,,2][which(im3@.Data[,,2]==0)] <- img@.Data[,,2][which(im3@.Data[,,2]==0)]
                 im2@.Data[,,3][which(im3@.Data[,,3]==0)] <- img@.Data[,,3][which(im3@.Data[,,3]==0)]
               }
             }
             if(show_original == TRUE & show_segmentation == TRUE){
-              im2 <- EBImage::colorLabels(nmask)
+              im2 <- image_color_labels(nmask)
               if(backg){
                 im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- col_background[1]
                 im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- col_background[2]
@@ -428,7 +428,7 @@ measure_disease <- function(img,
             }
             if(show_original == FALSE){
               if(show_segmentation == TRUE){
-                im2 <- EBImage::colorLabels(nmask)
+                im2 <- image_color_labels(nmask)
                 im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- col_leaf[1]
                 im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- col_leaf[2]
                 im2@.Data[,,3][which(im2@.Data[,,3]==0)] <- col_leaf[3]
@@ -530,7 +530,7 @@ measure_disease <- function(img,
                                              ext = ext))
           if(plot == TRUE | save_image == TRUE){
             if(show_original == TRUE & show_segmentation == TRUE){
-              im2 <- EBImage::colorLabels(nmask)
+              im2 <- image_color_labels(nmask)
               if(backg){
                 im2@.Data[,,1][!ID] <- col_background[1]
                 im2@.Data[,,2][!ID] <- col_background[2]
@@ -559,7 +559,7 @@ measure_disease <- function(img,
             }
             if(show_original == FALSE){
               if(show_segmentation == TRUE){
-                im2 <- EBImage::colorLabels(nmask)
+                im2 <- image_color_labels(nmask)
                 im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- col_background[1]
                 im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- col_background[2]
                 im2@.Data[,,3][which(im2@.Data[,,3]==0)] <- col_background[3]
@@ -678,7 +678,7 @@ measure_disease <- function(img,
             }
           }
           if(show_original == TRUE & show_segmentation == TRUE){
-            im2 <- EBImage::colorLabels(nmask)
+            im2 <- image_color_labels(nmask)
             if(!is.null(index_lb)){
               im2@.Data[,,1][which(img[,,1]==1)] <- col_background[1]
               im2@.Data[,,2][which(img[,,2]==1)] <- col_background[2]
@@ -690,7 +690,7 @@ measure_disease <- function(img,
           }
           if(show_original == FALSE){
             if(show_segmentation == TRUE){
-              im2 <- EBImage::colorLabels(nmask)
+              im2 <- image_color_labels(nmask)
               im2@.Data[,,1][ID2] <- col_leaf[1]
               im2@.Data[,,2][ID2] <- col_leaf[2]
               im2@.Data[,,3][ID2] <- col_leaf[3]
