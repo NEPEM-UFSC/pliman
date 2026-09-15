@@ -23,7 +23,6 @@ Depends:
 Imports: 
     cli,
     dplyr,
-    exactextractr,
     methods,
     mirai,
     purrr,
@@ -33,7 +32,6 @@ Imports:
 Suggests: 
     BiocManager,
     curl,
-    EBImage,
     fields,
     knitr,
     leafem (>= 0.2.0),
@@ -43,7 +41,9 @@ Suggests:
     pak,
     rmarkdown,
     rstudioapi,
-    tidyr
+    tidyr,
+    tiff,
+    webp
 LinkingTo: 
     Rcpp,
     RcppArmadillo
@@ -52,4 +52,4 @@ Encoding: UTF-8
 Language: en-US
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
+Config/roxygen2/version: 8.1.0
