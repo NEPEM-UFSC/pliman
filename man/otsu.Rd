@@ -18,9 +18,9 @@ value based on Otsu's method, which minimizes the combined intra-class
 variance
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 img <- image_pliman("soybean_touch.jpg")
-thresh <- otsu(img@.Data[,,3])
+thresh <- otsu(image_data(img[,,3]))
 plot(img[,,3] < thresh)
 }
 

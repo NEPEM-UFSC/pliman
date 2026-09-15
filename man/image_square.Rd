@@ -7,21 +7,21 @@
 image_square(img, plot = TRUE, ...)
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{plot}{Plots the extended image? defaults to \code{FALSE}.}
 
 \item{...}{Further arguments passed on to \code{\link[=image_expand]{image_expand()}}.}
 }
 \value{
-The modified \code{Image} object.
+The modified \code{image} object.
 }
 \description{
 Converts a rectangular image into a square image by expanding the
 rows/columns using \code{\link[=image_expand]{image_expand()}}.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 dim(img)

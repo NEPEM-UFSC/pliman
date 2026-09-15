@@ -101,12 +101,10 @@
 #'   - If `efourier = TRUE` is used, an Elliptical Fourier Analysis (Kuhl and
 #'  Giardina, 1982) is computed for each object contour using [efourier()].
 #'
-#'    - If `veins = TRUE` (experimental), vein features are computed. This will call
-#'  [object_edge()] and applies the Sobel-Feldman Operator to detect edges. The
-#'  result is the proportion of edges in relation to the entire area of the
-#'  object(s) in the image. Note that THIS WILL BE AN OPERATION ON AN IMAGE
-#'  LEVEL, NOT an OBJECT LEVEL! So, If vein features need to be computed for
-#'  leaves, it is strongly suggested to use one leaf per image.
+#'    - If `veins = TRUE`, vein features are computed for each object using
+#'  [object_veins()]. Veins are detected using Difference of Gaussians (DoG)
+#'  bandpass filtering, dynamic resolution-independent boundary erosion to eliminate
+#'  outer leaf contour artifacts, and per-object Otsu adaptive thresholding.
 #'
 #'     - If `ab_angles = TRUE` the apex and base angles of each object are
 #'  computed with [poly_apex_base_angle()]. By default, the function computes
@@ -201,13 +199,16 @@
 #'  If `FALSE`, all pixels for each connected set of foreground pixels are set
 #'  to a unique object. This is faster but is not able to segment touching
 #'  objects.
-#'@param veins Logical argument indicating whether vein features are computed.
-#'  This will call [object_edge()] and applies the Sobel-Feldman Operator to
-#'  detect edges. The result is the proportion of edges in relation to the
-#'  entire area of the object(s) in the image. Note that **THIS WILL BE AN
-#'  OPERATION ON AN IMAGE LEVEL, NOT OBJECT!**.
-#'@param sigma_veins Gaussian kernel standard deviation used in the gaussian
-#'  blur in the edge detection algorithm
+#'@param veins Logical argument indicating whether vein features are computed per object.
+#'  Defaults to `FALSE`. If `TRUE`, detects veins using Difference of Gaussians (DoG)
+#'  bandpass filtering and dynamic resolution-independent boundary erosion.
+#'@param sigma_veins Fine Gaussian scale parameter for vein detection (default `1`).
+#'  Coarse scale is automatically set to `sigma_veins * 5`.
+#'@param veins_thinning Logical value indicating whether Guo-Hall skeleton thinning should
+#'  be applied to detected veins (default `FALSE`). If `TRUE`, measures vein length
+#'  skeleton density instead of vein area fraction.
+#'@param veins_rel_erode Relative boundary erosion fraction of `min(width, height)` (default `0.01` = 1%).
+#'  Trims leaf boundary pixels to eliminate outer edge artifacts independently of image resolution.
 #' @param ab_angles  Logical argument indicating whether apex and base angles
 #'   should be computed. Defaults to `FALSE`. If `TRUE`, `poly_apex_base_angle()`
 #'   are called and the base and apex angles are computed considering the 25th
@@ -273,7 +274,9 @@
 #' @param pixel_level_index Return the indexes computed in `object_index` in the
 #'   pixel level? Defaults to `FALSE` to avoid returning large data.frames.
 #' @param return_mask Returns the mask for the analyzed image? Defaults to `FALSE`.
-#'@param efourier Logical argument indicating if Elliptical Fourier should be
+#' @param return_exact Logical. If `TRUE`, exact morphological reconstruction via watershed-partitioned seed matching is performed when `opening > 0`. This preserves 100% of exact original shapes and boundaries of surviving objects while removing attached noise.
+#' @param rel_size Relative size threshold as a fraction of the mean object area (e.g., `0.1` for 10% of mean object area). Setting `rel_size = 0.1` is equivalent to setting `lower_noise = 0.1`.
+#' @param efourier Logical argument indicating if Elliptical Fourier should be
 #'  computed for each object. This will call [efourier()] internally. It
 #'  `efourier = TRUE` is used, both standard and normalized Fourier coefficients
 #'  are returned.
@@ -283,7 +286,9 @@
 #'  intensity between its highest point (seed) and the point where it contacts
 #'  another object (checked for every contact pixel). If the height is smaller
 #'  than the tolerance, the object will be combined with one of its neighbors,
-#'  which is the highest.
+#'  which is the highest. Values < 1.0 are interpreted as relative tolerance
+#'  (percentage of the peak height). Values >= 1.0 are interpreted as absolute
+#'  tolerance in pixels (linear Euclidean distance).
 #'@param extension Radius of the neighborhood in pixels for the detection of
 #'  neighboring objects. Higher value smooths out small objects.
 #'@param lower_noise To prevent noise from affecting the image analysis, objects
@@ -329,12 +334,13 @@
 #'  image processing. Defaults to `NULL`, in which `"black"`, and `"white"` are
 #'  used, respectively.
 #'@param marker,marker_col,marker_size The type, color and size of the object
-#'  marker. Defaults to `NULL`, which plots the object id. Use `marker =
-#'  "point"` to show a point in each object or `marker = FALSE` to omit object
-#'  marker.
+#'  marker. Defaults to 'point', which plots a red point in each object. Use
+#'  `marker = FALSE` to omit object marker.
 #'@param save_image Save the image after processing? The image is saved in the
 #'  current working directory named as `proc_*` where `*` is the image name
 #'  given in `img`.
+#'@param max_pixels Maximum number of pixels to render when plotting or saving
+#'  the processed image. Defaults to `2e6`. Set to `NULL` for full rendering.
 #'@param prefix The prefix to be included in the processed images. Defaults to
 #'  `"proc_"`.
 #'@param dir_original,dir_processed The directory containing the original and
@@ -465,8 +471,8 @@
 #'     - `efourier_power`: The spectrum of harmonic Fourier power.
 #'        For more details see [efourier_power()].
 #'
-#'  * `veins`: If `veins = TRUE` is used, returns, for each image, the
-#'  proportion of veins (in fact the object edges) related to the total object(s)' area.
+#'  * `veins`: If `veins = TRUE` is used, returns a data.frame containing the `id` and
+#'  `prop_veins` (proportion of vein pixels per object area) for each object in the image.
 #'
 #'  * `analyze_objects_iter()` returns a data.frame containing the features
 #'  described in the `results` object of [analyze_objects()].
@@ -518,7 +524,7 @@
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' obj <- analyze_objects(img)
@@ -570,6 +576,8 @@ analyze_objects <- function(img,
                             watershed = TRUE,
                             veins = FALSE,
                             sigma_veins = 1,
+                            veins_thinning = FALSE,
+                            veins_rel_erode = 0.005,
                             ab_angles = FALSE,
                             ab_angles_percentiles = c(0.25, 0.75),
                             width_at = FALSE,
@@ -589,9 +597,11 @@ analyze_objects <- function(img,
                             opening = FALSE,
                             closing = FALSE,
                             filter = FALSE,
+                            return_exact = FALSE,
                             filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
                             invert = FALSE,
                             object_size = "medium",
+                            area_mode = c("contour", "pixel"),
                             index = "NB",
                             r = 1,
                             g = 2,
@@ -609,6 +619,7 @@ analyze_objects <- function(img,
                             tolerance = NULL,
                             extension = NULL,
                             lower_noise = 0.10,
+                            rel_size = NULL,
                             lower_size = NULL,
                             upper_size = NULL,
                             topn_lower = NULL,
@@ -622,7 +633,7 @@ analyze_objects <- function(img,
                             plot = TRUE,
                             show_original = TRUE,
                             show_chull = FALSE,
-                            show_contour = TRUE,
+                            show_contour = FALSE,
                             show_bbox = FALSE,
                             contour_col = "red",
                             contour_size = 1,
@@ -631,16 +642,20 @@ analyze_objects <- function(img,
                             show_segmentation = FALSE,
                             col_foreground = NULL,
                             col_background = NULL,
-                            marker = FALSE,
-                            marker_col = NULL,
+                            marker = "point",
+                            marker_col = "red",
                             marker_size = NULL,
                             save_image = FALSE,
+                            max_pixels = 2e6,
                             prefix = "proc_",
                             dir_original = NULL,
                             dir_processed = NULL,
                             verbose = TRUE){
-  check_ebi()
+
   check_filter_order(filter_order, verbose, erode, dilate, opening, closing, filter, fill_hull)
+  if (!is.null(rel_size)) {
+    lower_noise <- rel_size
+  }
   lower_noise <- ifelse(isTRUE(reference_larger), lower_noise * 3, lower_noise)
   if (!object_size %in% c("small", "medium", "large", "elarge")) {
     cli::cli_abort("Argument {.arg object_size} must be one of {.val small}, {.val medium}, {.val large}, or {.val elarge}.")
@@ -672,7 +687,7 @@ analyze_objects <- function(img,
              show_background, marker, marker_col, marker_size, save_image,
              prefix, dir_original, dir_processed, verbose, col_background,
              col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv,
-             object_index){
+             object_index, max_pixels = 4e6, return_exact = FALSE){
       if(is.character(img)){
         all_files <- sapply(list.files(diretorio_original), file_name)
         check_names_dir(img, all_files, diretorio_original)
@@ -704,7 +719,7 @@ analyze_objects <- function(img,
 
           if(interactive()){
             if(viewopt == "base"){
-              plot(img)
+              plot(img, max_pixels = max_pixels)
             }
             if(viewopt == "base"){
               cli::cli_alert_info("Use the first mouse button to pick up {.strong BACKGROUND} colors. Press ESC to exit.")
@@ -752,21 +767,20 @@ analyze_objects <- function(img,
             extens <- file_extension(imag)
             background <- image_import(paste(getwd(), "/", name, ".", extens, sep = ""))
           }
-          original <-
-            data.frame(CODE = "img",
-                       R = c(img@.Data[,,1]),
-                       G = c(img@.Data[,,2]),
-                       B = c(img@.Data[,,3]))
+          img_num <- image_data(img, type = "numeric")
+          fore_num <- image_data(foreground, type = "numeric")
+          back_num <- image_data(background, type = "numeric")
+
           foreground <-
             data.frame(CODE = "foreground",
-                       R = c(foreground@.Data[,,1]),
-                       G = c(foreground@.Data[,,2]),
-                       B = c(foreground@.Data[,,3]))
+                       R = c(fore_num[,,1]),
+                       G = c(fore_num[,,2]),
+                       B = c(fore_num[,,3]))
           background <-
             data.frame(CODE = "background",
-                       R = c(background@.Data[,,1]),
-                       G = c(background@.Data[,,2]),
-                       B = c(background@.Data[,,3]))
+                       R = c(back_num[,,1]),
+                       G = c(back_num[,,2]),
+                       B = c(back_num[,,3]))
           back_fore <-
             transform(rbind(foreground[sample(1:nrow(foreground)),][1:nrows,],
                             background[sample(1:nrow(background)),][1:nrows,]),
@@ -777,21 +791,20 @@ analyze_objects <- function(img,
           modelo1 <- suppressWarnings(glm(formula,
                                           family = binomial("logit"),
                                           data = back_fore))
-          pred1 <- round(predict(modelo1, newdata = original, type="response"), 0)
-          foreground_background <- matrix(pred1, ncol = dim(img)[[2]])
+          foreground_background <- predict_binary_glm(modelo1, img)
           for (op in filter_order) {
             if (op == "erode" && is.numeric(erode) && erode > 0) {
-              foreground_background <- image_erode(foreground_background, size = erode)
+              foreground_background <- image_erode(foreground_background, size = erode, verbose = FALSE)
             } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
-              foreground_background <- image_dilate(foreground_background, size = dilate)
+              foreground_background <- image_dilate(foreground_background, size = dilate, verbose = FALSE)
             } else if (op == "opening" && is.numeric(opening) && opening > 0) {
-              foreground_background <- image_opening(foreground_background, size = opening)
+              foreground_background <- image_opening(foreground_background, size = opening, verbose = FALSE)
             } else if (op == "closing" && is.numeric(closing) && closing > 0) {
-              foreground_background <- image_closing(foreground_background, size = closing)
+              foreground_background <- image_closing(foreground_background, size = closing, verbose = FALSE)
             } else if (op == "filter" && !isFALSE(filter) && filter > 1) {
-              foreground_background <- EBImage::medianFilter(foreground_background, size = filter)
+              foreground_background <- image_filter(foreground_background, size = filter, verbose = FALSE)
             } else if (op == "fill_hull" && isTRUE(fill_hull)) {
-              foreground_background <- EBImage::fillHull(foreground_background)
+              foreground_background <- image_fill_hull(foreground_background, verbose = FALSE)
             }
           }
 
@@ -799,19 +812,9 @@ analyze_objects <- function(img,
           ID <- c(foreground_background == 1)
           ID2 <- c(foreground_background == 0)
           if(isTRUE(watershed)){
-            parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-            res <- length(foreground_background)
-            parms2 <- parms[parms$object_size == object_size,]
-            rowid <-
-              which(sapply(as.character(parms2$resolution), function(x) {
-                eval(parse(text=x))}))
-            ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-            tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-            nmask <- EBImage::watershed(EBImage::distmap(foreground_background),
-                                        tolerance = tol,
-                                        ext = ext)
+            nmask <- image_watershed(foreground_background, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
           } else{
-            nmask <- EBImage::bwlabel(foreground_background)
+            nmask <- image_bwlabel(foreground_background)
           }
 
         } else{
@@ -834,33 +837,24 @@ analyze_objects <- function(img,
                                 closing = closing,
                                 filter = filter,
                                 resize = FALSE,
-                                filter_order = filter_order)
+                                filter_order = filter_order,
+                                return_exact = return_exact)
             if(isTRUE(watershed)){
-              parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-              res <- length(img2)
-              parms2 <- parms[parms$object_size == object_size,]
-              rowid <-
-                which(sapply(as.character(parms2$resolution), function(x) {
-                  eval(parse(text=x))}))
-              ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-              tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-              nmask <- EBImage::watershed(EBImage::distmap(img2),
-                                          tolerance = tol,
-                                          ext = ext)
+              nmask <- image_watershed(img2, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
             } else{
-              nmask <- EBImage::bwlabel(img2)
+              nmask <- image_bwlabel(img2)
             }
           } else{
             img2 <- img[,,1]
-            img2[img2@.Data == 0 | img2@.Data != 0] <- TRUE
-            nmask <- EBImage::bwlabel(img2)
+            img2[image_data(img2) == 0 | image_data(img2) != 0] <- TRUE
+            nmask <- image_bwlabel(img2)
           }
 
-          ID <- which(img2 == 1)
+          ID <- which(img2 != 0)
           ID2 <- which(img2 == 0)
         }
         if(isTRUE(fill_hull)){
-          nmask <- EBImage::fillHull(nmask)
+          nmask <- image_fill_hull(nmask)
         }
         shape <- compute_measures(mask = nmask,
                                   img = img,
@@ -870,6 +864,7 @@ analyze_objects <- function(img,
                                   har_band = har_band,
                                   smooth = smooth)
         object_contour <- shape$cont
+        # return(list(object_contour = object_contour, shape = shape))
         ch <- shape$ch
         shape <- shape$shape
 
@@ -910,26 +905,31 @@ analyze_objects <- function(img,
               extens <- file_extension(imag)
               reference_img <- image_import(paste(getwd(), "/", name, ".", extens, sep = ""))
             }
+            img_num <- image_data(img, type = "numeric")
+            fore_num <- image_data(foreground, type = "numeric")
+            ref_num <- image_data(reference_img, type = "numeric")
+            back_num <- image_data(background, type = "numeric")
+
             original <-
               data.frame(CODE = "img",
-                         R = c(img@.Data[,,1]),
-                         G = c(img@.Data[,,2]),
-                         B = c(img@.Data[,,3]))
+                         R = c(img_num[,,1]),
+                         G = c(img_num[,,2]),
+                         B = c(img_num[,,3]))
             fore <-
               data.frame(CODE = "foreground",
-                         R = c(foreground@.Data[,,1]),
-                         G = c(foreground@.Data[,,2]),
-                         B = c(foreground@.Data[,,3]))
+                         R = c(fore_num[,,1]),
+                         G = c(fore_num[,,2]),
+                         B = c(fore_num[,,3]))
             ref <-
               data.frame(CODE = "reference",
-                         R = c(reference_img@.Data[,,1]),
-                         G = c(reference_img@.Data[,,2]),
-                         B = c(reference_img@.Data[,,3]))
+                         R = c(ref_num[,,1]),
+                         G = c(ref_num[,,2]),
+                         B = c(ref_num[,,3]))
             back <-
               data.frame(CODE = "background",
-                         R = c(background@.Data[,,1]),
-                         G = c(background@.Data[,,2]),
-                         B = c(background@.Data[,,3]))
+                         R = c(back_num[,,1]),
+                         G = c(back_num[,,2]),
+                         B = c(back_num[,,3]))
             back_fore <-
               transform(rbind(fore[sample(1:nrow(fore)),][1:1000,],
                               ref[sample(1:nrow(ref)),][1:1000,],
@@ -941,20 +941,20 @@ analyze_objects <- function(img,
             modelo1 <- suppressWarnings(glm(formula,
                                             family = binomial("logit"),
                                             data = back_fore))
-            img_bf <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
+            img_bf <- as_image(predict_binary_glm(modelo1, img))
             for (op in filter_order) {
               if (op == "erode" && is.numeric(erode) && erode > 0) {
-                img_bf <- image_erode(img_bf, size = erode)
+                img_bf <- image_erode(img_bf, size = erode, verbose = FALSE)
               } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
-                img_bf <- image_dilate(img_bf, size = dilate)
+                img_bf <- image_dilate(img_bf, size = dilate, verbose = FALSE)
               } else if (op == "opening" && is.numeric(opening) && opening > 0) {
-                img_bf <- image_opening(img_bf, size = opening)
+                img_bf <- image_opening(img_bf, size = opening, verbose = FALSE)
               } else if (op == "closing" && is.numeric(closing) && closing > 0) {
-                img_bf <- image_closing(img_bf, size = closing)
+                img_bf <- image_closing(img_bf, size = closing, verbose = FALSE)
               } else if (op == "filter" && !isFALSE(filter) && filter > 1) {
-                img_bf <- EBImage::medianFilter(img_bf, filter)
+                img_bf <- image_filter(img_bf, filter, verbose = FALSE)
               } else if (op == "fill_hull" && isTRUE(fill_hull)) {
-                img_bf <- EBImage::fillHull(img_bf)
+                img_bf <- image_fill_hull(img_bf, verbose = FALSE)
               }
             }
           } else{
@@ -980,9 +980,9 @@ analyze_objects <- function(img,
           }
 
           img3 <- img
-          img3@.Data[,,1][which(img_bf != 1)] <- 2
-          img3@.Data[,,2][which(img_bf != 1)] <- 2
-          img3@.Data[,,3][which(img_bf != 1)] <- 2
+          img3[,,1][which(img_bf != 1)] <- 2
+          img3[,,2][which(img_bf != 1)] <- 2
+          img3[,,3][which(img_bf != 1)] <- 2
           ID <-  which(img_bf == 1) # IDs for foreground
           ID2 <- which(img_bf == 0) # IDs for background
           # segment fore and ref
@@ -1003,20 +1003,20 @@ analyze_objects <- function(img,
             modelo1 <- suppressWarnings(glm(formula,
                                             family = binomial("logit"),
                                             data = back_fore))
-            img4 <- EBImage::Image(matrix(round(predict(modelo1, newdata = original, type="response"), 0), ncol = dim(img)[[2]]))
+            img4 <- as_image(predict_binary_glm(modelo1, img))
             for (op in filter_order) {
               if (op == "erode" && is.numeric(erode) && erode > 0) {
-                img4 <- image_erode(img4, size = erode)
+                img4 <- image_erode(img4, size = erode, verbose = FALSE)
               } else if (op == "dilate" && is.numeric(dilate) && dilate > 0) {
-                img4 <- image_dilate(img4, size = dilate)
+                img4 <- image_dilate(img4, size = dilate, verbose = FALSE)
               } else if (op == "opening" && is.numeric(opening) && opening > 0) {
-                img4 <- image_opening(img4, size = opening)
+                img4 <- image_opening(img4, size = opening, verbose = FALSE)
               } else if (op == "closing" && is.numeric(closing) && closing > 0) {
-                img4 <- image_closing(img4, size = closing)
+                img4 <- image_closing(img4, size = closing, verbose = FALSE)
               } else if (op == "filter" && !isFALSE(filter) && filter > 1) {
-                img4 <- EBImage::medianFilter(img4, filter)
+                img4 <- image_filter(img4, filter, verbose = FALSE)
               } else if (op == "fill_hull" && isTRUE(fill_hull)) {
-                img4 <- EBImage::fillHull(img4)
+                img4 <- image_fill_hull(img4, verbose = FALSE)
               }
             }
           } else{
@@ -1042,28 +1042,18 @@ analyze_objects <- function(img,
 
           mask <- img_bf
           pix_ref <- which(img4 != 1)
-          img@.Data[,,1][pix_ref] <- 1
-          img@.Data[,,2][pix_ref] <- 0
-          img@.Data[,,3][pix_ref] <- 0
+          img[,,1][pix_ref] <- 255
+          img[,,2][pix_ref] <- 0
+          img[,,3][pix_ref] <- 0
           npix_ref <- length(pix_ref)
           mask[pix_ref] <- 0
           if(is.numeric(filter) & filter > 1){
-            mask <- EBImage::medianFilter(mask, size = filter)
+            mask <- image_filter(mask, size = filter)
           }
           if(isTRUE(watershed)){
-            parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-            res <- length(img)
-            parms2 <- parms[parms$object_size == object_size,]
-            rowid <-
-              which(sapply(as.character(parms2$resolution), function(x) {
-                eval(parse(text=x))}))
-            ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-            tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-            nmask <- EBImage::watershed(EBImage::distmap(mask),
-                                        tolerance = tol,
-                                        ext = ext)
+            nmask <- image_watershed(mask, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
           } else{
-            nmask <- EBImage::bwlabel(mask)
+            nmask <- image_bwlabel(mask)
           }
           shape <- compute_measures(mask = nmask,
                                     img = img,
@@ -1096,7 +1086,7 @@ analyze_objects <- function(img,
 
               if(interactive()){
                 if(viewopt == "base"){
-                  plot(img)
+                  plot(img, max_pixels = max_pixels)
                 }
                 if(viewopt == "base"){
                   cli::cli_alert_info("Use the first mouse button to pick up {.strong BACKGROUND} colors. Press ESC to exit.")
@@ -1144,21 +1134,16 @@ analyze_objects <- function(img,
               extens <- file_extension(imag)
               background <- image_import(paste(getwd(), "/", name, ".", extens, sep = ""))
             }
-            original <-
-              data.frame(CODE = "img",
-                         R = c(img@.Data[,,1]),
-                         G = c(img@.Data[,,2]),
-                         B = c(img@.Data[,,3]))
             foreground <-
               data.frame(CODE = "foreground",
-                         R = c(foreground@.Data[,,1]),
-                         G = c(foreground@.Data[,,2]),
-                         B = c(foreground@.Data[,,3]))
+                         R = c(as.numeric(image_data(foreground)[,,1])),
+                         G = c(as.numeric(image_data(foreground)[,,2])),
+                         B = c(as.numeric(image_data(foreground)[,,3])))
             background <-
               data.frame(CODE = "background",
-                         R = c(background@.Data[,,1]),
-                         G = c(background@.Data[,,2]),
-                         B = c(background@.Data[,,3]))
+                         R = c(as.numeric(image_data(background)[,,1])),
+                         G = c(as.numeric(image_data(background)[,,2])),
+                         B = c(as.numeric(image_data(background)[,,3])))
             back_fore <-
               transform(rbind(foreground[sample(1:nrow(foreground)),][1:nrows,],
                               background[sample(1:nrow(background)),][1:nrows,]),
@@ -1169,27 +1154,16 @@ analyze_objects <- function(img,
             modelo1 <- suppressWarnings(glm(formula,
                                             family = binomial("logit"),
                                             data = back_fore))
-            pred1 <- round(predict(modelo1, newdata = original, type="response"), 0)
-            foreground_background <- matrix(pred1, ncol = dim(img)[[2]])
+            foreground_background <- predict_binary_glm(modelo1, img)
             if(is.numeric(filter) & filter > 1){
-              foreground_background <- EBImage::medianFilter(foreground_background, size = filter)
+              foreground_background <- image_filter(foreground_background, size = filter)
             }
             ID <- c(foreground_background == 1)
             ID2 <- c(foreground_background == 0)
             if(isTRUE(watershed)){
-              parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-              res <- length(foreground_background)
-              parms2 <- parms[parms$object_size == object_size,]
-              rowid <-
-                which(sapply(as.character(parms2$resolution), function(x) {
-                  eval(parse(text=x))}))
-              ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-              tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-              nmask <- EBImage::watershed(EBImage::distmap(foreground_background),
-                                          tolerance = tol,
-                                          ext = ext)
+              nmask <- image_watershed(foreground_background, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
             } else{
-              nmask <- EBImage::bwlabel(foreground_background)
+              nmask <- image_bwlabel(foreground_background)
             }
 
           } else{
@@ -1214,22 +1188,12 @@ analyze_objects <- function(img,
                           invert = invert,
                           fill_hull = fill_hull,
                           filter_order = filter_order)
-            ID <-  which(mask == 1) # IDs for foreground
+            ID <-   which(mask != 0) # IDs for foreground
             ID2 <- which(mask == 0) # IDs for background
             if(isTRUE(watershed)){
-              parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-              res <- length(mask)
-              parms2 <- parms[parms$object_size == object_size,]
-              rowid <-
-                which(sapply(as.character(parms2$resolution), function(x) {
-                  eval(parse(text=x))}))
-              ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-              tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-              nmask <- EBImage::watershed(EBImage::distmap(mask),
-                                          tolerance = tol,
-                                          ext = ext)
+              nmask <- image_watershed(mask, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
             } else{
-              nmask <- EBImage::bwlabel(mask)
+              nmask <- image_bwlabel(mask)
             }
 
           }
@@ -1246,25 +1210,39 @@ analyze_objects <- function(img,
           ch <- shape$ch
           shape <- shape$shape
 
+          if (area_mode[[1]] == "pixel") {
+            pix_areas <- get_area_mask(image_data(nmask))
+            shape$area <- pix_areas[shape$id]
+            shape$coverage <- shape$area / length(nmask)
+            shape$form_factor <- 4 * pi * shape$area / (shape$perimeter ^ 2)
+            shape$rectangularity <- (shape$length * shape$width) / shape$area
+            shape$solidity <- shape$area / shape$area_ch
+            shape$circularity <- (shape$perimeter ^ 2) / shape$area
+            shape$circularity_norm <- (shape$area * 4 * pi) / (shape$perimeter ^ 2)
+          }
 
+
+          r_val <- if (is.raw(img)) 255 else 1
           if(isTRUE(reference_larger)){
-            id_ref <- which.max(shape$area)
-            pix_ref <- which(nmask == id_ref)
-            img@.Data[,,1][pix_ref] <- 1
-            img@.Data[,,2][pix_ref] <- 0
-            img@.Data[,,3][pix_ref] <- 0
-            npix_ref <- shape[id_ref, 4]
-            shape <- shape[-id_ref,]
+            lineid <- which.max(shape$area)
+            id_ref <- shape[lineid, "id"]
+            pix_ref <- which(image_data(nmask) == id_ref)
+            img[,,1][pix_ref] <- r_val
+            img[,,2][pix_ref] <- 0
+            img[,,3][pix_ref] <- 0
+            npix_ref <- shape[lineid, 4]
+            shape <- shape[-lineid,]
             shape <- shape[shape$area > mean(shape$area) * lower_noise, ]
           } else{
             shape <- shape[shape$area > mean(shape$area) * lower_noise, ]
-            id_ref <- which.min(shape$area)
-            pix_ref <- which(nmask == id_ref)
-            img@.Data[,,1][pix_ref] <- 1
-            img@.Data[,,2][pix_ref] <- 0
-            img@.Data[,,3][pix_ref] <- 0
-            npix_ref <- shape[id_ref, 4]
-            shape <- shape[-id_ref,]
+            lineid <- which.min(shape$area)
+            id_ref <- shape[lineid, "id"]
+            pix_ref <- which(image_data(nmask) == id_ref)
+            img[,,1][pix_ref] <- r_val
+            img[,,2][pix_ref] <- 0
+            img[,,3][pix_ref] <- 0
+            npix_ref <- shape[lineid, 4]
+            shape <- shape[-lineid,]
           }
           if(isTRUE(show_lw)){
             shape_ori <- shape
@@ -1309,6 +1287,7 @@ analyze_objects <- function(img,
       }
       object_contour <- object_contour[as.character(shape$id)]
       ch <- ch[as.character(shape$id)]
+      nmask[!nmask %in% shape$id] <- 0L
 
       # check if fourier is computed
       if(isTRUE(efourier)){
@@ -1354,8 +1333,32 @@ analyze_objects <- function(img,
 
       # check if veins is computed
       if(isTRUE(veins)){
-        vein <- object_edge(img, sigma = sigma_veins, plot = FALSE)
-        prop_veins <- data.frame(prop_veins = sum(vein) / sum(shape$area))
+        # detect_veins_cpp uses Difference of Gaussians (DoG) bandpass filter
+        # + dynamic resolution-independent boundary erosion + per-object Otsu threshold
+        # + optional Guo-Hall thinning.
+        vein_result <- detect_veins_cpp(
+          R_sexp      = img[,,1],
+          G_sexp      = img[,,2],
+          B_sexp      = img[,,3],
+          labels_sexp = as.matrix(image_data(nmask)),
+          sigma1     = sigma_veins,
+          sigma2     = sigma_veins * 5,
+          threshold  = -1,             # -1 = adaptive per-object Otsu
+          channel    = 0,              # 0 = green channel (best for leaves)
+          erode_size = -1,             # -1 = use rel_erode
+          rel_erode  = veins_rel_erode, # 1% of min(W, H)
+          thinning   = veins_thinning,  # TRUE for skeleton density, FALSE for area fraction
+          return_map = FALSE
+        )
+        # Build a data.frame indexed by object ID (skip label 0 = background)
+        vein_props <- vein_result$proportion
+        valid_labs <- which(!is.na(vein_props) & seq_along(vein_props) > 0)
+        prop_veins <- data.frame(
+          id         = valid_labs,
+          prop_veins = vein_props[valid_labs]
+        )
+        # Keep only objects that appear in shape (same filter as other features)
+        prop_veins <- prop_veins[prop_veins$id %in% shape$id, ]
       } else{
         prop_veins <- NULL
       }
@@ -1378,22 +1381,72 @@ analyze_objects <- function(img,
         } else{
           ind_formula <- object_index
         }
-        ind_name <- object_index
-        data_mask <- nmask@.Data
-        obj_rgb <- object_rgb(img, data_mask)
-        obj_rgb <- subset(obj_rgb, id %in% shape$id)
-        obj_rgb <- cbind(obj_rgb, rgb_to_hsb(obj_rgb[, 2:4]))
-        # Use by to calculate indexes directly and aggregate later
-        tmp <- by(obj_rgb, obj_rgb$id, FUN = function(x) {
-          sapply(ind_formula, function(formula) eval(parse(text = formula), envir = x))
-        })
+        ind_name  <- object_index
+        data_mask <- as.numeric(image_data(nmask))
 
-        tmp <- do.call(rbind, tmp)
-        colnames(tmp) <- ind_name
-        obj_rgb <- cbind(obj_rgb, tmp)
-        indexes <- aggregate(. ~ id, obj_rgb[, c("id", ind_name)], mean, na.rm = TRUE)
-        rm(tmp)
-        if(isFALSE(pixel_level_index)){
+        # ── Optimised index pipeline ─────────────────────────────────────────
+        # Instead of:  object_rgb → rgb_to_hsb → by() → aggregate()
+        # We:
+        #   1. Set up full-image evaluation environment (no pixel extraction)
+        #   2. Evaluate each formula on the full W×H matrices (vectorised, fast)
+        #   3. Aggregate per-object means in C++ (two-pass, zero allocations)
+        #
+        # This avoids: data.frame creation, by() object splitting, do.call(rbind),
+        # aggregate(), and multiple passes over the pixel data.
+
+        R_ch <- img[,,1]; G_ch <- img[,,2]; B_ch <- img[,,3]
+
+        # Build HSB arrays once for the full image (C++ vectorised)
+        hsb_arrays <- rgb_to_hsb_cpp(R_ch, G_ch, B_ch)
+
+        # Evaluation environment: named arrays matching formula variable names.
+        # rgb_to_hsb() returns lowercase column names: h, s, b (brightness).
+        # The original code used these via envir = obj_rgb (a data.frame with
+        # columns id, R, G, B, h, s, b).  We must expose the same names here.
+        # Note: B = Blue channel (uppercase), b = brightness from HSB (lowercase).
+        eval_env <- list(
+          R = R_ch, G = G_ch, B = B_ch,     # uppercase: RGB channels [0,1]
+          h = hsb_arrays$H,                  # lowercase h, s, b: as in rgb_to_hsb()
+          s = hsb_arrays$S,
+          b = hsb_arrays$B,
+          H = hsb_arrays$H,                  # uppercase aliases (defensive)
+          S = hsb_arrays$S
+        )
+
+        # Parse formulas once (avoid repeated parse() inside a loop)
+        parsed <- lapply(ind_formula, function(f) parse(text = f)[[1]])
+
+        # Evaluate every formula on the full image (one vectorised call each)
+        idx_mat <- do.call(cbind, lapply(parsed, function(expr) {
+          as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
+        }))
+
+        # valid object IDs from shape (already filtered by the analysis)
+        valid_ids <- as.integer(shape$id)
+
+        # C++ two-pass aggregation: one sequential scan per formula column
+        means_mat <- compute_index_means_cpp(idx_mat, as.vector(data_mask), valid_ids)
+        colnames(means_mat) <- ind_name
+
+        indexes <- data.frame(id = valid_ids, means_mat, check.names = FALSE)
+
+        # Pixel-level output only when explicitly requested (large allocation)
+        if(isTRUE(pixel_level_index)){
+          obj_rgb <- object_rgb(img, data_mask)
+          obj_rgb <- subset(obj_rgb, id %in% shape$id)
+          obj_rgb <- cbind(obj_rgb, rgb_to_hsb(obj_rgb[, 2:4]))
+          # Add per-pixel index values
+          pixel_idx <- do.call(cbind, lapply(parsed, function(expr) {
+            as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
+          }))
+          # Subset to pixels belonging to valid objects
+          mask_flat   <- as.vector(data_mask)
+          pixel_keep  <- mask_flat %in% valid_ids
+          obj_rgb <- cbind(obj_rgb,
+                           as.data.frame(
+                             pixel_idx[pixel_keep, , drop = FALSE],
+                             col.names = ind_name))
+        } else {
           obj_rgb <- NULL
         }
       } else{
@@ -1430,7 +1483,16 @@ analyze_objects <- function(img,
                       mask = mask,
                       pcv = pcv,
                       contours = object_contour,
-                      parms = list(index = index, object_index = object_index_used))
+                      parms = list(
+                        index = index,
+                        object_index = object_index_used,
+                        reference = isTRUE(reference),
+                        reference_area = reference_area,
+                        reference_larger = reference_larger,
+                        reference_smaller = reference_smaller,
+                        npix_ref = if (exists("npix_ref")) npix_ref else NULL,
+                        px_side = if (exists("px_side")) px_side else NULL
+                      ))
       class(results) <- "anal_obj"
       if(!is.null(object_index)){
         shape_markers <- cbind(shape, indexes)
@@ -1441,58 +1503,56 @@ analyze_objects <- function(img,
         backg <- !is.null(col_background)
         # color for background
         if (is.null(col_background)){
-          col_background <- col2rgb("white") / 255
+          col_background <- col2rgb("white")
         } else{
           ifelse(is.character(col_background),
-                 col_background <- col2rgb(col_background) / 255,
-                 col_background <- col_background / 255)
+                 col_background <- col2rgb(col_background),
+                 col_background <- col_background)
         }
         # color for lesions
         if (is.null(col_foreground)){
-          col_foreground <- col2rgb("black") / 255
+          col_foreground <- col2rgb("gray")
         } else{
           ifelse(is.character(col_foreground),
-                 col_foreground <- col2rgb(col_foreground) / 255,
-                 col_foreground <- col_foreground / 255)
+                 col_foreground <- col2rgb(col_foreground),
+                 col_foreground <- col_foreground)
         }
 
         if(show_original == TRUE & show_segmentation == FALSE){
           im2 <- img[,,1:3]
-          EBImage::colorMode(im2) <- "Color"
           if(backg){
             im3 <- image_color_labels(nmask)
-            im2@.Data[,,1][which(im3@.Data[,,1]==0)] <- col_background[1]
-            im2@.Data[,,2][which(im3@.Data[,,2]==0)] <- col_background[2]
-            im2@.Data[,,3][which(im3@.Data[,,3]==0)] <- col_background[3]
+            im2[,,1][which(im3[,,1]==0)] <- col_background[1]
+            im2[,,2][which(im3[,,2]==0)] <- col_background[2]
+            im2[,,3][which(im3[,,3]==0)] <- col_background[3]
           }
         }
         if(show_original == TRUE & show_segmentation == TRUE){
           im2 <- image_color_labels(nmask)
           if(backg){
-            im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- col_background[1]
-            im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- col_background[2]
-            im2@.Data[,,3][which(im2@.Data[,,3]==0)] <- col_background[3]
+            im2[,,1][which(im2[,,1]==0)] <- col_background[1]
+            im2[,,2][which(im2[,,2]==0)] <- col_background[2]
+            im2[,,3][which(im2[,,3]==0)] <- col_background[3]
           } else{
-            im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- img@.Data[,,1][which(im2@.Data[,,1]==0)]
-            im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- img@.Data[,,2][which(im2@.Data[,,2]==0)]
-            im2@.Data[,,3][which(im2@.Data[,,3]==0)] <- img@.Data[,,3][which(im2@.Data[,,3]==0)]
+            im2[,,1][which(im2[,,1]==0)] <- as.numeric(img[,,1])[which(im2[,,1]==0)]
+            im2[,,2][which(im2[,,2]==0)] <- as.numeric(img[,,2])[which(im2[,,2]==0)]
+            im2[,,3][which(im2[,,3]==0)] <- as.numeric(img[,,3])[which(im2[,,3]==0)]
           }
         }
         if(show_original == FALSE){
           if(show_segmentation == TRUE){
             im2 <- image_color_labels(nmask)
-            im2@.Data[,,1][which(im2@.Data[,,1]==0)] <- col_background[1]
-            im2@.Data[,,2][which(im2@.Data[,,2]==0)] <- col_background[2]
-            im2@.Data[,,3][which(im2@.Data[,,3]==0)] <- col_background[3]
+            im2[,,1][which(im2[,,1]==0)] <- col_background[1]
+            im2[,,2][which(im2[,,2]==0)] <- col_background[2]
+            im2[,,3][which(im2[,,3]==0)] <- col_background[3]
           } else{
             im2 <- img[,,1:3]
-            EBImage::colorMode(im2) <- "Color"
-            im2@.Data[,,1][ID] <- col_foreground[1]
-            im2@.Data[,,2][ID] <- col_foreground[2]
-            im2@.Data[,,3][ID] <- col_foreground[3]
-            im2@.Data[,,1][ID2] <- col_background[1]
-            im2@.Data[,,2][ID2] <- col_background[2]
-            im2@.Data[,,3][ID2] <- col_background[3]
+            im2[,,1][ID] <- col_foreground[1]
+            im2[,,2][ID] <- col_foreground[2]
+            im2[,,3][ID] <- col_foreground[3]
+            im2[,,1][ID2] <- col_background[1]
+            im2[,,2][ID2] <- col_background[2]
+            im2[,,3][ID2] <- col_background[3]
           }
         }
         show_mark <- ifelse(isFALSE(marker), FALSE, TRUE)
@@ -1507,22 +1567,19 @@ analyze_objects <- function(img,
         marker_col <- ifelse(is.null(marker_col), "white", marker_col)
         marker_size <- ifelse(is.null(marker_size), 0.75, marker_size)
         # correct the contour
-        object_contour <- lapply(object_contour, function(x){
-          x + 1
-        })
 
         if(plot == TRUE){
           if(marker != "point"){
-            plot(im2)
-            if(isTRUE(show_contour) & isTRUE(show_original)){
+            plot(im2, max_pixels = max_pixels)
+            if(isTRUE(show_contour)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
             if(show_bbox){
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              text(shape_markers[, 2] + 1,
-                   shape_markers[, 3] + 1,
+              text(shape_markers[, 2],
+                   shape_markers[, 3],
                    round(shape_markers[, marker], 3),
                    col = marker_col,
                    cex = marker_size)
@@ -1531,16 +1588,16 @@ analyze_objects <- function(img,
               plot_contour(ch |> poly_close(), col = "black")
             }
           } else{
-            plot(im2)
-            if(isTRUE(show_contour)  & isTRUE(show_original)){
+            plot(im2, max_pixels = max_pixels)
+            if(isTRUE(show_contour)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
             if(show_bbox){
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              points(shape_markers[, 2] + 1,
-                     shape_markers[, 3] + 1,
+              points(shape_markers[, 2],
+                     shape_markers[, 3],
                      col = marker_col,
                      pch = 16,
                      cex = marker_size)
@@ -1560,14 +1617,24 @@ analyze_objects <- function(img,
           if(dir.exists(diretorio_processada) == FALSE){
             dir.create(diretorio_processada, recursive = TRUE)
           }
+          img_d <- dim(image_data(im2))
+          tot_pix <- img_d[1] * img_d[2]
+          if (!is.null(max_pixels) && tot_pix > max_pixels) {
+            scale_factor <- sqrt(max_pixels / tot_pix)
+            png_w <- round(img_d[1] * scale_factor)
+            png_h <- round(img_d[2] * scale_factor)
+          } else {
+            png_w <- img_d[1]
+            png_h <- img_d[2]
+          }
           png(paste0(diretorio_processada, "/",
                      prefix,
                      name_ori, ".",
                      extens_ori),
-              width = dim(im2@.Data)[1],
-              height = dim(im2@.Data)[2])
+              width = png_w,
+              height = png_h)
           if(marker != "point"){
-            plot(im2)
+            plot(im2, max_pixels = max_pixels)
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
@@ -1575,14 +1642,14 @@ analyze_objects <- function(img,
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              text(shape_markers[, 2] + 1,
-                   shape_markers[, 3] + 1,
+              text(shape_markers[, 2],
+                   shape_markers[, 3],
                    round(shape_markers[, marker], 3),
                    col = marker_col,
                    cex = marker_size)
             }
           } else{
-            plot(im2)
+            plot(im2, max_pixels = max_pixels)
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
@@ -1590,8 +1657,8 @@ analyze_objects <- function(img,
               plot_bbox(object_contour, col = contour_col)
             }
             if(show_mark){
-              points(shape_markers[, 2] + 1,
-                     shape_markers[, 3] + 1,
+              points(shape_markers[, 2],
+                     shape_markers[, 3],
                      col = marker_col,
                      pch = 16,
                      cex = marker_size)
@@ -1604,6 +1671,18 @@ analyze_objects <- function(img,
               plot_lw(results)
             }
           }
+          # Discrete footer with summary stats
+          n_obj   <- nrow(shape)
+          a_mean  <- round(mean(shape$area, na.rm = TRUE), 1)
+          a_min   <- round(min(shape$area, na.rm = TRUE), 1)
+          a_max   <- round(max(shape$area, na.rm = TRUE), 1)
+          footer_txt <- sprintf("N: %d  |  Area (px\u00b2)  mean: %s  |  min: %s  |  max: %s",
+                                n_obj, a_mean, a_min, a_max)
+          usr <- par("usr")
+          text(usr[1] + diff(usr[1:2]) * 0.01,
+               usr[3] + diff(usr[3:4]) * 0.01,
+               footer_txt,
+               adj = c(0, 0), cex = 1, col = "#555555", font = 1, xpd = NA)
           dev.off()
         }
       }
@@ -1623,7 +1702,7 @@ analyze_objects <- function(img,
                show_background, marker, marker_col, marker_size, save_image,
                prefix, dir_original, dir_processed, verbose, col_background,
                col_foreground, lower_noise, ab_angles, ab_angles_percentiles, width_at, width_at_percentiles, return_mask, pcv,
-               object_index)
+               object_index, max_pixels, return_exact)
   } else{
     if(pattern %in% as.character(0:9)){
       pattern <- "^[0-9].*$"
@@ -1650,16 +1729,32 @@ analyze_objects <- function(img,
     if (parallel == TRUE) {
       nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.3), workers)
       mirai::daemons(nworkers)
-      on.exit(mirai::daemons(0))
+      on.exit(mirai::daemons(0), add = TRUE)
+      pkg_root <- tryCatch(rprojroot::find_package_root_file(), error = function(e) getwd())
+      is_dev_mode <- file.exists(file.path(pkg_root, "DESCRIPTION")) && requireNamespace("pkgload", quietly = TRUE)
+
+      if (is_dev_mode) {
+        mirai::everywhere(
+          {
+            .libPaths(lp)
+            pkgload::load_all(p_dir, quiet = TRUE, helpers = FALSE)
+          },
+          lp = .libPaths(),
+          p_dir = pkg_root
+        )
+      } else {
+        mirai::everywhere(
+          {
+            .libPaths(lp)
+            library(pliman)
+          },
+          lp = .libPaths()
+        )
+      }
       if (verbose) {
         cli::cli_rule(
           left = cli::col_blue("Parallel processing using {nworkers} cores"),
           right = cli::col_blue("Started on {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
-        )
-        cli::cli_progress_step(
-          msg = "Processing {.val {length(names_plant)}} images found on {.path {imgpath}}. Please, wait.",
-          msg_done = "Batch processing finished",
-          msg_failed = "Oops, something went wrong."
         )
       }
 
@@ -1686,26 +1781,29 @@ analyze_objects <- function(img,
                      prefix, dir_original, dir_processed, verbose, col_background,
                      col_foreground, lower_noise, ab_angles, ab_angles_percentiles,
                      width_at, width_at_percentiles, return_mask, pcv,
-                     object_index)
+                     object_index, max_pixels, return_exact)
       )[.progress]
-
+      cli::cli_progress_step(
+        msg = "Processing {.val {length(names_plant)}} images found on {.path {imgpath}}. Please, wait.",
+        msg_done = "Batch processing finished",
+        msg_failed = "Oops, something went wrong."
+      )
     } else {
       if (verbose) {
         cli::cli_rule(
           left = cli::col_blue("Analyzing {length(names_plant)} images"),
           right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%S')}")
         )
-        cli::cli_alert_info("Directory: {.path {imgpath}}")
 
         cli::cli_progress_bar(
-          format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta} | {.val {cli::pb_status}}",
+          format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
           total = length(names_plant),
           clear = FALSE
         )
       }
       results <- vector("list", length(names_plant))
       for (i in seq_along(names_plant)) {
-        if (verbose) cli::cli_progress_update(status = names_plant[i])
+        if (verbose) cli::cli_progress_update()
         results[[i]] <-
           help_count(
             img = names_plant[i],
@@ -1716,7 +1814,7 @@ analyze_objects <- function(img,
             prefix, dir_original, dir_processed, verbose, col_background,
             col_foreground, lower_noise, ab_angles, ab_angles_percentiles,
             width_at, width_at_percentiles, return_mask, pcv,
-            object_index
+            object_index, max_pixels, return_exact
           )
       }
       if (verbose) {
@@ -1725,9 +1823,6 @@ analyze_objects <- function(img,
     }
 
     ## bind the results
-    if(verbose){
-      cli::cli_progress_step("Binding the results.", spinner = TRUE)
-    }
 
     names(results) <- names_plant
     stats <-
@@ -2020,7 +2115,7 @@ analyze_objects <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' img <- image_pliman("soy_green.jpg")

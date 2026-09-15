@@ -162,7 +162,7 @@ Default is c(5, 5).}
 
 \item{simplify}{Removes vertices in polygons to form simpler shapes. The
 function implementation uses the Douglas-Peucker algorithm using
-\code{\link[sf:geos_unary]{sf::st_simplify()}} for simplification.}
+\code{\link[sf:st_simplify]{sf::st_simplify()}} for simplification.}
 
 \item{map_individuals}{If \code{TRUE}, the distance between objects within plots
 is computed. The distance can be mapped either in the horizontal or vertical
@@ -182,7 +182,9 @@ objects.}
 intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
-which is the highest.}
+which is the highest. Values < 1.0 are interpreted as relative tolerance
+(percentage of the peak height). Values >= 1.0 are interpreted as absolute
+tolerance in pixels (linear Euclidean distance).}
 
 \item{extension}{Radius of the neighborhood in pixels for the detection of
 neighboring objects. A higher value smooths out small objects.}
@@ -327,7 +329,7 @@ This makes the inclusion ambiguous (i.e., an object can be included in more
 than one plot).
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 url <- "https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"
 mosaic <- mosaic_input(url)

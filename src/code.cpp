@@ -1,1429 +1,793 @@
 #include <RcppArmadillo.h>
-#include <queue>
+#include <vector>
 #include <cmath>
-#include <chrono>
-#include <iomanip>
-#include <sstream>
-#include <random>
+#include <algorithm>
+#include <cstring>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 using namespace Rcpp;
-using namespace arma;
 
 // [[Rcpp::depends(RcppArmadillo)]]
 
-// adapted from imagerExtra  https://bit.ly/3HtxumB
-Rcpp::NumericMatrix int_sum(Rcpp::NumericMatrix mat) {
-  int nrow = mat.nrow();
-  int ncol = mat.ncol();
-  Rcpp::NumericMatrix res(nrow, ncol);
-
-  res(0,0) = mat(0,0);
-  for (int i = 1; i < nrow; ++i) {
-    res(i,0) = mat(i,0) + res(i-1,0);
-  }
-  for (int j = 1; j < ncol; ++j) {
-    res(0,j) = mat(0,j) + res(0,j-1);
-  }
-  for (int i = 1; i < nrow; ++i) {
-    for (int j = 1; j < ncol; ++j) {
-      res(i,j) = mat(i,j) + res(i-1,j) + res(i,j-1) - res(i-1,j-1);
-    }
-  }
-  return res;
-}
-
-Rcpp::NumericMatrix int_sum_squared(Rcpp::NumericMatrix mat) {
-  int nrow = mat.nrow();
-  int ncol = mat.ncol();
-  Rcpp::NumericMatrix mat_squared(nrow, ncol);
-  Rcpp::NumericMatrix res(nrow, ncol);
-
-  for (int i = 0; i < nrow; ++i) {
-    for (int j = 0; j < ncol; ++j) {
-      mat_squared(i,j) = mat(i,j) * mat(i,j);
-    }
-  }
-
-  res(0,0) = mat_squared(0,0);
-  for (int i = 1; i < nrow; ++i) {
-    res(i,0) = mat_squared(i,0) + res(i-1,0);
-  }
-  for (int j = 1; j < ncol; ++j) {
-    res(0,j) = mat_squared(0,j) + res(0,j-1);
-  }
-  for (int i = 1; i < nrow; ++i) {
-    for (int j = 1; j < ncol; ++j) {
-      res(i,j) = mat_squared(i,j) + res(i-1,j) + res(i,j-1) - res(i-1,j-1);
-    }
-  }
-  return res;
-}
+// Forward declarations for functions defined in other C++ translation units
+SEXP compute_single_index_cpp(SEXP img_sexp, std::string ind, int r = 1, int g = 2, int b = 3, int re = 4, int nir = 5, int swir = 6, std::string storage = "auto");
+double help_otsu(SEXP img_sexp);
+SEXP cpp_binary_threshold(SEXP img_sexp, double threshold, int op = 1, bool return_raw = true);
+Rcpp::NumericMatrix threshold_adaptive(Rcpp::NumericMatrix mat, double k, int windowsize, double maxsd);
+LogicalMatrix help_binary_filters_cpp(SEXP img, int erode = 0, int dilate = 0, int opening = 0, int closing = 0, int filter = 0, bool fill_hull = false, CharacterVector filter_order = CharacterVector(), double max_size = -1.0, double min_neck_dist = 0.0);
+LogicalMatrix erode_cpp(LogicalMatrix img, int raio = 3, std::string forma = "disc");
+IntegerMatrix bwlabel_cpp(SEXP img_sexp);
+IntegerMatrix watershed_cpp(SEXP img_r, double tolerance = 1.0, int ext = 1);
+List extract_contours_cpp(IntegerMatrix labels);
+List smoothContours(List contours, int window_size = 3);
+DataFrame poly_measures_cpp(List contours, bool calc_pcv = false);
+List compute_chulls_cpp(List contours);
+NumericMatrix haralick_features_cpp(IntegerMatrix labels, SEXP ref_sexp, int nc = 32);
 
 // [[Rcpp::export]]
-Rcpp::NumericMatrix threshold_adaptive(Rcpp::NumericMatrix mat, double k, int windowsize, double maxsd) {
-  int nrow = mat.nrow();
-  int ncol = mat.ncol();
-  Rcpp::NumericMatrix res(nrow, ncol);
-  Rcpp::NumericMatrix integ_sum = int_sum(mat);
-  Rcpp::NumericMatrix int_sum_sqr = int_sum_squared(mat);
-  int winhalf = windowsize / 2;
-  int winsize_squared = windowsize * windowsize;
-  int nrow_center = nrow - windowsize;
-  int ncol_center = ncol - windowsize;
+void filter_labels_cpp(IntegerMatrix labels, IntegerVector keep_ids) {
+  int N = labels.nrow() * labels.ncol();
+  int* p = INTEGER(labels);
+  int max_id = 0;
+  #pragma omp parallel for reduction(max:max_id) schedule(static)
+  for (int i = 0; i < N; i++) {
+    if (p[i] > max_id) max_id = p[i];
+  }
+  if (max_id <= 0) return;
 
-
-  for (int i = 0; i < winhalf; ++i) {
-    for (int j = 0; j < winhalf; ++j) {
-      int temp_winsize = (winhalf + i + 1) * (winhalf + j + 1);
-      double mean_local = integ_sum(i+winhalf,j+winhalf) / temp_winsize;
-      double sd_local = sqrt(int_sum_sqr(i+winhalf,j+winhalf) / temp_winsize - mean_local * mean_local);
-      double threshold_local  = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
+  std::vector<uint8_t> keep(max_id + 1, 0);
+  for (int i = 0; i < keep_ids.size(); i++) {
+    int id = keep_ids[i];
+    if (id >= 0 && id <= max_id) keep[id] = 1;
   }
 
-  for (int i = winhalf; i < nrow_center; ++i) {
-    for (int j =0; j < winhalf; ++j) {
-      int temp_winsize = windowsize * (winhalf + j + 1);
-      double mean_local = (integ_sum(i+winhalf,j+winhalf) - integ_sum(i-winhalf,j+winhalf)) / temp_winsize;
-      double sd_local = sqrt((int_sum_sqr(i+winhalf,j+winhalf) - int_sum_sqr(i-winhalf,j+winhalf)) / temp_winsize - mean_local * mean_local);
-      double threshold_local  = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
+  #pragma omp parallel for schedule(static)
+  for (int i = 0; i < N; i++) {
+    int id = p[i];
+    if (id > 0 && (id > max_id || !keep[id])) {
+      p[i] = 0;
     }
   }
-
-  for (int i = nrow_center; i < nrow; ++i) {
-    for (int j = 0; j < winhalf; ++j) {
-      int temp_winsize = (winhalf + nrow - i) * (winhalf + j + 1);
-      double mean_local = (integ_sum(nrow-1,j+winhalf) - integ_sum(i-winhalf,j+winhalf)) / temp_winsize;
-      double sd_local = sqrt((int_sum_sqr(nrow-1,j+winhalf) - int_sum_sqr(i-winhalf,j+winhalf)) / temp_winsize - mean_local * mean_local);
-      double threshold_local = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
-  }
-
-  for (int i = 0; i < winhalf; ++i) {
-    for (int j = winhalf; j < ncol_center; ++j) {
-      int temp_winsize = (winhalf + i + 1) * windowsize;
-      double mean_local = (integ_sum(i+winhalf,j+winhalf) - integ_sum(i+winhalf,j-winhalf)) / temp_winsize;
-      double sd_local = sqrt((int_sum_sqr(i+winhalf,j+winhalf) - int_sum_sqr(i+winhalf,j-winhalf)) / temp_winsize - mean_local * mean_local);
-      double threshold_local = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
-  }
-
-  for (int i = winhalf; i < nrow_center; ++i) {
-    for (int j = winhalf; j < ncol_center; ++j) {
-      double mean_local = (integ_sum(i+winhalf,j+winhalf) + integ_sum(i-winhalf,j-winhalf) - integ_sum(i+winhalf,j-winhalf) - integ_sum(i-winhalf,j+winhalf)) / winsize_squared;
-      double sd_local = sqrt((int_sum_sqr(i+winhalf,j+winhalf) + int_sum_sqr(i-winhalf,j-winhalf) - int_sum_sqr(i+winhalf,j-winhalf) - int_sum_sqr(i-winhalf,j+winhalf)) / winsize_squared - mean_local * mean_local);
-      double threshold_local = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
-  }
-
-  for (int i = nrow_center; i < nrow; ++i) {
-    for (int j = winhalf; j < ncol_center; ++j) {
-      int temp_winsize = (winhalf + nrow - i) * windowsize;
-      double mean_local = (integ_sum(nrow-1,j+winhalf) + integ_sum(i-winhalf,j-winhalf) - integ_sum(nrow-1,j-winhalf) - integ_sum(i-winhalf,j+winhalf)) / temp_winsize;
-      double sd_local = sqrt((int_sum_sqr(nrow-1,j+winhalf) + int_sum_sqr(i-winhalf,j-winhalf) - int_sum_sqr(nrow-1,j-winhalf) - int_sum_sqr(i-winhalf,j+winhalf)) / temp_winsize - mean_local * mean_local);
-      double threshold_local = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
-  }
-
-  for (int i = 0; i < winhalf; ++i) {
-    for (int j = ncol_center; j < ncol; ++j) {
-      int temp_winsize = (winhalf + i + 1) * (winhalf + ncol - j);
-      double mean_local = (integ_sum(i+winhalf,ncol-1) - integ_sum(i+winhalf,j-winhalf)) / temp_winsize;
-      double sd_local = sqrt((int_sum_sqr(i+winhalf,ncol-1) - int_sum_sqr(i+winhalf,j-winhalf)) / temp_winsize - mean_local * mean_local);
-      double threshold_local = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
-  }
-
-  for (int i = winhalf; i < nrow_center; ++i) {
-    for (int j = ncol_center; j < ncol; ++j) {
-      int temp_winsize = windowsize * (winhalf + ncol - j);
-      double mean_local = (integ_sum(i+winhalf,ncol-1) + integ_sum(i-winhalf,j-winhalf) - integ_sum(i+winhalf,j-winhalf) - integ_sum(i-winhalf,ncol-1)) / temp_winsize;
-      double sd_local = sqrt((int_sum_sqr(i+winhalf,ncol-1) + int_sum_sqr(i-winhalf,j-winhalf) - int_sum_sqr(i+winhalf,j-winhalf) - int_sum_sqr(i-winhalf,ncol-1)) / temp_winsize - mean_local * mean_local);
-      double threshold_local = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
-  }
-
-  for (int i = nrow_center; i < nrow; ++i) {
-    for (int j = ncol_center; j < ncol; ++j) {
-      int temp_winsize = (winhalf + nrow - i) * (winhalf + ncol - j);
-      double mean_local = (integ_sum(nrow-1,ncol-1) + integ_sum(i-winhalf,j-winhalf) - integ_sum(nrow-1,j-winhalf) - integ_sum(i-winhalf,ncol-1)) / temp_winsize;
-      double sd_local = sqrt((int_sum_sqr(nrow-1,ncol-1) + int_sum_sqr(i-winhalf,j-winhalf) - int_sum_sqr(nrow-1,j-winhalf) - int_sum_sqr(i-winhalf,ncol-1)) / temp_winsize - mean_local * mean_local);
-      double threshold_local = mean_local * (1 + k * (sd_local / maxsd - 1));
-      if (mat(i,j) <= threshold_local) {
-        res(i,j) = 1;
-      } else {
-        res(i,j) = 0;
-      }
-    }
-  }
-  return res;
 }
 
-
-// adapted from https://en.wikipedia.org/wiki/Sobel_operator#MATLAB_implementation
-// [[Rcpp::export]]
-NumericMatrix sobel_help(NumericMatrix A) {
-  NumericMatrix Gx(3, 3);
-  NumericMatrix Gy(3, 3);
-  Gx(0, 0) = -1; Gx(0, 1) = 0; Gx(0, 2) = 1;
-  Gx(1, 0) = -2; Gx(1, 1) = 0; Gx(1, 2) = 2;
-  Gx(2, 0) = -1; Gx(2, 1) = 0; Gx(2, 2) = 1;
-  Gy(0, 0) = -1; Gy(0, 1) = -2; Gy(0, 2) = -1;
-  Gy(1, 0) = 0; Gy(1, 1) = 0; Gy(1, 2) = 0;
-  Gy(2, 0) = 1; Gy(2, 1) = 2; Gy(2, 2) = 1;
-
-  int rows = A.nrow();
-  int columns = A.ncol();
-  NumericMatrix mag(rows, columns);
-
-  for (int i = 0; i < rows - 2; i++) {
-    for (int j = 0; j < columns - 2; j++) {
-      double S1 = 0;
-      double S2 = 0;
-
-      for (int k = 0; k < 3; k++) {
-        for (int l = 0; l < 3; l++) {
-          S1 += Gx(k, l) * A(i + k, j + l);
-          S2 += Gy(k, l) * A(i + k, j + l);
-        }
-      }
-      mag(i + 1, j + 1) = sqrt(S1 * S1 + S2 * S2);
-    }
-  }
-  return mag;
-}
-
-
-
-// [[Rcpp::export]]
-NumericMatrix rgb_to_hsb_help(NumericVector r, NumericVector g, NumericVector b) {
-  NumericMatrix hsb(r.size(), 3);
-  for (int i = 0; i < r.size(); i++) {
-    double max_val = std::max(std::max(r[i], g[i]), b[i]);
-    double min_val = std::min(std::min(r[i], g[i]), b[i]);
-    double diff = max_val - min_val;
-    if (max_val == r[i]) {
-      hsb(i, 0) = 60 * ((g[i] - b[i]) / diff);
-    } else if (max_val == g[i]) {
-      hsb(i, 0) = 60 * (2 + (b[i] - r[i]) / diff);
-    } else {
-      hsb(i, 0) = 60 * (4 + (r[i] - g[i]) / diff);
-    }
-    hsb(i, 1) = (max_val - min_val) / max_val * 100;
-    hsb(i, 2) = max_val * 100;
-  }
-  return hsb;
-}
-
-
-// [[Rcpp::export]]
-arma::mat rgb_to_srgb_help(const arma::mat& rgb) {
-  double gamma = 2.2;
-  arma::mat rgb_gamma = pow(rgb, gamma);
-
-  arma::mat matrix = {
-    { 3.2406, -1.5372, -0.4986 },
-    { -0.9689, 1.8758, 0.0415 },
-    { 0.0557, -0.2040, 1.0570 }
-  };
-  arma::mat rgb_srgb = rgb_gamma * matrix;
-
-  rgb_srgb.elem(find(rgb_srgb < 0)).zeros();
-  rgb_srgb.elem(find(rgb_srgb > 1)).ones();
-  return rgb_srgb;
-}
-
-
-
-// [[Rcpp::export]]
-NumericMatrix help_edge_thinning(NumericMatrix img) {
-  int rows = img.nrow();
-  int cols = img.ncol();
-  NumericMatrix thinned(rows, cols);
-
-  for (int i = 1; i < rows - 1; i++) {
-    for (int j = 1; j < cols - 1; j++) {
-      int p2 = img(i-1, j);
-      int p3 = img(i-1, j+1);
-      int p4 = img(i, j+1);
-      int p5 = img(i+1, j+1);
-      int p6 = img(i+1, j);
-      int p7 = img(i+1, j-1);
-      int p8 = img(i, j-1);
-      int p9 = img(i-1, j-1);
-
-      int A  = (p2 == 0 && p3 == 1) + (p3 == 0 && p4 == 1) +
-        (p4 == 0 && p5 == 1) + (p5 == 0 && p6 == 1) +
-        (p6 == 0 && p7 == 1) + (p7 == 0 && p8 == 1) +
-        (p8 == 0 && p9 == 1) + (p9 == 0 && p2 == 1);
-
-      int B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
-      int m1 = (p2 * p4 * p8);
-      int m2 = (p4 * p6 * p8);
-
-      if (A == 1 && (B >= 2 && B <= 6) && m1 == 0 && m2 == 0) {
-        thinned(i,j) = 0;
-      } else {
-        thinned(i,j) = img(i,j);
-      }
-    }
-  }
-  return thinned;
-}
-
-
-
-// EXTRACT PIXELS
-// [[Rcpp::export]]
-std::vector<std::vector<double>> help_get_rgb(const NumericMatrix &R, const NumericMatrix &G, const NumericMatrix &B, const IntegerMatrix &labels) {
-  int labelsCount = 0;
-  int nrow = R.nrow();
-  int ncol = R.ncol();
-  // get the number of labels
-  for (int i = 0; i < nrow * ncol; i++) {
-    labelsCount = std::max(labelsCount, labels[i]);
-  }
-  labelsCount++;
-
-  // create a list to store the RGB values for each label
-  std::vector<std::vector<double>> result(labelsCount);
-
-  // loop through each label
-  for (int i = 0; i < nrow; i++) {
-    for (int j = 0; j < ncol; j++) {
-      int label = labels(i, j);
-      if (label > 0) {
-        result[label].push_back(label);
-        result[label].push_back(R(i, j));
-        result[label].push_back(G(i, j));
-        result[label].push_back(B(i, j));
-      }
-    }
-  }
-  return result;
-}
-
-// EXTRACT RE and NIR
-// [[Rcpp::export]]
-std::vector<std::vector<double>> help_get_renir(const NumericMatrix &RE, const NumericMatrix &NIR, const IntegerMatrix &labels) {
-  int labelsCount = 0;
-  int nrow = RE.nrow();
-  int ncol = RE.ncol();
-  // get the number of labels
-  for (int i = 0; i < nrow * ncol; i++) {
-    labelsCount = std::max(labelsCount, labels[i]);
-  }
-  labelsCount++;
-
-  // create a list to store the RGB values for each label
-  std::vector<std::vector<double>> result(labelsCount);
-
-  // loop through each label
-  for (int i = 0; i < nrow; i++) {
-    for (int j = 0; j < ncol; j++) {
-      int label = labels(i, j);
-      if (label > 0) {
-        result[label].push_back(label);
-        result[label].push_back(RE(i, j));
-        result[label].push_back(NIR(i, j));
-      }
-    }
-  }
-  return result;
-}
-
-// GET THE COORDINATES OF A BOUNDING BOX OF A BINARY IMAGE
-// [[Rcpp::export]]
-IntegerVector bounding_box(LogicalMatrix img, int edge) {
-  int nrow = img.nrow();
-  int ncol = img.ncol();
-
-  int min_row = nrow;
-  int max_row = 0;
-  int min_col = ncol;
-  int max_col = 0;
-
-  for (int i = 0; i < nrow; i++) {
-    for (int j = 0; j < ncol; j++) {
-      if (img(i, j)) {
-        min_row = std::min(min_row, i);
-        max_row = std::max(max_row, i);
-        min_col = std::min(min_col, j);
-        max_col = std::max(max_col, j);
-      }
-    }
-  }
-  min_row = std::max(0, min_row - edge);
-  max_row = std::min(nrow - 1, max_row + edge);
-  min_col = std::max(0, min_col - edge);
-  max_col = std::min(ncol - 1, max_col + edge);
-  return IntegerVector::create(min_row, max_row, min_col, max_col);
-}
-
-// [[Rcpp::export]]
-List isolate_objects5(NumericMatrix img, IntegerMatrix labels) {
-
-  int nrows = labels.nrow(), ncols = labels.ncol();
-
-  // Get the unique labels in the mask, starting from 1
-  IntegerVector unique_labels = sort_unique(labels);
-  unique_labels = unique_labels[unique_labels != 0];
-
-  // Create a list to store the isolated objects
-  List isolated_objects(unique_labels.length());
-
-  // Loop over the unique labels in the mask
-  for (int i = 0; i < unique_labels.length(); i++) {
-    int id = unique_labels[i];
-
-    int top = nrows, bottom = 0, left = ncols, right = 0;
-
-    // Loop over the rows and columns of the labels matrix
-    for (int j = 0; j < nrows; j++) {
-      for (int k = 0; k < ncols; k++) {
-        if (labels(j,k) == id) {
-          // Update the bounding box
-          top = std::min(top, j);
-          bottom = std::max(bottom, j);
-          left = std::min(left, k);
-          right = std::max(right, k);
-        }
-      }
-    }
-
-    // Crop the object
-    int crop_nrows = bottom - top + 1;
-    int crop_ncols = right - left + 1;
-    NumericMatrix cropped(crop_nrows, crop_ncols);
-    for (int j = 0; j < crop_nrows; j++) {
-      for (int k = 0; k < crop_ncols; k++) {
-        cropped(j,k) = img(top + j, left + k);
-      }
-    }
-
-    // Add the isolated object to the list
-    isolated_objects[i] = cropped;
-  }
-
-  return isolated_objects;
-}
-
-
-
-
-// HELPER FUNCTION TO ISOLATE OBJECTS BASED ON R-G-B and labels
-// [[Rcpp::export]]
-List help_isolate_object(NumericMatrix R, NumericMatrix G, NumericMatrix B, IntegerMatrix labels, bool remove_bg, int edge) {
-
-  int nrows = labels.nrow(), ncols = labels.ncol();
-
-  // Get the unique labels in the mask, starting from 1
-  IntegerVector unique_labels = sort_unique(labels);
-  unique_labels = unique_labels[unique_labels != 0];
-
-  // Create a list to store the isolated objects
-  List isolated_objects(unique_labels.length());
-
-  // Loop over the unique labels in the mask
-  for (int i = 0; i < unique_labels.length(); i++) {
-    int id = unique_labels[i];
-
-    int top = nrows, bottom = 0, left = ncols, right = 0;
-
-    // Loop over the rows and columns of the labels matrix
-    for (int j = 0; j < nrows; j++) {
-      for (int k = 0; k < ncols; k++) {
-        if (labels(j,k) == id) {
-          // Update the bounding box
-          top = std::min(top, j);
-          bottom = std::max(bottom, j);
-          left = std::min(left, k);
-          right = std::max(right, k);
-
-        }
-      }
-    }
-    // Expand the bounding box by edge pixels
-    top = std::max(0, top - edge);
-    bottom = std::min(nrows - 1, bottom + edge);
-    left = std::max(0, left - edge);
-    right = std::min(ncols - 1, right + edge);
-
-    // Crop the objects
-    int crop_nrows = bottom - top + 1;
-    int crop_ncols = right - left + 1;
-    NumericMatrix croppedR(crop_nrows, crop_ncols);
-    NumericMatrix croppedG(crop_nrows, crop_ncols);
-    NumericMatrix croppedB(crop_nrows, crop_ncols);
-
-    for (int j = 0; j < crop_nrows; j++) {
-      for (int k = 0; k < crop_ncols; k++) {
-        croppedR(j,k) = R(top + j, left + k);
-        croppedG(j,k) = G(top + j, left + k);
-        croppedB(j,k) = B(top + j, left + k);
-      }
-    }
-
-    if(remove_bg){
-      // Fill the pixels that are not part of the object with white
-      for (int j = 0; j < crop_nrows; j++) {
-        for (int k = 0; k < crop_ncols; k++) {
-          if (labels(top + j, left + k) != id) {
-            croppedR(j,k) = 1;
-            croppedG(j,k) = 1;
-            croppedB(j,k) = 1;
-          }
-        }
-      }
-    }
-
-    // Store the isolated object in the list
-    isolated_objects[i] = List::create(croppedR, croppedG, croppedB);
-  }
-
-  return isolated_objects;
-}
-
-// [[Rcpp::export]]
-NumericMatrix help_shp(int rows, int cols, NumericVector dims, double buffer_x, double buffer_y) {
-  double xmin = dims[0];
-  double xmax = dims[1];
-  double ymin = dims[2];
-  double ymax = dims[3];
-  double xr = xmax - xmin;
-  double yr = ymax - ymin;
-
-  double intx = xr / cols;
-  double inty = yr / rows;
-
-  NumericMatrix coords(rows * cols * 5, 2);
-  int con = 0;
-
-  for (int i = 0; i < rows; i++) {
-    for (int j = 0; j < cols; j++) {
-      con++;
-
-      double x_start = xmin + j * intx;
-      double x_end = x_start + intx;
-      double y_start = ymin + i * inty;
-      double y_end = y_start + inty;
-
-      double buffered_x_start = x_start + buffer_x * intx;
-      double buffered_x_end = x_end - buffer_x * intx;
-      double buffered_y_start = y_start + buffer_y * inty;
-      double buffered_y_end = y_end - buffer_y * inty;
-
-      coords((con - 1) * 5, 0) = buffered_x_start;
-      coords((con - 1) * 5, 1) = buffered_y_start;
-      coords((con - 1) * 5 + 1, 0) = buffered_x_end;
-      coords((con - 1) * 5 + 1, 1) = buffered_y_start;
-      coords((con - 1) * 5 + 2, 0) = buffered_x_end;
-      coords((con - 1) * 5 + 2, 1) = buffered_y_end;
-      coords((con - 1) * 5 + 3, 0) = buffered_x_start;
-      coords((con - 1) * 5 + 3, 1) = buffered_y_end;
-      coords((con - 1) * 5 + 4, 0) = buffered_x_start;
-      coords((con - 1) * 5 + 4, 1) = buffered_y_start;
-    }
-  }
-  return coords;
-}
-
-
-
-
-
-// Function to compute Otsu's threshold
-// [[Rcpp::export]]
-double help_otsu(const NumericVector& img) {
-  int n = img.size();
-
-  double x_max = max(img);
-  double x_min = min(img);
-
-  // Compute histogram
-  std::vector<int> histogram(256, 0);
-  for (int i = 0; i < n; i++) {
-    int intensity = (int)(((1 - 0) / (x_max - x_min) * (img[i] - x_max) + 1) * 255);
-    histogram[intensity]++;
-  }
-
-  // Compute total number of pixels
-  int totalPixels = n;
-
-  // Compute sum of intensities
+// Otsu threshold computation on a 256-bin histogram
+static inline int otsu_from_histogram(const int* hist, int totalPixels) {
   double sum = 0;
-  for (int i = 0; i < 256; i++) {
-    sum += i * histogram[i];
-  }
-
-  // Compute sum of background intensities
+  for (int i = 0; i < 256; i++) sum += (double)i * hist[i];
   double sumBackground = 0;
   int backgroundPixels = 0;
-
-  // Initialize variables for storing optimal threshold and maximum between-class variance
   double maxVariance = 0;
-  double threshold = 0;
+  int threshold = 0;
 
-
-  // Iterate through all possible thresholds
   for (int i = 0; i < 256; i++) {
-    // Update background sum and number of background pixels
-    backgroundPixels += histogram[i];
-    sumBackground += i * histogram[i];
+    backgroundPixels += hist[i];
+    if (backgroundPixels == 0) continue;
+    int foregroundPixels = totalPixels - backgroundPixels;
+    if (foregroundPixels == 0) break;
 
-    // Calculate foreground and background weights
-    double weightBackground = (double)backgroundPixels / totalPixels;
-    double weightForeground = 1 - weightBackground;
-
-    // Calculate mean intensities
+    sumBackground += (double)i * hist[i];
     double meanBackground = sumBackground / backgroundPixels;
-    double meanForeground = (sum - sumBackground) / (totalPixels - backgroundPixels);
+    double meanForeground = (sum - sumBackground) / foregroundPixels;
+    double variance = (double)backgroundPixels * (double)foregroundPixels * (meanBackground - meanForeground) * (meanBackground - meanForeground);
 
-    // Calculate between-class variance
-    double variance = weightBackground * weightForeground * pow((meanBackground - meanForeground), 2);
-
-    // Update maximum variance and threshold
     if (variance > maxVariance) {
       maxVariance = variance;
       threshold = i;
     }
   }
-
-  // Scale the threshold value back to the range of 0-1
-
-  return threshold * (x_max - x_min) / 255 + x_min;
+  return threshold;
 }
 
-
-
-
-
-// Function to apply Guo-Hall thinning algorithm to a binary image
-// Adapted from https://observablehq.com/@esperanc/thinning#guoHall
 // [[Rcpp::export]]
-IntegerMatrix helper_guo_hall(IntegerMatrix image) {
-  int wid = image.ncol();
-  int hgt = image.nrow();
-  IntegerMatrix data2 = Rcpp::clone(image);
+List analyze_objects_cpp(SEXP img_sexp,
+                         SEXP bin_sexp = R_NilValue,
+                         std::string index_str = "NB",
+                         int r = 1, int g = 2, int b = 3,
+                         int re = 4, int nir = 5, int swir = 6,
+                         std::string threshold_method = "Otsu",
+                         double threshold_val = 0.5,
+                         double k_adj = 0.1,
+                         int windowsize = 15,
+                         bool invert = false,
+                         int erode_sz = 0,
+                         int dilate_sz = 0,
+                         int opening_sz = 0,
+                         int closing_sz = 0,
+                         int filter_sz = 0,
+                         bool fill_hull = false,
+                         CharacterVector filter_order = CharacterVector(),
+                         bool return_exact = false,
+                         bool watershed = true,
+                         double tolerance = 1.0,
+                         int ext = 1,
+                         bool haralick = false,
+                         int har_nbins = 32,
+                         int har_band = 1,
+                         int smooth = 0) {
 
-  auto get = [&](int col, int row) { return image(row, col) != 0; };
-  auto clear = [&](int col, int row) { data2(row, col) = 0; };
+  // Step 1: Obtain Binary Mask
+  LogicalMatrix bin_mat;
+  int nrow = 0, ncol = 0, N = 0;
 
-  IntegerMatrix stepCounter(wid, hgt);
+  if (!Rf_isNull(bin_sexp)) {
+    bin_mat = as<LogicalMatrix>(bin_sexp);
+    nrow = bin_mat.nrow();
+    ncol = bin_mat.ncol();
+    N = nrow * ncol;
+  } else {
+    SEXP dims = Rf_getAttrib(img_sexp, R_DimSymbol);
+    nrow = INTEGER(dims)[0];
+    ncol = INTEGER(dims)[1];
+    N = nrow * ncol;
 
-  // Performs the conditional removal of one pixel. Even is true
-  // if this is an even iteration.
-  // Returns 1 if pixel was removed and 0 if not
-  auto removePixel = [&](int col, int row, bool even) {
-    if (!get(col, row)) return 0; // Not a 1-pixel
-    int p2 = get(col - 1, row);
-    int p3 = get(col - 1, row + 1);
-    int p4 = get(col, row + 1);
-    int p5 = get(col + 1, row + 1);
-    int p6 = get(col + 1, row);
-    int p7 = get(col + 1, row - 1);
-    int p8 = get(col, row - 1);
-    int p9 = get(col - 1, row - 1);
-    int C = ((!p2) & (p3 | p4)) + ((!p4) & (p5 | p6)) + ((!p6) & (p7 | p8)) + ((!p8) & (p9 | p2));
-    if (C != 1) return 0;
-    int N1 = (p9 | p2) + (p3 | p4) + (p5 | p6) + (p7 | p8);
-    int N2 = (p2 | p3) + (p4 | p5) + (p6 | p7) + (p8 | p9);
-    int N = (N1 < N2) ? N1 : N2;
-    if (N < 2 || N > 3) return 0;
-    int m = even ? ((p6 | p7 | (!p9)) & p8) : ((p2 | p3 | (!p5)) & p4);
-    if (m == 0) {
-      clear(col, row);
-      stepCounter(row, col) = 1;
-      return 1;
-    }
-    return 0;
-  };
+    // Ultra-fast fused path for Otsu on raw uint8 RGB
+    if (TYPEOF(img_sexp) == RAWSXP && threshold_method == "Otsu" && (index_str == "NB" || index_str == "NR" || index_str == "NG" || index_str == "GRAY" || index_str == "R" || index_str == "G" || index_str == "B")) {
+      bin_mat = LogicalMatrix(nrow, ncol);
+      int* p_out = LOGICAL(bin_mat);
+      const uint8_t* ptr = RAW(img_sexp);
+      const uint8_t* pR = ptr + (r - 1) * N;
+      const uint8_t* pG = ptr + (g - 1) * N;
+      const uint8_t* pB = ptr + (b - 1) * N;
 
-  bool even = true;
+      int hist[256] = {0};
 
-  // Performs one thinning step.
-  // Returns the number of removed pixels
-  auto thinStep = [&]() {
-    int result = 0;
-    for (int row = 1; row < hgt - 1; row++) {
-      for (int col = 1; col < wid - 1; col++) {
-        result += removePixel(col, row, even);
+      if (index_str == "NB") {
+        #pragma omp parallel
+        {
+          int lhist[256] = {0};
+          #pragma omp for schedule(static)
+          for (int i = 0; i < N; i++) {
+            int s = (int)pR[i] + (int)pG[i] + (int)pB[i];
+            int bin = (s > 0) ? (((int)pB[i] * 255) / s) : 0;
+            lhist[bin]++;
+          }
+          #pragma omp critical
+          {
+            for (int k = 0; k < 256; k++) hist[k] += lhist[k];
+          }
+        }
+        int t = otsu_from_histogram(hist, N);
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < N; i++) {
+          int s = (int)pR[i] + (int)pG[i] + (int)pB[i];
+          int p255 = (int)pB[i] * 255;
+          int ts = t * s;
+          p_out[i] = invert ? (s > 0 && p255 > ts) : (s > 0 && p255 < ts);
+        }
+      } else if (index_str == "NR") {
+        #pragma omp parallel
+        {
+          int lhist[256] = {0};
+          #pragma omp for schedule(static)
+          for (int i = 0; i < N; i++) {
+            int s = (int)pR[i] + (int)pG[i] + (int)pB[i];
+            int bin = (s > 0) ? (((int)pR[i] * 255) / s) : 0;
+            lhist[bin]++;
+          }
+          #pragma omp critical
+          {
+            for (int k = 0; k < 256; k++) hist[k] += lhist[k];
+          }
+        }
+        int t = otsu_from_histogram(hist, N);
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < N; i++) {
+          int s = (int)pR[i] + (int)pG[i] + (int)pB[i];
+          int p255 = (int)pR[i] * 255;
+          int ts = t * s;
+          p_out[i] = invert ? (s > 0 && p255 > ts) : (s > 0 && p255 < ts);
+        }
+      } else if (index_str == "NG") {
+        #pragma omp parallel
+        {
+          int lhist[256] = {0};
+          #pragma omp for schedule(static)
+          for (int i = 0; i < N; i++) {
+            int s = (int)pR[i] + (int)pG[i] + (int)pB[i];
+            int bin = (s > 0) ? (((int)pG[i] * 255) / s) : 0;
+            lhist[bin]++;
+          }
+          #pragma omp critical
+          {
+            for (int k = 0; k < 256; k++) hist[k] += lhist[k];
+          }
+        }
+        int t = otsu_from_histogram(hist, N);
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < N; i++) {
+          int s = (int)pR[i] + (int)pG[i] + (int)pB[i];
+          int p255 = (int)pG[i] * 255;
+          int ts = t * s;
+          p_out[i] = invert ? (s > 0 && p255 > ts) : (s > 0 && p255 < ts);
+        }
+      } else if (index_str == "GRAY") {
+        #pragma omp parallel
+        {
+          int lhist[256] = {0};
+          #pragma omp for schedule(static)
+          for (int i = 0; i < N; i++) {
+            int v = (299 * (int)pR[i] + 587 * (int)pG[i] + 114 * (int)pB[i]) / 1000;
+            if (v < 0) v = 0; else if (v > 255) v = 255;
+            lhist[v]++;
+          }
+          #pragma omp critical
+          {
+            for (int k = 0; k < 256; k++) hist[k] += lhist[k];
+          }
+        }
+        int t = otsu_from_histogram(hist, N);
+        int t1000 = t * 1000;
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < N; i++) {
+          int v = 299 * (int)pR[i] + 587 * (int)pG[i] + 114 * (int)pB[i];
+          p_out[i] = invert ? (v > t1000) : (v < t1000);
+        }
+      } else {
+        const uint8_t* pChan = (index_str == "R") ? pR : ((index_str == "G") ? pG : pB);
+        #pragma omp parallel
+        {
+          int lhist[256] = {0};
+          #pragma omp for schedule(static)
+          for (int i = 0; i < N; i++) lhist[pChan[i]]++;
+          #pragma omp critical
+          {
+            for (int k = 0; k < 256; k++) hist[k] += lhist[k];
+          }
+        }
+        int t = otsu_from_histogram(hist, N);
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < N; i++) p_out[i] = invert ? (pChan[i] > t) : (pChan[i] < t);
+      }
+    } else {
+      SEXP idx_sexp = PROTECT(compute_single_index_cpp(img_sexp, index_str, r, g, b, re, nir, swir, "auto"));
+      if (threshold_method == "Otsu") {
+        double otsu_t = help_otsu(idx_sexp);
+        SEXP bin_sexp_tmp = PROTECT(cpp_binary_threshold(idx_sexp, otsu_t, invert ? 3 : 1, false));
+        bin_mat = as<LogicalMatrix>(bin_sexp_tmp);
+        UNPROTECT(2);
+      } else if (threshold_method == "adaptive" || threshold_method == "Adaptive") {
+        NumericMatrix idx_num = as<NumericMatrix>(idx_sexp);
+        int wsize = windowsize;
+        if (wsize <= 2) {
+          wsize = std::min(idx_num.nrow(), idx_num.ncol()) / 3;
+          if (wsize % 2 == 0) wsize++;
+        }
+        if (wsize < 3) wsize = 3;
+        NumericMatrix ad_bin = threshold_adaptive(idx_num, k_adj, wsize, 1.0);
+        bin_mat = LogicalMatrix(ad_bin.nrow(), ad_bin.ncol());
+        const double* p_ad = REAL(ad_bin);
+        int* p_bin = LOGICAL(bin_mat);
+        for (int i = 0; i < N; i++) {
+          p_bin[i] = invert ? (p_ad[i] == 0.0) : (p_ad[i] != 0.0);
+        }
+        UNPROTECT(1);
+      } else {
+        SEXP bin_sexp_tmp = PROTECT(cpp_binary_threshold(idx_sexp, threshold_val, invert ? 3 : 1, false));
+        bin_mat = as<LogicalMatrix>(bin_sexp_tmp);
+        UNPROTECT(2);
       }
     }
-    even = !even;
-    image = clone(data2); // Copy data2 back to image
-    return result;
-  };
-
-  // Performs the thinning algorithm
-  int n = 0;
-  do {
-    stepCounter.fill(0);
-    n = thinStep();
-  } while (n > 0);
-
-  return image;
-}
-
-// IDW interpolation function using Rcpp
-// [[Rcpp::export]]
-NumericVector idw_interpolation_cpp(NumericVector x, NumericVector y, NumericVector values,
-                                    NumericVector new_x, NumericVector new_y, double power = 2) {
-  // Calculate distances between new points and existing points
-  NumericMatrix distances(new_x.size(), x.size());
-  for (int i = 0; i < new_x.size(); ++i) {
-    distances(i, _) = sqrt(pow(x - new_x[i], 2) + pow(y - new_y[i], 2));
   }
 
-  // Initialize a NumericVector to store results
-  NumericVector results(new_x.size(), NA_REAL);
+  // Step 2: Apply Morphological Filters
+  if (erode_sz > 0 || dilate_sz > 0 || opening_sz > 0 || closing_sz > 0 || filter_sz > 0 || fill_hull) {
+    if (filter_order.size() == 0) {
+      filter_order = CharacterVector::create("erode", "dilate", "opening", "closing", "filter", "fill_hull");
+    }
 
-  for (int i = 0; i < new_x.size(); ++i) {
-    // Inverse distance weighting formula
-    NumericVector weights = 1.0 / pow(distances(i, _), power);
-    double weighted_sum = sum(weights * values);
-    double total_weight = sum(weights);
-    results[i] = total_weight > 0 ? weighted_sum / total_weight : NA_REAL;
+    bool do_exact_opening = return_exact && (opening_sz > 0);
 
-  }
-  return results;
-}
-// Function to adjust the bounding box around the centroid
-NumericMatrix adjust_bbox(NumericMatrix coords, double width, double height) {
-  NumericVector cent = colMeans(coords(Range(0, 3), _));
-  double xmin = cent[0] - width / 2;
-  double xmax = cent[0] + width / 2;
-  double ymin = cent[1] - height / 2;
-  double ymax = cent[1] + height / 2;
+    bin_mat = help_binary_filters_cpp(
+      bin_mat,
+      erode_sz,
+      dilate_sz,
+      do_exact_opening ? 0 : opening_sz,
+      closing_sz,
+      filter_sz,
+      fill_hull,
+      filter_order
+    );
 
-  NumericMatrix new_bbox(5, 2);
-  new_bbox(0, 0) = xmin; new_bbox(0, 1) = ymin;
-  new_bbox(1, 0) = xmin; new_bbox(1, 1) = ymax;
-  new_bbox(2, 0) = xmax; new_bbox(2, 1) = ymax;
-  new_bbox(3, 0) = xmax; new_bbox(3, 1) = ymin;
-  new_bbox(4, 0) = xmin; new_bbox(4, 1) = ymin; // Closing the polygon
+    if (do_exact_opening) {
+      LogicalMatrix eroded_seed = erode_cpp(bin_mat, opening_sz, "disc");
+      IntegerMatrix temp_labels = bwlabel_cpp(bin_mat);
 
-  return new_bbox;
-}
+      if (N > 0 && temp_labels.size() == N && eroded_seed.size() == N) {
+        const int* p_lab = INTEGER(temp_labels);
+        const int* p_seed = LOGICAL(eroded_seed);
 
+        int max_lab = 0;
+        for (int i = 0; i < N; i++) {
+          if (p_lab[i] > max_lab) max_lab = p_lab[i];
+        }
 
-// [[Rcpp::export]]
-IntegerMatrix help_label(IntegerMatrix matrix, int max_gap = 2) {
-  int rows = matrix.nrow();
-  int cols = matrix.ncol();
-  IntegerMatrix labels(rows, cols);
-  int current_label = 0;
+        if (max_lab > 0) {
+          std::vector<uint8_t> surviving(max_lab + 1, 0);
+          for (int i = 0; i < N; i++) {
+            if (p_seed[i] != 0 && p_seed[i] != NA_LOGICAL && p_lab[i] > 0 && p_lab[i] <= max_lab) {
+              surviving[p_lab[i]] = 1;
+            }
+          }
 
-  // Função auxiliar para verificar se dois pixels estão dentro do gap permitido
-  auto is_within_gap = [&](int r1, int c1, int r2, int c2) {
-    return abs(r1 - r2) <= max_gap && abs(c1 - c2) <= max_gap;
-  };
-
-  // Pilhas para busca em profundidade
-  std::vector<int> stack_r, stack_c;
-
-  // Iterar sobre cada pixel da matriz
-  for (int r = 0; r < rows; ++r) {
-    for (int c = 0; c < cols; ++c) {
-      if (matrix(r, c) == 1 && labels(r, c) == 0) { // Novo objeto encontrado
-        ++current_label;
-        stack_r.push_back(r);
-        stack_c.push_back(c);
-
-        // Rotular os pixels conectados
-        while (!stack_r.empty()) {
-          int cr = stack_r.back();
-          int cc = stack_c.back();
-          stack_r.pop_back();
-          stack_c.pop_back();
-
-          if (labels(cr, cc) == 0) {
-            labels(cr, cc) = current_label;
-
-            // Verificar vizinhos
-            for (int dr = -max_gap; dr <= max_gap; ++dr) {
-              for (int dc = -max_gap; dc <= max_gap; ++dc) {
-                if (abs(dr) + abs(dc) > 0) { // Ignorar o próprio pixel
-                  int nr = cr + dr;
-                  int nc = cc + dc;
-
-                  if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
-                    if (matrix(nr, nc) == 1 && labels(nr, nc) == 0 && is_within_gap(cr, cc, nr, nc)) {
-                      stack_r.push_back(nr);
-                      stack_c.push_back(nc);
-                    }
-                  }
-                }
-              }
+          int* p_bin = LOGICAL(bin_mat);
+          for (int i = 0; i < N; i++) {
+            if (p_lab[i] > 0 && p_lab[i] <= max_lab && !surviving[p_lab[i]]) {
+              p_bin[i] = 0;
             }
           }
         }
       }
     }
   }
-  return labels;
-}
 
-// [[Rcpp::export]]
-NumericVector rcpp_st_perimeter(List sf_coords) {
-  int n = sf_coords.size();
-  NumericVector perimeters(n);
-
-  for (int i = 0; i < n; ++i) {
-    List geom = sf_coords[i]; // Get each geometry (may consist of multiple rings)
-    double total_perimeter = 0.0;
-
-    for (int j = 0; j < geom.size(); ++j) {
-      NumericMatrix ring = geom[j]; // Single ring (matrix of coordinates)
-      double ring_perimeter = 0.0;
-      int rows = ring.nrow();
-
-      for (int k = 0; k < rows - 1; ++k) {
-        // Calculate Euclidean distance between consecutive points
-        double dx = ring(k + 1, 0) - ring(k, 0);
-        double dy = ring(k + 1, 1) - ring(k, 1);
-        ring_perimeter += sqrt(dx * dx + dy * dy);
-      }
-
-      total_perimeter += ring_perimeter;
-    }
-    perimeters[i] = total_perimeter;
-  }
-  return perimeters;
-}
-
-// Helper function to generate random hexadecimal characters
-std::string generate_random_hex(int length) {
-  const char hex_chars[] = "0123456789abcdef";
-  std::string result(length, '0');
-  GetRNGstate(); // Inicia o RNG do R
-  for (int i = 0; i < length; i++) {
-    result[i] = hex_chars[(int)(unif_rand() * 16)]; // Gera um índice entre 0 e 15
-  }
-  PutRNGstate(); // Finaliza o RNG do R
-
-  return result;
-}
-
-// [[Rcpp::export]]
-std::string  uuid_v7() {
-  // Step 1: Get current timestamp in milliseconds since Unix epoch
-  auto now = std::chrono::system_clock::now();
-  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch());
-  long long timestamp = duration.count();
-
-  // Convert timestamp to a hexadecimal string with exactly 12 characters
-  std::stringstream ss;
-  ss << std::hex << std::setw(12) << std::setfill('0') << (timestamp & 0xFFFFFFFFFFFF); // Ensure 12 hex digits
-  std::string timestamp_hex = ss.str();
-
-  // Step 2: Extract components from the timestamp
-  std::string time_low = timestamp_hex.substr(0, 8);  // First 8 hex digits (32 bits)
-  std::string time_mid = timestamp_hex.substr(8, 4);  // Next 4 hex digits (16 bits)
-  std::string time_high_and_version = generate_random_hex(4); // Generate 4 random hex chars
-  time_high_and_version[0] = '7'; // Set the version to 7 (Version 7 UUID)
-
-  // Step 3: Generate the variant and clock sequence
-  std::string variant_and_sequence = generate_random_hex(4);
-  GetRNGstate(); // Inicia o RNG do R para a variante
-  variant_and_sequence[0] = "89ab"[(int)(unif_rand() * 4)]; // Define a variante (8, 9, a, b)
-  PutRNGstate(); // Finaliza o RNG do R
-
-  // Step 4: Generate the node (random bits for uniqueness)
-  std::string node = generate_random_hex(12);
-
-  // Step 5: Combine all components into the UUID structure
-  std::string uuid = time_low + "-" + time_mid + "-" + time_high_and_version +
-    "-" + variant_and_sequence + "-" + node;
-
-  // Ensure UUID is exactly 36 characters long (with 4 hyphens)
-  if (uuid.length() != 36) {
-    throw std::runtime_error("Generated UUID has incorrect length: " + uuid);
-  }
-
-  return uuid;
-}
-
-// [[Rcpp::export]]
-double helper_entropy(NumericVector values, int precision = 2) {
-  std::unordered_map<double, int> freq;
-  int n = values.size();
-
-  // Compute frequencies with rounding
-  double scale = pow(10.0, precision);
-  for (int i = 0; i < n; ++i) {
-    double rounded_val = round(values[i] * scale) / scale;
-    freq[rounded_val]++;
-  }
-
-  // Compute entropy
-  double entropy = 0.0;
-  for (auto& pair : freq) {
-    double prob = static_cast<double>(pair.second) / n;
-    entropy -= prob * log(prob);
-  }
-
-  return entropy;
-}
-
-
-// [[Rcpp::export]]
-CharacterVector corners_to_wkt(List cornersList) {
-  int nPlots = cornersList.size();
-  CharacterVector out(nPlots);
-
-  for (int k = 0; k < nPlots; ++k) {
-    NumericVector v = as<NumericVector>(cornersList[k]);
-    int len = v.size();
-    if (len < 8 || (len % 2) != 0) {
-      stop("Each element must be an even-length numeric vector of at least 8 elements");
-    }
-    int rows = len / 2;
-
-    // build rows×2 matrix of coordinates
-    NumericMatrix m(rows, 2);
-    for (int i = 0; i < rows; ++i) {
-      m(i, 0) = v[i];
-      m(i, 1) = v[i + rows];
-    }
-
-    // take first four unique corners (drop closing point)
-    NumericMatrix c4(4, 2);
-    for (int i = 0; i < 4; ++i) {
-      c4(i, 0) = m(i, 0);
-      c4(i, 1) = m(i, 1);
-    }
-
-    // squared lengths of edges 1–2 and 2–3
-    double dx1 = c4(0,0) - c4(1,0);
-    double dy1 = c4(0,1) - c4(1,1);
-    double d1  = dx1*dx1 + dy1*dy1;
-    double dx2 = c4(1,0) - c4(2,0);
-    double dy2 = c4(1,1) - c4(2,1);
-    double d2  = dx2*dx2 + dy2*dy2;
-
-    // choose longer-opposite edges midpoints
-    double x1, y1, x2, y2;
-    if (d1 < d2) {
-      // edges 1–2 & 3–4 shorter => mids of those
-      x1 = (c4(0,0) + c4(1,0)) * 0.5;
-      y1 = (c4(0,1) + c4(1,1)) * 0.5;
-      x2 = (c4(2,0) + c4(3,0)) * 0.5;
-      y2 = (c4(2,1) + c4(3,1)) * 0.5;
-    } else {
-      // edges 2–3 & 4–1 shorter
-      x1 = (c4(1,0) + c4(2,0)) * 0.5;
-      y1 = (c4(1,1) + c4(2,1)) * 0.5;
-      x2 = (c4(3,0) + c4(0,0)) * 0.5;
-      y2 = (c4(3,1) + c4(0,1)) * 0.5;
-    }
-
-    // format WKT with fixed decimals
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(6)
-        << "LINESTRING(" << x1 << " " << y1 << ","
-        << x2 << " " << y2 << ")";
-
-    out[k] = oss.str();
-  }
-
-  return out;
-}
-// [[Rcpp::export]]
-arma::cube correct_image_rcpp(const arma::cube& img,
-                              const arma::mat& K,
-                              std::string model) {
-
-  int n_rows = img.n_rows;
-  int n_cols = img.n_cols;
-  arma::cube out_img(n_rows, n_cols, 3, arma::fill::zeros);
-  arma::rowvec T_pixel(3); // A saída é sempre 3 (R,G,B)
-  double R, G, B;
-
-  // --- CAMINHO 1: Modelo "cubic" (9 termos) ---
-  if (model == "cubic") {
-    if (K.n_rows != 9) {
-      Rcpp::stop("Erro: 'k_mat' tem %i linhas, mas o modelo 'cubic' espera 9.", K.n_rows);
-    }
-
-    arma::rowvec S_pixel(9); // Vetor de 9 termos
-
-    for (int i = 0; i < n_rows; ++i) {
-      for (int j = 0; j < n_cols; ++j) {
-        R = img(i, j, 0);
-        G = img(i, j, 1);
-        B = img(i, j, 2);
-
-        // Preenche os 9 termos
-        S_pixel(0) = R;
-        S_pixel(1) = G;
-        S_pixel(2) = B;
-        S_pixel(3) = R * R;
-        S_pixel(4) = G * G;
-        S_pixel(5) = B * B;
-        S_pixel(6) = R * R * R;
-        S_pixel(7) = G * G * G;
-        S_pixel(8) = B * B * B;
-
-        // (1x9) * (9x3) = (1x3)
-        T_pixel = S_pixel * K;
-
-        out_img(i, j, 0) = T_pixel(0);
-        out_img(i, j, 1) = T_pixel(1);
-        out_img(i, j, 2) = T_pixel(2);
-      }
-    }
-  } else if (model == "root_polynomial") {
-    if (K.n_rows != 20) {
-      Rcpp::stop("Erro: 'k_mat' tem %i linhas, mas o modelo 'root_polynomial' espera 20.", K.n_rows);
-    }
-
-    arma::rowvec S_pixel(20); // Vetor de 20 termos
-    double R2, G2, B2; // Variáveis intermediárias
-
-    for (int i = 0; i < n_rows; ++i) {
-      for (int j = 0; j < n_cols; ++j) {
-        R = img(i, j, 0);
-        G = img(i, j, 1);
-        B = img(i, j, 2);
-
-        R2 = R * R;
-        G2 = G * G;
-        B2 = B * B;
-
-        // Preenche os 20 termos
-        S_pixel(0) = 1.0; // Intercept
-        S_pixel(1) = R;
-        S_pixel(2) = G;
-        S_pixel(3) = B;
-        S_pixel(4) = R * G;
-        S_pixel(5) = R * B;
-        S_pixel(6) = G * B;
-        S_pixel(7) = R2;
-        S_pixel(8) = G2;
-        S_pixel(9) = B2;
-        S_pixel(10) = R2 * R; // R3
-        S_pixel(11) = G2 * G; // G3
-        S_pixel(12) = B2 * B; // B3
-        S_pixel(13) = R2 * G;
-        S_pixel(14) = R2 * B;
-        S_pixel(15) = G2 * R;
-        S_pixel(16) = G2 * B;
-        S_pixel(17) = B2 * R;
-        S_pixel(18) = B2 * G;
-        S_pixel(19) = R * G * B;
-
-        // (1x20) * (20x3) = (1x3)
-        T_pixel = S_pixel * K;
-
-        out_img(i, j, 0) = T_pixel(0);
-        out_img(i, j, 1) = T_pixel(1);
-        out_img(i, j, 2) = T_pixel(2);
-      }
-    }
-
-    // --- CAMINHO 3: Erro ---
+  // Step 3: Labeling (Watershed vs BWLabel)
+  IntegerMatrix labels;
+  if (watershed) {
+    labels = watershed_cpp(bin_mat, tolerance, ext);
   } else {
-    Rcpp::stop("Modelo '"+ model +"' não é reconhecido. Use 'cubic' ou 'root_polynomial'.");
+    labels = bwlabel_cpp(bin_mat);
   }
 
-  return out_img;
-}
+  int* p_labels = INTEGER(labels);
 
-double dist_eucl(double x1, double y1, double x2, double y2) {
-  return std::sqrt(std::pow(x2 - x1, 2) + std::pow(y2 - y1, 2));
-}
-double dist_sq(double x1, double y1, double x2, double y2) {
-  return std::pow(x2 - x1, 2) + std::pow(y2 - y1, 2);
-}
-NumericVector get_point_at_dist(NumericMatrix coords, NumericVector cum_dist, double target_dist) {
-  int n = coords.nrow();
-  if (target_dist <= 0) return coords(0, _);
-  if (target_dist >= cum_dist[n-1]) return coords(n-1, _);
-  int i = 0;
-  while(i < n - 1 && cum_dist[i+1] < target_dist) i++;
-  double segment_len = cum_dist[i+1] - cum_dist[i];
-  if (segment_len == 0) return coords(i, _);
-  double t = (target_dist - cum_dist[i]) / segment_len;
-  NumericVector out(2);
-  out[0] = coords(i, 0) * (1 - t) + coords(i+1, 0) * t;
-  out[1] = coords(i, 1) * (1 - t) + coords(i+1, 1) * t;
-  return out;
-}
-int get_closest_idx_forward(NumericMatrix rail, double tx, double ty, int start_idx) {
-  int n = rail.nrow();
-  int best_idx = start_idx;
-  double min_d2 = dist_sq(rail(start_idx, 0), rail(start_idx, 1), tx, ty);
-  int search_limit = std::min(n, start_idx + 1000);
+  // Step 4: Extract Contours & Compute Shape Measures & Convex Hulls
+  int max_label = 0;
+  #pragma omp parallel for reduction(max:max_label) schedule(static)
+  for (int i = 0; i < N; i++) {
+    if (p_labels[i] > max_label) max_label = p_labels[i];
+  }
 
-  for(int i = start_idx + 1; i < search_limit; i++) {
-    double d2 = dist_sq(rail(i, 0), rail(i, 1), tx, ty);
-    if (d2 < min_d2) {
-      min_d2 = d2;
-      best_idx = i;
+  if (max_label == 0) {
+    return List::create(
+      _["labels"] = labels,
+      _["shape"] = DataFrame(),
+      _["contours"] = List(),
+      _["chull"] = List(),
+      _["haralick"] = R_NilValue
+    );
+  }
+
+  List ocont;
+  DataFrame shape;
+  List ch_list;
+
+  if (smooth > 0) {
+    ocont = extract_contours_cpp(labels);
+    ocont = smoothContours(ocont, smooth);
+    shape = poly_measures_cpp(ocont, false);
+    ch_list = compute_chulls_cpp(ocont);
+  } else {
+    std::vector<int> start_r(max_label + 1, -1);
+    std::vector<int> start_c(max_label + 1, -1);
+    std::vector<int> start_idx(max_label + 1, -1);
+
+    int idx = 0;
+    for (int c = 0; c < ncol; c++) {
+      for (int r = 0; r < nrow; r++, idx++) {
+        int id = p_labels[idx];
+        if (id > 0 && start_idx[id] == -1) {
+          start_r[id] = r;
+          start_c[id] = c;
+          start_idx[id] = idx;
+        }
+      }
     }
-  }
-  return best_idx;
-}
-// [[Rcpp::export]]
-List make_grid_structure(NumericMatrix rail1,
-                         NumericMatrix rail2,
-                         int nrow,
-                         int ncol,
-                         double buffer_col,
-                         double buffer_row,
-                         Nullable<double> plot_width_opt,
-                         Nullable<double> plot_height_opt) {
-  int n1 = rail1.nrow();
-  NumericVector cum_dist1(n1); cum_dist1[0] = 0;
-  for(int i=1; i<n1; i++) cum_dist1[i] = cum_dist1[i-1] + dist_eucl(rail1(i-1,0), rail1(i-1,1), rail1(i,0), rail1(i,1));
-  double total_len1 = cum_dist1[n1-1];
 
-  int n2 = rail2.nrow();
-  NumericVector cum_dist2(n2); cum_dist2[0] = 0;
-  for(int i=1; i<n2; i++) cum_dist2[i] = cum_dist2[i-1] + dist_eucl(rail2(i-1,0), rail2(i-1,1), rail2(i,0), rail2(i,1));
-  double total_len2 = cum_dist2[n2-1];
+    const int dr[] = {-1, -1,  0,  1, 1, 1, 0, -1};
+    const int dc[] = { 0,  1,  1,  1, 0,-1,-1, -1};
+    const int doff[] = {-1, nrow - 1, nrow, nrow + 1, 1, -nrow + 1, -nrow, -nrow - 1};
 
-  double cell_along_avg = (total_len1 / ncol + total_len2 / ncol) / 2.0;
-  double margin_along = 0.0;
-  if (plot_width_opt.isNotNull()) {
-    double pw = as<double>(plot_width_opt);
-    margin_along = std::max(0.0, (cell_along_avg - pw) / 2.0);
-  } else if (buffer_col > 0) {
-    margin_along = buffer_col / 2.0;
-  }
+    std::vector<std::vector<int>> all_bx(max_label + 1);
+    std::vector<std::vector<int>> all_by(max_label + 1);
 
-  List out_list(nrow * ncol);
-  int idx = 0;
+    for (int id = 1; id <= max_label; id++) {
+      if (start_idx[id] == -1) continue;
 
-  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
+      int sr = start_r[id], sc = start_c[id], sidx = start_idx[id];
+      auto& b_x = all_bx[id];
+      auto& b_y = all_by[id];
+      b_x.reserve(256);
+      b_y.reserve(256);
 
-  for (int i = 0; i < ncol; i++) {
-    double t_base_start = (double)i / ncol;
-    double t_base_end   = (double)(i + 1) / ncol;
-    double dist_start_l1 = t_base_start * total_len1 + margin_along;
-    double dist_end_l1   = t_base_end * total_len1   - margin_along;
-    double dist_start_l2 = t_base_start * total_len2 + margin_along;
-    double dist_end_l2   = t_base_end * total_len2   - margin_along;
+      b_x.push_back(sr);
+      b_y.push_back(sc);
 
-    NumericVector p_r1_start = get_point_at_dist(rail1, cum_dist1, dist_start_l1);
-    NumericVector p_r1_end   = get_point_at_dist(rail1, cum_dist1, dist_end_l1);
-    NumericVector p_r2_start = get_point_at_dist(rail2, cum_dist2, dist_start_l2);
-    NumericVector p_r2_end   = get_point_at_dist(rail2, cum_dist2, dist_end_l2);
+      int curr_r = sr, curr_c = sc, curr_idx = sidx;
+      int backtrack = 6;
+      int next_r = -1, next_c = -1, next_idx = -1, next_backtrack = -1;
+      bool found = false;
 
-    double w_top = dist_eucl(p_r1_start[0], p_r1_start[1], p_r2_start[0], p_r2_start[1]);
-    double w_bot = dist_eucl(p_r1_end[0],   p_r1_end[1],   p_r2_end[0],   p_r2_end[1]);
-    double cell_cross_avg = (w_top + w_bot) / 2.0 / nrow;
+      for (int i = 1; i <= 8; i++) {
+        int dir = backtrack + i;
+        if (dir >= 8) dir -= 8;
+        int nr = curr_r + dr[dir], nc = curr_c + dc[dir];
+        if (static_cast<unsigned>(nr) < static_cast<unsigned>(nrow) &&
+            static_cast<unsigned>(nc) < static_cast<unsigned>(ncol)) {
+          int nidx = curr_idx + doff[dir];
+          if (p_labels[nidx] == id) {
+            next_r = nr; next_c = nc; next_idx = nidx;
+            next_backtrack = dir + 4;
+            if (next_backtrack >= 8) next_backtrack -= 8;
+            found = true;
+            break;
+          }
+        }
+      }
 
-    double margin_cross = 0.0;
-    if (plot_height_opt.isNotNull()) {
-      double ph = as<double>(plot_height_opt);
-      margin_cross = std::max(0.0, (cell_cross_avg - ph) / 2.0);
-    } else if (buffer_row > 0) {
-      margin_cross = buffer_row / 2.0;
+      if (found && (next_idx != sidx)) {
+        int second_idx = next_idx;
+        curr_r = next_r; curr_c = next_c; curr_idx = next_idx; backtrack = next_backtrack;
+        b_x.push_back(curr_r); b_y.push_back(curr_c);
+        int max_iter = N;
+        int iter = 0;
+
+        while (iter++ < max_iter) {
+          bool step_found = false;
+          for (int i = 1; i <= 8; i++) {
+            int dir = backtrack + i;
+            if (dir >= 8) dir -= 8;
+            int nr = curr_r + dr[dir], nc = curr_c + dc[dir];
+            if (static_cast<unsigned>(nr) < static_cast<unsigned>(nrow) &&
+                static_cast<unsigned>(nc) < static_cast<unsigned>(ncol)) {
+              int nidx = curr_idx + doff[dir];
+              if (p_labels[nidx] == id) {
+                next_r = nr; next_c = nc; next_idx = nidx;
+                next_backtrack = dir + 4;
+                if (next_backtrack >= 8) next_backtrack -= 8;
+                step_found = true;
+                break;
+              }
+            }
+          }
+          if (!step_found) break;
+          if (curr_idx == sidx && next_idx == second_idx) break;
+          curr_r = next_r; curr_c = next_c; curr_idx = next_idx; backtrack = next_backtrack;
+          b_x.push_back(curr_r); b_y.push_back(curr_c);
+        }
+      }
     }
-    for (int j = 0; j < nrow; j++) {
-      double u_base_start = (double)j / nrow;
-      double u_base_end   = (double)(j + 1) / nrow;
-      double u_margin_top = margin_cross / w_top;
-      double u_margin_bot = margin_cross / w_bot;
-      double u_start_top = u_base_start + u_margin_top;
-      double u_end_top   = u_base_end   - u_margin_top;
-      double u_start_bot = u_base_start + u_margin_bot;
-      double u_end_bot   = u_base_end   - u_margin_bot;
-      double x1 = p_r1_start[0] * (1-u_start_top) + p_r2_start[0] * u_start_top;
-      double y1 = p_r1_start[1] * (1-u_start_top) + p_r2_start[1] * u_start_top;
-      double x2 = p_r1_start[0] * (1-u_end_top)   + p_r2_start[0] * u_end_top;
-      double y2 = p_r1_start[1] * (1-u_end_top)   + p_r2_start[1] * u_end_top;
-      double x3 = p_r1_end[0] * (1-u_end_bot)   + p_r2_end[0] * u_end_bot;
-      double y3 = p_r1_end[1] * (1-u_end_bot)   + p_r2_end[1] * u_end_bot;
-      double x4 = p_r1_end[0] * (1-u_start_bot) + p_r2_end[0] * u_start_bot;
-      double y4 = p_r1_end[1] * (1-u_start_bot) + p_r2_end[1] * u_start_bot;
-      NumericMatrix ring(5, 2);
-      ring(0,0) = x1; ring(0,1) = y1;
-      ring(1,0) = x2; ring(1,1) = y2;
-      ring(2,0) = x3; ring(2,1) = y3;
-      ring(3,0) = x4; ring(3,1) = y4;
-      ring(4,0) = x1; ring(4,1) = y1;
-      List polygon_sfg(1);
-      polygon_sfg[0] = ring;
-      polygon_sfg.attr("class") = sfg_class;
 
-      out_list[idx] = polygon_sfg;
-      idx++;
+    struct ObjMetric {
+      double mass_x = NA_REAL, mass_y = NA_REAL;
+      double area = NA_REAL, area_ch = NA_REAL;
+      double perimeter = NA_REAL;
+      double radius_mean = NA_REAL, radius_min = NA_REAL, radius_max = NA_REAL, radius_sd = NA_REAL;
+      double radius_ratio = NA_REAL;
+      double diam_mean = NA_REAL, diam_min = NA_REAL, diam_max = NA_REAL;
+      double caliper = NA_REAL, length_m = NA_REAL, width_m = NA_REAL;
+      double solidity = NA_REAL, convexity = NA_REAL, elongation = NA_REAL;
+      double circularity = NA_REAL, circularity_haralick = NA_REAL, circularity_norm = NA_REAL;
+      double eccentricity = NA_REAL, maj_axis = NA_REAL, min_axis = NA_REAL, theta = NA_REAL;
+      double coverage = NA_REAL, form_factor = NA_REAL, narrow_factor = NA_REAL;
+      double asp_ratio = NA_REAL, rectangularity = NA_REAL, pd_ratio = NA_REAL, plw_ratio = NA_REAL;
+      std::vector<std::pair<double, double>> hull;
+      bool valid = false;
+    };
+
+    std::vector<ObjMetric> metrics(max_label);
+    double total_pixels = static_cast<double>(N);
+
+    // Pure C++ thread-safe parallel computations (No R API / SEXP allocations)
+    #pragma omp parallel for schedule(dynamic) if(max_label > 10)
+    for (int id = 1; id <= max_label; id++) {
+      const auto& px_i = all_bx[id];
+      const auto& py_i = all_by[id];
+      int n_pts = px_i.size();
+      if (n_pts < 3) continue;
+
+      int i = id - 1;
+      auto& m = metrics[i];
+      m.valid = true;
+
+      std::vector<double> px(n_pts), py(n_pts);
+      for (int j = 0; j < n_pts; j++) {
+        px[j] = static_cast<double>(px_i[j] + 2);
+        py[j] = static_cast<double>(py_i[j] + 2);
+      }
+
+      // Shoelace
+      double a = 0.0, cm_x = 0.0, cm_y = 0.0;
+      for (int j = 0; j < n_pts; ++j) {
+        int next_j = (j + 1) % n_pts;
+        double x1 = px[j], y1 = py[j];
+        double x2 = px[next_j], y2 = py[next_j];
+        double cross = x1 * y2 - x2 * y1;
+        a += cross;
+        cm_x += (x1 + x2) * cross;
+        cm_y += (y1 + y2) * cross;
+      }
+      double abs_area = std::abs(a / 2.0);
+      m.area = abs_area;
+      if (abs_area > 0.0 && a != 0.0) {
+        m.mass_x = cm_x / (6.0 * (a / 2.0));
+        m.mass_y = cm_y / (6.0 * (a / 2.0));
+      } else {
+        m.mass_x = 0.0; m.mass_y = 0.0;
+      }
+
+      // Convex Hull
+      std::vector<std::pair<double, double>> pts(n_pts);
+      for (int j = 0; j < n_pts; j++) pts[j] = {px[j], py[j]};
+      std::sort(pts.begin(), pts.end());
+
+      std::vector<std::pair<double, double>> hull(2 * n_pts);
+      int k = 0;
+      for (int j = 0; j < n_pts; ++j) {
+        while (k >= 2) {
+          double cross = (hull[k-1].first - hull[k-2].first) * (pts[j].second - hull[k-2].second) -
+                         (hull[k-1].second - hull[k-2].second) * (pts[j].first - hull[k-2].first);
+          if (cross <= 0) k--; else break;
+        }
+        hull[k++] = pts[j];
+      }
+      for (int j = n_pts - 2, t = k + 1; j >= 0; j--) {
+        while (k >= t) {
+          double cross = (hull[k-1].first - hull[k-2].first) * (pts[j].second - hull[k-2].second) -
+                         (hull[k-1].second - hull[k-2].second) * (pts[j].first - hull[k-2].first);
+          if (cross <= 0) k--; else break;
+        }
+        hull[k++] = pts[j];
+      }
+
+      int n_ch = k - 1;
+      double a_ch = 0.0, p_ch = 0.0, max_d_sq = 0.0;
+
+      m.hull.resize(n_ch + 1);
+      for (int j = 0; j < n_ch; ++j) {
+        m.hull[j] = hull[j];
+        int next_j = (j + 1) % n_ch;
+        a_ch += hull[j].first * hull[next_j].second - hull[next_j].first * hull[j].second;
+        double dx = hull[next_j].first - hull[j].first;
+        double dy = hull[next_j].second - hull[j].second;
+        p_ch += std::sqrt(dx * dx + dy * dy);
+
+        for (int q = j + 1; q < n_ch; q++) {
+          double dxx = hull[j].first - hull[q].first;
+          double dyy = hull[j].second - hull[q].second;
+          double d_sq = dxx * dxx + dyy * dyy;
+          if (d_sq > max_d_sq) max_d_sq = d_sq;
+        }
+      }
+      m.hull[n_ch] = hull[0];
+
+      m.area_ch = std::abs(a_ch / 2.0);
+      double cal_val = std::sqrt(max_d_sq);
+      m.caliper = cal_val;
+
+      // Perimeter
+      double p = 0.0;
+      for (int j = 0; j < n_pts - 1; j++) {
+        double dx = px[j+1] - px[j], dy = py[j+1] - py[j];
+        p += std::sqrt(dx * dx + dy * dy);
+      }
+      m.perimeter = p;
+
+      // Centroid distance
+      double cent_x = 0.0, cent_y = 0.0;
+      for (int j = 0; j < n_pts; j++) { cent_x += px[j]; cent_y += py[j]; }
+      cent_x /= n_pts; cent_y /= n_pts;
+
+      double c_mean = 0.0, c_min = 1e15, c_max = -1e15;
+      std::vector<double> cdists(n_pts);
+      for (int j = 0; j < n_pts; j++) {
+        double dx = px[j] - cent_x, dy = py[j] - cent_y;
+        double d = std::sqrt(dx * dx + dy * dy);
+        cdists[j] = d;
+        c_mean += d;
+        if (d < c_min) c_min = d;
+        if (d > c_max) c_max = d;
+      }
+      c_mean /= n_pts;
+
+      double c_var = 0.0;
+      for (int j = 0; j < n_pts; j++) c_var += (cdists[j] - c_mean) * (cdists[j] - c_mean);
+      double c_sd = std::sqrt(c_var / (n_pts > 1 ? (n_pts - 1) : 1));
+
+      m.radius_mean = c_mean; m.radius_min = c_min; m.radius_max = c_max; m.radius_sd = c_sd;
+      m.radius_ratio = (c_min > 0) ? (c_max / c_min) : 0.0;
+      m.diam_mean = c_mean * 2.0; m.diam_min = c_min * 2.0; m.diam_max = c_max * 2.0;
+
+      // Moments & Axes
+      double sum_x = 0, sum_y = 0, sum_x2 = 0, sum_y2 = 0, sum_xy = 0;
+      for (int j = 0; j < n_pts; j++) {
+        double x = px[j], y = py[j];
+        sum_x += x; sum_y += y;
+        sum_x2 += x * x; sum_y2 += y * y;
+        sum_xy += x * y;
+      }
+      double cov_xy = sum_xy / n_pts - sum_x * sum_y / n_pts / n_pts;
+      double var_x = sum_x2 / n_pts - sum_x * sum_x / n_pts / n_pts;
+      double var_y = sum_y2 / n_pts - sum_y * sum_y / n_pts / n_pts;
+      double t = 0.5 * std::atan2(2.0 * cov_xy, var_x - var_y);
+
+      double cos_t = std::cos(t), sin_t = std::sin(t);
+      double min_u = 1e15, max_u = -1e15, min_v = 1e15, max_v = -1e15;
+      for (int j = 0; j < n_pts; j++) {
+        double u = px[j] * cos_t + py[j] * sin_t;
+        double v = -px[j] * sin_t + py[j] * cos_t;
+        if (u < min_u) min_u = u;
+        if (u > max_u) max_u = u;
+        if (v < min_v) min_v = v;
+        if (v > max_v) max_v = v;
+      }
+      double dim1 = max_u - min_u, dim2 = max_v - min_v;
+      double l = std::max(dim1, dim2), w = std::min(dim1, dim2);
+      m.length_m = l; m.width_m = w;
+
+      double a_maj = std::sqrt(std::max(0.0, 0.5 * (var_x + var_y + std::sqrt(std::pow(var_x - var_y, 2) + 4.0 * std::pow(cov_xy, 2)))));
+      double b_min = std::sqrt(std::max(0.0, 0.5 * (var_x + var_y - std::sqrt(std::pow(var_x - var_y, 2) + 4.0 * std::pow(cov_xy, 2)))));
+      m.maj_axis = std::fmax(a_maj, b_min); m.min_axis = std::fmin(a_maj, b_min);
+      m.eccentricity = (m.maj_axis > 0) ? std::sqrt(std::max(0.0, 1.0 - std::pow(m.min_axis / m.maj_axis, 2))) : 0.0;
+      m.theta = t;
+
+      m.solidity = (m.area_ch > 0) ? (abs_area / m.area_ch) : 0.0;
+      m.convexity = (p > 0) ? (p_ch / p) : 0.0;
+      m.elongation = (l > 0) ? (1.0 - (w / l)) : 0.0;
+      m.circularity = (abs_area > 0) ? ((p * p) / abs_area) : 0.0;
+      m.circularity_haralick = (c_sd > 0) ? (c_mean / c_sd) : 0.0;
+      m.circularity_norm = (p > 0) ? ((abs_area * 4.0 * M_PI) / (p * p)) : 0.0;
+
+      m.coverage = abs_area / total_pixels;
+      m.form_factor = (p > 0) ? (4.0 * M_PI * abs_area / (p * p)) : 0.0;
+      m.narrow_factor = (l > 0) ? (cal_val / l) : 0.0;
+      m.asp_ratio = (w > 0) ? (l / w) : 0.0;
+      m.rectangularity = (abs_area > 0) ? (l * w / abs_area) : 0.0;
+      m.pd_ratio = (cal_val > 0) ? (p / cal_val) : 0.0;
+      m.plw_ratio = ((l + w) > 0) ? (p / (l + w)) : 0.0;
     }
+
+    // Serial Rcpp Object Construction (Thread-safe)
+    ocont = List(max_label);
+    ch_list = List(max_label);
+    CharacterVector col_names = CharacterVector::create("x", "y");
+
+    std::vector<double> mass_x(max_label), mass_y(max_label);
+    std::vector<double> area(max_label), area_ch(max_label);
+    std::vector<double> perimeter(max_label);
+    std::vector<double> radius_mean(max_label), radius_min(max_label), radius_max(max_label), radius_sd(max_label);
+    std::vector<double> radius_ratio(max_label);
+    std::vector<double> diam_mean(max_label), diam_min(max_label), diam_max(max_label);
+    std::vector<double> caliper(max_label), length_m(max_label), width_m(max_label);
+    std::vector<double> solidity(max_label), convexity(max_label), elongation(max_label);
+    std::vector<double> circularity(max_label), circularity_haralick(max_label), circularity_norm(max_label);
+    std::vector<double> eccentricity(max_label), maj_axis(max_label), min_axis(max_label), theta(max_label);
+    std::vector<double> coverage(max_label), form_factor(max_label), narrow_factor(max_label);
+    std::vector<double> asp_ratio(max_label), rectangularity(max_label), pd_ratio(max_label), plw_ratio(max_label);
+
+    for (int id = 1; id <= max_label; id++) {
+      int i = id - 1;
+      const auto& m = metrics[i];
+      if (!m.valid) {
+        mass_x[i] = NA_REAL; mass_y[i] = NA_REAL;
+        area[i] = NA_REAL; area_ch[i] = NA_REAL; perimeter[i] = NA_REAL;
+        radius_mean[i] = NA_REAL; radius_min[i] = NA_REAL; radius_max[i] = NA_REAL; radius_sd[i] = NA_REAL;
+        radius_ratio[i] = NA_REAL; diam_mean[i] = NA_REAL; diam_min[i] = NA_REAL; diam_max[i] = NA_REAL;
+        caliper[i] = NA_REAL; length_m[i] = NA_REAL; width_m[i] = NA_REAL;
+        solidity[i] = NA_REAL; convexity[i] = NA_REAL; elongation[i] = NA_REAL;
+        circularity[i] = NA_REAL; circularity_haralick[i] = NA_REAL; circularity_norm[i] = NA_REAL;
+        eccentricity[i] = NA_REAL; maj_axis[i] = NA_REAL; min_axis[i] = NA_REAL; theta[i] = NA_REAL;
+        coverage[i] = NA_REAL; form_factor[i] = NA_REAL; narrow_factor[i] = NA_REAL;
+        asp_ratio[i] = NA_REAL; rectangularity[i] = NA_REAL; pd_ratio[i] = NA_REAL; plw_ratio[i] = NA_REAL;
+        continue;
+      }
+
+      const auto& px_i = all_bx[id];
+      const auto& py_i = all_by[id];
+      int n_pts = px_i.size();
+
+      IntegerMatrix cmat(n_pts, 2);
+      int* cmat_ptr = INTEGER(cmat);
+      for (int j = 0; j < n_pts; j++) {
+        cmat_ptr[j] = px_i[j] + 2;
+        cmat_ptr[j + n_pts] = py_i[j] + 2;
+      }
+      cmat.attr("dimnames") = List::create(R_NilValue, col_names);
+      ocont[i] = cmat;
+
+      int n_ch = m.hull.size();
+      if (n_ch > 0) {
+        NumericMatrix ch_mat(n_ch, 2);
+        double* ch_ptr = REAL(ch_mat);
+        for (int j = 0; j < n_ch; j++) {
+          ch_ptr[j] = m.hull[j].first;
+          ch_ptr[j + n_ch] = m.hull[j].second;
+        }
+        ch_mat.attr("dimnames") = List::create(R_NilValue, col_names);
+        ch_list[i] = ch_mat;
+      }
+
+      mass_x[i] = m.mass_x; mass_y[i] = m.mass_y;
+      area[i] = m.area; area_ch[i] = m.area_ch; perimeter[i] = m.perimeter;
+      radius_mean[i] = m.radius_mean; radius_min[i] = m.radius_min; radius_max[i] = m.radius_max; radius_sd[i] = m.radius_sd;
+      radius_ratio[i] = m.radius_ratio; diam_mean[i] = m.diam_mean; diam_min[i] = m.diam_min; diam_max[i] = m.diam_max;
+      caliper[i] = m.caliper; length_m[i] = m.length_m; width_m[i] = m.width_m;
+      solidity[i] = m.solidity; convexity[i] = m.convexity; elongation[i] = m.elongation;
+      circularity[i] = m.circularity; circularity_haralick[i] = m.circularity_haralick; circularity_norm[i] = m.circularity_norm;
+      eccentricity[i] = m.eccentricity; maj_axis[i] = m.maj_axis; min_axis[i] = m.min_axis; theta[i] = m.theta;
+      coverage[i] = m.coverage; form_factor[i] = m.form_factor; narrow_factor[i] = m.narrow_factor;
+      asp_ratio[i] = m.asp_ratio; rectangularity[i] = m.rectangularity; pd_ratio[i] = m.pd_ratio; plw_ratio[i] = m.plw_ratio;
+    }
+
+    std::vector<int> id_seq(max_label);
+    for (int i = 0; i < max_label; i++) id_seq[i] = i + 1;
+
+    shape = DataFrame::create(
+      Named("id") = wrap(id_seq),
+      Named("x") = wrap(mass_x),
+      Named("y") = wrap(mass_y),
+      Named("area") = wrap(area),
+      Named("area_ch") = wrap(area_ch),
+      Named("perimeter") = wrap(perimeter),
+      Named("radius_mean") = wrap(radius_mean),
+      Named("radius_min") = wrap(radius_min),
+      Named("radius_max") = wrap(radius_max),
+      Named("radius_sd") = wrap(radius_sd),
+      Named("diam_mean") = wrap(diam_mean),
+      Named("diam_min") = wrap(diam_min),
+      Named("diam_max") = wrap(diam_max),
+      Named("major_axis") = wrap(maj_axis),
+      Named("minor_axis") = wrap(min_axis),
+      Named("caliper") = wrap(caliper),
+      Named("length") = wrap(length_m),
+      Named("width") = wrap(width_m),
+      Named("radius_ratio") = wrap(radius_ratio),
+      Named("theta") = wrap(theta),
+      Named("eccentricity") = wrap(eccentricity),
+      Named("form_factor") = wrap(form_factor),
+      Named("narrow_factor") = wrap(narrow_factor),
+      Named("asp_ratio") = wrap(asp_ratio),
+      Named("rectangularity") = wrap(rectangularity),
+      Named("pd_ratio") = wrap(pd_ratio),
+      Named("plw_ratio") = wrap(plw_ratio),
+      Named("solidity") = wrap(solidity),
+      Named("convexity") = wrap(convexity),
+      Named("elongation") = wrap(elongation),
+      Named("circularity") = wrap(circularity),
+      Named("circularity_haralick") = wrap(circularity_haralick),
+      Named("circularity_norm") = wrap(circularity_norm),
+      Named("coverage") = wrap(coverage)
+    );
   }
-  return out_list;
-}
-// [[Rcpp::export]]
-List make_grid_curved(NumericMatrix rail1,
-                      NumericMatrix rail2,
-                      int nrow,
-                      int ncol,
-                      bool curved = true,
-                      int density = 20) {
 
-  int n_dense = rail1.nrow();
-  NumericMatrix centerline(n_dense, 2);
-  NumericVector cl_cum_dist(n_dense);
-  cl_cum_dist[0] = 0;
+  // Step 5: Haralick Features (Optional)
+  NumericMatrix haralick_mat;
+  if (haralick && ocont.size() > 0 && !Rf_isNull(img_sexp)) {
+    SEXP ref_chan = R_NilValue;
+    SEXP dims = Rf_getAttrib(img_sexp, R_DimSymbol);
+    if (!Rf_isNull(dims) && Rf_length(dims) >= 3) {
+      int w = INTEGER(dims)[0];
+      int h = INTEGER(dims)[1];
+      int nch = INTEGER(dims)[2];
+      int npix = w * h;
+      int target_ch = (har_band >= 1 && har_band <= nch) ? (har_band - 1) : 0;
 
-  centerline(0, _) = (rail1(0, _) + rail2(0, _)) / 2.0;
-
-  for(int i=1; i<n_dense; i++) {
-    centerline(i, 0) = (rail1(i, 0) + rail2(i, 0)) / 2.0;
-    centerline(i, 1) = (rail1(i, 1) + rail2(i, 1)) / 2.0;
-    cl_cum_dist[i] = cl_cum_dist[i-1] + dist_eucl(centerline(i-1,0), centerline(i-1,1), centerline(i,0), centerline(i,1));
-  }
-  double total_cl_len = cl_cum_dist[n_dense-1];
-
-  List out_list(nrow * ncol);
-  int idx = 0;
-  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
-
-  int last_idx_r1 = 0;
-  int last_idx_r2 = 0;
-  int n_steps = curved ? density : 1;
-
-  for (int i = 0; i < ncol; i++) {
-    int idx_r1_s, idx_r2_s, idx_r1_e, idx_r2_e;
-    if (i == 0) {
-      idx_r1_s = 0; idx_r2_s = 0;
+      if (TYPEOF(img_sexp) == RAWSXP) {
+        SEXP chan = PROTECT(Rf_allocMatrix(RAWSXP, w, h));
+        std::memcpy(RAW(chan), RAW(img_sexp) + target_ch * npix, npix);
+        ref_chan = chan;
+        UNPROTECT(1);
+      } else if (TYPEOF(img_sexp) == REALSXP) {
+        SEXP chan = PROTECT(Rf_allocMatrix(REALSXP, w, h));
+        std::memcpy(REAL(chan), REAL(img_sexp) + target_ch * npix, npix * sizeof(double));
+        ref_chan = chan;
+        UNPROTECT(1);
+      }
     } else {
-      double dist_s = ((double)i / ncol) * total_cl_len;
-      NumericVector p_cl_s = get_point_at_dist(centerline, cl_cum_dist, dist_s);
-      idx_r1_s = get_closest_idx_forward(rail1, p_cl_s[0], p_cl_s[1], last_idx_r1);
-      idx_r2_s = get_closest_idx_forward(rail2, p_cl_s[0], p_cl_s[1], last_idx_r2);
+      ref_chan = img_sexp;
     }
-    if (i == ncol - 1) {
-      idx_r1_e = n_dense - 1; idx_r2_e = n_dense - 1;
-    } else {
-      double dist_e = ((double)(i + 1) / ncol) * total_cl_len;
-      NumericVector p_cl_e = get_point_at_dist(centerline, cl_cum_dist, dist_e);
-      idx_r1_e = get_closest_idx_forward(rail1, p_cl_e[0], p_cl_e[1], idx_r1_s);
-      idx_r2_e = get_closest_idx_forward(rail2, p_cl_e[0], p_cl_e[1], idx_r2_s);
-    }
-    last_idx_r1 = idx_r1_s;
-    last_idx_r2 = idx_r2_s;
-
-    for (int j = 0; j < nrow; j++) {
-      double u_top = (double)j / nrow;
-      double u_bot = (double)(j + 1) / nrow;
-
-      NumericMatrix ring(2 * (n_steps + 1) + 1, 2);
-      int pt_idx = 0;
-
-      // Top Edge
-      for (int k = 0; k <= n_steps; k++) {
-        double t = (double)k / n_steps;
-        double curr_idx_r1 = idx_r1_s + t * (idx_r1_e - idx_r1_s);
-        double curr_idx_r2 = idx_r2_s + t * (idx_r2_e - idx_r2_s);
-
-        int i1 = (int)curr_idx_r1;
-        int i2 = (int)curr_idx_r2;
-
-        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
-        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
-
-        ring(pt_idx, 0) = x_r1 * (1 - u_top) + x_r2 * u_top;
-        ring(pt_idx, 1) = y_r1 * (1 - u_top) + y_r2 * u_top;
-        pt_idx++;
-      }
-      for (int k = n_steps; k >= 0; k--) {
-        double t = (double)k / n_steps;
-        double curr_idx_r1 = idx_r1_s + t * (idx_r1_e - idx_r1_s);
-        double curr_idx_r2 = idx_r2_s + t * (idx_r2_e - idx_r2_s);
-
-        int i1 = (int)curr_idx_r1;
-        int i2 = (int)curr_idx_r2;
-
-        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
-        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
-
-        ring(pt_idx, 0) = x_r1 * (1 - u_bot) + x_r2 * u_bot;
-        ring(pt_idx, 1) = y_r1 * (1 - u_bot) + y_r2 * u_bot;
-        pt_idx++;
-      }
-      ring(pt_idx, 0) = ring(0, 0);
-      ring(pt_idx, 1) = ring(0, 1);
-
-      List polygon_sfg(1);
-      polygon_sfg[0] = ring;
-      polygon_sfg.attr("class") = sfg_class;
-      out_list[idx++] = polygon_sfg;
+    if (!Rf_isNull(ref_chan)) {
+      haralick_mat = haralick_features_cpp(labels, ref_chan, har_nbins);
     }
   }
-  return out_list;
+
+  return List::create(
+    _["labels"] = labels,
+    _["shape"] = shape,
+    _["contours"] = ocont,
+    _["chull"] = ch_list,
+    _["haralick"] = haralick_mat
+  );
 }
 
-// [[Rcpp::export]]
-List make_grid_landmarks(NumericMatrix rail1,
-                         NumericMatrix rail2,
-                         IntegerVector anchors1,
-                         IntegerVector anchors2,
-                         int nrow,
-                         bool curved = true,
-                         int density = 30) {
-
-  int n_cols = anchors1.size() - 1;
-  if (anchors2.size() != anchors1.size()) {
-    stop("Rail 1 and Rail 2 must have the same number of control points for manual mode.");
-  }
-
-  List out_list(nrow * n_cols);
-  int idx = 0;
-  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
-  int n_steps = curved ? density : 1;
-
-  for (int i = 0; i < n_cols; i++) {
-    int idx_r1_start = anchors1[i];
-    int idx_r1_end   = anchors1[i+1];
-
-    int idx_r2_start = anchors2[i];
-    int idx_r2_end   = anchors2[i+1];
-
-    double diff_r1 = (double)(idx_r1_end - idx_r1_start);
-    double diff_r2 = (double)(idx_r2_end - idx_r2_start);
-
-    for (int j = 0; j < nrow; j++) {
-      double u_top = (double)j / nrow;
-      double u_bot = (double)(j + 1) / nrow;
-
-      NumericMatrix ring(2 * (n_steps + 1) + 1, 2);
-      int pt_idx = 0;
-      for (int k = 0; k <= n_steps; k++) {
-        double t = (double)k / n_steps;
-
-        int i1 = idx_r1_start + (int)(t * diff_r1);
-        int i2 = idx_r2_start + (int)(t * diff_r2);
-
-        if (k == n_steps) { i1 = idx_r1_end; i2 = idx_r2_end; }
-
-        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
-        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
-
-        ring(pt_idx, 0) = x_r1 * (1 - u_top) + x_r2 * u_top;
-        ring(pt_idx, 1) = y_r1 * (1 - u_top) + y_r2 * u_top;
-        pt_idx++;
-      }
-
-      for (int k = n_steps; k >= 0; k--) {
-        double t = (double)k / n_steps;
-        int i1 = idx_r1_start + (int)(t * diff_r1);
-        int i2 = idx_r2_start + (int)(t * diff_r2);
-        if (k == n_steps) { i1 = idx_r1_end; i2 = idx_r2_end; }
-        double x_r1 = rail1(i1, 0); double y_r1 = rail1(i1, 1);
-        double x_r2 = rail2(i2, 0); double y_r2 = rail2(i2, 1);
-        ring(pt_idx, 0) = x_r1 * (1 - u_bot) + x_r2 * u_bot;
-        ring(pt_idx, 1) = y_r1 * (1 - u_bot) + y_r2 * u_bot;
-        pt_idx++;
-      }
-      ring(pt_idx, 0) = ring(0, 0);
-      ring(pt_idx, 1) = ring(0, 1);
-
-      List polygon_sfg(1);
-      polygon_sfg[0] = ring;
-      polygon_sfg.attr("class") = sfg_class;
-      out_list[idx++] = polygon_sfg;
-    }
-  }
-  return out_list;
-}
-// [[Rcpp::export]]
-List transform_polygons(List geometries,
-                        double shift_x,
-                        double shift_y,
-                        double angle_deg,
-                        double scale_x,
-                        double scale_y) {
-
-  int n_polys = geometries.size();
-  double angle_rad = -angle_deg * M_PI / 180.0;
-  double cos_a = std::cos(angle_rad);
-  double sin_a = std::sin(angle_rad);
-  double min_x = 1e9, max_x = -1e9;
-  double min_y = 1e9, max_y = -1e9;
-  for(int i = 0; i < n_polys; i++) {
-    List poly = geometries[i];
-    NumericMatrix outer_ring = poly[0];
-    for(int j = 0; j < outer_ring.nrow(); j++) {
-      double x = outer_ring(j, 0);
-      double y = outer_ring(j, 1);
-      if(x < min_x) min_x = x;
-      if(x > max_x) max_x = x;
-      if(y < min_y) min_y = y;
-      if(y > max_y) max_y = y;
-    }
-  }
-  double center_x = (min_x + max_x) / 2.0;
-  double center_y = (min_y + max_y) / 2.0;
-  List out_list(n_polys);
-  CharacterVector sfg_class = CharacterVector::create("XY", "POLYGON", "sfg");
-  for(int i = 0; i < n_polys; i++) {
-    List source_poly = geometries[i];
-    int n_rings = source_poly.size();
-    List new_poly(n_rings);
-    for(int r = 0; r < n_rings; r++) {
-      NumericMatrix ring = source_poly[r];
-      int n_pts = ring.nrow();
-      NumericMatrix new_ring(n_pts, 2);
-      for(int j = 0; j < n_pts; j++) {
-        double x = ring(j, 0);
-        double y = ring(j, 1);
-        double dx = x - center_x;
-        double dy = y - center_y;
-        dx *= scale_x;
-        dy *= scale_y;
-        double x_rot = dx * cos_a - dy * sin_a;
-        double y_rot = dx * sin_a + dy * cos_a;
-        new_ring(j, 0) = x_rot + center_x + shift_x;
-        new_ring(j, 1) = y_rot + center_y + shift_y;
-      }
-      new_poly[r] = new_ring;
-    }
-    new_poly.attr("class") = sfg_class;
-    out_list[i] = new_poly;
-  }
-
-  return out_list;
-}

@@ -16,7 +16,7 @@ lhs \%>\% rhs
 Pipe an object forward into a function or call expression.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 
 # Basic use:

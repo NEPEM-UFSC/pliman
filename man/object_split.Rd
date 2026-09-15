@@ -97,7 +97,9 @@ neighboring objects. Higher value smooths out small objects.}
 intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
-which is the highest.}
+which is the highest. Values < 1.0 are interpreted as relative tolerance
+(percentage of the peak height). Values >= 1.0 are interpreted as absolute
+tolerance in pixels (linear Euclidean distance).}
 
 \item{object_size}{The size of the object. Used to automatically set up
 \code{tolerance} and \code{extension} parameters. One of the following. \code{"small"}
@@ -117,7 +119,7 @@ converted to white.}
 \item{...}{Additional arguments passed on to \code{\link[=image_combine]{image_combine()}}}
 }
 \value{
-A list of objects of class \code{Image}.
+A list of objects of class \code{image}.
 }
 \description{
 Using threshold-based segmentation, objects are first isolated from
@@ -125,7 +127,7 @@ background. Then, a new image is created for each single object. A list of
 images is returned.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("la_leaves.jpg", plot = TRUE)
 imgs <- object_split(img) # set to NULL to use 50\% of the cores

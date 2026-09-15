@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils_shp.R
 \name{image_align}
 \alias{image_align}
-\title{Aligns an \code{Image} object by hand}
+\title{Aligns an \code{image} object by hand}
 \usage{
 image_align(
   img,
@@ -12,7 +12,7 @@ image_align(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object}
+\item{img}{An \code{image} object}
 
 \item{align}{The desired alignment. Either \code{"vertical"} (default) or
 \code{"horizontal"}.}
@@ -52,7 +52,7 @@ rotated accordingly using the \code{image_rotate} function. The function returns
 the aligned image object.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 aligned <- image_align(flax)

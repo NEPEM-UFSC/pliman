@@ -4,51 +4,49 @@
 \alias{image_correction_pick}
 \title{Interactive Color Correction}
 \usage{
-image_correction_pick(img, known_colors, color_chips = 24)
+image_correction_pick(
+  img,
+  known_colors = NULL,
+  color_chips = 24,
+  model = c("ccm", "affine", "white_balance", "cubic", "root_polynomial"),
+  lambda = 1e-04
+)
 }
 \arguments{
-\item{img}{An \code{Image} object to be corrected.}
+\item{img}{An \code{image} object to be corrected.}
 
-\item{known_colors}{A \code{data.frame} containing the target reference values.
-Must contain the columns \code{R}, \code{G}, and \code{B} (normalized between 0-1) and
-the number of rows must equal \code{color_chips}.}
+\item{known_colors}{A \code{data.frame} containing target reference values with \verb{R, G, B}
+columns. If \code{NULL} and \code{color_chips == 24}, defaults to \code{colorchecker_ref()}.}
 
-\item{color_chips}{The number of color patches to be interactively
-sampled from the image. Defaults to \code{24}.}
+\item{color_chips}{The number of color patches to sample interactively (default \code{24}).}
+
+\item{model}{The calibration model to use (\code{"ccm"}, \code{"affine"}, \code{"white_balance"},
+\code{"cubic"}, or \code{"root_polynomial"}). Default \code{"ccm"}.}
+
+\item{lambda}{Ridge regularization factor (default \code{1e-4}).}
 }
 \value{
-An \code{Image} object with corrected colors.
+An \code{image} object with corrected colors.
 }
 \description{
 Interactively calibrates the color of an image by prompting the user to
-sample color patches. It first calls \code{pliman::pick_rgb_area()} to pause and
+sample color patches. It calls \code{pliman::pick_rgb_area()} to pause and
 prompt the user to click on \code{color_chips} patches in the image. These
-interactively sampled colors are then used as the \emph{observed} colors to
-compute the 3rd-order polynomial transformation matrix (K), which maps the
-observed colors to the provided \code{known_colors}. This matrix K is then applied
-to every pixel in the image.
+sampled colors are then mapped to \code{known_colors} using the specified \code{model}.
 }
 \examples{
 if(interactive()){
-# colorcheck image available at https://github.com/HarryCWright/PlantSizeClr
 library(pliman)
 
-# known values in the following sequence (row, column)
-# blue (6, 2)
-# red (4, 2)
-# yellow (3, 2)
-# white (1, 1)
+# Sample 4 known chips (e.g. blue, red, yellow, white)
 known_colors <- data.frame(
  id = c(1, 2, 3, 4),
- R = c(0.09803922, 0.72941176, 0.96078431, 0.97647059),
- G = c(0.2156863, 0.1019608, 0.8039216, 0.9490196),
- B = c(0.5294118, 0.2000000, 0.0000000, 0.9333333)
+ R = c(25, 186, 245, 249),
+ G = c(55, 26, 205, 242),
+ B = c(135, 51, 0, 238)
 )
 img <- image_pliman("colorcheck.jpg")
-# draw four samples, following the order (blue, red, yellow, white)
- img_cor <- image_correction_pick(img, known_colors, color_chips = 4)
- image_combine(img, img_cor)
+img_cor <- image_correction_pick(img, known_colors, color_chips = 4)
+image_combine(img, img_cor)
 }
-
-
 }

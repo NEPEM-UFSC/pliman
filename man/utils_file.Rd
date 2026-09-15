@@ -87,7 +87,7 @@ in pliman.
 }
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 # get file name, directory and extension
 file <- "E:/my_folder/my_subfolder/image1.png"

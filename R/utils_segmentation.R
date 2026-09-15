@@ -3,23 +3,31 @@
 
 #' Intelligent Morphological Watershed (Spanning Forest + Union-Find)
 #'
-#' This function performs a morphological watershed segmentation on a binary image.
-#' It implements a highly optimized Spanning Forest algorithm coupled with a Disjoint-Set
-#' (Union-Find) data structure. This approach eliminates the need for slow iterative scans
-#' ($O(N^2)$ complexity), allowing the algorithm to execute in milliseconds even when
-#' resolving tens of thousands of distinct objects. It also features a mechanism to merge
-#' highly connected objects, effectively preventing over-segmentation.
+#' This function performs a morphological watershed segmentation on a binary
+#' image. It implements a highly optimized Spanning Forest algorithm coupled
+#' with a Disjoint-Set (Union-Find) data structure. This approach eliminates the
+#' need for slow iterative scans ($O(N^2)$ complexity), allowing the algorithm
+#' to execute in milliseconds even when resolving tens of thousands of distinct
+#' objects. It also features a mechanism to merge highly connected objects,
+#' effectively preventing over-segmentation.
 #'
-#' @param img           A binary `Image` object or a matrix/array.
-#' @param sensitivity   Text ("low", "medium", "high", "extreme") or Number (e.g. 2.5).
-#'                      Automatically defines the best parameters for optimal precision.
-#'                      (Overrides manual adjustment of tolerance).
+#' @param img           A binary `image` object or a matrix/array.
+#' @param sensitivity   Text ("low", "medium", "high", "extreme") or Number
+#'   (e.g. 2.5). Automatically defines the best parameters for optimal
+#'   precision. (Overrides manual adjustment of tolerance).
 #' @param tolerance     Manual Fine-Tuning. If provided, overrides `sensitivity`
-#'                      and directly controls the merging threshold for connected components.
-#' @param ext           Pixel neighborhood radius (default = 1). Specifies the extension radius
-#'                      used during the regional maxima calculation and watershed flooding.
+#'   and directly controls the merging threshold for connected components.
+#'   Values < 1.0 are interpreted as relative tolerance (percentage of the peak
+#'   height). Values >= 1.0 are interpreted as absolute tolerance in pixels
+#'   (linear Euclidean distance).
+#' @param ext           Pixel neighborhood radius (default = 1). Specifies the
+#'   extension radius used during the regional maxima calculation and watershed
+#'   flooding.
+#' @param min_size Minimum area (in pixels) for an object segment retained after watershed.
+#' @param rel_size Relative threshold as a fraction of the mean segment area (e.g. `0.1` for 10% of mean area).
 #'
-#' @return A grayscale `Image` object containing the labels.
+#' @return A grayscale `image` object containing the labels.
+#' @importFrom methods .hasSlot slot
 #' @export
 #'
 #' @examples
@@ -28,26 +36,39 @@
 #'   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
 #'   w_med <- image_watershed(bin$B)
 #' }
-image_watershed <- function(img, sensitivity = "medium", tolerance = NULL, ext = 1) {
+image_watershed <- function(img,
+                            sensitivity = "medium",
+                            tolerance = NULL,
+                            ext = 1,
+                            min_size = NULL,
+                            rel_size = NULL,
+                            fill_hull = FALSE,
+                            max_size = NULL) {
+  if (is.list(img) && !inherits(img, c("Image", "image"))) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list", "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1L]])
+    }
+    res <- lapply(img, function(x) image_watershed(x, sensitivity = sensitivity, tolerance = tolerance, ext = ext, min_size = min_size, rel_size = rel_size, fill_hull = fill_hull, max_size = max_size))
+    return(res)
+  }
+
   if (!requireNamespace("cli", quietly = TRUE))
     stop("{cli} package is required.")
 
-  if (!inherits(img, "Image") && !is.matrix(img) && !is.array(img))
-    cli::cli_abort(c("{.arg img} must be an {.cls Image} object, a matrix or an array."))
+  if (!inherits(img, "Image") && !inherits(img, "image") && !is.matrix(img) && !is.array(img))
+    cli::cli_abort(c("{.arg img} must be an {.cls image} object, a matrix or an array."))
 
-  if (storage.mode(img) != "logical")
-    cli::cli_abort("Image must be binarized and have storage.mode 'logical'.")
-
-  if (isS4(img) && .hasSlot(img, ".Data")) {
-    mat <- img@.Data
-  } else {
-    mat <- as.array(img)
-  }
+  mat <- image_data(img)
 
   if (length(dim(mat)) == 3L) {
     d2 <- mat[, , 1L]
     for (k in seq_len(dim(mat)[3L])[-1L]) d2 <- d2 | mat[, , k]
     mat <- d2
+  }
+
+  if (isTRUE(fill_hull) || !is.null(max_size)) {
+    m_sz <- if (is.null(max_size)) -1.0 else as.numeric(max_size)
+    mat <- fill_holes_cpp(mat > 0, max_size = m_sz)
   }
 
   # Intelligent Mapping
@@ -66,29 +87,52 @@ image_watershed <- function(img, sensitivity = "medium", tolerance = NULL, ext =
       cli::cli_abort("Sensitivity must be text or numeric.")
     }
 
-    # The higher lvl (more aggressive to separate), the lower the tolerance
-    # Scale proportionally to the image size (reference: max dimension 612px)
-    scale_factor <- max(dim(mat)) / 1280
-    tolerancia <- (3.5 * exp(-1.0 * (lvl - 1.0))) * scale_factor
+    # Scale-Invariant Relative Tolerance (Percentage drop)
+    tolerancia <- 0.20 / (2 ^ (lvl - 1.0))
   } else {
     tolerancia <- as.double(tolerance)
   }
 
   res <- watershed_cpp(mat, tolerance = tolerancia, ext = as.integer(ext))
 
-  return(EBImage::Image(res, colormode = "Grayscale"))
+  # Post-Watershed Size Filtering
+  if (!is.null(min_size) || !is.null(rel_size)) {
+    tbl <- table(res[res > 0])
+    if (length(tbl) > 0) {
+      areas <- as.numeric(tbl)
+      ids <- as.integer(names(tbl))
+
+      cutoff <- 0
+      if (!is.null(min_size) && is.numeric(min_size)) {
+        cutoff <- max(cutoff, min_size)
+      }
+      if (!is.null(rel_size) && is.numeric(rel_size)) {
+        mean_area <- mean(areas)
+        rel_cutoff <- rel_size * mean_area
+        cutoff <- max(cutoff, rel_cutoff)
+      }
+
+      if (cutoff > 0) {
+        keep_ids <- ids[areas >= cutoff]
+        if (length(keep_ids) < length(ids)) {
+          filter_labels_cpp(res, keep_ids)
+        }
+      }
+    }
+  }
+
+  return(as_image(res, colormode = "Grayscale", storage = "integer"))
 }
 
 #' Label connected components in a binary image
 #'
 #' This function performs Connected Component Labeling (CCL) on a binary image.
 #' It implements a highly optimized 2-pass Union-Find algorithm, providing
-#' lightning-fast execution even for massive images. It serves as an optimized
-#' drop-in replacement for [EBImage::bwlabel()].
+#' lightning-fast execution even for massive images.
 #'
-#' @param binary A binary `Image` object or a logical matrix/array.
+#' @param binary A binary `image` object or a logical matrix/array.
 #'
-#' @return A grayscale `Image` object containing the labels, where each isolated
+#' @return A grayscale `image` object containing the labels, where each isolated
 #' object is assigned a unique integer value. Background pixels are 0.
 #' @export
 #'
@@ -99,13 +143,17 @@ image_watershed <- function(img, sensitivity = "medium", tolerance = NULL, ext =
 #'   labels <- image_bwlabel(bin$B)
 #' }
 image_bwlabel <- function(binary) {
+  if (!is.logical(binary)) {
+    binary <- binary > 0
+  }
+
   if (storage.mode(binary) != "logical") {
     cli::cli_abort("The input must be a logical matrix or binary Image.")
   }
 
   res <- bwlabel_cpp(binary)
 
-  return(EBImage::Image(res, colormode = "Grayscale"))
+  return(as_image(res, colormode = "Grayscale", storage = "integer"))
 }
 
 #' Colorize Labeled Images
@@ -113,9 +161,9 @@ image_bwlabel <- function(binary) {
 #' Colorizes a labeled image by allocating a different color to each object.
 #' Background pixels (value 0) are colorized with black.
 #'
-#' @param labels A labeled image (an `Image` object or a matrix containing integer labels).
+#' @param labels A labeled image (an `image` object or a matrix containing integer labels).
 #'
-#' @return A color `Image` object.
+#' @return A color `image` object.
 #' @export
 #'
 #' @examples
@@ -127,14 +175,14 @@ image_bwlabel <- function(binary) {
 #'   plot(color_lbl)
 #' }
 image_color_labels <- function(labels) {
-  if (inherits(labels, "Image")) {
-    mat <- labels@.Data
+  if (inherits(labels, "Image") || inherits(labels, "image")) {
+    mat <- unclass(labels)
   } else {
     mat <- labels
   }
 
   res <- color_labels_cpp(mat)
-  return(EBImage::Image(res, colormode = "Color"))
+  return(as_image(res, colormode = "Color"))
 }
 
 #' Distance map transform
@@ -143,29 +191,41 @@ image_color_labels <- function(labels) {
 #' matrix which contains for each pixel the distance to its nearest background
 #' pixel.
 #'
-#' @param binary A binary image
+#' @param binary A binary `image` object or logical matrix.
+#' @param normalize Logical argument indicating whether the distance map should
+#'   be normalized to the 0-1 range. Defaults to `FALSE`.
 #'
-#' @return An `Image` object or an array, with pixels containing the distances
+#' @return An `image` object or an array, with pixels containing the distances
 #'   to the nearest background points
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' binary <- image_binary(img, "B")[[1]]
 #' wts <- dist_transform(binary)
 #' range(wts)
 #'}
+dist_transform <- function(binary, normalize = FALSE){
+  if (is.raw(binary) || is.numeric(binary)) {
+    binary <- binary > 0
+  }
 
-dist_transform <- function(binary){
   if (storage.mode(binary) != "logical") {
     cli::cli_abort("The input must be a logical matrix or binary Image.")
   }
 
   res <- help_dist_transform(binary)
 
-  if (inherits(binary, "Image")) {
-    return(EBImage::Image(res, colormode = "Grayscale"))
+  if (isTRUE(normalize)) {
+    max_val <- max(res, na.rm = TRUE)
+    if (max_val > 0) {
+      res <- res / max_val
+    }
+  }
+
+  if (inherits(binary, "Image") || inherits(binary, "image")) {
+    return(as_image(res, colormode = "Grayscale"))
   }
   return(res)
 }
@@ -175,15 +235,14 @@ dist_transform <- function(binary){
 #'
 #' All pixels for each connected set of foreground (non-zero) pixels in x are
 #' set to an unique increasing integer, starting from 1. Hence, max(x) gives the
-#' number of connected objects in x. This is a wrapper to [EBImage::bwlabel] or
-#' [EBImage::watershed] (if `watershed = TRUE`).
+#' number of connected objects in `x`.
 #' @inheritParams image_binary
 #' @inheritParams analyze_objects
 #' @return A list with the same length of `img` containing the labeled objects.
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' img <- image_pliman("soybean_touch.jpg")
 #' # segment the objects using the "B" (blue) band.
 #' object_label(img, index = "B")
@@ -211,7 +270,7 @@ object_label <- function(img,
                          ncol = NULL,
                          nrow = NULL,
                          verbose = TRUE){
-  check_ebi()
+
   img2 <- image_binary(img,
                        index = index,
                        invert = invert,
@@ -236,17 +295,7 @@ object_label <- function(img,
       tmp <- img2[[i]]
     }
     if(isTRUE(watershed)){
-      parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-      res <- length(tmp)
-      parms2 <- parms[parms$object_size == object_size,]
-      rowid <-
-        which(sapply(as.character(parms2$resolution), function(x) {
-          eval(parse(text=x))}))
-      ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-      tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-      labels[[i]] <- EBImage::watershed(EBImage::distmap(tmp),
-                                        tolerance = tol,
-                                        ext = ext)
+      labels[[i]] <- image_watershed(tmp, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
     } else{
       labels[[i]] <- image_bwlabel(tmp)
     }
@@ -295,12 +344,13 @@ object_label <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' img <- image_pliman("soybean_touch.jpg")
-#' thresh <- otsu(img@.Data[,,3])
+#' thresh <- otsu(image_data(img[,,3]))
 #' plot(img[,,3] < thresh)
 #' }
 #'
 otsu <- function(values){
   help_otsu(values)
 }
+

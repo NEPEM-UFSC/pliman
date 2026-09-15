@@ -67,7 +67,7 @@ NULL
                 border_style = "round")
     )
   }
-  check_ebi()
+
   check_mapview()
 }
 
@@ -82,7 +82,8 @@ if (getRversion() >= "2.15.1") {
       "geometry", "n", "area_sum", "individual", "compute_downsample", "plot_id",
       "re", "nir", "coverage_fraction", "sigma", "summarize_quantiles", "prop", "plot_id_seq",
       "B1", "B2", "B3", "cluster", "h", "s", "column", "data", "plot_area", "unique_id",
-      "diam_max", "uuids", ".progress", "show"))
+      "diam_max", "uuids", ".progress", "show", "caliper", "width",
+      "utils_contours"))
 }
 
 
@@ -158,4 +159,7 @@ set_pliman_viewer <- function(value) {
   if (any(toset)) options(op.pliman[toset])
 }
 
-
+.onUnload <- function(libpath) {
+  tryCatch(clear_onnx_sessions_cpp(), error = function(e) NULL)
+  library.dynam.unload("pliman", libpath)
+}

@@ -18,7 +18,7 @@
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' iris2 <- iris |> rownames_to_column()
 #' head(iris2)
@@ -503,44 +503,6 @@ check_names_dir <- function(name, names_dir, dir){
   }
 }
 
-check_ebi <- function() {
-  if (!requireNamespace("EBImage", quietly = TRUE)) {
-
-    if (interactive()) {
-      inst <- switch(
-        menu(c("Yes", "No"),
-             title = cli::cli_alert_danger(
-               "Package {.pkg EBImage} is required but not installed.\nDo you want to install it now?")),
-        "yes", "no"
-      )
-
-      if (inst == "yes") {
-        if (!requireNamespace("BiocManager", quietly = TRUE)) {
-          cli::cli_alert_info("Installing {.pkg BiocManager}...")
-          install.packages("BiocManager", quiet = TRUE)
-        }
-
-        cli::cli_alert_info("Installing {.pkg EBImage} from Bioconductor...")
-        BiocManager::install("EBImage", update = FALSE, ask = FALSE, quiet = TRUE)
-
-        if (!requireNamespace("EBImage", quietly = TRUE)) {
-          cli::cli_alert_danger("Installation of {.pkg EBImage} failed. Please install it manually.")
-          return(FALSE)
-        }
-
-      } else {
-        cli::cli_alert_warning("To use {.pkg pliman}, please install {.pkg EBImage} from {.url https://bioconductor.org/packages/EBImage}")
-        return(FALSE)
-      }
-
-    } else {
-      cli::cli_alert_danger("Package {.pkg EBImage} is required. Please install it from {.url https://bioconductor.org/packages/EBImage}")
-      return(FALSE)
-    }
-  }
-
-  return(TRUE)
-}
 
 
 
@@ -595,15 +557,6 @@ check_mapview <- function() {
   }
 }
 
-
-
-# get RGB values from a mask computed with EBImage::watershed()
-get_rgb <- function(img, data_mask, index){
-  data.frame(object = index,
-             R = img@.Data[,,1][which(data_mask == index)],
-             G = img@.Data[,,2][which(data_mask == index)],
-             B = img@.Data[,,3][which(data_mask == index)])
-}
 
 # check for infinite values
 check_inf <- function(data){
@@ -719,7 +672,7 @@ ggplot_color <- function(n = 1){
 #' @name utils_wd
 #' @examples
 #'
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' get_wd_here()
 #' set_wd_here()
 #' open_wd_here()

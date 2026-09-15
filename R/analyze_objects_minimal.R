@@ -8,7 +8,7 @@
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' obj <- analyze_objects(img)
@@ -65,11 +65,12 @@ analyze_objects_minimal <- function(img,
                                     marker_col = NULL,
                                     marker_size = NULL,
                                     save_image = FALSE,
+                                    max_pixels = 4e6,
                                     prefix = "proc_",
                                     dir_original = NULL,
                                     dir_processed = NULL,
                                     verbose = TRUE){
-  check_ebi()
+
   lower_noise <- ifelse(isTRUE(reference_larger), lower_noise * 3, lower_noise)
   if (!object_size %in% c("small", "medium", "large", "elarge")) {
     cli::cli_abort("{.arg object_size} must be one of {.val small}, {.val medium}, {.val large}, or {.val elarge}.")
@@ -98,7 +99,7 @@ analyze_objects_minimal <- function(img,
   help_count <-
     function(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
              show_original,  marker, marker_col, marker_size,
-             save_image, prefix, dir_original, dir_processed, verbose,
+             save_image, max_pixels = 4e6, prefix, dir_original, dir_processed, verbose,
              col_background, col_foreground, lower_noise){
       if(is.character(img)){
         all_files <- sapply(list.files(diretorio_original), file_name)
@@ -131,30 +132,20 @@ analyze_objects_minimal <- function(img,
                               dilate = dilate,
                               resize = FALSE)
           if(isTRUE(watershed)){
-            parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-            res <- length(img2)
-            parms2 <- parms[parms$object_size == object_size,]
-            rowid <-
-              which(sapply(as.character(parms2$resolution), function(x) {
-                eval(parse(text=x))}))
-            ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-            tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-            nmask <- EBImage::watershed(EBImage::distmap(img2),
-                                        tolerance = tol,
-                                        ext = ext)
+            nmask <- image_watershed(img2, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
           } else{
-            nmask <- EBImage::bwlabel(img2)
+            nmask <- image_bwlabel(img2)
           }
         } else{
           img2 <- img[,,1]
-          img2[img2@.Data == 0 | img2@.Data != 0] <- TRUE
-          nmask <- EBImage::bwlabel(img2)
+          img2[image_data(img2) == 0 | image_data(img2) != 0] <- TRUE
+          nmask <- image_bwlabel(img2)
         }
 
-        ID <- which(img2 == 1)
+        ID <- which(img2 != 0)
         ID2 <- which(img2 == 0)
         if(isTRUE(fill_hull)){
-          nmask <- EBImage::fillHull(nmask)
+          nmask <- image_fill_hull(nmask)
         }
         shape <- compute_measures_minimal(mask = nmask)
         object_contour <- shape$cont
@@ -190,9 +181,9 @@ analyze_objects_minimal <- function(img,
                         invert = invert1,
                         fill_hull = fill_hull)
           img3 <- img
-          img3@.Data[,,1][which(img_bf != 1)] <- 2
-          img3@.Data[,,2][which(img_bf != 1)] <- 2
-          img3@.Data[,,3][which(img_bf != 1)] <- 2
+          img3[,,1][which(img_bf != 1)] <- 2
+          img3[,,2][which(img_bf != 1)] <- 2
+          img3[,,3][which(img_bf != 1)] <- 2
           ID <-  which(img_bf == 1) # IDs for foreground
           ID2 <- which(img_bf == 0) # IDs for background
           # segment fore and ref
@@ -218,28 +209,18 @@ analyze_objects_minimal <- function(img,
                         invert = invert2)
           mask <- img_bf
           pix_ref <- which(img4 != 1)
-          img@.Data[,,1][pix_ref] <- 1
-          img@.Data[,,2][pix_ref] <- 0
-          img@.Data[,,3][pix_ref] <- 0
+          img[,,1][pix_ref] <- 1
+          img[,,2][pix_ref] <- 0
+          img[,,3][pix_ref] <- 0
           npix_ref <- length(pix_ref)
           mask[pix_ref] <- 0
           if(is.numeric(filter) & filter > 1){
-            mask <- EBImage::medianFilter(mask, size = filter)
+            mask <- image_filter(mask, size = filter)
           }
           if(isTRUE(watershed)){
-            parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-            res <- length(img)
-            parms2 <- parms[parms$object_size == object_size,]
-            rowid <-
-              which(sapply(as.character(parms2$resolution), function(x) {
-                eval(parse(text=x))}))
-            ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-            tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-            nmask <- EBImage::watershed(EBImage::distmap(mask),
-                                        tolerance = tol,
-                                        ext = ext)
+            nmask <- image_watershed(mask, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
           } else{
-            nmask <- EBImage::bwlabel(mask)
+            nmask <- image_bwlabel(mask)
           }
 
           shape <- compute_measures_minimal(mask = nmask)
@@ -271,22 +252,12 @@ analyze_objects_minimal <- function(img,
                         dilate = dilate,
                         invert = invert,
                         fill_hull = fill_hull)
-          ID <-  which(mask == 1) # IDs for foreground
+          ID <-   which(mask != 0) # IDs for foreground
           ID2 <- which(mask == 0) # IDs for background
           if(isTRUE(watershed)){
-            parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-            res <- length(mask)
-            parms2 <- parms[parms$object_size == object_size,]
-            rowid <-
-              which(sapply(as.character(parms2$resolution), function(x) {
-                eval(parse(text=x))}))
-            ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-            tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-            nmask <- EBImage::watershed(EBImage::distmap(mask),
-                                        tolerance = tol,
-                                        ext = ext)
+            nmask <- image_watershed(mask, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
           } else{
-            nmask <- EBImage::bwlabel(mask)
+            nmask <- image_bwlabel(mask)
           }
 
           shape <- compute_measures_minimal(mask = nmask)
@@ -375,12 +346,12 @@ analyze_objects_minimal <- function(img,
 
         if(show_original == TRUE){
           im2 <- img[,,1:3]
-          EBImage::colorMode(im2) <- "Color"
+          im2 <- as_image(im2, colormode = "Color")
           if(backg){
             im3 <- image_color_labels(nmask)
-            im2@.Data[,,1][which(im3@.Data[,,1]==0)] <- col_background[1]
-            im2@.Data[,,2][which(im3@.Data[,,2]==0)] <- col_background[2]
-            im2@.Data[,,3][which(im3@.Data[,,3]==0)] <- col_background[3]
+            im2[,,1][which(im3[,,1]==0)] <- col_background[1]
+            im2[,,2][which(im3[,,2]==0)] <- col_background[2]
+            im2[,,3][which(im3[,,3]==0)] <- col_background[3]
           }
         }
         show_mark <- ifelse(isFALSE(marker), FALSE, TRUE)
@@ -402,7 +373,7 @@ analyze_objects_minimal <- function(img,
 
         if(plot == TRUE){
           if(marker != "point"){
-            plot(im2)
+            plot(im2, max_pixels = max_pixels)
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
@@ -414,7 +385,7 @@ analyze_objects_minimal <- function(img,
                    cex = marker_size)
             }
           } else{
-            plot(im2)
+            plot(im2, max_pixels = max_pixels)
             if(isTRUE(show_contour)  & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
@@ -432,14 +403,24 @@ analyze_objects_minimal <- function(img,
           if(dir.exists(diretorio_processada) == FALSE){
             dir.create(diretorio_processada, recursive = TRUE)
           }
+          img_d <- dim(image_data(im2))
+          tot_pix <- img_d[1] * img_d[2]
+          if (!is.null(max_pixels) && tot_pix > max_pixels) {
+            scale_factor <- sqrt(max_pixels / tot_pix)
+            png_w <- round(img_d[1] * scale_factor)
+            png_h <- round(img_d[2] * scale_factor)
+          } else {
+            png_w <- img_d[1]
+            png_h <- img_d[2]
+          }
           png(paste0(diretorio_processada, "/",
                      prefix,
                      name_ori, ".",
                      extens_ori),
-              width = dim(im2@.Data)[1],
-              height = dim(im2@.Data)[2])
+              width = png_w,
+              height = png_h)
           if(marker != "point"){
-            plot(im2)
+            plot(im2, max_pixels = max_pixels)
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
@@ -451,7 +432,7 @@ analyze_objects_minimal <- function(img,
                    cex = marker_size)
             }
           } else{
-            plot(im2)
+            plot(im2, max_pixels = max_pixels)
             if(isTRUE(show_contour) & isTRUE(show_original)){
               plot_contour(object_contour, col = contour_col, lwd = contour_size)
             }
@@ -463,6 +444,18 @@ analyze_objects_minimal <- function(img,
                      cex = marker_size)
             }
           }
+          # Discrete footer with summary stats
+          n_obj   <- nrow(shape)
+          a_mean  <- round(mean(shape$area, na.rm = TRUE), 1)
+          a_min   <- round(min(shape$area, na.rm = TRUE), 1)
+          a_max   <- round(max(shape$area, na.rm = TRUE), 1)
+          footer_txt <- sprintf("N: %d  |  Area (px\u00b2)  mean: %s  |  min: %s  |  max: %s",
+                                n_obj, a_mean, a_min, a_max)
+          usr <- par("usr")
+          text(usr[1] + diff(usr[1:2]) * 0.01,
+               usr[3] + diff(usr[3:4]) * 0.01,
+               footer_txt,
+               adj = c(0, 0), cex = 1, col = "#555555", font = 1, xpd = NA)
           dev.off()
         }
       }
@@ -479,7 +472,7 @@ analyze_objects_minimal <- function(img,
     }
     help_count(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
                show_original,  marker, marker_col, marker_size,
-               save_image, prefix, dir_original, dir_processed, verbose,
+               save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
                col_background, col_foreground, lower_noise)
   } else{
     if (pattern %in% as.character(0:9)) {
@@ -526,11 +519,7 @@ analyze_objects_minimal <- function(img,
           left  = cli::col_blue("Parallel processing using {nworkers} cores"),
           right = cli::col_blue("Started on  {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
         )
-        cli::cli_progress_step(
-          msg       = "Processing {.val {length(names_plant)}} images found on {.path {imgpath}}. Please, wait.",
-          msg_done  = "Batch processing finished",
-          msg_failed = "Oops, something went wrong."
-        )
+
       }
 
       # Define a função para processar cada imagem
@@ -539,7 +528,7 @@ analyze_objects_minimal <- function(img,
           img,
           fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension, plot,
           show_original, marker, marker_col, marker_size,
-          save_image, prefix, dir_original, dir_processed, verbose,
+          save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
           col_background, col_foreground, lower_noise
         )
       }
@@ -549,15 +538,18 @@ analyze_objects_minimal <- function(img,
         .x = names_plant,
         .f = process_image
       )[.progress]
-
+      cli::cli_progress_step(
+        msg       = "Processing {.val {length(names_plant)}} images found on {.path {imgpath}}. Please, wait.",
+        msg_done  = "Batch processing finished",
+        msg_failed = "Oops, something went wrong."
+      )
     } else{
       cli::cli_rule(
         left = cli::col_blue("Analyzing {length(names_plant)} images"),
         right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%S')}")
       )
-      cli::cli_alert_info("Directory: {.path {imgpath}}")
       cli::cli_progress_bar(
-        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta} | {.val {cli::pb_status}}",
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
         total = length(names_plant),
         clear = FALSE
       )
@@ -565,13 +557,13 @@ analyze_objects_minimal <- function(img,
       results <- vector("list", length(names_plant))
       for (i in seq_along(names_plant)) {
         img_name <- names_plant[i]
-        cli::cli_progress_update(status = names_plant[i])
+        cli::cli_progress_update()
 
         results[[i]] <- help_count(
           img = names_plant[i],
           fill_hull, threshold, opening, closing, filter, erode, dilate,
           tolerance, extension,  plot, show_original,  marker, marker_col, marker_size,
-          save_image, prefix, dir_original, dir_processed, verbose,
+          save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
           col_background, col_foreground, lower_noise
         )
       }
@@ -711,7 +703,7 @@ analyze_objects_minimal <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' img <- image_pliman("soy_green.jpg")

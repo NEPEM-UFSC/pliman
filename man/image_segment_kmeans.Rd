@@ -19,7 +19,7 @@ image_segment_kmeans(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{bands}{A numeric integer/vector indicating the RGB band used in the
 segmentation. Defaults to \code{1:3}, i.e., all the RGB bands are used.}
@@ -67,7 +67,7 @@ background)
 Segments image objects using clustering by the k-means clustering algorithm
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 img <- image_pliman("la_leaves.jpg", plot = TRUE)
 seg <- image_segment_kmeans(img)
 seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)

@@ -24,7 +24,7 @@ object_export_shp(
 )
 }
 \arguments{
-\item{img}{An object of class \code{Image}}
+\item{img}{An object of class \code{image}}
 
 \item{pattern}{A pattern of file name used to identify images to be
 processed. For example, if \code{pattern = "im"} all images in the current
@@ -98,7 +98,7 @@ Batch processing is performed by declaring a file name pattern that matches
 the images within the working directory.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 object_export_shp(flax)

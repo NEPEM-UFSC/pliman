@@ -10,7 +10,7 @@
 #' from the image.
 #' * `pick_rgb()` Picks up the RGB values from selected point(s) in the image.
 #'
-#' @param img An `Image` object.
+#' @param img An `image` object.
 #' @param n The number of points of the `pick_*` function. Defaults to `Inf`.
 #'   This means that picking will run until the user press Esc.
 #' @param r The radius of neighborhood pixels. Defaults to `1`.
@@ -48,14 +48,14 @@
 #' selected point(x).
 #' * `pick_rgb()` returns a `data.frame` with the R, G, and B values of the
 #' selected point(s).
-#' * `pick_palette()` returns an object of class `Image`.
+#' * `pick_palette()` returns an object of class `image`.
 #' @importFrom grDevices dev.cur dev.set dev.new
 #' @name utils_pick
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@gmail.com}
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #'
@@ -272,7 +272,7 @@ pick_rgb <- function(img,
         }
         x <- d$x
         y <- d$y
-        pixels <- rbind(pixels, img@.Data[x, y, ])
+        pixels <- rbind(pixels, img[x, y, ])
         points(x, y, type = "p", col = col, cex = size, pch = 19)
         if(isTRUE(verbose)){
           cat("Number of objects:", i, "\r")
@@ -289,7 +289,7 @@ pick_rgb <- function(img,
       pixels <-
         do.call(rbind,
                 lapply(1:nrow(points), function(i){
-                  img@.Data[points[i, 1], points[i, 2], ]
+                  img[points[i, 1], points[i, 2], ]
                 })) |>
         as.data.frame()
     }
@@ -344,7 +344,7 @@ pick_palette <- function(img,
           dev.off()
           dev.set(original_device)
         }
-      })
+      }, add = TRUE)
 
       if (isTRUE(plot)) {
         plot(img)
@@ -368,10 +368,10 @@ pick_palette <- function(img,
         yrmin <- trunc(d$y) - r
         yrmax <- trunc(d$y) + r
         sqr <- xrmax - xrmin + 1
-        kern <- as.logical(EBImage::makeBrush(sqr, shape = shape))
-        R <- img@.Data[xrmin:xrmax, yrmin:yrmax, 1][kern]
-        G <- img@.Data[xrmin:xrmax, yrmin:yrmax, 2][kern]
-        B <- img@.Data[xrmin:xrmax, yrmin:yrmax, 3][kern]
+        kern <- as.logical(make_brush(sqr, shape = shape))
+        R <- img[xrmin:xrmax, yrmin:yrmax, 1][kern]
+        G <- img[xrmin:xrmax, yrmin:yrmax, 2][kern]
+        B <- img[xrmin:xrmax, yrmin:yrmax, 3][kern]
         rect(xrmin, yrmin, xrmax, yrmax, border = col, lwd = size)
         bind <- rbind(bind, cbind(R, G, B))
         if(isTRUE(verbose)){
@@ -382,9 +382,7 @@ pick_palette <- function(img,
       if(i == 1){
         cli::cli_abort("Process interrupted.")
       }
-      if(i > 1){
-        on.exit(invisible(pal))
-      }
+
     } else{
       mvpoin <- mv_points(img, show = show, title = title, index = index)
       bind <- NULL
@@ -394,10 +392,10 @@ pick_palette <- function(img,
         yrmin <- trunc(mvpoin[, 2][i]) - r
         yrmax <- trunc(mvpoin[, 2][i]) + r
         sqr <- xrmax - xrmin + 1
-        kern <- as.logical(EBImage::makeBrush(sqr, shape = shape))
-        R <- img@.Data[xrmin:xrmax, yrmin:yrmax, 1][kern]
-        G <- img@.Data[xrmin:xrmax, yrmin:yrmax, 2][kern]
-        B <- img@.Data[xrmin:xrmax, yrmin:yrmax, 3][kern]
+        kern <- as.logical(make_brush(sqr, shape = shape))
+        R <- img[xrmin:xrmax, yrmin:yrmax, 1][kern]
+        G <- img[xrmin:xrmax, yrmin:yrmax, 2][kern]
+        B <- img[xrmin:xrmax, yrmin:yrmax, 3][kern]
         bind <- rbind(bind, cbind(R, G, B))
       }
     }
@@ -408,9 +406,8 @@ pick_palette <- function(img,
       bind <- bind[1:dim_mat^2, ]
     }
     pal <-
-      EBImage::Image(c(bind[, 1], bind[, 2], bind[, 3]),
-                     dim = c(dim_mat, dim_mat, 3),
-                     colormode = "Color") %>%
+      as_image(array(c(bind[, 1], bind[, 2], bind[, 3]), dim = c(dim_mat, dim_mat, 3)),
+               colormode = "Color") %>%
       image_resize(width = width, height = height)
     if(isTRUE(palette)){
       plot(pal)
@@ -480,10 +477,10 @@ pick_rgb_area <- function(img,
         yrmin <- trunc(d$y) - r
         yrmax <- trunc(d$y) + r
         sqr <- xrmax - xrmin + 1
-        kern <- as.logical(EBImage::makeBrush(sqr, shape = shape))
-        R <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 1][kern])
-        G <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 2][kern])
-        B <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 3][kern])
+        kern <- as.logical(make_brush(sqr, shape = shape))
+        R <- mean(img[xrmin:xrmax, yrmin:yrmax, 1][kern])
+        G <- mean(img[xrmin:xrmax, yrmin:yrmax, 2][kern])
+        B <- mean(img[xrmin:xrmax, yrmin:yrmax, 3][kern])
         rect(xrmin, yrmin, xrmax, yrmax, border = col, lwd = size)
         bind <- rbind(bind, cbind(R, G, B))
         i <- i + 1
@@ -503,10 +500,10 @@ pick_rgb_area <- function(img,
         yrmin <- trunc(mvpoin[, 2][i]) - r
         yrmax <- trunc(mvpoin[, 2][i]) + r
         sqr <- xrmax - xrmin + 1
-        kern <- as.logical(EBImage::makeBrush(sqr, shape = shape))
-        R <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 1][kern])
-        G <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 2][kern])
-        B <- mean(img@.Data[xrmin:xrmax, yrmin:yrmax, 3][kern])
+        kern <- as.logical(make_brush(sqr, shape = shape))
+        R <- mean(img[xrmin:xrmax, yrmin:yrmax, 1][kern])
+        G <- mean(img[xrmin:xrmax, yrmin:yrmax, 2][kern])
+        B <- mean(img[xrmin:xrmax, yrmin:yrmax, 3][kern])
         bind <- rbind(bind, cbind(R, G, B))
       }
     }

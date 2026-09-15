@@ -66,16 +66,16 @@ view and "index" for index view.}
 \item{index}{The index to use for the index view. Defaults to "B".}
 }
 \value{
-A prepared object of class \code{Image}.
+A prepared object of class \code{image}.
 }
 \description{
 Prepare an \code{SpatRaster} object to be analyzed in pliman. This includes
 cropping the original mosaic, aligning it, and cropping the aligned object.
-The resulting object is an object of class \code{Image} that can be further
+The resulting object is an object of class \code{image} that can be further
 analyzed.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 mosaic_prepare(mosaic)

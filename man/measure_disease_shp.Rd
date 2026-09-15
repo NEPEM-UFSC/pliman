@@ -28,7 +28,7 @@ measure_disease_shp(
 )
 }
 \arguments{
-\item{img}{The image to be analyzed. Either an image of class \code{Image} or a
+\item{img}{The image to be analyzed. Either an image of class \code{image} or a
 character string containing the image name. In the last, the image will be
 searched in the root directory. Declare dir_original to inform a subfolder
 that contains the images to be processed.}
@@ -115,7 +115,7 @@ object generated with \code{\link[=image_shp]{image_shp()}} and bind the results
 frames.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 # severity for the three leaflets (from left to right)
 img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 sev <-

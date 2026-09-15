@@ -2,10 +2,17 @@
 % Please edit documentation in R/RcppExports.R
 \name{fill_holes_cpp}
 \alias{fill_holes_cpp}
-\title{Preenchimento de buracos internos rápido}
+\title{Fast internal hole filling (with optional maximum hole size and neck distance check)}
 \usage{
-fill_holes_cpp(img)
+fill_holes_cpp(img, max_size = -1, min_neck_dist = 0)
+}
+\arguments{
+\item{img}{A logical matrix representing the binary image.}
+
+\item{max_size}{Maximum area (in pixels) of internal holes to fill. If <= 0 (default), fills all holes.}
+
+\item{min_neck_dist}{Minimum foreground thickness (distance to background) surrounding a hole to allow filling. Default = 0.0 (fill all internal holes).}
 }
 \description{
-Preenchimento de buracos internos rápido
+Fast internal hole filling (with optional maximum hole size and neck distance check)
 }

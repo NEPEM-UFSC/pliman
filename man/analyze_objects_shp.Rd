@@ -41,7 +41,7 @@ analyze_objects_shp(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object}
+\item{img}{An \code{image} object}
 
 \item{nrow, ncol}{The number of rows and columns to generate the shapefile
 when \code{shapefile} is not declared. Defaults to \code{1}.}
@@ -140,11 +140,9 @@ operation involving them, e.g., \code{object_index = "R/B"}. In this case, it
 will return for each object in the image, the average value of the R/B
 ratio. Use \code{\link[=pliman_indexes_eq]{pliman_indexes_eq()}} to see the equations of available indexes.}
 
-\item{veins}{Logical argument indicating whether vein features are computed.
-This will call \code{\link[=object_edge]{object_edge()}} and applies the Sobel-Feldman Operator to
-detect edges. The result is the proportion of edges in relation to the
-entire area of the object(s) in the image. Note that \strong{THIS WILL BE AN
-OPERATION ON AN IMAGE LEVEL, NOT OBJECT!}.}
+\item{veins}{Logical argument indicating whether vein features are computed per object.
+Defaults to \code{FALSE}. If \code{TRUE}, detects veins using Difference of Gaussians (DoG)
+bandpass filtering and dynamic resolution-independent boundary erosion.}
 
 \item{width_at}{Logical. If \code{TRUE}, the widths of the object at a given set
 of quantiles of the height are computed.}
@@ -188,7 +186,7 @@ Additionally, the shapefiles representing the analyzed objects are included
 in the output object for further analysis or visualization.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 
 # Computes the DGCI index for each flax leaf

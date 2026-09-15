@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils_imagem.R
 \name{image_create}
 \alias{image_create}
-\title{Create an \code{Image} object of a given color}
+\title{Create an \code{image} object of a given color}
 \usage{
 image_create(color, width = 200, heigth = 200, plot = FALSE)
 }
@@ -15,13 +15,13 @@ string of the form \code{"#rrggbb"}.}
 \item{plot}{Plots the image after creating it? Defaults to \code{FALSE}.}
 }
 \value{
-An object of class \code{Image}.
+An object of class \code{image}.
 }
 \description{
-image_create() can be used to create an \code{Image} object with a desired color and size.
+image_create() can be used to create an \code{image} object with a desired color and size.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 image_create("red")
 image_create("#009E73", width = 300, heigth = 100)
 }

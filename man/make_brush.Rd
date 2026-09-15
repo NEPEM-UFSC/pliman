@@ -4,7 +4,7 @@
 \alias{make_brush}
 \title{Makes a brush}
 \usage{
-make_brush(size, shape = "disc", ...)
+make_brush(size, shape = "disc", step = TRUE, sigma = 0.3, angle = 45)
 }
 \arguments{
 \item{size}{A numeric containing the size of the brush in pixels. This should
@@ -14,17 +14,21 @@ be an odd number; even numbers are rounded to the next odd one.}
 \code{"box"}, \code{"disc"}, \code{"diamond"}, \code{"Gaussian"} or \code{"line"} Defaults to
 \code{"disc"}.}
 
-\item{...}{Further arguments passed on to \code{\link[EBImage:morphology]{EBImage::makeBrush()}}.}
+\item{step}{Logical. Creates a binary brush if \code{TRUE}.}
+
+\item{sigma}{Standard deviation for Gaussian brush shape.}
+
+\item{angle}{Angle (in degrees) for line brush shape.}
 }
 \value{
 A 2D matrix of 0s and 1s containing the desired brush.
 }
 \description{
 Generates brushes of various sizes and shapes that can be used as structuring
-elements. See \code{\link[EBImage:morphology]{EBImage::makeBrush()}}.
+elements.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 make_brush(size = 51) |> image()
 make_brush(size = 51, shape = "diamond") |> image()
 }

@@ -36,7 +36,7 @@
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #'library(pliman)
 #'img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 #'sev <-
@@ -77,7 +77,7 @@ measure_disease_byl <- function(img,
                                 show_features = FALSE,
                                 verbose = TRUE,
                                 ...){
-  check_ebi()
+  
 
   if(is.null(dir_original)){
     diretorio_original <- paste("./", sep = "")
@@ -111,7 +111,7 @@ measure_disease_byl <- function(img,
     extens <- file_extension(imag)
     img_symptoms <- image_import(paste(diretorio_original, "/", name_h, ".", extens, sep = ""))
   }
-  back <- EBImage::Image(rep(1, 100*300),dim=c(100,300,3), colormode = 'Color')
+  back <- as_image(array(1, dim = c(100, 300, 3)), colormode = "Color")
 
   help_byl <- function(img,
                        img_healthy,
@@ -241,7 +241,10 @@ measure_disease_byl <- function(img,
       structure(
         list(severity = severity,
              stats = stats,
-             shape = shape),
+             shape = shape,
+             parms = list(save_image = save_image,
+                          dir_original = diretorio_original,
+                          dir_processed = diretorio_processada)),
         class = "plm_disease_byl")
     )
   }
@@ -346,7 +349,7 @@ measure_disease_byl <- function(img,
       # run loop
       results <- vector("list", length(names_plant))
       for (i in seq_along(names_plant)) {
-        if (verbose) cli::cli_progress_update(status = names_plant[i])
+        if (verbose) cli::cli_progress_update()
         results[[i]] <- help_byl(
           img          = names_plant[i],
           img_healthy, img_symptoms, back,

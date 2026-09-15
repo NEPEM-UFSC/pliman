@@ -76,7 +76,7 @@ pick_rgb_area(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{n}{The number of points of the \verb{pick_*} function. Defaults to \code{Inf}.
 This means that picking will run until the user press Esc.}
@@ -130,7 +130,7 @@ to \code{100} for both, i.e., a square image of 100 x 100.}
 selected point(x).
 \item \code{pick_rgb()} returns a \code{data.frame} with the R, G, and B values of the
 selected point(s).
-\item \code{pick_palette()} returns an object of class \code{Image}.
+\item \code{pick_palette()} returns an object of class \code{image}.
 }
 }
 \description{
@@ -147,7 +147,7 @@ from the image.
 }
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 

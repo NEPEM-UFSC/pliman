@@ -7,19 +7,19 @@
 prepare_to_shp(img, align = "vertical")
 }
 \arguments{
-\item{img}{A \code{Image} object}
+\item{img}{A \code{image} object}
 
 \item{align}{The desired alignment. Either \code{"vertical"} (default) or
 \code{"horizontal"}.}
 }
 \value{
-An aligned and cropped \code{Image} object.
+An aligned and cropped \code{image} object.
 }
 \description{
 It is a simple wrapper around \code{\link[=image_align]{image_align()}} and \code{\link[=image_crop]{image_crop()}}. In this case, only the option \code{viewer = "base"} is used. To use \code{viewer = "mapview"}, please, use such functions separately.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 img <- image_pliman("flax_leaves.jpg")
 prepare_to_shp(img)
 }

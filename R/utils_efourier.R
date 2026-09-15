@@ -37,7 +37,7 @@
 #'
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' leaf1 <- contours[[4]]
 #' plot_polygon(leaf1)
@@ -159,7 +159,7 @@ efourier <- function(x,
 #' Springer 316 pp.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' plot_polygon(contours, aspect_ratio = 1)
 #' # without alignment
@@ -245,7 +245,7 @@ efourier_inv <- function(x,
 #' @importFrom graphics legend
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' ef <-
 #'   contours[[1]] |>
@@ -424,7 +424,7 @@ efourier_error <- function(x,
 #' Springer 316 pp.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' leaf1 <- contours[[4]]
 #' plot_polygon(leaf1)
@@ -511,7 +511,7 @@ efourier_norm <- function(x, start = FALSE) {
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' # a list of objects
@@ -618,7 +618,7 @@ efourier_coefs <- function(x){
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' pw <- efourier(contours) |> efourier_power()
 #' }
@@ -744,7 +744,7 @@ efourier_power <- function(x,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # approximation of the third leaf's perimeter
 #' # 4 harmonics

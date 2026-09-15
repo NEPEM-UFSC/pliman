@@ -12,7 +12,7 @@ image_prepare(
 )
 }
 \arguments{
-\item{img}{An optional \code{Image} object}
+\item{img}{An optional \code{image} object}
 
 \item{viewer}{The viewer option. If not provided, the value is retrieved
 using \code{\link[=get_pliman_viewer]{get_pliman_viewer()}}. This option controls the type of viewer to use
@@ -41,7 +41,7 @@ visualization. This is useful to prepare the images to be analyzed with
 }
 \examples{
 # Example usage:
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 img <- image_pliman("mult_leaves.jpg")
 image_prepare(img, viewer = "mapview")
 }

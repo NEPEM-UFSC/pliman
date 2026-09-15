@@ -42,27 +42,38 @@ measure_injury <- function(img = NULL,
   # helper to process one image
   process_image <- function(image_path) {
     img_obj <- if (is.character(image_path)) {
-      EBImage::readImage(image_path)
+      image_import(image_path)
     } else {
       image_path
     }
 
     seg <- image_binary(
-      img_obj, index, threshold,
-      opening = opening, closing = closing,
-      erode = erode, dilate = dilate,
-      filter = filter, invert = invert,
+      img = img_obj,
+      index = index,
+      threshold = threshold,
+      opening = opening,
+      closing = closing,
+      erode = erode,
+      dilate = dilate,
+      filter = filter,
+      invert = invert,
       filter_order = filter_order,
       plot = FALSE
     )[[1]]
 
-    segfill <- EBImage::fillHull(seg)
+    segfill <- image_fill_hull(seg)
     lesions <- segfill - seg
     idx <- which(lesions == 1)
 
-    img_obj@.Data[,,1][idx] <- 165/255
-    img_obj@.Data[,,2][idx] <-  42/255
-    img_obj@.Data[,,3][idx] <-  42/255
+    if (is.raw(image_data(img_obj))) {
+      img_obj[,,1][idx] <- as.raw(165)
+      img_obj[,,2][idx] <- as.raw(42)
+      img_obj[,,3][idx] <- as.raw(42)
+    } else {
+      img_obj[,,1][idx] <- 165/255
+      img_obj[,,2][idx] <-  42/255
+      img_obj[,,3][idx] <-  42/255
+    }
 
     if (plot){
       plot(img_obj)

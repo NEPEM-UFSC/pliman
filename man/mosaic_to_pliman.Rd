@@ -32,19 +32,19 @@ rescaled so that the maximum value is 1.}
 useful to adjust the brightness of the final image. Defaults to 0.}
 }
 \value{
-An \code{Image} object with the same number of layers as \code{mosaic}.
+An \code{image} object with the same number of layers as \code{mosaic}.
 }
 \description{
-Convert an \code{SpatRaster} object to a \code{Image} object with optional scaling.
+Convert an \code{SpatRaster} object to a \code{image} object with optional scaling.
 }
 \details{
-This function converts \code{SpatRaster} into an \code{Image} object, which
+This function converts \code{SpatRaster} into an \code{image} object, which
 can be used for image analysis in \code{pliman}. Note that if a large
 \code{SpatRaster} is loaded, the resulting object may increase considerably the
 memory usage.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 # Convert a mosaic raster to an Image object
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))

@@ -14,7 +14,7 @@ rgb_to_srgb(object)
 rgb_to_lab(object)
 }
 \arguments{
-\item{object}{An \code{Image} object, an object computed with \code{analyze_objects()}
+\item{object}{An \code{image} object, an object computed with \code{analyze_objects()}
 with a valid \code{object_index} argument, or a \code{data.frame/matrix}. For the
 last, a three-column data (R, G, and B, respectively) is required.}
 }
@@ -47,7 +47,7 @@ details.
 }
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 rgb_to_lab(img)

@@ -13,13 +13,13 @@ image_index(
   b = 3,
   re = 4,
   nir = 5,
-  return_class = c("ebimage", "terra"),
+  return_class = c("image", "terra"),
   resize = FALSE,
   has_white_bg = FALSE,
   plot = TRUE,
   nrow = NULL,
   ncol = NULL,
-  max_pixels = 1e+05,
+  max_pixels = 5e+05,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
@@ -29,8 +29,8 @@ image_index(
 \method{plot}{image_index}(x, type = c("raster", "density"), nrow = NULL, ncol = NULL, ...)
 }
 \arguments{
-\item{img}{An \code{Image} object. Multispectral mosaics can be converted to an
-\code{Image} object using \code{mosaic_as_ebimage()}.}
+\item{img}{An \code{image} object. Multispectral mosaics can be converted to an
+\code{image} object using \code{mosaic_as_ebimage()}.}
 
 \item{index}{A character value (or a vector of characters) specifying the
 target mode for conversion to a binary image. Use \code{\link[=pliman_indexes]{pliman_indexes()}} or the
@@ -47,7 +47,7 @@ which are frequently presented in the 'BGR' format.}
 
 \item{return_class}{The class of object to be returned. If \verb{"terra} returns a
 SpatRaster object with the number of layers equal to the number of indexes
-computed. If \code{"ebimage"} (default) returns a list of \code{Image} objects, where
+computed. If \code{"ebimage"} (default) returns a list of \code{image} objects, where
 each element is one index computed.}
 
 \item{resize}{Resize the image before processing? Defaults to \code{resize = FALSE}. Use \code{resize = 50}, which resizes the image to 50\% of the original
@@ -108,12 +108,12 @@ plots can be arranged in a grid controlled by the \code{ncol} and \code{nrow}
 arguments.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 image_index(img, index = c("R, NR"))
 }
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 # Example for S3 method plot()
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")

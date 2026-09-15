@@ -6,7 +6,7 @@ extern "C" {
 }
 
 // [[Rcpp::export]]
-List detect_line_segments(NumericVector image, int X, int Y,
+List detect_line_segments(SEXP image_sexp, int X, int Y,
                           double scale = 0.8,
                           double sigma_scale = 0.6,
                           double quant = 2.0,
@@ -21,14 +21,33 @@ List detect_line_segments(NumericVector image, int X, int Y,
                           double length_threshold = 5,
                           double dist_threshold = 5)
 {
-  int point_num = image.size();
+  int point_num = Rf_length(image_sexp);
   if (point_num != X * Y) {
     stop("Size of image not the same as X*Y");
+  }
+
+  std::vector<double> img_buffer;
+  double* img_ptr = nullptr;
+
+  if (TYPEOF(image_sexp) == RAWSXP) {
+    img_buffer.resize(point_num);
+    Rbyte* rp = RAW(image_sexp);
+    for(int i = 0; i < point_num; i++) img_buffer[i] = rp[i] / 255.0;
+    img_ptr = img_buffer.data();
+  } else if (TYPEOF(image_sexp) == REALSXP) {
+    img_ptr = REAL(image_sexp);
+  } else if (TYPEOF(image_sexp) == INTSXP) {
+    img_buffer.resize(point_num);
+    int* ip = INTEGER(image_sexp);
+    for(int i = 0; i < point_num; i++) img_buffer[i] = ip[i] / 255.0;
+    img_ptr = img_buffer.data();
+  } else {
+    stop("Unsupported image type");
   }
   int n_out, reg_x, reg_y;
   double * out;
   int * reg_img;
-  out = LineSegmentDetection( &n_out, image.begin(), X, Y, scale, sigma_scale, quant,
+  out = LineSegmentDetection( &n_out, img_ptr, X, Y, scale, sigma_scale, quant,
                               ang_th, log_eps, density_th, union_ang_th,
                               union_use_NFA, union_log_eps, n_bins,
                               need_to_union, &reg_img, &reg_x, &reg_y,

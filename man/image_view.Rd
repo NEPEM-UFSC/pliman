@@ -24,7 +24,7 @@ image_view(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{object}{(Optional). An object computed with \code{\link[=analyze_objects]{analyze_objects()}}. If an
 object is informed, an additional layer is added to the plot, showing the
@@ -72,7 +72,7 @@ This function allows users to interactively edit and analyze an image using
 mapview and mapedit packages.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 # Example usage:
 img <- image_pliman("sev_leaf.jpg")
 image_view(img)

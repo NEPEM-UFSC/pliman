@@ -20,7 +20,14 @@ image_import(
   ncol = NULL
 )
 
-image_export(img, name, prefix = "", extension = NULL, subfolder = NULL, ...)
+image_export(
+  img,
+  name = NULL,
+  prefix = "",
+  extension = NULL,
+  subfolder = NULL,
+  ...
+)
 
 image_input(img, ...)
 
@@ -39,7 +46,7 @@ containing the pixel intensities of an image.
 \item{...}{\itemize{
 \item For \code{image_import()} alternative arguments passed to the corresponding
 functions from the \code{jpeg}, \code{png}, and \code{tiff} packages.
-\item For \code{image_input()} further arguments passed on to \code{\link[EBImage:Image]{EBImage::Image()}}.
+\item For \code{image_input()} further arguments passed on to \code{\link[=as_image]{as_image()}}.
 }}
 
 \item{which}{logical scalar or integer vector to indicate which image are
@@ -84,9 +91,9 @@ exist, it will be created.}
 }
 \value{
 \itemize{
-\item \code{image_import()} returns a new \code{Image} object.
-\item \code{image_export()} returns an invisible vector of file names.
-\item \code{image_pliman()} returns a new \code{Image} object with the example image
+\item \code{image_import()} returns a new \code{image} object.
+\item \code{image_export()} returns an return vector of file names.
+\item \code{image_pliman()} returns a new \code{image} object with the example image
 required. If an empty call is used, the path to the \code{tmp_images} directory
 installed with the package is returned.
 }
@@ -96,7 +103,7 @@ Import images from files and URLs and write images to files, possibly with
 batch processing.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 folder <- image_pliman()
 full_path <- paste0(folder, "/sev_leaf.jpg")

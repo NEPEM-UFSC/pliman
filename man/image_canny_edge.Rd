@@ -7,7 +7,7 @@
 image_canny_edge(img, index = "GRAY", s = 5, low_thr = 10, high_thr = 20)
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{index}{A character string with the index to be used. Defaults to \code{"GRAY"}.}
 
@@ -18,7 +18,7 @@ image_canny_edge(img, index = "GRAY", s = 5, low_thr = 10, high_thr = 20)
 \item{high_thr}{upper threshold value of the algorithm. Defaults to 20}
 }
 \value{
-a list with an \code{Image} object with values 0 or 255, and the number of
+a list with an \code{image} object with values 0 or 255, and the number of
 pixels which have value 255 (pixels_nonzero).
 }
 \description{
@@ -29,9 +29,6 @@ if(interactive()){
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 conts <- image_canny_edge(img, index = "B")
-par(mfrow = c(1, 2))
-plot(img)
-plot(conts$edges)
-par(mfrow = c(1, 1))
+image_combine(img, conts$edges)
 }
 }

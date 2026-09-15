@@ -180,7 +180,7 @@
 
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # A 2 x 2 square
 #' df <- draw_square(side = 2)
@@ -749,9 +749,17 @@ poly_smooth <- function(x,
 #' @export
 poly_measures <- function(x){
   if (inherits(x, "list")) {
-    valid <- which(sapply(x, function(x){length(as.matrix(x))}) > 2)
+    valid <- which(vapply(x, function(el) {
+      !is.null(el) && (is.matrix(el) || is.data.frame(el) || is.numeric(el)) && length(el) > 2
+    }, logical(1)))
+    if (length(valid) == 0) {
+      return(data.frame())
+    }
     coord <- x[valid]
     res <- poly_measures_cpp(coord)
+    if (nrow(res) == 0) {
+      return(data.frame())
+    }
     res$id <- 1:nrow(res)
     shape <- res[, c(ncol(res), 1:ncol(res) -1) ]
     return(shape)
@@ -1083,7 +1091,7 @@ plot_ellipse <- function(object,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' cont <- contours[[2]]
 #' plot_polygon(cont |> conv_hull() |> poly_align())
 #' #  width below 5th, 25th, 50th, 75th, and 95th percentiles of the length
@@ -1099,7 +1107,7 @@ poly_width_at <- function(x,
                           at = c(0.05, 0.25, 0.5, 0.75, 0.95),
                           unify = FALSE,
                           plot = FALSE){
-  check_ebi()
+  
   if (!is.numeric(at) && any(at != "height")) {
     cli::cli_warn(c(
       "!" = "`at` must be either {.val 'height'} or a numeric vector in the range {.val 0-1}."
@@ -1114,7 +1122,7 @@ poly_width_at <- function(x,
   if(inherits(chu, "list")){
     res <- list()
     for(i in seq_along(chu)){
-      bin <- EBImage::Image(polygon_to_binary(chu[[i]]))
+      bin <- as_image(polygon_to_binary(chu[[i]]))
       if(is.character(at)){
         wdts <- sum_true_cols(bin)
         wdts <- wdts[2:(length(wdts) - 1)]
@@ -1123,14 +1131,14 @@ poly_width_at <- function(x,
         heights <- ceiling(dim(bin)[2] * at)
         res[[i]] <-
           sapply(seq_along(heights), function(i){
-            sum(bin[, heights[i]:heights[i]]@.Data == TRUE)
+            sum(bin[, heights[i]:heights[i]] == TRUE)
           })
       }
     }
     names(res) <- paste0(1:length(res))
     return(res)
   } else{
-    bin <- EBImage::Image(polygon_to_binary(chu))
+    bin <- as_image(polygon_to_binary(chu))
     if(is.character(at)){
       wdts <- sum_true_cols(bin)
       wd <- wdts[2:(length(wdts) - 1)]
@@ -1138,7 +1146,7 @@ poly_width_at <- function(x,
       heights <- ceiling(dim(bin)[2] * at)
       wd <-
         sapply(seq_along(heights), function(i){
-          sum(bin[, heights[i]:heights[i]]@.Data == TRUE)
+          sum(bin[, heights[i]:heights[i]] == TRUE)
         })
     }
     if(isTRUE(plot)){
@@ -1175,7 +1183,7 @@ poly_width_at <- function(x,
 #' the median pixel index, and the maximum pixel index.
 #' @importFrom stats median
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' leaf <- image_pliman("sev_leaf.jpg")
 #' bin <- image_binary(leaf, "NB")[[1]]
@@ -1241,7 +1249,7 @@ pixel_index <- function(bin,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # a matrix of coordinates
 #' angls <- poly_apex_base_angle(contours[[2]])
@@ -1339,7 +1347,7 @@ poly_apex_base_angle <- function(x,
 #'   complexity values for each polygon.
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' set.seed(20)
 #' shp <- efourier_shape(npoints = 1000)

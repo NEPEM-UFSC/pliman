@@ -20,7 +20,7 @@ image_shp(
 )
 }
 \arguments{
-\item{img}{An object of class \code{Image}}
+\item{img}{An object of class \code{image}}
 
 \item{nrow}{The number of desired rows in the grid. Defaults to \code{1}.}
 
@@ -63,7 +63,7 @@ interest in the plot space. Then, given \code{nrow} and \code{ncol}, a grid is d
 and the objects' coordinates are returned.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg")
 shape <- image_shp(flax, nrow = 3, ncol = 5)

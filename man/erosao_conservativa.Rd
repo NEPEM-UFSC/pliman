@@ -2,10 +2,19 @@
 % Please edit documentation in R/RcppExports.R
 \name{erosao_conservativa}
 \alias{erosao_conservativa}
-\title{Erosão conservativa rápida (pipeline completo)}
+\title{Fast conservative erosion pipeline}
 \usage{
 erosao_conservativa(img, raio_erosao = 3L, raio_dilatacao = 3L, forma = "disc")
 }
+\arguments{
+\item{img}{A logical matrix representing the binary image.}
+
+\item{raio_erosao}{Radius for erosion step (integer >= 1).}
+
+\item{raio_dilatacao}{Radius for dilation step (integer >= 1).}
+
+\item{forma}{Shape of the structuring element ("disc" or "square").}
+}
 \description{
-Erosão conservativa rápida (pipeline completo)
+Fast conservative erosion pipeline
 }

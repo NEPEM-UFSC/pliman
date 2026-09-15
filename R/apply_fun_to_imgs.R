@@ -125,11 +125,6 @@ apply_fun_to_imgs <- function(pattern,
         right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
       )
 
-      cli::cli_progress_step(
-        msg        = "Processing {.val {length(imgs)}} images in parallel...",
-        msg_done   = "All batches complete!",
-        msg_failed = "Batch failed"
-      )
     }
     # função que será executada em paralelo
     process_image <- function(img) {
@@ -150,6 +145,14 @@ apply_fun_to_imgs <- function(pattern,
       .f = process_image
     )[.progress]
 
+    if(verbose){
+      cli::cli_progress_step(
+        msg        = "Processing {.val {length(imgs)}} images in parallel...",
+        msg_done   = "All batches complete!",
+        msg_failed = "Batch failed"
+      )
+    }
+
   } else {
     if (verbose) {
       cli::cli_rule(
@@ -157,7 +160,7 @@ apply_fun_to_imgs <- function(pattern,
         right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
       )
       cli::cli_progress_bar(
-        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} [ETA: {cli::pb_eta}] | Current: {.val {cli::pb_status}}",
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} [ETA: {cli::pb_eta}]",
         total  = length(imgs),
         clear  = TRUE
       )
@@ -166,7 +169,7 @@ apply_fun_to_imgs <- function(pattern,
     results <- vector("list", length(imgs))
     for (i in seq_along(imgs)) {
       if (verbose) {
-        cli::cli_progress_update(status = imgs[i])
+        cli::cli_progress_update()
       }
       results[[i]] <- help_apply(
         img                  = imgs[[i]],

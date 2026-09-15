@@ -7,7 +7,7 @@
 make_mask(img, brush, rel_pos_x = 0.5, rel_pos_y = 0.5, plot = TRUE)
 }
 \arguments{
-\item{img}{A \code{Image} object}
+\item{img}{A \code{image} object}
 
 \item{brush}{An object created with \code{make_brush()}}
 
@@ -22,17 +22,17 @@ respectively.}
 A binary image with 0s and 1s.
 }
 \description{
-Make a mask using an \code{Image} object and a brush.
+Make a mask using an \code{image} object and a brush.
 }
 \details{
-It applies a brush to an Image, selecting the \code{Image} pixels that match the
+It applies a brush to an Image, selecting the \code{image} pixels that match the
 brush values equal to 1. The position of the brush in the original image is
 controlled by the relative positions x (\code{rel_pos_x}) and y (\code{rel_pos_y})
 arguments.  The size of the brush must be smaller or equal to the smaller
 dimension of \code{image}.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 img <- image_pliman("soybean_touch.jpg")
 make_mask(img, brush = make_brush(size = 201))
 make_mask(img,

@@ -5,7 +5,7 @@
 #' interest in the plot space. Then, given `nrow` and `ncol`, a grid is drawn
 #' and the objects' coordinates are returned.
 #'
-#' @param img An object of class `Image`
+#' @param img An object of class `image`
 #' @param nrow The number of desired rows in the grid. Defaults to `1`.
 #' @param ncol The number of desired columns in the grid. Defaults to `1`.
 #' @param buffer_x,buffer_y Buffering factor for the width and height,
@@ -34,7 +34,7 @@
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
@@ -108,7 +108,7 @@ image_shp <- function(img,
 #' @importFrom grDevices dev.list
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
@@ -157,17 +157,17 @@ plot.image_shp <- function(x,
 #'
 #'  Here, [image_shp()] is used to create a shape file based on the desired
 #'  number of rows and columns. Then, using the object coordinates, a list of
-#'  `Image` objects is created.
+#'  `image` objects is created.
 #' @inheritParams  image_shp
 #' @param only_shp If `TRUE` returns only the shapefiles with the coordinates
 #'   for each image. If `FALSE` (default) returns the splitted image according
 #'   to `nrow` and `ncol` arguments.
 #' @param ... Other arguments passed on to [image_shp()]
-#' @return A list of `Image` objects
+#' @return A list of `image` objects
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' objects <- object_split_shp(flax, nrow = 3, ncol = 5)
@@ -248,7 +248,7 @@ object_split_shp <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' object_export_shp(flax)
@@ -441,7 +441,7 @@ object_export_shp <- function(img,
     }
 
     for (i in seq_along(names_plant)) {
-      if (verbose) cli::cli_progress_update(status = names_plant[i])
+      if (verbose) cli::cli_progress_update()
       tmpimg <- image_import(plants[i], path = dir_original)
       objs   <- object_split_shp(
         tmpimg,
@@ -481,7 +481,7 @@ object_export_shp <- function(img,
 
 
 
-#' Aligns an `Image` object by hand
+#' Aligns an `image` object by hand
 #'
 #' [image_align()] rotate an image given a line of desired aligment along the y
 #' axis that corresponds to the alignment of the objects (e.g., field plots). By
@@ -501,7 +501,7 @@ object_export_shp <- function(img,
 #' rotated accordingly using the `image_rotate` function. The function returns
 #' the aligned image object.
 #'
-#' @param img An `Image` object
+#' @param img An `image` object
 #' @param align The desired alignment. Either `"vertical"` (default) or
 #'   `"horizontal"`.
 #' @param viewer The viewer option. If not provided, the value is retrieved
@@ -519,7 +519,7 @@ object_export_shp <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' aligned <- image_align(flax)
@@ -528,14 +528,14 @@ image_align <- function(img,
                         align = c("vertical", "horizontal"),
                         viewer = get_pliman_viewer(),
                         plot = TRUE){
-  check_ebi()
+  
   alignopt <- c("vertical", "horizontal")
   alignopt <- alignopt[pmatch(align[1], alignopt)]
   vieweropt <- c("base", "mapview")
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
   if(vieweropt == "base"){
     cli::cli_inform("Select 2 points drawing a line of desired aligment along the y axis.")
-    plot(EBImage::Image(img[,,1:3], colormode = "Color"))
+    plot(as_image(img[,,1:3], colormode = "Color"))
     cord <- locator(type = "p", n = 2, col = "red", pch = 19)
     c1 <- data.frame(do.call(rbind, cord)) |> t()
     lines(c1, col = "red", lty = 2, lwd = 2)
@@ -599,7 +599,7 @@ image_align <- function(img,
 #' @inheritParams analyze_objects
 #' @inheritParams  image_shp
 #'
-#' @param img An `Image` object
+#' @param img An `image` object
 #' @param nrow,ncol The number of rows and columns to generate the shapefile
 #'   when `shapefile` is not declared. Defaults to `1`.
 #' @param prepare Logical value indicating whether to prepare the image for
@@ -630,7 +630,7 @@ image_align <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' # Computes the DGCI index for each flax leaf
@@ -992,7 +992,7 @@ analyze_objects_shp <- function(img,
 #'
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 #' res <-
@@ -1063,7 +1063,7 @@ object_map <- function(object,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 #' res <-
@@ -1131,7 +1131,7 @@ plot_shp <- function(coords,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' # Computes the DGCI index for each flax leaf
@@ -1234,7 +1234,7 @@ plot_index_shp <- function(object,
                          alpha.regions = alpha,
                          layer.name = attribute)
       )
-    rgb <- terra::rast(EBImage::transpose(object$final_image)@.Data[,,1:3])
+    rgb <- terra::rast(image_data(image_transpose(object$final_image))[,,1:3])
 
 
     dimsto <- dim(rgb)
@@ -1312,7 +1312,7 @@ plot_index_shp <- function(object,
 
     # Add RGB image (raster) on the plot
     fin_img <- object$final_image[,,1:3]
-    EBImage::colorMode(fin_img) <- "Color"
+    fin_img <- as_image(fin_img, colormode = "Color")
     plot(fin_img)
     for (i in 1:length(coords_list)) {
       rect(min(coords_list[[i]]$x), min(coords_list[[i]]$y), max(coords_list[[i]]$x), max(coords_list[[i]]$y), col = valcol[i], border = NA)
@@ -1344,7 +1344,7 @@ plot_index_shp <- function(object,
 #' @inheritParams measure_disease
 #' @inheritParams image_shp
 #'
-#' @param img The image to be analyzed. Either an image of class `Image` or a
+#' @param img The image to be analyzed. Either an image of class `image` or a
 #'   character string containing the image name. In the last, the image will be
 #'   searched in the root directory. Declare dir_original to inform a subfolder
 #'   that contains the images to be processed.
@@ -1367,7 +1367,7 @@ plot_index_shp <- function(object,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' # severity for the three leaflets (from left to right)
 #' img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 #' sev <-
@@ -1619,7 +1619,7 @@ measure_disease_shp <- function(img,
 
       results <- vector("list", length(names_plant))
       for (i in seq_along(names_plant)) {
-        if (verbose) cli::cli_progress_update(status = names_plant[i])
+        if (verbose) cli::cli_progress_update()
         results[[i]] <- help_meas_shp(
           img            = names_plant[i],
           nrow, ncol,

@@ -84,8 +84,8 @@ number of sections is set up to 30\% of available cores.}
 \value{
 \code{image_palette()} returns a list with two elements:
 \itemize{
-\item \code{palette_list} A list with \code{npal} color palettes of class \code{Image}.
-\item \code{joint} An object of class \code{Image} with the color palettes
+\item \code{palette_list} A list with \code{npal} color palettes of class \code{image}.
+\item \code{joint} An object of class \code{image} with the color palettes
 \item \code{proportions} The proportion of the entire image corresponding to each color in the palette
 \item \code{rgbs} The average RGB value for each palette
 }
@@ -95,7 +95,7 @@ number of sections is set up to 30\% of available cores.}
 to the RGB values.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 pal <- image_palette(img, npal = 5)

@@ -47,7 +47,7 @@ to \code{MULTILINESTRING} geometries (default is \code{FALSE}).}
 
 \item{...}{Additional arguments to be passed to \code{\link[terra:vect]{terra::vect()}}
 (\code{shapefile_input()}), \code{\link[terra:writeVector]{terra::writeVector()}} (\code{shapefile_export()}) or
-\code{\link[mapview:mapView]{mapview::mapview()}} (\code{shapefile_view()}).}
+\code{\link[mapview:mapview]{mapview::mapview()}} (\code{shapefile_view()}).}
 
 \item{filename}{The path to the output shapefile.}
 

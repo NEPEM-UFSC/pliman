@@ -22,7 +22,7 @@ plot_index(
 )
 }
 \arguments{
-\item{img}{An optional \code{Image} object or an object computed with
+\item{img}{An optional \code{image} object or an object computed with
 \code{\link[=image_index]{image_index()}}. If \code{object} is provided, then the input image is obtained
 internally.}
 
@@ -80,7 +80,7 @@ None
 Plot an image index
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 # Example usage:
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")

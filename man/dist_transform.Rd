@@ -4,13 +4,16 @@
 \alias{dist_transform}
 \title{Distance map transform}
 \usage{
-dist_transform(binary)
+dist_transform(binary, normalize = FALSE)
 }
 \arguments{
-\item{binary}{A binary image}
+\item{binary}{A binary \code{image} object or logical matrix.}
+
+\item{normalize}{Logical argument indicating whether the distance map should
+be normalized to the 0-1 range. Defaults to \code{FALSE}.}
 }
 \value{
-An \code{Image} object or an array, with pixels containing the distances
+An \code{image} object or an array, with pixels containing the distances
 to the nearest background points
 }
 \description{
@@ -19,7 +22,7 @@ matrix which contains for each pixel the distance to its nearest background
 pixel.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 binary <- image_binary(img, "B")[[1]]

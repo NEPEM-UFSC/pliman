@@ -28,7 +28,7 @@ given a list with Fourier coefficients computed with \code{\link[=efourier]{efou
 Adapted from Claude (2008). pp. 223.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 plot_polygon(contours, aspect_ratio = 1)
 # without alignment

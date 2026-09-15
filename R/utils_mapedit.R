@@ -4,7 +4,7 @@
 #' mapview and mapedit packages.
 #'
 #' @inheritParams plot_index
-#' @param img An `Image` object.
+#' @param img An `image` object.
 #' @param object (Optional). An object computed with [analyze_objects()]. If an
 #'   object is informed, an additional layer is added to the plot, showing the
 #'   contour of the analyzed objects, with a color gradient defined by
@@ -30,7 +30,7 @@
 #' @return An `sf` object, the same object returned by [mapedit::editMap()].
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' # Example usage:
 #' img <- image_pliman("sev_leaf.jpg")
 #' image_view(img)
@@ -69,7 +69,16 @@ image_view <- function(img,
     }
   }
 
-  ras <- terra::rast(EBImage::transpose(img)@.Data)
+  arr <- if (inherits(img, "image")) {
+    image_data(img, type = "numeric")
+  } else if (isS4(img) && .hasSlot(img, ".Data")) {
+    slot(img, ".Data")
+  } else {
+    as.array(img)
+  }
+
+  arr_t <- if (length(dim(arr)) == 3) aperm(arr, c(2, 1, 3)) else t(arr)
+  ras <- terra::rast(arr_t)
   nly <- terra::nlyr(ras)
   terra::crs(ras) <- terra::crs("EPSG:3857")
   dimsto <- dim(ras)[1:2]
@@ -235,7 +244,7 @@ custom_palette <- function(colors = c("yellow", "#53CC67", "#009B95", "#00588B",
 # This function plots the specified index of an image either using base plotting
 # or mapview package.
 #'
-#' @param img An optional `Image` object or an object computed with
+#' @param img An optional `image` object or an object computed with
 #'   [image_index()]. If `object` is provided, then the input image is obtained
 #'   internally.
 #' @param object An object computed with [analyze_objects()] using the argument
@@ -277,7 +286,7 @@ custom_palette <- function(colors = c("yellow", "#53CC67", "#009B95", "#00588B",
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' # Example usage:
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
@@ -316,32 +325,41 @@ plot_index <- function(img = NULL,
   if(!is.null(img) & inherits(img, c("SpatRaster", "image_index"))){
     if(inherits(img, "image_index")){
       for(x in 1:length(img)){
-        img[[x]][is.infinite(img[[x]])] <- NA
-      }
-      sts <-  terra::rast(
-        lapply(1:length(img), function(i){
-          sto <-  terra::rast(t(img[[i]]@.Data))
-          dimsto <- dim(sto)
-          nr <- dimsto[1]
-          nc <- dimsto[2]
-          npix <- nc * nr
-          if(npix > max_pixels){
-              possible_downsamples <- 0:50
-              possible_npix <- sapply(possible_downsamples, function(x){
-                compute_downsample(nr, nc, x)
-              })
-              if(is.null(downsample)){
-                downsample <- which.min(abs(possible_npix - max_pixels))
-                downsample <- ifelse(downsample == 1, 0, downsample)
-              }
-              if(downsample > 0){
-                sto <- mosaic_aggregate(sto, pct = round(100 / downsample))
-              }
-          }
-          sto
+        if(!is.raw(img[[x]])) {
+          img[[x]][is.infinite(img[[x]])] <- NA
         }
+      }
+      if (vieweropt != "base") {
+        sts <- terra::rast(
+          lapply(1:length(img), function(i){
+            u <- image_data(img[[i]])
+            class(u) <- NULL
+            dim(u) <- dim(img[[i]])[1:2]
+            if (is.raw(u)) u <- as.double(u) / 255
+            sto <- terra::rast(t(u))
+            dimsto <- dim(sto)
+            nr <- dimsto[1]
+            nc <- dimsto[2]
+            npix <- nc * nr
+            if(npix > max_pixels){
+                possible_downsamples <- 0:50
+                possible_npix <- sapply(possible_downsamples, function(x){
+                  compute_downsample(nr, nc, x)
+                })
+                if(is.null(downsample)){
+                  downsample <- which.min(abs(possible_npix - max_pixels))
+                  downsample <- ifelse(downsample == 1, 0, downsample)
+                }
+                if(downsample > 0){
+                  sto <- mosaic_aggregate(sto, pct = round(100 / downsample))
+                }
+            }
+            sto
+          }
+          )
         )
-      )
+        names(sts) <- names(img)
+      }
     } else{
       dimsto <- dim(img)
       nr <- dimsto[1]
@@ -362,11 +380,10 @@ plot_index <- function(img = NULL,
       } else{
         sts <- img
       }
+      names(sts) <- names(img)
     }
 
-    names(sts) <- names(img)
-
-    num_plots <- terra::nlyr(sts)
+    num_plots <- if (exists("sts")) terra::nlyr(sts) else length(img)
     if (is.null(nrow) && is.null(ncol)){
       ncol <- ceiling(sqrt(num_plots))
       nrow <- ceiling(num_plots/ncol)
@@ -378,21 +395,95 @@ plot_index <- function(img = NULL,
       nrow <- ceiling(num_plots/ncol)
     }
     if(vieweropt == "base"){
-      if (terra::nlyr(sts) > 16) {
+      n_idx <- length(img)
+      if (n_idx > 16) {
         cli::cli_warn(c(
           "!" = "The number of layers is too large and plots may not fit well in the plotting area.",
           " " = "Consider reducing the number of indexes used."
         ))
       }
 
-      terra::plot(sts,
-                  col = color_regions,
-                  axes = FALSE,
-                  nc = ncol,
-                  nr = nrow,
-                  loc.main = "topleft",
-                  cex.main = 1,
-                  smooth = TRUE)
+      # Build layout: each index gets [image panel | colorbar panel] as consecutive IDs
+      # R draws regions in order 1,2,3,... so pairs must be sequential: img1=1,bar1=2,img2=3,bar2=4,...
+      mat_layout <- matrix(0L, nrow = nrow, ncol = ncol * 2)
+      panel_id   <- 1L
+      for (r_idx2 in seq_len(nrow)) {
+        for (c_idx2 in seq_len(ncol)) {
+          col_img <- (c_idx2 - 1L) * 2L + 1L
+          col_bar <- col_img + 1L
+          idx     <- (r_idx2 - 1L) * ncol + c_idx2
+          if (idx <= n_idx) {
+            mat_layout[r_idx2, col_img] <- panel_id        # image panel
+            mat_layout[r_idx2, col_bar] <- panel_id + 1L   # colorbar panel (right after)
+            panel_id <- panel_id + 2L
+          }
+        }
+      }
+
+      widths_vec <- rep(c(8, 1), times = ncol)
+      layout(mat_layout, widths = widths_vec)
+      old_par <- par(mar = c(1.5, 1.5, 2, 0.2))
+      on.exit({ par(old_par); layout(1) }, add = TRUE)
+
+      pal <- color_regions
+      n_pal <- length(pal)
+
+      for (i in seq_len(n_idx)) {
+        # Extract pixel data robustly, preserving natural scale
+        obj <- img[[i]]
+        d   <- dim(obj)
+        nr_obj <- if (!is.null(d) && length(d) >= 1) d[[1]] else 1L   #
+        nc_obj <- if (!is.null(d) && length(d) >= 2) d[[2]] else length(as.vector(obj))  # height
+        u_vec  <- as.vector(obj)
+        # Keep raw as integer 0-255 so colorbar shows true uint8 scale
+        u <- if (is.raw(u_vec)) as.integer(u_vec) else as.double(u_vec)
+        dim(u) <- c(nr_obj, nc_obj)  # [width, height] — correct for image(x, y, z)
+
+        # No transpose: u[x, y] already matches image(x=width, y=height, z=u)
+        # Flip y with ylim so row 1 (top of image) appears at top of plot
+        mat_i <- u
+
+        rng <- range(mat_i, na.rm = TRUE, finite = TRUE)
+        if (!is.finite(rng[1]) || rng[1] == rng[2]) rng <- c(rng[1], rng[1] + 1)
+
+        # Downsample for display if needed
+        nr_i  <- nrow(mat_i)   # width
+        nc_i  <- ncol(mat_i)   # height
+        npix_i <- nr_i * nc_i
+        if (!is.null(max_pixels) && npix_i > max_pixels) {
+          factor_i  <- ceiling(sqrt(npix_i / max_pixels))
+          row_idx_i <- seq(1, nr_i, by = factor_i)
+          col_idx_i <- seq(1, nc_i, by = factor_i)
+          mat_i     <- mat_i[row_idx_i, col_idx_i, drop = FALSE]
+        }
+        nr_plot <- nrow(mat_i)
+        nc_plot <- ncol(mat_i)
+
+        par(mar = c(1.5, 1.5, 2, 0.2))
+        graphics::image(x    = seq_len(nr_plot),
+                        y    = seq_len(nc_plot),
+                        z    = mat_i,
+                        col  = pal,
+                        zlim = rng,
+                        axes = FALSE,
+                        xlab = "", ylab = "",
+                        ylim = c(nc_plot + 0.5, 0.5),  # flip y: row 1 at top
+                        useRaster = TRUE)
+        title(main = names(img)[[i]], cex.main = 0.9, line = 0.5)
+
+        # Colorbar panel
+        par(mar = c(1.5, 0.3, 2, 2.2))
+        bar_mat <- matrix(seq(rng[1], rng[2], length.out = n_pal), nrow = 1)
+        graphics::image(x    = 0.5,
+                        y    = seq(rng[1], rng[2], length.out = n_pal),
+                        z    = bar_mat,
+                        col  = pal,
+                        axes = FALSE,
+                        xlab = "", ylab = "")
+        axis(4, las = 1, cex.axis = 0.65, tcl = -0.3,
+             at = pretty(rng, n = 5))
+        box()
+      }
     } else{
       if (layer > terra::nlyr(sts)) {
         cli::cli_warn(c(
@@ -463,13 +554,13 @@ plot_index <- function(img = NULL,
     ind <- image_index(img, index = index, plot = FALSE)[[1]]
     if(!is.null(object)){
       if(isTRUE(remove_bg)){
-        ind@.Data[which(mask@.Data == 0)] <- NA
-        ras <- terra::rast(EBImage::transpose(ind)@.Data)
+        ind[which(as.numeric(image_data(mask)) == 0)] <- NA
+        ras <- terra::rast(image_data(image_transpose(ind)))
       } else{
-        ras <- terra::rast(EBImage::transpose(ind)@.Data)
+        ras <- terra::rast(image_data(image_transpose(ind)))
       }
     } else{
-      ras <-terra::rast(EBImage::transpose(ind)@.Data)
+      ras <-terra::rast(image_data(image_transpose(ind)))
     }
     dimsto <- dim(ras)
     nr <- dimsto[1]
@@ -518,7 +609,7 @@ plot_index <- function(img = NULL,
 #' visualization. This is useful to prepare the images to be analyzed with
 #' [analyze_objects_shp()]
 #' @inheritParams image_view
-#' @param img An optional `Image` object
+#' @param img An optional `image` object
 #' @param viewer The viewer option. If not provided, the value is retrieved
 #'   using [get_pliman_viewer()]. This option controls the type of viewer to use
 #'   for interactive plotting. The available options are "base" and "mapview".
@@ -532,7 +623,7 @@ plot_index <- function(img = NULL,
 #'
 #' @examples
 #' # Example usage:
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' img <- image_pliman("mult_leaves.jpg")
 #' image_prepare(img, viewer = "mapview")
 #'}

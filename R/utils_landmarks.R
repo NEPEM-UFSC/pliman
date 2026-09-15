@@ -24,7 +24,7 @@ create_mat <- function(vect, nr){
 #' user press Esc, the interactive process is interrupted and a `data.frame`
 #' with the `x` and `y` coordinates for the landmarks is returned.
 #'
-#' @param img An `Image` object.
+#' @param img An `image` object.
 #' @param n The number of landmarks to produce. Defaults to `Inf`. In this case,
 #'   landmarks are chosen up to the user press Esc.
 #' @param viewer The viewer option. If not provided, the value is retrieved
@@ -305,7 +305,7 @@ landmarks_add <- function(x,
 #' distance (cm) on the graph. I invite users to photograph the object together
 #' with a scale (e.g., ruler, micrometer...).
 #'
-#' @param img An `Image` object
+#' @param img An `image` object
 #' @param viewer The viewer option. If not provided, the value is retrieved
 #'   using [get_pliman_viewer()]. This option controls the type of viewer to use
 #'   for interactive plotting. The available options are "base" and "mapview".
@@ -354,8 +354,8 @@ calibrate <- function(img, viewer = get_pliman_viewer()){
     b <- abs(mv[[2]] - mv[[4]])
     scale <- sqrt(a ^ 2 + b ^ 2)
   }
-  known <- as.numeric(readline("known distance (cm): "))
-  scale / known
+  known <- readline("known distance (cm): ")
+  scale / as.numeric(known)
 }
 
 
@@ -464,7 +464,7 @@ landmarks_angle <- function(x, unit = c("rad", "deg")){
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' ellipse(contours)
 #' }
@@ -475,7 +475,7 @@ ellipse <- function(x,
                     fill = "green",
                     alpha = 0.3,
                     random_fill = TRUE){
-  check_ebi()
+  
   if (inherits(x, "list")) {
     d <- lapply(x, ellipse, conf, np, plot =  FALSE)
     if(isTRUE(plot)){
@@ -525,3 +525,29 @@ ellipse <- function(x,
   }
 }
 
+#' Generalized Procrustes Analysis
+#'
+#' Performs Generalized Procrustes Analysis (GPA) to align a set of shapes.
+#'
+#' @param x A list of coordinate matrices (e.g., from `landmarks()` or outline coordinates).
+#' @param tol Tolerance for convergence.
+#' @param max_iter Maximum number of iterations.
+#' @return A list with components:
+#' \itemize{
+#'   \item `aligned`: A list of the aligned shapes.
+#'   \item `consensus`: The consensus (mean) shape.
+#'   \item `centroid_sizes`: The centroid sizes of the original shapes.
+#'   \item `iterations`: The number of iterations until convergence.
+#' }
+#' @export
+gpa <- function(x, tol = 1e-5, max_iter = 100) {
+  if (!is.list(x)) x <- list(x)
+  x <- lapply(x, as.matrix)
+
+  res <- gpa_cpp(x, tol, max_iter)
+
+  names(res$aligned) <- names(x)
+  names(res$centroid_sizes) <- names(x)
+
+  return(res)
+}

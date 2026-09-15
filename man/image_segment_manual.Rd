@@ -15,7 +15,7 @@ image_segment_manual(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{shape}{The type of shape to use. Defaults to "free". Other possible
 values are "circle" and "rectangle". Partial matching is allowed.}

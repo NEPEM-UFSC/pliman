@@ -2,10 +2,17 @@
 % Please edit documentation in R/RcppExports.R
 \name{dilate_cpp}
 \alias{dilate_cpp}
-\title{Dilatação morfológica rápida}
+\title{Fast morphological dilation}
 \usage{
 dilate_cpp(img, raio = 3L, forma = "disc")
 }
+\arguments{
+\item{img}{A logical matrix representing the binary image.}
+
+\item{raio}{Radius of the structuring element (integer >= 1).}
+
+\item{forma}{Shape of the structuring element ("disc" or "square").}
+}
 \description{
-Dilatação morfológica rápida
+Fast morphological dilation
 }

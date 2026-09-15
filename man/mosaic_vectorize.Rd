@@ -41,7 +41,9 @@ objects.}
 intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
-which is the highest.}
+which is the highest. Values < 1.0 are interpreted as relative tolerance
+(percentage of the peak height). Values >= 1.0 are interpreted as absolute
+tolerance in pixels (linear Euclidean distance).}
 
 \item{extension}{Radius of the neighborhood in pixels for the detection of
 neighboring objects. A higher value smooths out small objects.}
@@ -91,7 +93,7 @@ Converts a raster mask into a vectorized \code{sf} object, with various options
 for morphological operations and filtering.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 mask <- image_pliman("mask.tif")
 shp <- mosaic_vectorize(mask, watershed = FALSE)

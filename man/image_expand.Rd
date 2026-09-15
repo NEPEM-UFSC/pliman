@@ -21,7 +21,7 @@ image_expand(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{left, top, right, bottom}{The number of pixels to expand in the left, top,
 right, and bottom directions, respectively.}
@@ -40,7 +40,7 @@ to sample from each side. Defaults to 20.}
 \item{plot}{Plots the extended image? defaults to \code{FALSE}.}
 }
 \value{
-An \code{Image} object
+An \code{image} object
 }
 \description{
 Expands an image towards the left, top, right, or bottom by sampling pixels
@@ -48,7 +48,7 @@ from the image edge. Users can choose how many pixels (rows or columns) are
 sampled and how many pixels the expansion will have.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 image_expand(img, left = 200)

@@ -112,7 +112,7 @@ poly_measures(x)
 \arguments{
 \item{x}{A 2-column matrix with the \code{x} and \code{y} coordinates. If \code{x} is a list
 of vector coordinates, the function will be applied to each element using
-\code{\link[base:lapply]{base::lapply()}} or \code{\link[base:lapply]{base::sapply()}}.}
+\code{\link[base:lapply]{base::lapply()}} or \code{\link[base:sapply]{base::sapply()}}.}
 
 \item{fp}{The ID of the point that will become the new first point. Defaults
 to 1.}
@@ -255,7 +255,7 @@ coordinates. See \code{\link[base:jitter]{base::jitter()}} for more details.
 }
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 # A 2 x 2 square
 df <- draw_square(side = 2)

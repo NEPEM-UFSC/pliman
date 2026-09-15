@@ -28,7 +28,7 @@ values.
 Given an object image, converts it into a data frame where each row corresponds to the intensity values of each pixel in the image.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 dim(img)
