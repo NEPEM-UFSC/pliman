@@ -4,31 +4,49 @@
 \alias{image_watershed}
 \title{Intelligent Morphological Watershed (Spanning Forest + Union-Find)}
 \usage{
-image_watershed(img, sensitivity = "medium", tolerance = NULL, ext = 1)
+image_watershed(
+  img,
+  sensitivity = "medium",
+  tolerance = NULL,
+  ext = 1,
+  min_size = NULL,
+  rel_size = NULL,
+  fill_hull = FALSE,
+  max_size = NULL
+)
 }
 \arguments{
-\item{img}{A binary \code{Image} object or a matrix/array.}
+\item{img}{A binary \code{image} object or a matrix/array.}
 
-\item{sensitivity}{Text ("low", "medium", "high", "extreme") or Number (e.g. 2.5).
-Automatically defines the best parameters for optimal precision.
-(Overrides manual adjustment of tolerance).}
+\item{sensitivity}{Text ("low", "medium", "high", "extreme") or Number
+(e.g. 2.5). Automatically defines the best parameters for optimal
+precision. (Overrides manual adjustment of tolerance).}
 
 \item{tolerance}{Manual Fine-Tuning. If provided, overrides \code{sensitivity}
-and directly controls the merging threshold for connected components.}
+and directly controls the merging threshold for connected components.
+Values < 1.0 are interpreted as relative tolerance (percentage of the peak
+height). Values >= 1.0 are interpreted as absolute tolerance in pixels
+(linear Euclidean distance).}
 
-\item{ext}{Pixel neighborhood radius (default = 1). Specifies the extension radius
-used during the regional maxima calculation and watershed flooding.}
+\item{ext}{Pixel neighborhood radius (default = 1). Specifies the
+extension radius used during the regional maxima calculation and watershed
+flooding.}
+
+\item{min_size}{Minimum area (in pixels) for an object segment retained after watershed.}
+
+\item{rel_size}{Relative threshold as a fraction of the mean segment area (e.g. \code{0.1} for 10\% of mean area).}
 }
 \value{
-A grayscale \code{Image} object containing the labels.
+A grayscale \code{image} object containing the labels.
 }
 \description{
-This function performs a morphological watershed segmentation on a binary image.
-It implements a highly optimized Spanning Forest algorithm coupled with a Disjoint-Set
-(Union-Find) data structure. This approach eliminates the need for slow iterative scans
-($O(N^2)$ complexity), allowing the algorithm to execute in milliseconds even when
-resolving tens of thousands of distinct objects. It also features a mechanism to merge
-highly connected objects, effectively preventing over-segmentation.
+This function performs a morphological watershed segmentation on a binary
+image. It implements a highly optimized Spanning Forest algorithm coupled
+with a Disjoint-Set (Union-Find) data structure. This approach eliminates the
+need for slow iterative scans ($O(N^2)$ complexity), allowing the algorithm
+to execute in milliseconds even when resolving tens of thousands of distinct
+objects. It also features a mechanism to merge highly connected objects,
+effectively preventing over-segmentation.
 }
 \examples{
 \dontrun{

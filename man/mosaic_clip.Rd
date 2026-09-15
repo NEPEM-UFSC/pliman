@@ -17,10 +17,10 @@ mosaic_clip(
 )
 }
 \arguments{
-\item{mosaic}{A \link[terra:SpatRaster-class]{terra::SpatRaster} object or a file path pointing to a raster.
+\item{mosaic}{A \link[terra:SpatRaster]{terra::SpatRaster} object or a file path pointing to a raster.
 In-memory rasters are first written to a temporary GeoTIFF.}
 
-\item{shapefile}{An \link[sf:sf]{sf::sf}, \link[terra:SpatVector-class]{terra::SpatVector}, or path to a vector file.  Must
+\item{shapefile}{An \link[sf:sf]{sf::sf}, \link[terra:SpatVector]{terra::SpatVector}, or path to a vector file.  Must
 contain a column named \code{unique_id} for naming each output tile.}
 
 \item{unique_id}{A column present in \code{shapefile} that uniquely identifies the

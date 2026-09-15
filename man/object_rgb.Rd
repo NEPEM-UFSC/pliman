@@ -7,10 +7,10 @@
 object_rgb(img, labels)
 }
 \arguments{
-\item{img}{An \code{Image} object}
+\item{img}{An \code{image} object}
 
 \item{labels}{A mask containing the labels for each object. This can be
-obtained with \code{\link[EBImage:bwlabel]{EBImage::bwlabel()}} or \code{\link[EBImage:watershed]{EBImage::watershed()}}}
+obtained with \code{\link[=image_bwlabel]{image_bwlabel()}} or \code{\link[=image_watershed]{image_watershed()}}.}
 }
 \value{
 A data.frame with \code{n} rows (number of pixels for all the objects) and
@@ -27,7 +27,7 @@ Given an image and a matrix of labels that identify each object, the function
 extracts the red, green, and blue values from each object.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 # segment the objects using the "B" (blue) band (default)

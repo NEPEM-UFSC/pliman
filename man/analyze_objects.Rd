@@ -27,6 +27,8 @@ analyze_objects(
   watershed = TRUE,
   veins = FALSE,
   sigma_veins = 1,
+  veins_thinning = FALSE,
+  veins_rel_erode = 0.005,
   ab_angles = FALSE,
   ab_angles_percentiles = c(0.25, 0.75),
   width_at = FALSE,
@@ -46,9 +48,11 @@ analyze_objects(
   opening = FALSE,
   closing = FALSE,
   filter = FALSE,
+  return_exact = FALSE,
   filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   invert = FALSE,
   object_size = "medium",
+  area_mode = c("contour", "pixel"),
   index = "NB",
   r = 1,
   g = 2,
@@ -66,6 +70,7 @@ analyze_objects(
   tolerance = NULL,
   extension = NULL,
   lower_noise = 0.1,
+  rel_size = NULL,
   lower_size = NULL,
   upper_size = NULL,
   topn_lower = NULL,
@@ -79,7 +84,7 @@ analyze_objects(
   plot = TRUE,
   show_original = TRUE,
   show_chull = FALSE,
-  show_contour = TRUE,
+  show_contour = FALSE,
   show_bbox = FALSE,
   contour_col = "red",
   contour_size = 1,
@@ -88,10 +93,11 @@ analyze_objects(
   show_segmentation = FALSE,
   col_foreground = NULL,
   col_background = NULL,
-  marker = FALSE,
-  marker_col = NULL,
+  marker = "point",
+  marker_col = "red",
   marker_size = NULL,
   save_image = FALSE,
+  max_pixels = 2e+06,
   prefix = "proc_",
   dir_original = NULL,
   dir_processed = NULL,
@@ -194,14 +200,19 @@ If \code{FALSE}, all pixels for each connected set of foreground pixels are set
 to a unique object. This is faster but is not able to segment touching
 objects.}
 
-\item{veins}{Logical argument indicating whether vein features are computed.
-This will call \code{\link[=object_edge]{object_edge()}} and applies the Sobel-Feldman Operator to
-detect edges. The result is the proportion of edges in relation to the
-entire area of the object(s) in the image. Note that \strong{THIS WILL BE AN
-OPERATION ON AN IMAGE LEVEL, NOT OBJECT!}.}
+\item{veins}{Logical argument indicating whether vein features are computed per object.
+Defaults to \code{FALSE}. If \code{TRUE}, detects veins using Difference of Gaussians (DoG)
+bandpass filtering and dynamic resolution-independent boundary erosion.}
 
-\item{sigma_veins}{Gaussian kernel standard deviation used in the gaussian
-blur in the edge detection algorithm}
+\item{sigma_veins}{Fine Gaussian scale parameter for vein detection (default \code{1}).
+Coarse scale is automatically set to \code{sigma_veins * 5}.}
+
+\item{veins_thinning}{Logical value indicating whether Guo-Hall skeleton thinning should
+be applied to detected veins (default \code{FALSE}). If \code{TRUE}, measures vein length
+skeleton density instead of vein area fraction.}
+
+\item{veins_rel_erode}{Relative boundary erosion fraction of \code{min(width, height)} (default \code{0.01} = 1\%).
+Trims leaf boundary pixels to eliminate outer edge artifacts independently of image resolution.}
 
 \item{ab_angles}{Logical argument indicating whether apex and base angles
 should be computed. Defaults to \code{FALSE}. If \code{TRUE}, \code{poly_apex_base_angle()}
@@ -276,6 +287,8 @@ background if any of the pixels covered by the mask is from the background.
 foreground if any of the pixels covered by the mask is from the foreground.
 }}
 
+\item{return_exact}{Logical. If \code{TRUE}, exact morphological reconstruction via watershed-partitioned seed matching is performed when \code{opening > 0}. This preserves 100\% of exact original shapes and boundaries of surviving objects while removing attached noise.}
+
 \item{filter_order}{A character vector indicating the order in which morphological
 operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
 
@@ -346,7 +359,9 @@ adaptive thresholding. By default it is set to \code{1/3 * minxy}, where
 intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
-which is the highest.}
+which is the highest. Values < 1.0 are interpreted as relative tolerance
+(percentage of the peak height). Values >= 1.0 are interpreted as absolute
+tolerance in pixels (linear Euclidean distance).}
 
 \item{extension}{Radius of the neighborhood in pixels for the detection of
 neighboring objects. Higher value smooths out small objects.}
@@ -356,6 +371,8 @@ with lesser than 10\% of the mean area of all objects are removed
 (\code{lower_noise = 0.1}). Increasing this value will remove larger noises (such
 as dust points), but can remove desired objects too. To define an explicit
 lower or upper size, use the \code{lower_size} and \code{upper_size} arguments.}
+
+\item{rel_size}{Relative size threshold as a fraction of the mean object area (e.g., \code{0.1} for 10\% of mean object area). Setting \code{rel_size = 0.1} is equivalent to setting \code{lower_noise = 0.1}.}
 
 \item{lower_size, upper_size}{Lower and upper limits for size for the image
 analysis. Plant images often contain dirt and dust.  Upper limit is set to
@@ -410,12 +427,15 @@ image processing. Defaults to \code{NULL}, in which \code{"black"}, and \code{"w
 used, respectively.}
 
 \item{marker, marker_col, marker_size}{The type, color and size of the object
-marker. Defaults to \code{NULL}, which plots the object id. Use \code{marker = "point"} to show a point in each object or \code{marker = FALSE} to omit object
-marker.}
+marker. Defaults to 'point', which plots a red point in each object. Use
+\code{marker = FALSE} to omit object marker.}
 
 \item{save_image}{Save the image after processing? The image is saved in the
 current working directory named as \verb{proc_*} where \code{*} is the image name
 given in \code{img}.}
+
+\item{max_pixels}{Maximum number of pixels to render when plotting or saving
+the processed image. Defaults to \code{2e6}. Set to \code{NULL} for full rendering.}
 
 \item{prefix}{The prefix to be included in the processed images. Defaults to
 \code{"proc_"}.}
@@ -531,8 +551,8 @@ outline. For more details see \code{\link[=efourier_error]{efourier_error()}}.
 \item \code{efourier_power}: The spectrum of harmonic Fourier power.
 For more details see \code{\link[=efourier_power]{efourier_power()}}.
 }
-\item \code{veins}: If \code{veins = TRUE} is used, returns, for each image, the
-proportion of veins (in fact the object edges) related to the total object(s)' area.
+\item \code{veins}: If \code{veins = TRUE} is used, returns a data.frame containing the \code{id} and
+\code{prop_veins} (proportion of vein pixels per object area) for each object in the image.
 \item \code{analyze_objects_iter()} returns a data.frame containing the features
 described in the \code{results} object of \code{\link[=analyze_objects]{analyze_objects()}}.
 \item \code{plot.anal_obj()} returns a \code{trellis} object containing the distribution
@@ -641,12 +661,10 @@ green band. Additionaly, har_band = "GRAY" can be used. In this case, a
 grayscale (0.299 * R + 0.587 * G + 0.114 * B) is used.
 \item If \code{efourier = TRUE} is used, an Elliptical Fourier Analysis (Kuhl and
 Giardina, 1982) is computed for each object contour using \code{\link[=efourier]{efourier()}}.
-\item If \code{veins = TRUE} (experimental), vein features are computed. This will call
-\code{\link[=object_edge]{object_edge()}} and applies the Sobel-Feldman Operator to detect edges. The
-result is the proportion of edges in relation to the entire area of the
-object(s) in the image. Note that THIS WILL BE AN OPERATION ON AN IMAGE
-LEVEL, NOT an OBJECT LEVEL! So, If vein features need to be computed for
-leaves, it is strongly suggested to use one leaf per image.
+\item If \code{veins = TRUE}, vein features are computed for each object using
+\code{\link[=object_veins]{object_veins()}}. Veins are detected using Difference of Gaussians (DoG)
+bandpass filtering, dynamic resolution-independent boundary erosion to eliminate
+outer leaf contour artifacts, and per-object Otsu adaptive thresholding.
 \item If \code{ab_angles = TRUE} the apex and base angles of each object are
 computed with \code{\link[=poly_apex_base_angle]{poly_apex_base_angle()}}. By default, the function computes
 the angle from the first pixel of the apex of the object to the two pixels
@@ -660,7 +678,7 @@ be adjusted with the \code{width_at_percentiles} argument.
 }
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
@@ -693,7 +711,7 @@ res <-
                   lower_noise = 0.3)
 }
 
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")

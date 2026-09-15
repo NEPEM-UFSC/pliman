@@ -10,7 +10,6 @@
 \alias{image_vertical}
 \alias{image_hreflect}
 \alias{image_vreflect}
-\alias{image_resize}
 \alias{image_trim}
 \alias{image_skeleton}
 \alias{image_thinning}
@@ -21,6 +20,7 @@
 \alias{image_dilate}
 \alias{image_fill_hull}
 \alias{image_opening}
+\alias{image_remove_small}
 \alias{image_closing}
 \title{Spatial transformations}
 \usage{
@@ -28,7 +28,7 @@ image_autocrop(
   img,
   index = "NB",
   edge = 5,
-  opening = 5,
+  opening = FALSE,
   closing = FALSE,
   filter = FALSE,
   invert = FALSE,
@@ -59,6 +59,7 @@ image_rotate(
   img,
   angle,
   bg_col = "white",
+  bg_color = NULL,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
@@ -91,17 +92,6 @@ image_hreflect(
 
 image_vreflect(
   img,
-  parallel = FALSE,
-  workers = NULL,
-  verbose = TRUE,
-  plot = FALSE
-)
-
-image_resize(
-  img,
-  rel_size = 100,
-  width,
-  height,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
@@ -162,6 +152,10 @@ image_blur(
 
 image_contrast(
   img,
+  nx = 8,
+  ny = 8,
+  clip_limit = 3,
+  bins = 256,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
@@ -191,6 +185,8 @@ image_dilate(
 
 image_fill_hull(
   img,
+  max_size = NULL,
+  min_neck_dist = 0,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
@@ -202,9 +198,18 @@ image_opening(
   size = NULL,
   shape = "disc",
   external = FALSE,
+  return_exact = FALSE,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
+  plot = FALSE
+)
+
+image_remove_small(
+  img,
+  min_size = NULL,
+  rel_size = NULL,
+  watershed = TRUE,
   plot = FALSE
 )
 
@@ -220,7 +225,7 @@ image_closing(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object or a list of \code{Image} objects. Must be binary
+\item{img}{An \code{image} object or a list of \code{image} objects. Must be binary
 (\code{storage.mode = "logical"}).}
 
 \item{index}{The index to segment the image. See \code{\link[=image_index]{image_index()}} for more
@@ -310,17 +315,13 @@ If \code{max_pixels < npixels(img)}, regular sampling is used before plotting.}
 
 \item{angle}{The rotation angle in degrees.}
 
-\item{bg_col}{Color used to fill the background pixels, defaults to \code{"white"}.}
-
-\item{rel_size}{The relative size of the resized image. Defaults to 100. For
-example, setting \code{rel_size = 50} to an image of width \verb{1280 x 720}, the new
-image will have a size of \verb{640 x 360}.}
+\item{bg_col, bg_color}{Color used to fill the background pixels, defaults to \code{"white"}.}
 
 \item{top, bottom, left, right}{The number of pixels removed from \code{top},
 \code{bottom}, \code{left}, and \code{right} when using \code{\link[=image_trim]{image_trim()}}.}
 
-\item{kern}{An \code{Image} object or an array, containing the structuring
-element. Defaults to a brushe generated with \code{\link[EBImage:morphology]{EBImage::makeBrush()}}.}
+\item{kern}{An \code{image} object or an array, containing the structuring
+element. Defaults to a brushe generated with \code{\link[=make_brush]{make_brush()}}.}
 
 \item{...}{Additional arguments passed on to \code{\link[=image_binary]{image_binary()}}.}
 
@@ -337,29 +338,52 @@ Defaults to \code{512}.}
 \item{sigma}{A numeric denoting the standard deviation of the Gaussian filter
 used for blurring. Defaults to \code{3}.}
 
+\item{nx}{Number of contextual regions in the x-direction (tile grid) for CLAHE contrast enhancement. Defaults to 8.}
+
+\item{ny}{Number of contextual regions in the y-direction (tile grid) for CLAHE contrast enhancement. Defaults to 8.}
+
+\item{clip_limit}{Normalized contrast limit value for CLAHE contrast enhancement. Defaults to 3.}
+
+\item{bins}{Number of histogram bins used for CLAHE contrast enhancement. Defaults to 256.}
+
 \item{shape}{A character string specifying the shape of the structuring element.
 Either \code{"disc"} (default) or \code{"square"}.}
 
 \item{external}{Logical. If \code{TRUE}, erosion does not consume pixels inside
 internal holes (passed to \code{image_erode()}).}
+
+\item{return_exact}{Logical. If \code{TRUE}, returns the exact original pixels and
+boundaries of objects in \code{img} that survived the opening. Uses internal
+watershed partitioning to isolate and eliminate noise touching large
+objects, preserving 100\% of sharp corners and geometric features of
+surviving objects.}
+
+\item{min_size}{Minimum area (in pixels) for an object to be retained.}
+
+\item{rel_size}{Relative threshold as a fraction of the mean object area (e.g. \code{0.1} for 10\% of mean area).}
+
+\item{watershed}{Logical. Default \code{TRUE}. Applies watershed segmentation before measuring component sizes,
+ensuring small noise projections touching large objects are split and removed.}
 }
 \value{
 \itemize{
-\item \code{image_skeleton()} returns a binary \code{Image} object.
+\item \code{image_skeleton()} returns a binary \code{image} object.
 \item All other functions returns a  modified version of \code{image} depending on the
 \verb{image_*()} function used.
 \item If \code{image} is a list, a list of the same length will be returned.
 }
 
-A binary \code{Image} object or a list of \code{Image} objects.
+A binary \code{image} object or a list of \code{image} objects.
 
-A binary \code{Image} object or a list of \code{Image} objects.
+A binary \code{image} object or a list of \code{image} objects.
 
-A binary \code{Image} object or a list of \code{Image} objects.
+A binary \code{image} object or a list of \code{image} objects.
 
-A binary \code{Image} object or a list of \code{Image} objects.
+A binary \code{image} object or a list of \code{image} objects.
 
-A binary \code{Image} object or a list of \code{Image} objects.
+A binary \code{image} object or a list of binary \code{image} objects.
+
+A binary \code{image} object or a list of \code{image} objects.
 }
 \description{
 Performs image rotation and reflection
@@ -373,19 +397,15 @@ Performs image rotation and reflection
 \item \code{image_vertical()} Converts (if needed) an image to a vertical image.
 \item \code{image_hreflect()} Performs horizontal reflection of the \code{image}.
 \item \code{image_vreflect()} Performs vertical reflection of the \code{image}.
-\item \code{image_resize()} Resize the \code{image}. See more at \code{\link[EBImage:spatial]{EBImage::resize()}}.
+\item \code{image_resize()} Resize the \code{image}. See more at \code{\link[=image_resize]{image_resize()}}.
 \item \code{image_contrast()} Improve contrast locally by performing adaptive
-histogram equalization. See more at \code{\link[EBImage:clahe]{EBImage::clahe()}}.
-\item \code{image_dilate()} Performs image dilatation. See more at \code{\link[EBImage:morphology]{EBImage::dilate()}}.
-\item \code{image_erode()} Performs image erosion. See more at \code{\link[EBImage:morphology]{EBImage::erode()}}.
-\item \code{image_opening()} Performs an erosion followed by a dilation. See more at
-\code{\link[EBImage:morphology]{EBImage::opening()}}.
-\item \code{image_closing()} Performs a dilation followed by an erosion. See more at
-\code{\link[EBImage:morphology]{EBImage::closing()}}.
-\item \code{image_filter()} Performs median filtering in constant time. See more at
-\code{\link[EBImage:medianFilter]{EBImage::medianFilter()}}.
-\item \code{image_blur()} Performs blurring filter of images. See more at
-\code{\link[EBImage:gblur]{EBImage::gblur()}}.
+histogram equalization.
+\item \code{image_dilate()} Performs image dilatation.
+\item \code{image_erode()} Performs image erosion.
+\item \code{image_opening()} Performs an erosion followed by a dilation.
+\item \code{image_closing()} Performs a dilation followed by an erosion.
+\item \code{image_filter()} Performs median filtering in constant time.
+\item \code{image_blur()} Performs blurring filter of images.
 \item \code{image_skeleton()} Performs image skeletonization.
 }
 
@@ -395,16 +415,21 @@ Performs morphological dilation of a binary image.
 
 Fills internal holes in a binary image.
 
-Performs morphological opening of a binary image. Opening is defined as an
-erosion followed by a dilation. It is useful for removing small objects or
-noise from the image.
+Performs morphological opening of a binary image (erosion followed by dilation).
+When \code{return_exact = TRUE}, morphological reconstruction via watershed-partitioned seed matching is performed.
+This isolates noise touching large objects into separate watershed labels, identifies surviving labels using the un-dilated eroded marker,
+and restores 100\% of the exact original boundaries and shapes of surviving objects without rounding corners or eroding tips.
+
+Removes small noise objects from a binary image without altering or eroding
+the boundaries of larger objects. Filtering can be based on an absolute pixel count (\code{min_size})
+or a relative fraction of the mean object area (\code{rel_size}, e.g. \code{0.1} for objects smaller than 10\% of average object area).
 
 Performs morphological closing of a binary image. Closing is defined as a
 dilation followed by an erosion. It is useful for filling small holes or
 connecting nearby objects.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 plot(img)

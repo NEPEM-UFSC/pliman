@@ -1,7 +1,9 @@
 // [[Rcpp::plugins(openmp)]]
+// [[Rcpp::plugins(cpp17)]]
 #include <Rcpp.h>
 #include <vector>
 #include <algorithm>
+#include <type_traits>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -10,39 +12,43 @@ using namespace Rcpp;
 
 // =============================================================================
 // Filtro de Mediana Hiper-Otimizado (Huang 2-Level Coarse-Fine Histogram)
-//
-// Otimizações:
-//   1. Algoritmo de Huang (O(N*radius)) em vez de Perreault-Hébert (O(N*256)).
-//      Para raios típicos (r=3, 5, 9), Huang faz até 20x MENOS atualizações no hist!
-//   2. Loop Unswitching completo: removemos todos os 'clamping' (min/max) 
-//      do miolo da imagem.
-//   3. Histograma Coarse-Fine (O(32) busca de mediana).
-//   4. OpenMP multi-threading por canal de cor.
 // =============================================================================
 
-// [[Rcpp::export]]
-NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
-                                int nch, int radius) {
+template <int RTYPE>
+SEXP do_median_filter(SEXP img_sexp, int nrow, int ncol, int nch, int radius) {
+  typedef typename Rcpp::Vector<RTYPE> VecType;
+  typedef typename VecType::stored_type T;
+
   int N = nrow * ncol;
-  NumericVector out(img.size());
-
-  const double* in_d = img.begin();
-  double*       ou_d = out.begin();
-
-  // 1. Pré-conversão vetorizada e contígua para uint8 (reduz largura de banda)
-  std::vector<uint8_t> img8((size_t)N * nch);
-  for (int i = 0; i < N * nch; i++) {
-    img8[i] = (uint8_t)(in_d[i] * 255.0 + 0.5);
+  
+  std::vector<uint8_t> buffer;
+  const uint8_t* in_ptr;
+  if constexpr (std::is_same_v<T, Rbyte>) {
+    in_ptr = RAW(img_sexp);
+  } else if constexpr (std::is_same_v<T, double>) {
+    buffer.resize((size_t)N * nch);
+    double* dptr = REAL(img_sexp);
+    for (int i = 0; i < N * nch; i++) buffer[i] = (uint8_t)(dptr[i] * 255.0 + 0.5);
+    in_ptr = buffer.data();
+  } else {
+    buffer.resize((size_t)N * nch);
+    int* iptr = INTEGER(img_sexp);
+    for (int i = 0; i < N * nch; i++) {
+      buffer[i] = (uint8_t)(std::min(255, std::max(0, iptr[i])));
+    }
+    in_ptr = buffer.data();
   }
+
+  VecType out = Rcpp::no_init(N * nch);
+  T* ou_d = out.begin();
 
   #ifdef _OPENMP
   #pragma omp parallel for schedule(dynamic, 1)
   #endif
   for (int ch = 0; ch < nch; ch++) {
-    const uint8_t* img_ch = img8.data() + (size_t)ch * N;
-    double* out_ch = ou_d + (size_t)ch * N;
+    const uint8_t* img_ch = in_ptr + (size_t)ch * N;
+    T* out_ch = ou_d + (size_t)ch * N;
 
-    // Histograma de janela thread-local (Fine: 256 bins, Coarse: 16 bins)
     std::vector<int> wfine(256, 0);
     std::vector<int> wcoarse(16, 0);
 
@@ -54,8 +60,7 @@ NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
       int r_start = std::max(0, r - radius);
       int r_end = std::min(nrow - 1, r + radius);
 
-      // Lambda para busca rápida da mediana (O(32) operações)
-      auto get_median = [&]() -> double {
+      auto get_median_raw = [&]() -> int {
         int target = (win_count + 1) >> 1;
         int cum = 0, k = 0;
         while (k < 15 && cum + wcoarse[k] < target) {
@@ -64,12 +69,22 @@ NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
         int base = k << 4;
         for (int b = base; b < base + 16; b++) {
           cum += wfine[b];
-          if (cum >= target) return b / 255.0;
+          if (cum >= target) return b;
         }
-        return 1.0;
+        return 255;
       };
 
-      // Se a imagem for extremamente estreita, usa o fallback com clamping
+      auto set_out = [&](int r_idx, int c_idx) {
+        int m = get_median_raw();
+        if constexpr (std::is_same_v<T, Rbyte>) {
+          out_ch[(size_t)c_idx * nrow + r_idx] = (T)m;
+        } else if constexpr (std::is_same_v<T, double>) {
+          out_ch[(size_t)c_idx * nrow + r_idx] = (T)(m / 255.0);
+        } else {
+          out_ch[(size_t)c_idx * nrow + r_idx] = (T)m;
+        }
+      };
+
       if (ncol <= 2 * radius) {
         for (int c = -radius; c <= radius; c++) {
           int clamped_c = std::max(0, std::min(ncol - 1, c));
@@ -94,17 +109,11 @@ NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
               wfine[v]++; wcoarse[v >> 4]++; win_count++;
             }
           }
-          out_ch[(size_t)c * nrow + r] = get_median();
+          set_out(r, c);
         }
         continue;
       }
-
-      // =======================================================================
-      // ALGORITMO OTIMIZADO: Sem Clamping no Corpo Principal
-      // =======================================================================
       
-      // Inicializa janela para c = 0 (colunas -radius até radius)
-      // Colunas negativas são replicadas da coluna 0
       for (int c = -radius; c <= radius; c++) {
         int clamped_c = std::max(0, c);
         const uint8_t* col_ptr = img_ch + (size_t)clamped_c * nrow;
@@ -114,10 +123,8 @@ NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
         }
       }
 
-      // --- 1. Fronteira Esquerda (c = 0 até radius) ---
       for (int c = 0; c <= radius; c++) {
         if (c > 0) {
-          // col_rem < 0 -> sempre mapeia para coluna 0
           const uint8_t* col_rem_ptr = img_ch;
           for (int k = r_start; k <= r_end; k++) {
             uint8_t v = col_rem_ptr[k];
@@ -130,11 +137,9 @@ NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
             wfine[v]++; wcoarse[v >> 4]++; win_count++;
           }
         }
-        out_ch[(size_t)c * nrow + r] = get_median();
+        set_out(r, c);
       }
 
-      // --- 2. Corpo Principal (c = radius + 1 até ncol - radius - 1) ---
-      // NENHUM IF, NENHUM MIN/MAX AQUI! Velocidade máxima de cache.
       for (int c = radius + 1; c < ncol - radius; c++) {
         int col_rem = c - radius - 1;
         const uint8_t* col_rem_ptr = img_ch + (size_t)col_rem * nrow;
@@ -148,10 +153,9 @@ NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
           uint8_t v = col_add_ptr[k];
           wfine[v]++; wcoarse[v >> 4]++; win_count++;
         }
-        out_ch[(size_t)c * nrow + r] = get_median();
+        set_out(r, c);
       }
 
-      // --- 3. Fronteira Direita (c = ncol - radius até ncol - 1) ---
       for (int c = ncol - radius; c < ncol; c++) {
         int col_rem = c - radius - 1;
         const uint8_t* col_rem_ptr = img_ch + (size_t)col_rem * nrow;
@@ -159,19 +163,33 @@ NumericVector median_filter_cpp(NumericVector img, int nrow, int ncol,
           uint8_t v = col_rem_ptr[k];
           wfine[v]--; wcoarse[v >> 4]--; win_count--;
         }
-        // col_add >= ncol -> sempre mapeia para a última coluna (ncol - 1)
         const uint8_t* col_add_ptr = img_ch + (size_t)(ncol - 1) * nrow;
         for (int k = r_start; k <= r_end; k++) {
           uint8_t v = col_add_ptr[k];
           wfine[v]++; wcoarse[v >> 4]++; win_count++;
         }
-        out_ch[(size_t)c * nrow + r] = get_median();
+        set_out(r, c);
       }
     }
   }
 
-  out.attr("dim") = img.attr("dim");
+  out.attr("dim") = Rf_getAttrib(img_sexp, R_DimSymbol);
   return out;
+}
+
+// [[Rcpp::export]]
+SEXP median_filter_cpp(SEXP img_sexp, int nrow, int ncol,
+                       int nch, int radius) {
+  if (TYPEOF(img_sexp) == RAWSXP) {
+    return do_median_filter<RAWSXP>(img_sexp, nrow, ncol, nch, radius);
+  } else if (TYPEOF(img_sexp) == REALSXP) {
+    return do_median_filter<REALSXP>(img_sexp, nrow, ncol, nch, radius);
+  } else if (TYPEOF(img_sexp) == INTSXP) {
+    return do_median_filter<INTSXP>(img_sexp, nrow, ncol, nch, radius);
+  } else {
+    Rcpp::stop("median_filter_cpp: unsupported input type.");
+    return R_NilValue;
+  }
 }
 
 // =============================================================================
@@ -199,7 +217,6 @@ LogicalVector median_filter_binary_cpp(SEXP img_sexp, int nrow, int ncol,
       int r_start = std::max(0, r - radius);
       int r_end = std::min(nrow - 1, r + radius);
 
-      // Fallback para imagens extremamente estreitas
       if (ncol <= 2 * radius) {
         for (int c = -radius; c <= radius; c++) {
           int clamped_c = std::max(0, std::min(ncol - 1, c));
@@ -230,7 +247,6 @@ LogicalVector median_filter_binary_cpp(SEXP img_sexp, int nrow, int ncol,
         continue;
       }
 
-      // Inicializa janela para c = 0 (colunas -radius até radius)
       for (int c = -radius; c <= radius; c++) {
         int clamped_c = std::max(0, c);
         const int* col_ptr = img_ch + (size_t)clamped_c * nrow;
@@ -240,7 +256,6 @@ LogicalVector median_filter_binary_cpp(SEXP img_sexp, int nrow, int ncol,
         }
       }
 
-      // --- 1. Fronteira Esquerda (c = 0 até radius) ---
       for (int c = 0; c <= radius; c++) {
         if (c > 0) {
           const int* col_rem_ptr = img_ch;
@@ -259,7 +274,6 @@ LogicalVector median_filter_binary_cpp(SEXP img_sexp, int nrow, int ncol,
         out_ch[(size_t)c * nrow + r] = (win_ones >= target) ? 1 : 0;
       }
 
-      // --- 2. Corpo Principal (c = radius + 1 até ncol - radius - 1) ---
       for (int c = radius + 1; c < ncol - radius; c++) {
         int col_rem = c - radius - 1;
         const int* col_rem_ptr = img_ch + (size_t)col_rem * nrow;
@@ -277,7 +291,6 @@ LogicalVector median_filter_binary_cpp(SEXP img_sexp, int nrow, int ncol,
         out_ch[(size_t)c * nrow + r] = (win_ones >= target) ? 1 : 0;
       }
 
-      // --- 3. Fronteira Direita (c = ncol - radius até ncol - 1) ---
       for (int c = ncol - radius; c < ncol; c++) {
         int col_rem = c - radius - 1;
         const int* col_rem_ptr = img_ch + (size_t)col_rem * nrow;
@@ -299,4 +312,3 @@ LogicalVector median_filter_binary_cpp(SEXP img_sexp, int nrow, int ncol,
   out.attr("dim") = RObject(img_sexp).attr("dim");
   return out;
 }
-

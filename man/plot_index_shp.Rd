@@ -84,7 +84,7 @@ specified in the \code{attribute} argument and should be present in the
 rectangles are colored using a color scale.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 
 # Computes the DGCI index for each flax leaf

@@ -7,10 +7,10 @@
 image_color_labels(labels)
 }
 \arguments{
-\item{labels}{A labeled image (an \code{Image} object or a matrix containing integer labels).}
+\item{labels}{A labeled image (an \code{image} object or a matrix containing integer labels).}
 }
 \value{
-A color \code{Image} object.
+A color \code{image} object.
 }
 \description{
 Colorizes a labeled image by allocating a different color to each object.

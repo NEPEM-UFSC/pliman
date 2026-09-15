@@ -63,7 +63,7 @@
 #' @importFrom stats as.formula
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("objects_300dpi.jpg")
 #' plot(img)
@@ -657,7 +657,7 @@ plot_measures <- function(object,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' img <- image_pliman("flax_leaves.jpg")
 #' res <- analyze_objects(img, watershed = FALSE, show_contour = FALSE)
 #' plot_lw(res)
@@ -669,17 +669,26 @@ plot_lw <- function(object,
                     lwd_width = 2){
   if(inherits(object, "anal_obj")){
     rest <- object$results
+    if(!all(c("x", "y", "length", "width", "theta") %in% colnames(rest))){
+      cli::cli_abort("{.arg object} must be computed with {.fn analyze_objects} or be a data frame with the columns {.field x}, {.field y}, {.field length}, {.field width}, and {.field theta}.")
+    }
+    if(isTRUE(object$parms$reference) && !is.null(object$parms$px_side) && !is.na(object$parms$px_side) && object$parms$px_side > 0){
+      length <- rest$length / object$parms$px_side
+      width <- rest$width / object$parms$px_side
+    } else{
+      length <- rest$length
+      width <- rest$width
+    }
   } else{
     rest <- object
-  }
-  if(!all(c("x", "y", "length", "width", "theta") %in% colnames(rest))){
-    cli::cli_abort("{.arg object} must be computed with {.fn analyze_objects} or be a data frame with the columns {.field x}, {.field y}, {.field length}, {.field width}, and {.field theta}.")
-
+    if(!all(c("x", "y", "length", "width", "theta") %in% colnames(rest))){
+      cli::cli_abort("{.arg object} must be computed with {.fn analyze_objects} or be a data frame with the columns {.field x}, {.field y}, {.field length}, {.field width}, and {.field theta}.")
+    }
+    length <- rest$length
+    width <- rest$width
   }
   xc <- rest$x
   yc <- rest$y
-  length <- rest$length
-  width <- rest$width
   theta <- rest$theta
 
   theta_degrees <- theta * 180 / pi
@@ -747,7 +756,7 @@ plot_lw <- function(object,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' soy <- image_pliman("soy_green.jpg")
 #' anal <- analyze_objects(soy, object_index = "G", pixel_level_index = TRUE)
@@ -922,6 +931,128 @@ features_shape <- function(x){
   invisible(res)
 }
 
+#' Compute Haralick texture features
+#'
+#' Computes 13 Haralick texture features for segmented objects in an image
+#' based on a Gray-Level Co-occurrence Matrix (GLCM). The GLCM is computed
+#' using 4 directions (0, 45, 90, and 135 degrees) and is made symmetric
+#' before calculating the texture metrics.
+#' @details
+#' The Haralick texture features are calculated from the normalized GLCM,
+#' \eqn{p(i, j)}{p(i, j)}, where \eqn{i, j = 1, \dots, N_g}{i, j = 1, ..., N_g} and
+#' \eqn{N_g} is the number of gray levels (\code{haralick.nbins}).
+#' The features returned are:
+#' \itemize{
+#'   \item \strong{asm} (Angular Second Moment/Energy): Measures texture uniformity. High values indicate a highly uniform, homogeneous, and orderly texture (e.g., a flat color or a perfectly repeating pattern).
+#'     \deqn{f_1 = \sum_{i} \sum_{j} p(i, j)^2}{f_1 = sum(p(i, j)^2)}
+#'   \item \strong{con} (Contrast): Measures local variations in gray levels. High values indicate sharp local variations (e.g., sharp edges, coarse textures, or noise).
+#'     \deqn{f_2 = \sum_{n=0}^{N_g-1} n^2 \sum_{|i-j|=n} p(i, j)}{f_2 = sum( (i - j)^2 * p(i, j) )}
+#'   \item \strong{cor} (Correlation): Measures linear gray-level dependencies. High values (close to 1) indicate structured, predictable patterns (e.g., linear stripes).
+#'     \deqn{f_3 = \frac{\sum_{i} \sum_{j} (i - \mu_x)(j - \mu_y) p(i, j)}{\sigma_x \sigma_y}}{f_3 = sum( (i - mu_x)*(j - mu_y)*p(i,j) ) / (sigma_x * sigma_y)}
+#'   \item \strong{var} (Sum of Squares/Variance): Measures dispersion of gray levels from the mean, suggesting a high variety of tones and shades within the object.
+#'     \deqn{f_4 = \sum_{i} \sum_{j} (i + 1 - \mu)^2 p(i, j)}{f_4 = sum( (i + 1 - mu)^2 * p(i, j) )}.
+#'   \item \strong{idm} (Inverse Difference Moment/Homogeneity): Measures texture homogeneity. High values indicate a very homogeneous texture where adjacent pixels have very similar values.
+#'     \deqn{f_5 = \sum_{i} \sum_{j} \frac{p(i, j)}{1 + (i - j)^2}}{f_5 = sum( p(i, j) / (1 + (i - j)^2) )}
+#'   \item \strong{sav} (Sum Average): Measures overall brightness. High values suggest the texture is overall light/bright.
+#'     \deqn{f_6 = \sum_{i=2}^{2N_g} i p_{x+y}(i)}{f_6 = sum( i * p_{x+y}(i) )}
+#'   \item \strong{sva} (Sum Variance): Measures the complexity and variance in overall brightness between neighboring pixel sums.
+#'     \deqn{f_7 = \sum_{i=2}^{2N_g} (i - f_8)^2 p_{x+y}(i)}{f_7 = sum( (i - f_8)^2 * p_{x+y}(i) )} (calculated using Sum Entropy \eqn{f_8}).
+#'   \item \strong{sen} (Sum Entropy): Measures disorder/randomness in the sum of neighboring pixel levels. Higher values mean more chaotic brightness sums.
+#'     \deqn{f_8 = -\sum_{i=2}^{2N_g} p_{x+y}(i) \log_{10}(p_{x+y}(i))}{f_8 = -sum( p_{x+y}(i) * log10(p_{x+y}(i)) )}
+#'   \item \strong{ent} (Entropy): Measures overall complexity and randomness. High values indicate highly detailed, unpredictable, and random patterns.
+#'     \deqn{f_9 = -\sum_{i} \sum_{j} p(i, j) \log_{10}(p(i, j))}{f_9 = -sum( p(i, j) * log10(p(i, j)) )}
+#'   \item \strong{dva} (Difference Variance): Matches Contrast (\code{con}), denoting variation in gray level differences (roughness).
+#'   \item \strong{den} (Difference Entropy): Measures disorder/randomness of intensity differences between adjacent pixels.
+#'     \deqn{f_{11} = -\sum_{i=0}^{N_g-1} p_{x-y}(i) \log_{10}(p_{x-y}(i))}{f_{11} = -sum( p_{x-y}(i) * log10(p_{x-y}(i)) )}
+#'   \item \strong{f12} (Information Measure of Correlation 1): Quantifies the structural coupling and mutual information between neighboring pixels relative to their individual distributions (1).
+#'     \deqn{f_{12} = \frac{HXY - HXY_1}{\max(HX, HY)}}{f_{12} = (HXY - HXY_1) / max(HX, HY)}
+#'   \item \strong{f13} (Information Measure of Correlation 2): Quantifies the structural coupling and mutual information between neighboring pixels relative to their individual distributions (2).
+#'     \deqn{f_{13} = \sqrt{1 - \exp(-2(HXY_2 - HXY))}}{f_{13} = sqrt( 1 - exp(-2 * (HXY_2 - HXY)) )} (using base 10 values in the exponent).
+#' }
+#' Here, \eqn{p_{x+y}} is the sum distribution:
+#' \deqn{p_{x+y}(k) = \sum_{i} \sum_{j, i+j=k} p(i, j)}{p_{x+y}(k) = sum(p(i, j)) for i + j = k}
+#' and \eqn{p_{x-y}} is the difference distribution:
+#' \deqn{p_{x-y}(k) = \sum_{i} \sum_{j, |i-j|=k} p(i, j)}{p_{x-y}(k) = sum(p(i, j)) for |i - j| = k}
+#'
+#' @param mask A mask (binary image or labeled matrix) identifying the objects.
+#' @param ref A grayscale or RGB reference image (matrix or Image object) containing the
+#'   intensities.
+#' @param haralick.nbins The number of bins used to discretize intensity values
+#'   before computing the GLCM (default is 32).
+#' @param haralick.scales A numeric vector of scales at which texture is
+#'   measured (default is 1).
+#' @param haralick.band The band to use for computing texture features if \code{ref}
+#'   is an RGB image. Defaults to \code{"GRAY"}.
+#' @return A matrix containing the 13 Haralick texture features for each object.
+#' @export
+#' @examples
+#' library(pliman)
+#' img <- image_pliman("soy_green.jpg")
+#' wat <-
+#'   image_binary(img, "B", opening = 5)[[1]] |>
+#'   image_watershed()
+#' cont <- contour(wat)
+#' centroids <- poly_mass(cont)
+#' hara <- object_haralick(wat, img)
+#' plot(img)
+#' # Contrast
+#' text(centroids[, 1], centroids[,2], labels = round(hara[, "con.s1"], 4))
+#'
+object_haralick <- function(mask, ref, haralick.nbins = 32, haralick.scales = 1, haralick.band = "GRAY") {
+  mask_mat <- image_data(mask)
+  ref_mat <- image_data(ref)
+  if (is.raw(ref_mat)) {
+    ref_d <- as.numeric(ref_mat)
+    dim(ref_d) <- dim(ref_mat)
+    ref_mat <- ref_d
+  }
+
+  if (length(dim(ref_mat)) == 3 && dim(ref_mat)[3] >= 3) {
+    if (haralick.band == "GRAY") {
+      ref_mat <- 0.299 * ref_mat[,,1] + 0.587 * ref_mat[,,2] + 0.114 * ref_mat[,,3]
+    } else {
+      ref_mat <- ref_mat[,,haralick.band]
+    }
+  } else if (length(dim(ref_mat)) == 3 && dim(ref_mat)[3] == 1) {
+    ref_mat <- ref_mat[,,1]
+  }
+
+  snames <- paste0("s", haralick.scales)
+
+  features <- lapply(haralick.scales, function(scale) {
+    if (scale > 1) {
+      combx <- seq(1, nrow(mask_mat), by = scale)
+      comby <- seq(1, ncol(mask_mat), by = scale)
+      xscaled <- mask_mat[combx, comby]
+      refscaled <- ref_mat[combx, comby]
+    } else {
+      xscaled <- mask_mat
+      refscaled <- ref_mat
+    }
+
+    hf <- haralick_features_cpp(xscaled, refscaled, nc = haralick.nbins)
+
+    max_lbl <- max(mask_mat)
+    max_scaled <- max(xscaled)
+    if (max_lbl > max_scaled) {
+      diff_rows <- max_lbl - max_scaled
+      zero_mat <- matrix(0, nrow = diff_rows, ncol = ncol(hf))
+      hf <- rbind(hf, zero_mat)
+    }
+
+    hf
+  })
+
+  for (i in 1:length(features)) {
+    colnames(features[[i]]) <- paste(c("asm", "con", "cor", "var", "idm",
+                                        "sav", "sva", "sen", "ent", "dva",
+                                        "den", "f12", "f13"), snames[i], sep = ".")
+  }
+
+  res <- do.call(cbind, features)
+  return(res)
+}
+
 ## helper function to compute the measures based on a mask
 compute_measures <- function(mask,
                              img,
@@ -939,7 +1070,7 @@ compute_measures <- function(mask,
 
   # Calculate algebraic combinations
   shape <- transform(shape,
-                     id = 1:nrow(shape),
+                     id = seq_len(nrow(shape)),
                      coverage = area / length(mask),
                      form_factor = 4 * pi * area / perimeter ^ 2,
                      narrow_factor = caliper / length,
@@ -952,6 +1083,10 @@ compute_measures <- function(mask,
   # Keep only valid rows
   valid <- which(!is.na(shape$x))
   shape <- shape[valid, ]
+
+  # Keep only valid contours and add names
+  ocont <- ocont[valid]
+  names(ocont) <- shape$id
 
   # Rename columns to match old compute_measures
   colnames(shape)[which(colnames(shape) == "x")] <- "mx"
@@ -993,21 +1128,13 @@ compute_measures <- function(mask,
                      "coverage")]
   colnames(shape) <- names_measures()
   if(isTRUE(haralick)){
-    if(har_band == "GRAY"){
-      hal <- data.frame(
-        EBImage::computeFeatures.haralick(mask,
-                                          0.299 * img[,,1] + 0.587 * img[,,2] + 0.114 * img[,,3] ,
-                                          haralick.nbins = har_nbins,
-                                          haralick.scales = har_scales)
-      )
-    } else{
-      hal <- data.frame(
-        EBImage::computeFeatures.haralick(mask,
-                                          img[,,har_band],
-                                          haralick.nbins = har_nbins,
-                                          haralick.scales = har_scales)
-      )
-    }
+    hal <- data.frame(
+      object_haralick(mask,
+                      img,
+                      haralick.nbins = har_nbins,
+                      haralick.scales = har_scales,
+                      haralick.band = har_band)
+    )
 
     shape <- cbind(shape, hal[valid, ])
     colnames(shape) <- c(names_measures(), har_names())
@@ -1024,20 +1151,24 @@ compute_measures <- function(mask,
 ## helper function to compute the measures based on a mask
 compute_measures_minimal <- function(mask){
   ocont <- contour(mask)
-  
+
   shape <- poly_measures_minimal_cpp(ocont)
   shape$area <- get_area_mask(mask)
-  
+
   shape <- transform(shape,
-                     id = 1:nrow(shape),
+                     id = seq_len(nrow(shape)),
                      asp_ratio = length / width)
-  
+
   valid <- which(!is.na(shape$x))
   shape <- shape[valid, ]
-  
+
+  # Keep only valid contours and add names
+  ocont <- ocont[valid]
+  names(ocont) <- shape$id
+
   colnames(shape)[which(colnames(shape) == "x")] <- "mx"
   colnames(shape)[which(colnames(shape) == "y")] <- "my"
-  
+
   shape <- shape[, c("id",
                      "mx",
                      "my",
@@ -1066,21 +1197,29 @@ compute_measures_minimal <- function(mask){
 
 ## helper function to compute the measures based on a mask
 compute_measures_disease <- function(mask){
+
+  if (storage.mode(mask) != "integer") {
+    storage.mode(mask) <- "integer"
+  }
   ocont <- contour(mask)
-  
+
   shape <- poly_measures_disease_cpp(ocont)
   shape$area <- get_area_mask(mask)
-  
+
   shape <- transform(shape,
-                     id = 1:nrow(shape),
+                     id = seq_len(nrow(shape)),
                      form_factor = 4 * pi * area / perimeter ^ 2)
-  
+
   valid <- which(!is.na(shape$x))
   shape <- shape[valid, ]
-  
+
+  # Keep only valid contours and add names
+  ocont <- ocont[valid]
+  names(ocont) <- shape$id
+
   colnames(shape)[which(colnames(shape) == "x")] <- "mx"
   colnames(shape)[which(colnames(shape) == "y")] <- "my"
-  
+
   shape <- shape[, c("id",
                      "mx",
                      "my",

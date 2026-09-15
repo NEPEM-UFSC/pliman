@@ -92,7 +92,9 @@ objects.}
 intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
-which is the highest.}
+which is the highest. Values < 1.0 are interpreted as relative tolerance
+(percentage of the peak height). Values >= 1.0 are interpreted as absolute
+tolerance in pixels (linear Euclidean distance).}
 
 \item{extension}{Radius of the neighborhood in pixels for the detection of
 neighboring objects. Higher value smooths out small objects.}
@@ -115,11 +117,10 @@ A list with the same length of \code{img} containing the labeled objects.
 \description{
 All pixels for each connected set of foreground (non-zero) pixels in x are
 set to an unique increasing integer, starting from 1. Hence, max(x) gives the
-number of connected objects in x. This is a wrapper to \link[EBImage:bwlabel]{EBImage::bwlabel} or
-\link[EBImage:watershed]{EBImage::watershed} (if \code{watershed = TRUE}).
+number of connected objects in \code{x}.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 img <- image_pliman("soybean_touch.jpg")
 # segment the objects using the "B" (blue) band.
 object_label(img, index = "B")

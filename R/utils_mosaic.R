@@ -307,7 +307,9 @@ mosaic_interpolate <- function(mosaic, points, method = c("bilinear", "loess", "
 #'   intensity between its highest point (seed) and the point where it contacts
 #'   another object (checked for every contact pixel). If the height is smaller
 #'   than the tolerance, the object will be combined with one of its neighbors,
-#'   which is the highest.
+#'   which is the highest. Values < 1.0 are interpreted as relative tolerance
+#'   (percentage of the peak height). Values >= 1.0 are interpreted as absolute
+#'   tolerance in pixels (linear Euclidean distance).
 #' @param extension Radius of the neighborhood in pixels for the detection of
 #'   neighboring objects. A higher value smooths out small objects.
 #' @param include_if Character vector specifying the type of intersection.
@@ -353,7 +355,7 @@ mosaic_interpolate <- function(mosaic, points, method = c("bilinear", "loess", "
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' url <- "https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"
 #' mosaic <- mosaic_input(url)
@@ -767,27 +769,33 @@ mosaic_analyze <- function(mosaic,
             mask <- mind_temp[[segment_index[j]]] < thresh
           }
         }
-        mind_temp <- terra::mask(mind_temp, mask, maskvalues = TRUE)
+        mind_temp <- terra::mask(mosaic[[1]], mask, maskvalues = TRUE)
         # compute plot coverage
 
-        tmp <- exactextractr::exact_extract(mind_temp,
-                                            plot_grid,
-                                            coverage_area = TRUE,
-                                            force_df = TRUE,
-                                            progress = FALSE)
-        covered_area <-
-          purrr::map_dfr(tmp, function(x){
-            data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
-                       plot_area = sum(x[, "coverage_area"]))
-          }) |>
-          dplyr::mutate(coverage = covered_area / plot_area)
+        covered_area <- mosaic_extract(mind_temp,
+                                       plot_grid,
+                                       exact = TRUE,
+                                       fun = "mean",
+                                       verbose = FALSE,
+                                       coverage_area = TRUE)[, 2:4]
+        # tmp <- exactextractr::exact_extract(mind_temp,
+        #                                     plot_grid,
+        #                                     coverage_area = TRUE,
+        #                                     force_df = TRUE,
+        #                                     progress = FALSE)
+        # covered_area <-
+        #   purrr::map_dfr(tmp, function(x){
+        #     data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
+        #                plot_area = sum(x[, "coverage_area"]))
+        #   }) |>
+        #   dplyr::mutate(coverage = covered_area / plot_area)
 
 
         plot_grid <- dplyr::bind_cols(plot_grid, covered_area)
         if(simplify){
           plot_grid <- plot_grid |> sf::st_simplify(preserveTopology = TRUE)
         }
-        rm(tmp)
+        # rm(tmp)
 
       }
 
@@ -814,10 +822,10 @@ mosaic_analyze <- function(mosaic,
             mask <- mind_temp[[segment_index[j]]] > thresh
           }
         }
-        dmask <- EBImage::Image(matrix(mask, ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
+        dmask <- as_image(matrix(mask, ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
         dmask[is.na(dmask) == TRUE] <- 1
         if(!isFALSE(filter[j]) & filter[j] > 1){
-          dmask <- EBImage::medianFilter(dmask, filter[j])
+          dmask <- image_filter(dmask, filter[j])
         }
         if(is.numeric(erode[j]) & erode[j] > 0){
           dmask <- image_erode(dmask, size = erode[j])
@@ -832,13 +840,13 @@ mosaic_analyze <- function(mosaic,
           dmask <- image_closing(dmask, size = closing[j])
         }
         if(watershed[j]){
-          dmask <- EBImage::watershed(EBImage::distmap(dmask), tolerance = tolerance, ext = extension)
+          dmask <- image_watershed(dmask, tolerance = tolerance, ext = extension)
         } else{
-          dmask <- EBImage::bwlabel(dmask)
+          dmask <- image_bwlabel(dmask)
         }
         resx <- terra::res(mosaiccr)[1]
         resy <- terra::res(mosaiccr)[1]
-        conts <- EBImage::ocontour(matrix(dmask, ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
+        conts <- contour(matrix(dmask, ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
         conts <- conts[sapply(conts, nrow) > 2]
         sf_df <- sf::st_sf(
           geometry = lapply(conts, function(x) {
@@ -909,14 +917,21 @@ mosaic_analyze <- function(mosaic,
           )
         }
 
-        valindiv <-
-          exactextractr::exact_extract(x = mind_temp,
-                                       y = sf::st_sf(gridindiv),
-                                       fun = summarize_fun,
-                                       quantiles = summarize_quantiles,
-                                       progress = FALSE,
-                                       force_df = TRUE,
-                                       summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
+        # valindiv <-
+        #   exactextractr::exact_extract(x = mind_temp,
+        #                                y = sf::st_sf(gridindiv),
+        #                                fun = summarize_fun,
+        #                                quantiles = summarize_quantiles,
+        #                                progress = FALSE,
+        #                                force_df = TRUE,
+        #                                summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
+        valindiv <- mosaic_extract(mind_temp,
+                                   sf::st_sf(gridindiv),
+                                   exact = TRUE,
+                                   fun = summarize_fun,
+                                   summarize_quantiles = summarize_quantiles,
+                                   verbose = FALSE,
+                                   coverage_area = FALSE)
 
         if(inherits(valindiv, "list")){
           if(is.null(summarize_fun)){
@@ -978,14 +993,21 @@ mosaic_analyze <- function(mosaic,
           msg_failed = "Feature extraction of plots failed"
         )
       }
-      vals <-
-        exactextractr::exact_extract(x = mind_temp,
-                                     y = plot_grid,
-                                     fun = summarize_fun,
-                                     quantiles = summarize_quantiles,
-                                     progress = FALSE,
-                                     force_df = TRUE,
-                                     summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
+      # vals <-
+      #   exactextractr::exact_extract(x = mind_temp,
+      #                                y = plot_grid,
+      #                                fun = summarize_fun,
+      #                                quantiles = summarize_quantiles,
+      #                                progress = FALSE,
+      #                                force_df = TRUE,
+      #                                summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
+      vals <- mosaic_extract(mind_temp,
+                             plot_grid,
+                             exact = TRUE,
+                             fun = summarize_fun,
+                             summarize_quantiles = summarize_quantiles,
+                             verbose = FALSE,
+                             coverage_area = FALSE)
 
     } else{
       ####### ANY TYPE OF POLYGON ########
@@ -1024,24 +1046,30 @@ mosaic_analyze <- function(mosaic,
         }
         # compute plot coverage
         mind_temp <- terra::mask(mind_temp, mask, maskvalues = TRUE)
-        tmp <- exactextractr::exact_extract(mind_temp,
-                                            plot_grid,
-                                            coverage_area = TRUE,
-                                            force_df = TRUE,
-                                            progress = FALSE)
-
-
-        covered_area <-
-          purrr::map_dfr(tmp, function(x){
-            data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
-                       plot_area = sum(x[, "coverage_area"]))
-          }) |>
-          dplyr::mutate(coverage = covered_area / plot_area)
+        covered_area <- mosaic_extract(mind_temp,
+                                       plot_grid,
+                                       exact = TRUE,
+                                       fun = "mean",
+                                       verbose = FALSE,
+                                       coverage_area = TRUE)[, 2:4]
+        # tmp <- exactextractr::exact_extract(mind_temp,
+        #                                     plot_grid,
+        #                                     coverage_area = TRUE,
+        #                                     force_df = TRUE,
+        #                                     progress = FALSE)
+        #
+        #
+        # covered_area <-
+        #   purrr::map_dfr(tmp, function(x){
+        #     data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
+        #                plot_area = sum(x[, "coverage_area"]))
+        #   }) |>
+        #   dplyr::mutate(coverage = covered_area / plot_area)
         plot_grid <- dplyr::bind_cols(plot_grid, covered_area)
         if(simplify){
           plot_grid <- plot_grid |> sf::st_simplify(preserveTopology = TRUE)
         }
-        rm(tmp)
+        # rm(tmp)
 
       }
 
@@ -1066,11 +1094,11 @@ mosaic_analyze <- function(mosaic,
             mask <- mind_temp[[segment_index[j]]] > thresh
           }
         }
-        dmask <- EBImage::Image(matrix(matrix(mask), ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
+        dmask <- as_image(matrix(matrix(mask), ncol = nrow(mind_temp), nrow = ncol(mind_temp)))
         extents <- terra::ext(mind_temp)
         dmask[is.na(dmask) == TRUE] <- 1
         if(!isFALSE(filter[j]) & filter[j] > 1){
-          dmask <- EBImage::medianFilter(dmask, filter[j])
+          dmask <- image_filter(dmask, filter[j])
         }
         if(is.numeric(erode[j]) & erode[j] > 0){
           dmask <- image_erode(dmask, size = erode[j])
@@ -1085,11 +1113,11 @@ mosaic_analyze <- function(mosaic,
           dmask <- image_closing(dmask, size = closing[j])
         }
         if(watershed[j]){
-          dmask <- EBImage::watershed(EBImage::distmap(dmask), tolerance = tolerance, ext = extension)
+          dmask <- image_watershed(dmask, tolerance = tolerance, ext = extension)
         } else{
-          dmask <- EBImage::bwlabel(dmask)
+          dmask <- image_bwlabel(dmask)
         }
-        conts <- EBImage::ocontour(dmask)
+        conts <- contour(dmask)
         conts <- conts[sapply(conts, nrow) > 2]
         resx <- terra::res(mosaiccr)[1]
         resy <- terra::res(mosaiccr)[1]
@@ -1147,14 +1175,21 @@ mosaic_analyze <- function(mosaic,
             msg_failed = sub("\\.\\.\\.$", "", msg)
           )
         }
-        valindiv <-
-          exactextractr::exact_extract(x = mind_temp,
-                                       y = gridindiv,
-                                       fun = summarize_fun,
-                                       # quantiles = summarize_quantiles,
-                                       progress = FALSE,
-                                       force_df = TRUE,
-                                       summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
+        valindiv <- mosaic_extract(mind_temp,
+                                   gridindiv,
+                                   exact = TRUE,
+                                   fun = summarize_fun,
+                                   summarize_quantiles = summarize_quantiles,
+                                   verbose = FALSE,
+                                   coverage_area = FALSE)
+        # valindiv <-
+        #   exactextractr::exact_extract(x = mind_temp,
+        #                                y = gridindiv,
+        #                                fun = summarize_fun,
+        #                                # quantiles = summarize_quantiles,
+        #                                progress = FALSE,
+        #                                force_df = TRUE,
+        #                                summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
 
         if(inherits(valindiv, "list")){
           if(is.null(summarize_fun)){
@@ -1214,14 +1249,21 @@ mosaic_analyze <- function(mosaic,
           msg_failed = sub("\\.\\.\\.$", "", msg)
         )
       }
-      vals <-
-        exactextractr::exact_extract(x = mind_temp,
-                                     y = plot_grid,
-                                     fun = summarize_fun,
-                                     quantiles = summarize_quantiles,
-                                     progress = FALSE,
-                                     force_df = TRUE,
-                                     summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
+      vals <- mosaic_extract(mind_temp,
+                             plot_grid,
+                             exact = TRUE,
+                             fun = summarize_fun,
+                             summarize_quantiles = summarize_quantiles,
+                             verbose = FALSE,
+                             coverage_area = FALSE)
+      # vals <-
+      #   exactextractr::exact_extract(x = mind_temp,
+      #                                y = plot_grid,
+      #                                fun = summarize_fun,
+      #                                quantiles = summarize_quantiles,
+      #                                progress = FALSE,
+      #                                force_df = TRUE,
+      #                                summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
     }
     # bind the results
     if(verbose){
@@ -1792,7 +1834,7 @@ mosaic_analyze_iter <- function(mosaic,
 #'   bind_rows contains ends_with everything between where select filter
 #'   relocate rename
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # Load a raster showing the elevation of Luxembourg
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -1835,8 +1877,8 @@ mosaic_view <- function(mosaic,
   vieweropt <- c("base", "mapview")
   vieweropt <- vieweropt[pmatch(viewer[[1]], vieweropt)]
 
-  if(inherits(mosaic, "Image")){
-    mosaic <- terra::rast(EBImage::transpose(mosaic)@.Data)
+  if(inherits(mosaic, "image") || inherits(mosaic, "Image")){
+    mosaic <- terra::rast(image_data(image_transpose(mosaic)))
   }
   if(viewopt == "rgb" & vieweropt == "base" & terra::nlyr(mosaic) > 1){
     cli::cli_warn("{.arg viewer = 'base'} can only be used with {.arg show = 'index'}. Defaulting to {.arg viewer = 'mapview'}")
@@ -2034,7 +2076,7 @@ mosaic_view <- function(mosaic,
 #' * `mosaic_export()` do not return an object.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' # create an SpatRaster object based on a matrix
@@ -2184,7 +2226,7 @@ mosaic_export <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' library(terra)
 #' r <- rast(nrows=3, ncols=3, xmin=0, xmax=10, ymin=0, ymax=10)
@@ -2217,13 +2259,18 @@ mosaic_resample <- function(mosaic, y, ...){
 #'   nearest neighbor (simple sampling) resampler. Other accepted values are:
 #'   'average', 'rms', 'bilinear', 'cubic', 'cubicspline', 'lanczos', and
 #'   'mode'. See Details for a detailed explanation.
+#' @param file The file path (including filename and extension) where the
+#'   aggregated raster should be saved. Defaults to `NULL`.
+#' @param overwrite Logical. If `TRUE`, overwrites `file` if it exists, or
+#'   replaces the original raster file if `file = NULL` and `mosaic` is an
+#'   in-disk `SpatRaster`. Defaults to `FALSE`.
 #' @param in_memory Wheter to return an 'in-memory' `SpatRaster`. If `FALSE`,
 #'   the aggregated raster will be returned as an 'in-disk' object.
 #' @return SpatRaster
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' library(terra)
 #' r <- rast()
@@ -2238,37 +2285,73 @@ mosaic_resample <- function(mosaic, y, ...){
 mosaic_aggregate <- function(mosaic,
                              pct = 50,
                              fun = "nearest",
+                             file = NULL,
+                             overwrite = FALSE,
                              in_memory = TRUE){
   outsize <- compute_outsize(pct)
   td <- tempdir()
-  if(terra::inMemory(mosaic)[[1]]){
-    in_raster <- file.path(td, "tmp_aggregate.tif")
+  is_in_mem <- terra::inMemory(mosaic)[[1]]
+
+  if(!is.null(file)){
+    target_file <- file
+    if(file.exists(target_file) && !overwrite){
+      cli::cli_abort("File {.file {target_file}} already exists. Set {.code overwrite = TRUE} to overwrite it.")
+    }
+  } else if(overwrite){
+    orig_file <- terra::sources(mosaic)[[1]]
+    if(is.null(orig_file) || orig_file == "" || is_in_mem){
+      cli::cli_abort("Cannot overwrite original file because {.arg mosaic} has no disk source file. Please specify {.arg file}.")
+    }
+    target_file <- orig_file
+  } else{
+    target_file <- NULL
+  }
+
+  if(is_in_mem){
+    in_raster <- file.path(td, paste0("tmp_in_", basename(tempfile()), ".tif"))
     terra::writeRaster(mosaic, in_raster, overwrite = TRUE)
-    on.exit({
-      file.remove(in_raster)
-      if(in_memory){
-        file.remove(out_raster)
-      }
-    })
+    on.exit(if(file.exists(in_raster)) file.remove(in_raster), add = TRUE)
   } else{
     in_raster <- terra::sources(mosaic)[[1]]
-    on.exit(
-      if(in_memory){
-        file.remove(out_raster)
-      }
-    )
   }
-  out_raster <- file.path(td, "tmp_aggregate_small.tif")
+
+  tmp_out <- file.path(td, paste0("tmp_out_", basename(tempfile()), ".tif"))
+
+  cleanup_tmp_out <- TRUE
+  if(is.null(target_file) && !in_memory){
+    cleanup_tmp_out <- FALSE
+  }
+
+  on.exit({
+    if(cleanup_tmp_out && file.exists(tmp_out)){
+      file.remove(tmp_out)
+    }
+  }, add = TRUE)
+
   sf::gdal_utils(
     util = "translate",
     source = in_raster,
-    destination = out_raster,
+    destination = tmp_out,
     options = strsplit(paste("-r", fun, "-outsize", outsize[1], outsize[2]), split = "\\s")[[1]]
   )
-  if(in_memory){
-    terra::rast(out_raster) |> terra::wrap() |> terra::unwrap()
+
+  if(!file.exists(tmp_out)){
+    cli::cli_abort("Failed to generate aggregated raster.")
+  }
+
+  if(!is.null(target_file)){
+    file.copy(from = tmp_out, to = target_file, overwrite = TRUE)
+    if(in_memory){
+      terra::rast(target_file) |> terra::wrap() |> terra::unwrap()
+    } else{
+      terra::rast(target_file)
+    }
   } else{
-    terra::rast(out_raster)
+    if(in_memory){
+      terra::rast(tmp_out) |> terra::wrap() |> terra::unwrap()
+    } else{
+      terra::rast(tmp_out)
+    }
   }
 }
 
@@ -2288,7 +2371,7 @@ mosaic_aggregate <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_plot(r)
@@ -2320,7 +2403,7 @@ mosaic_plot <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_hist(r)
@@ -2388,7 +2471,7 @@ mosaic_plot_rgb <- function(mosaic, ...){
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #'   library(pliman)
 #'   # Load a sample raster
 #'   mosaic <- mosaic_input(system.file("ex/elev.tif", package = "terra"))
@@ -2560,7 +2643,7 @@ mosaic_crop <- function(mosaic,
 #'   indices. The resulting index layer is returned as an `SpatRaster` object.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' names(mosaic)
@@ -2661,7 +2744,7 @@ mosaic_index <- function(mosaic,
 
   if(length(index) == 1){
     if(inherits(mosaic, "Image")){
-      ras <- t(terra::rast(mosaic@.Data))
+      ras <- t(terra::rast(image_data(mosaic)))
     } else{
       ras <- mosaic
     }
@@ -2985,7 +3068,7 @@ mosaic_index2 <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' seg <-
@@ -3053,7 +3136,7 @@ mosaic_segment <- function(mosaic,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #'  mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #'  seg <- mosaic_segment_pick(mosaic)
 #'  mosaic_plot(seg)
@@ -3091,10 +3174,21 @@ mosaic_segment_pick <- function(mosaic,
                            title = "Use the 'Draw Rectangle' tool to pick up background fractions",
                            editor = "leafpm")$finished
   soil <- soil |> sf::st_transform(sf::st_crs(mosaic))
+  vals <- mosaic_extract(mind_temp,
+                         shp,
+                         exact = TRUE,
+                         fun = "none",
+                         verbose = FALSE,
+                         coverage_area = FALSE)
   soil_sample <-
-    exactextractr::exact_extract(mosaic, soil, progress = FALSE) |>
+    mosaic_extract(mosaic,
+                   soil,
+                   exact = TRUE,
+                   fun = "none",
+                   verbose = FALSE,
+                   coverage_area = FALSE) |>
     dplyr::bind_rows() |>
-    dplyr::select(-coverage_fraction) |>
+    dplyr::select(-c(1:3)) |>
     dplyr::mutate(class = 0)
 
   mapview::mapview() |> mapedit::editMap()
@@ -3104,9 +3198,14 @@ mosaic_segment_pick <- function(mosaic,
                             editor = "leafpm")$finished
   plant <- plant |> sf::st_transform(sf::st_crs(mosaic))
   plant_sample <-
-    exactextractr::exact_extract(mosaic, plant, progress = FALSE) |>
+    mosaic_extract(mosaic,
+                   plant,
+                   exact = TRUE,
+                   fun = "none",
+                   verbose = FALSE,
+                   coverage_area = FALSE) |>
     dplyr::bind_rows() |>
-    dplyr::select(-coverage_fraction) |>
+    dplyr::select(-c(1:3)) |>
     dplyr::mutate(class = 1)
   df_train <- dplyr::bind_rows(plant_sample, soil_sample)
   if(ncol(df_train) == 2){
@@ -3130,7 +3229,7 @@ mosaic_segment_pick <- function(mosaic,
 
 #' Mosaic to pliman
 #'
-#' Convert an `SpatRaster` object to a `Image` object with optional scaling.
+#' Convert an `SpatRaster` object to a `image` object with optional scaling.
 #' @inheritParams mosaic_view
 #' @inheritParams mosaic_index
 #' @param r,g,b,re,nir The red, green, blue, red-edge, and  near-infrared bands
@@ -3143,15 +3242,15 @@ mosaic_segment_pick <- function(mosaic,
 #' @param coef An addition coefficient applied to the resulting object. This is
 #'   useful to adjust the brightness of the final image. Defaults to 0.
 #'
-#' @return An `Image` object with the same number of layers as `mosaic`.
+#' @return An `image` object with the same number of layers as `mosaic`.
 #'
-#' @details This function converts `SpatRaster` into an `Image` object, which
+#' @details This function converts `SpatRaster` into an `image` object, which
 #'   can be used for image analysis in `pliman`. Note that if a large
 #'   `SpatRaster` is loaded, the resulting object may increase considerably the
 #'   memory usage.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # Convert a mosaic raster to an Image object
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -3172,33 +3271,33 @@ mosaic_to_pliman <- function(mosaic,
   }
   nlr <- terra::nlyr(mosaic)
   if(nlr == 5){
-    mosaic <- EBImage::Image(terra::as.array(terra::trans(mosaic)))[,, c(r, g, b, re, nir)]
+    mosaic <- as_image(terra::as.array(terra::trans(mosaic)))[,, c(r, g, b, re, nir)]
   } else if(nlr == 3){
-    mosaic <- EBImage::Image(terra::as.array(terra::trans(mosaic)))[,, c(r, g, b)]
+    mosaic <- as_image(terra::as.array(terra::trans(mosaic)))[,, c(r, g, b)]
   } else{
-    mosaic <- EBImage::Image(terra::as.array(terra::trans(mosaic)))
+    mosaic <- as_image(terra::as.array(terra::trans(mosaic)))
   }
   if(isTRUE(rescale)){
     mosaic <- mosaic / max(mosaic, na.rm = TRUE)
   }
   if(nlr == 3){
-    EBImage::colorMode(mosaic) <- "color"
+    mosaic <- as_image(mosaic, colormode = "color")
   }
   return(mosaic + coef)
 }
 
 #' Mosaic to RGB
 #'
-#' Convert an `SpatRaster` to a three-band RGB image of class `Image`.
+#' Convert an `SpatRaster` to a three-band RGB image of class `image`.
 #'
 #' @inheritParams mosaic_to_pliman
 #' @param plot Logical, whether to display the resulting RGB image (default:
 #'   TRUE).
 #' @param r,g,b The red, green, blue bands.
-#' @return A three-band RGB image represented as a pliman (EBImage) object.
+#' @return An object of class `image` object.
 #'
 #' @details This function converts `SpatRaster` that contains the RGB bands into
-#'   a three-band RGB image using pliman (EBImage). It allows you to specify the
+#'   a three-band RGB. It allows you to specify the
 #'   band indices for the red, green, and blue channels, as well as apply a
 #'   scaling coefficient to the final image. By default, the resulting RGB image
 #'   is displayed, but this behavior can be controlled using the `plot`
@@ -3206,7 +3305,7 @@ mosaic_to_pliman <- function(mosaic,
 #'
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #'
 #' library(pliman)
 #' # Convert a mosaic raster to an RGB image and display it
@@ -3229,7 +3328,7 @@ mosaic_to_rgb <- function(mosaic,
                            g = g,
                            b = b,
                            coef = coef)[,,c(r, g, b)]
-  EBImage::colorMode(ebim) <- "color"
+  ebim <- as_image(ebim, colormode = "color")
   invisible(ebim)
 }
 
@@ -3238,7 +3337,7 @@ mosaic_to_rgb <- function(mosaic,
 #'
 #' Prepare an `SpatRaster` object to be analyzed in pliman. This includes
 #' cropping the original mosaic, aligning it, and cropping the aligned object.
-#' The resulting object is an object of class `Image` that can be further
+#' The resulting object is an object of class `image` that can be further
 #' analyzed.
 #' @inheritParams mosaic_view
 #' @inheritParams mosaic_index
@@ -3255,11 +3354,11 @@ mosaic_to_rgb <- function(mosaic,
 #' @param crop_aligned Logical, whether to crop the aligned mosaic interactively
 #'   (default: TRUE).
 #'
-#' @return A prepared object of class `Image`.
+#' @return A prepared object of class `image`.
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_prepare(mosaic)
@@ -3328,7 +3427,7 @@ mosaic_prepare <- function(mosaic,
     cropped <- aligned
   }
   if(dim(cropped)[3] == 3){
-    EBImage::colorMode(cropped) <- "color"
+    cropped <- as_image(cropped, colormode = "color")
   }
   invisible(cropped)
 }
@@ -3381,7 +3480,6 @@ mosaic_prepare <- function(mosaic,
 #' @param plot_layout The de plot layout. Defaults to `plot_layout = c(1, 2, 3,
 #'   3)`. Ie., the first row has two plots, and the second row has one plot.
 #' @importFrom terra crop vect extract
-#' @importFrom exactextractr exact_extract
 #' @importFrom graphics layout
 #' @importFrom stats smooth
 #' @return An invisible list containing the mosaic, draw_data, distance,
@@ -3389,7 +3487,7 @@ mosaic_prepare <- function(mosaic,
 #' @export
 #' @examples
 #'
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # Load a raster showing the elevation of Luxembourg
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -3569,16 +3667,23 @@ mosaic_draw <- function(mosaic,
       mind <- terra::mask(mind, mask, maskvalues = TRUE)
     }
     mind <- terra::mask(mind, polygons_ext)
-    vals <-
-      suppressWarnings(
-        exactextractr::exact_extract(x = mind,
-                                     y = polygons,
-                                     fun = summarize_fun,
-                                     quantiles = summarize_quantiles,
-                                     progress = FALSE,
-                                     force_df = TRUE,
-                                     summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
-      )
+    # vals <-
+    #   suppressWarnings(
+    #     exactextractr::exact_extract(x = mind,
+    #                                  y = polygons,
+    #                                  fun = summarize_fun,
+    #                                  quantiles = summarize_quantiles,
+    #                                  progress = FALSE,
+    #                                  force_df = TRUE,
+    #                                  summarize_df = ifelse(is.function(summarize_fun), TRUE, FALSE))
+    #   )
+    vals <- mosaic_extract(mind,
+                           polygons,
+                           exact = TRUE,
+                           fun = summarize_fun,
+                           summarize_quantiles = summarize_quantiles,
+                           verbose = FALSE,
+                           coverage_area = FALSE)
     if(inherits(vals, "list")){
       vals <-
         do.call(rbind, lapply(1:length(vals), function(i){
@@ -3889,16 +3994,19 @@ mosaic_chm <- function(dsm,
                            ncol = nc,
                            build_shapefile = FALSE,
                            verbose = FALSE)
-    vals <- exactextractr::exact_extract(dsm,
-                                         shp[[1]],
-                                         fun = "quantile",
-                                         quantiles = ground_quantile,
-                                         progress = FALSE)
+
+    vals <- mosaic_extract(dsm,
+                           shp[[1]],
+                           exact = TRUE,
+                           fun = 'quantiles',
+                           summarize_quantiles = ground_quantile,
+                           verbose = FALSE,
+                           coverage_area = FALSE)
     gc()
     cent <- suppressWarnings(sf::st_centroid(shp[[1]]))
     sampp <-
       cent |>
-      dplyr::mutate(dtm = vals) |>
+      dplyr::mutate(dtm = as.vector(vals[[1]])) |>
       dplyr::filter(!is.na(dtm))
 
     xy <- sf::st_coordinates(sampp)
@@ -4006,7 +4114,10 @@ mosaic_chm <- function(dsm,
 #'
 #' @export
 
-mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL, quantiles = c(0, 0.05, 0.5, 0.95, 1)) {
+mosaic_chm_extract <- function(chm,
+                               shapefile,
+                               chm_threshold = NULL,
+                               quantiles = c(0, 0.05, 0.5, 0.95, 1)) {
   if (terra::is.lonlat(chm$chm)) {
     ext_chm <- terra::ext(chm$chm)
     lat_center <- mean(c(ext_chm[3], ext_chm[4]))
@@ -4018,7 +4129,7 @@ mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL, quantiles =
     cell_area <- prod(chm[["res"]])
   }
 
-  custom_summary <- function(values, coverage_fractions, ...) {
+  custom_summary <- function(values, ...) {
     valids <- na.omit(values)
     if(!is.null(chm_threshold)){
       included <- valids > chm_threshold
@@ -4051,38 +4162,41 @@ mosaic_chm_extract <- function(chm, shapefile, chm_threshold = NULL, quantiles =
     }
 
   }
-  height <- exactextractr::exact_extract(chm$chm[[2]],
-                                         shapefile,
-                                         fun = custom_summary,
-                                         force_df = TRUE,
-                                         progress = FALSE)
-  if (chm$mask) {
-    area2 <- exactextractr::exact_extract(chm$chm[[2]],
-                                          shapefile,
-                                          coverage_area = TRUE,
-                                          force_df = TRUE,
-                                          progress = FALSE)
-    covered_area <- purrr::map_dfr(area2, function(x) {
-      data.frame(covered_area = sum(na.omit(x)[, "coverage_area"]),
-                 plot_area = sum(x[, "coverage_area"]))
-    }) |>
-      dplyr::mutate(coverage = covered_area / plot_area)
-  } else {
-    area <- as.numeric(sf::st_area(shapefile))
-    if (is.null(chm_threshold)) {
-      covered_area <- data.frame(plot_area = area)
-    } else {
-      covered_area <- data.frame(covered_area = area * height$coverage,
-                                 plot_area = area)
-    }
+
+  height <-
+    mosaic_extract(chm$chm[[2]],
+                   shapefile,
+                   exact = TRUE,
+                   fun = custom_summary,
+                   verbose = FALSE)
+  if(!chm$mask){
+    height <-
+      height |>
+      dplyr::mutate(plot_area = as.numeric(sf::st_area(shapefile)),
+                    covered_area = plot_area * coverage,
+                    .before = coverage) |>
+      dplyr::relocate(covered_area, .before = plot_area)
+  } else{
+    covered_area <- mosaic_extract(chm$chm[[2]],
+                                   shapefile,
+                                   exact = TRUE,
+                                   fun = "mean",
+                                   verbose = FALSE,
+                                   coverage_area = TRUE)[, 2:4]
+    height <-
+      height |>
+      dplyr::select(-any_of("coverage")) |>
+      dplyr::bind_cols(covered_area)
   }
+
+
   shapefile <-
     shapefile |>
     dplyr::select(-suppressWarnings(dplyr::any_of(c("x", "y"))))
   centroids <- suppressWarnings(sf::st_centroid(shapefile)) |> sf::st_coordinates()
   colnames(centroids) <- c("x", "y")
   dftmp <-
-    dplyr::bind_cols(height, covered_area, centroids, shapefile) |>
+    dplyr::bind_cols(height, centroids, shapefile) |>
     sf::st_as_sf() |>
     dplyr::relocate(unique_id, block, plot_id, row, column, x, y, .before = 1)
 
@@ -4147,7 +4261,7 @@ mosaic_chm_mask <- function(dsm,
 #'   constructed accordingly.
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' library(terra)
 #'
@@ -4189,7 +4303,7 @@ mosaic_epsg <- function(mosaic) {
 #' @return A raster object representing the projected mosaic.
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(terra)
 #' library(pliman)
 #'
@@ -4221,7 +4335,7 @@ mosaic_project <- function(mosaic, y, ...){
 #'   not in the lon/lat coordinate system, a warning is issued.
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(terra)
 #' library(pliman)
 #'
@@ -4242,36 +4356,7 @@ mosaic_lonlat2epsg <- function(mosaic){
   }
 }
 
-#' Extract Values from a Raster Mosaic Using a Shapefile
-#'
-#' This function extracts values from a raster mosaic based on the regions
-#' defined in a shapefile using [exactextractr::exact_extract()].
-#'
-#' @param mosaic A `SpatRaster` object representing the raster mosaic from which
-#'   values will be extracted.
-#' @param shapefile A shapefile, which can be a `SpatVector` or an `sf` object,
-#'   defining the regions of interest for extraction.
-#' @param fun A character string specifying the summary function to be used for
-#'   extraction. Default is `"median"`.
-#' @param ... Additional arguments to be passed to [exactextractr::exact_extract()].
-#' @return A data frame containing the extracted values for each region defined in the shapefile.
-#' @export
-#'
-mosaic_extract <- function(mosaic,
-                           shapefile,
-                           fun = "median",
-                           ...){
-  if(inherits(shapefile, "SpatVector")){
-    shapefile <- sf::st_as_sf(shapefile)
-  }
-  results <-
-    exactextractr::exact_extract(mosaic,
-                                 shapefile,
-                                 fun = fun,
-                                 force_df = TRUE,
-                                 ...)
-  sf::st_as_sf(dplyr::bind_cols(results, shapefile)) |> dplyr::relocate(unique_id:column, .before = 1)
-}
+
 
 #' Vectorize a `SpatRaster` mask to an `sf` object
 #'
@@ -4290,7 +4375,7 @@ mosaic_extract <- function(mosaic,
 #'   `FALSE`.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' mask <- image_pliman("mask.tif")
 #' shp <- mosaic_vectorize(mask, watershed = FALSE)
@@ -4318,14 +4403,14 @@ mosaic_vectorize <- function(mask,
   if(!is.null(aggregate)){
     mask <- mosaic_aggregate(mask, aggregate)
   }
-  dmask <- EBImage::Image(matrix(matrix(mask), ncol = nrow(mask), nrow = ncol(mask)))
+  dmask <- as_image(matrix(matrix(mask), ncol = nrow(mask), nrow = ncol(mask)))
   extents <- terra::ext(mask)
   dmask[is.na(dmask) == TRUE] <- 0
   if(!isFALSE(fill_hull)){
-    dmask <- EBImage::fillHull(dmask)
+    dmask <- image_fill_hull(dmask)
   }
   if(!isFALSE(filter) & filter > 1){
-    dmask <- EBImage::medianFilter(dmask, filter)
+    dmask <- image_filter(dmask, filter)
   }
   if(is.numeric(erode) & erode > 0){
     dmask <- image_erode(dmask, size = erode)
@@ -4340,11 +4425,11 @@ mosaic_vectorize <- function(mask,
     dmask <- image_closing(dmask, size = closing)
   }
   if(watershed){
-    dmask <- EBImage::watershed(EBImage::distmap(dmask), tolerance = tolerance, ext = extension)
+    dmask <- image_watershed(dmask, tolerance = tolerance, ext = extension)
   } else{
-    dmask <- EBImage::bwlabel(dmask)
+    dmask <- image_bwlabel(dmask)
   }
-  conts <- EBImage::ocontour(dmask)
+  conts <- contour(dmask)
   conts <- conts[sapply(conts, nrow) > 2]
   if(is.numeric(smooth) & smooth > 0){
     conts <- smoothContours(conts, smooth)
@@ -4400,7 +4485,7 @@ mosaic_vectorize <- function(mask,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # Convert a mosaic raster to an Image object
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))

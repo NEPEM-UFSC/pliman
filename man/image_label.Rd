@@ -8,15 +8,14 @@ image_label(img, max_gap = 0)
 }
 \arguments{
 \item{img}{A binary image matrix where \code{1} represents foreground pixels and
-\code{0} represents background pixels. This should be compatible with the
-EBImage package.}
+\code{0} represents background pixels.}
 
 \item{max_gap}{An integer specifying the maximum allowable gap (in pixels)
 between connected components to be considered as part of the same object.
 Default is \code{1}.}
 }
 \value{
-An object of class \code{Image} (from the EBImage package), where each
+An object of class \code{image}, where each
 connected component is assigned a unique integer label.
 }
 \description{
@@ -34,7 +33,7 @@ img <- matrix(c(
   0, 0, 0, 0, 0, 0, 0, 0, 1
 ), nrow = 4, byrow = TRUE)
 
-image_label(img, max_gap = 1)
+image_label(img, max_gap = 1) |> plot()
 image_label(img, max_gap = 2)
 image_label(img, max_gap = 3)
 }

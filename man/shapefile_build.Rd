@@ -14,6 +14,7 @@ shapefile_build(
   crop_to_shape_ext = FALSE,
   grid = TRUE,
   method = c("rectangular", "radial", "landmark"),
+  engine = c("cpp", "cpp_old"),
   nrow = 1,
   ncol = 1,
   curved = TRUE,
@@ -103,7 +104,7 @@ the drawn shapefile by deleting or changing the drawn grids.}
 
 \item{sf_to_polygon}{Convert sf geometry like POINTS and LINES to POLYGONS?
 Defaults to \code{FALSE}. Using \code{TRUE} allows using POINTS to extract values
-from a raster using \code{exactextractr::exact_extract()}.}
+from a raster using \code{mosaic_extract()}.}
 
 \item{buffer}{Numeric. A buffer distance (in map units) to be applied uniformly
 to the final generated plots. If negative, the plots will be shrunk; if
@@ -166,7 +167,7 @@ the intended serpentine or linear pattern along the long axis of the drawn
 boundary.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 mosaic <- image_pliman("soy_ortho.tif")
 

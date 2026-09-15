@@ -22,7 +22,7 @@ A \code{SpatRaster} object with the rotated mosaic image.
 This function rotates a mosaic image by 90, 180, or 270 degrees.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 # Convert a mosaic raster to an Image object
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))

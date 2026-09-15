@@ -7,7 +7,7 @@
 calibrate(img, viewer = get_pliman_viewer())
 }
 \arguments{
-\item{img}{An \code{Image} object}
+\item{img}{An \code{image} object}
 
 \item{viewer}{The viewer option. If not provided, the value is retrieved
 using \code{\link[=get_pliman_viewer]{get_pliman_viewer()}}. This option controls the type of viewer to use

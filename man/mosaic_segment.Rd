@@ -55,7 +55,7 @@ Segment a \code{SpatRaster} using a computed image index. By default, values
 greater than \code{threshold} are kept in the mask.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 seg <-

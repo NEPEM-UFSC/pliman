@@ -17,7 +17,7 @@ object_split_shp(
 )
 }
 \arguments{
-\item{img}{An object of class \code{Image}}
+\item{img}{An object of class \code{image}}
 
 \item{nrow}{The number of desired rows in the grid. Defaults to \code{1}.}
 
@@ -49,15 +49,15 @@ to \code{nrow} and \code{ncol} arguments.}
 \item{...}{Other arguments passed on to \code{\link[=image_shp]{image_shp()}}}
 }
 \value{
-A list of \code{Image} objects
+A list of \code{image} objects
 }
 \description{
 Here, \code{\link[=image_shp]{image_shp()}} is used to create a shape file based on the desired
 number of rows and columns. Then, using the object coordinates, a list of
-\code{Image} objects is created.
+\code{image} objects is created.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 objects <- object_split_shp(flax, nrow = 3, ncol = 5)

@@ -17,7 +17,7 @@ image_augment(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{pattern}{A regular expression pattern to select multiple images from a
 directory.}
@@ -47,7 +47,7 @@ a list of augmented images is returned.
 This function takes an image and augments it by rotating it multiple times.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 imgs <- image_augment(img, type = "return", times = 4)

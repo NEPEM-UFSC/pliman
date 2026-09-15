@@ -57,7 +57,7 @@ allow groups to be distinguished (Claude, 2008).
 Adapted from Claude (2008). pp. 229.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 pw <- efourier(contours) |> efourier_power()
 }

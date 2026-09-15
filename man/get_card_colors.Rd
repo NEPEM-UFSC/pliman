@@ -2,78 +2,119 @@
 % Please edit documentation in R/utils_imagem.R
 \name{get_card_colors}
 \alias{get_card_colors}
-\title{Extract Mean Colors from a Color Checker Card}
+\title{Extract ColorChecker Palettes using Bilinear Homography and Negative Buffering}
 \usage{
 get_card_colors(
   img,
-  index = "GRAY",
+  reference = "colorchecker24",
   nrow = NULL,
   ncol = NULL,
+  buffer = 0.45,
+  margin_x = 0.05,
+  margin_y = 0.07,
+  corners = NULL,
+  auto_orient = TRUE,
+  index = "GRAY",
   erode = NULL,
-  filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
-  xpix = NULL,
-  ypix = NULL,
-  plot = TRUE
+  fill_hull = TRUE,
+  stat = c("mean", "median"),
+  plot = TRUE,
+  verbose = TRUE,
+  ...
 )
 }
 \arguments{
-\item{img}{An \code{Image} object from the \code{EBImage} or \code{pliman} package.}
+\item{img}{An \code{image} object (S3 pliman image or array).}
 
-\item{index}{The vegetation or color index string (e.g., "GRAY", "B", "R")
-passed to \code{pliman::image_binary()} to segment the card from the
-background. Default is \strong{"GRAY"}.}
+\item{reference}{Reference chart standard for comparison. Default \code{"colorchecker24"}.
+Can be \code{"colorchecker24"}, a custom \code{data.frame} with reference \verb{R, G, B} columns,
+or \code{NULL} to extract observed colors without reference metrics.}
 
-\item{nrow}{The number of rows of color patches on the card. If \strong{\code{NULL}}
-(default), the function automatically determines this based on the card's
-aspect ratio (6 for 6x4, 4 for 4x6).}
+\item{nrow}{The number of rows of color patches. If \code{NULL} (default), automatically
+determined based on card orientation (4 for landscape, 6 for portrait for 24-patch charts).}
 
-\item{ncol}{The number of columns of color patches on the card. If \strong{\code{NULL}}
-(default), the function automatically determines this based on the card's
-aspect ratio (4 for 6x4, 6 for 4x6).}
+\item{ncol}{The number of columns of color patches. If \code{NULL} (default), automatically
+determined based on card orientation (6 for landscape, 4 for portrait).}
 
-\item{erode}{The size (in pixels) of the erosion kernel applied to the
-binary mask to shrink the selection and avoid patch edges. If \strong{\code{NULL}}
-(default), a value is automatically calculated based on the card's
-coverage in the image.}
+\item{buffer}{Negative buffer shrinkage fraction (0 to 1, default \code{0.45} for 45\% shrink).
+If provided as a percentage > 1 (e.g. 45), it is automatically scaled to fraction.}
 
-\item{xpix}{The total width (in pixels) of the sampling rectangle at the
-center of each patch. If \strong{\code{NULL}} (default), a value is automatically
-calculated based on the card's coverage in the image.}
+\item{margin_x}{Outer horizontal border margin fraction (default \code{0.05} / 5\%).}
 
-\item{ypix}{The total height (in pixels) of the sampling rectangle at the
-center of each patch. If \strong{\code{NULL}} (default), a value is automatically
-calculated based on the card's coverage in the image.}
+\item{margin_y}{Outer vertical border margin fraction (default \code{0.07} / 7\%).}
 
-\item{plot}{Logical. If \strong{\code{TRUE}} (default), displays the original image with
-detected corners (red dots), sampling boxes (red rectangles), and
-patch IDs.}
+\item{corners}{Optional quadrilateral corners. Can be \code{NULL} (automatic detection),
+a 4x2 matrix, a list with \verb{$TL, $TR, $BR, $BL}, or an 8-element numeric vector.}
+
+\item{auto_orient}{Logical. If \code{TRUE} (default for 24-patch ColorChecker charts),
+automatically detects the physical chart orientation (0°, 90°, 180°, 270°) by
+identifying the White (patch 19) and Black (patch 24) corners, ensuring that
+patch 1 (Dark skin) to patch 24 (Black) are always indexed correctly regardless
+of camera tilt or card rotation.}
+
+\item{index}{Segmentation index used for auto-detecting the card (default \code{"GRAY"}).}
+
+\item{erode}{Erosion kernel size for segmentation mask. If \code{NULL} (default),
+automatically computed based on card coverage.}
+
+\item{fill_hull}{Logical. Fill holes in the segmentation mask (default \code{TRUE}).}
+
+\item{stat}{Primary statistic assigned to \verb{R, G, B} columns: \code{"mean"} (default)
+or \code{"median"}.}
+
+\item{plot}{Logical. If \code{TRUE} (default), displays the image with overlay showing
+the detected card boundary, cell grid, negative buffer sampling polygons, and patch badges.}
+
+\item{verbose}{Logical. If \code{TRUE} (default), prints diagnostic summary.}
+
+\item{...}{Legacy arguments (\code{xpix}, \code{ypix}, \code{filter_order}) supported for backward compatibility.}
 }
 \value{
-a \code{data.frame} with the RGB values for each color chip.
-A \code{data.frame} with \code{nrow * ncol} rows and 4 columns:
+An object of class \code{c("pliman_card_colors", "data.frame")} containing:
 \itemize{
-\item \code{id}: The patch identifier (from 1 to \code{nrow * ncol}).
-\item \code{R}: The mean Red channel value (typically 0-1).
-\item \code{G}: The mean Green channel value (typically 0-1).
-\item \code{B}: The mean Blue channel value (typically 0-1).
+\item \code{id}: Patch identifier (1 to \code{nrow * ncol}).
+\item \code{row}, \code{col}: Grid row and column positions.
+\item \code{center_x}, \code{center_y}: Pixel center coordinates.
+\item \code{R}, \code{G}, \code{B}: Sampled primary RGB values (0-255 scale).
+\item \code{R_med}, \code{G_med}, \code{B_med}: Median RGB values.
+\item \code{R_sd}, \code{G_sd}, \code{B_sd}: Standard deviations per channel.
+\item \code{n_pixels}: Number of pixels sampled in the nucleus.
+\item If reference comparison is active: \code{code}, \code{name}, \code{ref_R}, \code{ref_G}, \code{ref_B},
+\code{Delta_R}, \code{Delta_G}, \code{Delta_B}, \code{Delta_E}, and \code{Delta_E_Calib}.
+}
+The object also stores attributes:
+\itemize{
+\item \code{attr(res, "patches")}: List of patch bounding boxes and polygon vertices.
+\item \code{attr(res, "corners")}: Sorted corner coordinates (\verb{TL, TR, BR, BL}).
+\item \code{attr(res, "wb_gains")}: Calculated White Balance gains.
+\item \code{attr(res, "ccm")}: Calculated 3x3 Color Correction Matrix.
+\item \code{attr(res, "avg_delta_raw")}: Mean Euclidean color error (\eqn{\Delta E}) before calibration.
+\item \code{attr(res, "avg_delta_calib")}: Mean \eqn{\Delta E} after CCM 3x3 calibration.
 }
 }
 \description{
-This function identifies a color checker card in an image, finds its
-four corners to correct for perspective distortion, generates a grid
-corresponding to the color patches, and extracts the mean RGB values from
-the center of each patch.
-
-\strong{Note:} The function attempts to automatically guess appropriate values
-for the parameters related to the card's dimensions (\code{nrow}, \code{ncol}) and
-the sampling process (\code{erode}, \code{xpix}, \code{ypix}) based on the detected
-coverage area of the card in the image. You may override these guesses
-by providing explicit values.
+Automatically detects a ColorChecker chart in an image (or uses user-specified
+corners), maps each color patch using perspective-aware bilinear homography,
+and extracts pure nucleus color statistics using a dynamic negative buffer.
+}
+\details{
+The extraction employs a bilinear interpolation mapping:
+\deqn{P(u, v) = (1 - u)(1 - v)\mathbf{TL} + u(1 - v)\mathbf{TR} + uv\mathbf{BR} + (1 - u)v\mathbf{BL}}
+Outer card margins (\code{margin_x}, \code{margin_y}) exclude the surrounding plastic/cardboard
+frame. A dynamic negative buffer (\code{buffer}, default 45\%) shrinks each nominal cell
+inwards towards its center, ensuring pixel sampling is strictly restricted to the
+homogeneous nucleus of the color chip, immune to edge glare, shadows, and plastic borders.
 }
 \examples{
 if(interactive()){
 library(pliman)
 img <- image_pliman("colorcheck.jpg")
-get_card_colors(img, xpix = 30, ypix = 30)
+
+# Auto-detect card, auto-orient, and extract 24 patches with 45\% negative buffer
+card <- get_card_colors(img)
+head(card)
+
+# View patch overlay
+plot(card)
 }
 }

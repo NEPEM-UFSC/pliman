@@ -38,7 +38,7 @@ analyses (Claude, 2008).
 Adapted from Claude (2008). pp. 226.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 leaf1 <- contours[[4]]
 plot_polygon(leaf1)

@@ -55,6 +55,7 @@ measure_disease(
   name = NULL,
   dir_original = NULL,
   dir_processed = NULL,
+  return_masks = FALSE,
   verbose = TRUE
 )
 
@@ -82,7 +83,7 @@ measure_disease_iter(
 \item{img_symptoms}{A color palette of lesioned tissues.}
 
 \item{img_background}{A color palette of the background (if exists). These
-arguments can be either an \code{Image} object stored in the global environment
+arguments can be either an \code{image} object stored in the global environment
 or a character value. If a chacarceter is used (eg., \code{img_healthy = "leaf"}), the function will search in the current working directory a valid
 image that contains "\verb{leaf"} in the name. Note that if two images matches
 this pattern, an error will occour.}
@@ -182,7 +183,7 @@ Defaults to \code{3000}.}
 segment lesions connected by a fairly few pixels that could be considered
 as two distinct lesions. If \code{FALSE}, lesions that are connected by any
 pixel are considered unique lesions. For more details see
-\code{\link[EBImage:watershed]{EBImage::watershed()}}.}
+\code{\link[=image_watershed]{image_watershed()}}.}
 
 \item{lesion_size}{The size of the lesion. Used to automatically tune
 \code{tolerance} and \code{extension} parameters. One of the following. \code{"small"}
@@ -195,7 +196,9 @@ intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
 which is the highest. Defaults to \code{NULL}, i.e., starting values are set up
-according to the argument \code{lesion_size}.}
+according to the argument \code{lesion_size}. Values < 1.0 are interpreted as
+relative tolerance (percentage of the peak height). Values >= 1.0 are
+interpreted as absolute tolerance in pixels (linear Euclidean distance).}
 
 \item{extension}{Radius of the neighborhood in pixels for the detection of
 neighboring objects. Defaults to 20. Higher value smooths out small
@@ -250,6 +253,8 @@ processing, when \code{save_image = TRUE}, the processed image will be also
 saved in such a directory. It can be either a full path, e.g.,
 \code{"C:/Desktop/imgs"}, or a subfolder within the current working directory,
 e.g., \code{"/imgs"}.}
+
+\item{return_masks}{Returns the leaf/disease masks? Defaults to \code{FALSE}.}
 
 \item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
 
@@ -341,7 +346,7 @@ features for each object based on a gray-level co-occurrence matrix (Haralick
 et al. 1979). See more details in \code{\link[=analyze_objects]{analyze_objects()}}.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("sev_leaf_nb.jpg")
 healthy <- image_pliman("sev_healthy.jpg")
@@ -352,7 +357,6 @@ sev <-
  measure_disease(img = img,
                  img_healthy = healthy,
                  img_symptoms = lesions,
-                 lesion_size = "large",
                  plot = TRUE)
 
 # an interactive section

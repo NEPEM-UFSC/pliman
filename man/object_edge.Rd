@@ -7,7 +7,7 @@
 object_edge(img, sigma = 1, threshold = "Otsu", thinning = FALSE, plot = TRUE)
 }
 \arguments{
-\item{img}{An image or a list of images of class \code{Image}.}
+\item{img}{An image or a list of images of class \code{image}.}
 
 \item{sigma}{Gaussian kernel standard deviation used in the gaussian blur.}
 
@@ -32,7 +32,7 @@ convolving the image with a small, separable, and integer-valued filter in
 the horizontal and vertical directions.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
 object_edge(img)

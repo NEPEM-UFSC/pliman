@@ -56,6 +56,7 @@ analyze_objects_minimal(
   marker_col = NULL,
   marker_size = NULL,
   save_image = FALSE,
+  max_pixels = 4e+06,
   prefix = "proc_",
   dir_original = NULL,
   dir_processed = NULL,
@@ -206,7 +207,9 @@ raster plot showing pixel intensity of the index.
 intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
-which is the highest.}
+which is the highest. Values < 1.0 are interpreted as relative tolerance
+(percentage of the peak height). Values >= 1.0 are interpreted as absolute
+tolerance in pixels (linear Euclidean distance).}
 
 \item{extension}{Radius of the neighborhood in pixels for the detection of
 neighboring objects. Higher value smooths out small objects.}
@@ -251,12 +254,15 @@ image processing. Defaults to \code{NULL}, in which \code{"black"}, and \code{"w
 used, respectively.}
 
 \item{marker, marker_col, marker_size}{The type, color and size of the object
-marker. Defaults to \code{NULL}, which plots the object id. Use \code{marker = "point"} to show a point in each object or \code{marker = FALSE} to omit object
-marker.}
+marker. Defaults to 'point', which plots a red point in each object. Use
+\code{marker = FALSE} to omit object marker.}
 
 \item{save_image}{Save the image after processing? The image is saved in the
 current working directory named as \verb{proc_*} where \code{*} is the image name
 given in \code{img}.}
+
+\item{max_pixels}{Maximum number of pixels to render when plotting or saving
+the processed image. Defaults to \code{2e6}. Set to \code{NULL} for full rendering.}
 
 \item{prefix}{The prefix to be included in the processed images. Defaults to
 \code{"proc_"}.}
@@ -290,7 +296,7 @@ are recognized.}
 A lighter option to \code{\link[=analyze_objects]{analyze_objects()}}
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
@@ -298,7 +304,7 @@ obj$statistics
 
 }
 
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")

@@ -13,7 +13,7 @@ landmarks(
 )
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{n}{The number of landmarks to produce. Defaults to \code{Inf}. In this case,
 landmarks are chosen up to the user press Esc.}

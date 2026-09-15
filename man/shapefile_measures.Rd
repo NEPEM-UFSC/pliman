@@ -40,7 +40,7 @@ centroid coordinates, and computes the area and perimeter of the polygons.
 The width and height are derived from sequential distances between points.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 
 path_shp <- paste0(image_pliman(), "/soy_shape.rds")

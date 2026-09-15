@@ -7,17 +7,16 @@
 image_bwlabel(binary)
 }
 \arguments{
-\item{binary}{A binary \code{Image} object or a logical matrix/array.}
+\item{binary}{A binary \code{image} object or a logical matrix/array.}
 }
 \value{
-A grayscale \code{Image} object containing the labels, where each isolated
+A grayscale \code{image} object containing the labels, where each isolated
 object is assigned a unique integer value. Background pixels are 0.
 }
 \description{
 This function performs Connected Component Labeling (CCL) on a binary image.
 It implements a highly optimized 2-pass Union-Find algorithm, providing
-lightning-fast execution even for massive images. It serves as an optimized
-drop-in replacement for \code{\link[EBImage:bwlabel]{EBImage::bwlabel()}}.
+lightning-fast execution even for massive images.
 }
 \examples{
 \dontrun{

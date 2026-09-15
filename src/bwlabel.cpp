@@ -23,9 +23,28 @@ static inline int find_root(int x, int* p) {
 // =============================================================================
 // [[Rcpp::export]]
 IntegerMatrix bwlabel_cpp(SEXP img_sexp) {
-  int* img = INTEGER(img_sexp);
   int nrow = Rf_nrows(img_sexp);
   int ncol = Rf_ncols(img_sexp);
+  int N = nrow * ncol;
+
+  const int* img = nullptr;
+  std::vector<int> conv_buf;
+
+  if (TYPEOF(img_sexp) == LGLSXP || TYPEOF(img_sexp) == INTSXP) {
+    img = INTEGER(img_sexp);
+  } else if (TYPEOF(img_sexp) == RAWSXP) {
+    conv_buf.resize(N);
+    const uint8_t* ptr = RAW(img_sexp);
+    for (int i = 0; i < N; i++) conv_buf[i] = ptr[i] ? 1 : 0;
+    img = conv_buf.data();
+  } else if (TYPEOF(img_sexp) == REALSXP) {
+    conv_buf.resize(N);
+    const double* ptr = REAL(img_sexp);
+    for (int i = 0; i < N; i++) conv_buf[i] = (ptr[i] != 0.0) ? 1 : 0;
+    img = conv_buf.data();
+  } else {
+    Rcpp::stop("Unsupported image storage mode in bwlabel_cpp.");
+  }
 
   // ---------------------------------------------------------------------------
   // PASSE 0: Contagem exata de runs (zero alocação, apenas leitura)

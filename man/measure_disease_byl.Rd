@@ -115,7 +115,9 @@ neighboring objects. Higher value smooths out small objects.}
 intensity between its highest point (seed) and the point where it contacts
 another object (checked for every contact pixel). If the height is smaller
 than the tolerance, the object will be combined with one of its neighbors,
-which is the highest.}
+which is the highest. Values < 1.0 are interpreted as relative tolerance
+(percentage of the peak height). Values >= 1.0 are interpreted as absolute
+tolerance in pixels (linear Euclidean distance).}
 
 \item{object_size}{The size of the object. Used to automatically set up
 \code{tolerance} and \code{extension} parameters. One of the following. \code{"small"}
@@ -182,7 +184,7 @@ with \code{\link[=object_split]{object_split()}} and then, \code{\link[=measure_
 leaves.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 sev <-

@@ -6,7 +6,7 @@
 #' @param rhs Where you are piping the result to.
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' # Basic use:

@@ -47,7 +47,7 @@ The function segments a mosaic using an interative process where the user
 picks samples from background (eg., soil) and foreground (eg., plants).
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
  mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
  seg <- mosaic_segment_pick(mosaic)
  mosaic_plot(seg)

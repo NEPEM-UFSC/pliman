@@ -60,7 +60,7 @@ pliman_indexes_hs <- function(){
 #' @param available A character vector of available bands (e.g., `c("R", "G")`).
 #' @return A data frame of indexes that can be computed with the available bands.
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' available_bands <- c("R", "G")
 #' computable_indexes <- pliman_indexes_ican_compute(available_bands)

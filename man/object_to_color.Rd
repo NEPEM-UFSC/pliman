@@ -37,7 +37,7 @@ target mode for conversion to binary image. See the available indexes with
 \item{...}{Additional arguments passed on to \code{\link[=image_binary]{image_binary()}}.}
 }
 \value{
-An object of class \code{Image}
+An object of class \code{image}
 }
 \description{
 The function applies the color informed in the argument \code{color} to segmented
@@ -45,7 +45,7 @@ objects in the image. The segmentation is performed using image indexes. Use
 \code{\link[=image_index]{image_index()}} to identify the better candidate index to segment objects.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("la_leaves.jpg")
 img2 <- object_to_color(img, index = "G-R")

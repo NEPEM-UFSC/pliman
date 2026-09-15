@@ -58,8 +58,8 @@ List extract_contours_cpp(IntegerMatrix labels) {
     b_x.reserve(512); // Previne múltiplas realocações
     b_y.reserve(512);
 
-    b_x.push_back(sc + 1);
-    b_y.push_back(sr + 1);
+    b_x.push_back(sr);
+    b_y.push_back(sc);
 
     int curr_r = sr;
     int curr_c = sc;
@@ -72,11 +72,11 @@ List extract_contours_cpp(IntegerMatrix labels) {
     for (int i = 1; i <= 8; i++) {
       int dir = backtrack + i;
       if (dir >= 8) dir -= 8;
-      
+
       int nr = curr_r + dr[dir];
       int nc = curr_c + dc[dir];
-      
-      if (static_cast<unsigned>(nr) < static_cast<unsigned>(nrow) && 
+
+      if (static_cast<unsigned>(nr) < static_cast<unsigned>(nrow) &&
           static_cast<unsigned>(nc) < static_cast<unsigned>(ncol)) {
         int nidx = curr_idx + doff[dir];
         if (ptr[nidx] == id) {
@@ -99,24 +99,24 @@ List extract_contours_cpp(IntegerMatrix labels) {
       curr_idx = next_idx;
       backtrack = next_backtrack;
 
-      b_x.push_back(curr_c + 1);
-      b_y.push_back(curr_r + 1);
+      b_x.push_back(curr_r);
+      b_y.push_back(curr_c);
 
-      int max_iter = nrow * ncol; 
+      int max_iter = nrow * ncol;
       int iter = 0;
 
       while (iter < max_iter) {
         iter++;
         bool step_found = false;
-        
+
         for (int i = 1; i <= 8; i++) {
           int dir = backtrack + i;
           if (dir >= 8) dir -= 8;
-          
+
           int nr = curr_r + dr[dir];
           int nc = curr_c + dc[dir];
-          
-          if (static_cast<unsigned>(nr) < static_cast<unsigned>(nrow) && 
+
+          if (static_cast<unsigned>(nr) < static_cast<unsigned>(nrow) &&
               static_cast<unsigned>(nc) < static_cast<unsigned>(ncol)) {
             int nidx = curr_idx + doff[dir];
             if (ptr[nidx] == id) {
@@ -131,7 +131,7 @@ List extract_contours_cpp(IntegerMatrix labels) {
           }
         }
 
-        if (!step_found) break; 
+        if (!step_found) break;
 
         if (curr_idx == sidx && next_idx == second_idx) {
           break;
@@ -142,8 +142,8 @@ List extract_contours_cpp(IntegerMatrix labels) {
         curr_idx = next_idx;
         backtrack = next_backtrack;
 
-        b_x.push_back(curr_c + 1);
-        b_y.push_back(curr_r + 1);
+        b_x.push_back(curr_r);
+        b_y.push_back(curr_c);
       }
     }
 
@@ -152,8 +152,8 @@ List extract_contours_cpp(IntegerMatrix labels) {
       IntegerMatrix mat(n_points, 2);
       int* mat_ptr = INTEGER(mat);
       for (int j = 0; j < n_points; j++) {
-        mat_ptr[j] = b_y[j];              
-        mat_ptr[j + n_points] = b_x[j];   
+        mat_ptr[j] = b_x[j] + 2;            // x = 1st dim + 1
+        mat_ptr[j + n_points] = b_y[j] + 2; // y = 2nd dim + 1
       }
       colnames(mat) = col_names;
       out_list[id - 1] = mat;

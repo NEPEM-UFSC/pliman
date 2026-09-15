@@ -2,10 +2,17 @@
 % Please edit documentation in R/RcppExports.R
 \name{erode_cpp}
 \alias{erode_cpp}
-\title{Erosão morfológica padrão (todas as bordas)}
+\title{Standard morphological erosion}
 \usage{
 erode_cpp(img, raio = 3L, forma = "disc")
 }
+\arguments{
+\item{img}{A logical matrix representing the binary image.}
+
+\item{raio}{Radius of the structuring element (integer >= 1).}
+
+\item{forma}{Shape of the structuring element ("disc" or "square").}
+}
 \description{
-Erosão morfológica padrão (todas as bordas)
+Standard morphological erosion
 }

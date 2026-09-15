@@ -107,6 +107,93 @@ img <- image_pliman("sev_leaf.jpg", plot = TRUE)
 measure_disease_iter(img, viewer = "mapview")
 ```
 
+# Deep Learning & Foundation Models
+
+`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`).
+
+Models are downloaded automatically on first use or manually via `pliman_download_model()`.
+
+| Task / Capability | Function | Supported Models | Description |
+|:---|:---|:---|:---|
+| **Object Detection** | `image_detect_dl()` | `yolo26[n/s/m/l/x]` | Real-time object detection with bounding boxes (80 COCO classes). |
+| **Instance Segmentation** | `image_segment_dl()` | `yolo26[n/s/m/l/x]-seg` | Real-time instance segmentation with continuous bilinear sub-pixel mask interpolation and 28 morphological features. |
+| **Pose Estimation** | `image_pose_dl()` | `yolo26[n/s/m/l/x]-pose` | Real-time human pose estimation with 17 COCO keypoints and skeleton visualization. |
+| **Image Classification** | `image_classify_dl()` | `yolo26[n/s/m/l]-cls` | Fast ImageNet 1,000-class image classification. |
+| **Star-Convex Segmentation** | `image_stardist_dl()` | `stardist`, `stardist-dsb2018` | 48-ray star-convex polygon detection for round, convex, or touching grains, seeds, and cells. |
+| **3D Depth Estimation** | `image_depth_dl()` | `depth-anything-v2` | Monocular 3D relative depth estimation (Depth Anything V2 Small, 518×518). |
+| **Semantic Foundation Features** | `image_features_dl()` | `dinov2` | Dense 384-D patch embeddings and top-3 PCA false-color semantic segmentation via DINOv2 (ViT-S/14). |
+| **4x Super-Resolution** | `image_superres_dl()` | `realesrgan-compact` | 4x generative convolutional super-resolution with memory-efficient tiled inference. |
+| **Text-Prompted Segmentation** | `image_segment_dl()` | `grounded-sam` | Zero-shot open-vocabulary instance segmentation via Grounding DINO + SAM 2.1. |
+| **One-Shot Exemplar Counting** | `image_segment_dl()` | `persam` | One-shot visual exemplar segmentation and counting via SAM 2.1 and Dense Conv ZNCC. |
+| **Salient Background Removal** | `image_remove_bg()` | `ben2`, `u2netp`, `rmbg-2.0` | Ultra-sharp boundary cutouts and transparent background export. |
+
+### 1. Real-Time Detection, Segmentation, Pose, and Classification (YOLO26)
+
+```r
+library(pliman)
+
+img <- image_import("objects.jpg")
+
+# Fast bounding box detection
+boxes <- image_detect_dl(img, model = "yolo26n", conf_threshold = 0.25)
+
+# High-resolution instance segmentation with polygon overlay
+res_hl <- image_segment_dl(
+  img,
+  model = "yolo26n-seg",
+  type = "highlight",
+  box_threshold = 0.25,
+  bbox = TRUE
+)
+
+# Single multi-label mask image with integer labels (0 = background, 1..N = instances)
+res_mask <- image_segment_dl(img, model = "yolo26n-seg", type = "mask")
+
+# Inspect morphological features (area, perimeter, circularity, etc.)
+head(res_hl$features)
+
+# Real-time pose estimation (17 COCO keypoints + skeleton)
+pose_res <- image_pose_dl(img, model = "yolo26n-pose", conf_threshold = 0.3)
+
+# 1,000-class ImageNet classification
+top_classes <- image_classify_dl(img, model = "yolo26n-cls", top_k = 5)
+```
+
+### 2. Monocular 3D Depth Estimation (Depth Anything V2)
+
+```r
+# Computes relative 3D depth and displays with an inferno colormap
+depth_img <- image_depth_dl(img, col_palette = "inferno")
+
+# Access raw continuous depth values
+raw_depth <- attr(depth_img, "depth")
+```
+
+### 3. Foundation Semantic Embeddings (DINOv2)
+
+```r
+# Extract 384-dimensional ViT patch embeddings and top-3 PCA false-color map
+feats <- image_features_dl(img, return_pca = TRUE)
+
+# Global image classification token vector
+feats$cls_token
+```
+
+### 4. Star-Convex Polygon Segmentation (StarDist)
+
+```r
+# Ideal for crowded seeds, grains, or cell nuclei
+grains <- image_import("grains.jpg")
+res_star <- image_stardist_dl(grains, prob_threshold = 0.5)
+```
+
+### 5. Generative 4x Super-Resolution (Real-ESRGAN Compact)
+
+```r
+# Upscale low-resolution imagery by 4x with tiled memory-safe inference
+img_4x <- image_superres_dl(img, scale = 4)
+```
+
 # Citation
 
 ```{r, comment=""}

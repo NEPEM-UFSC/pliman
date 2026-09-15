@@ -64,7 +64,7 @@ object_isolate(
 object_id(img, parallel = FALSE, workers = NULL, verbose = TRUE, ...)
 }
 \arguments{
-\item{img}{An image of class \code{Image} or a list of \code{Image} objects.}
+\item{img}{An image of class \code{image} or a list of \code{image} objects.}
 
 \item{id}{\itemize{
 \item For \code{object_coord()}, a vector (or scalar) of object \code{id} to compute the
@@ -171,7 +171,7 @@ of each object in the image.
 }
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("la_leaves.jpg")
 # Get the object's (leaves) identification

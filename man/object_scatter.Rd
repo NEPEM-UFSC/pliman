@@ -23,7 +23,7 @@ object_scatter(
 )
 }
 \arguments{
-\item{img}{An image of class \code{EBImage::Image} (or compatible) from which
+\item{img}{An image of class \code{image} (or compatible) from which
 objects will be segmented and measured.}
 
 \item{x}{Character scalar. Name of the feature column (returned by

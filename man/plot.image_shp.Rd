@@ -34,7 +34,7 @@ A \code{NULL} object
 Draws the bounding boxes for each object computed with \code{\link[=image_shp]{image_shp()}}.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg")
 shape <- image_shp(flax, nrow = 3, ncol = 5)

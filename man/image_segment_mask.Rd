@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils_mask.R
 \name{image_segment_mask}
 \alias{image_segment_mask}
-\title{Segment an \code{Image} object using a brush mask}
+\title{Segment an \code{image} object using a brush mask}
 \usage{
 image_segment_mask(
   img,
@@ -17,7 +17,7 @@ image_segment_mask(
 )
 }
 \arguments{
-\item{img}{A \code{Image} object}
+\item{img}{A \code{image} object}
 
 \item{size}{A numeric containing the size of the brush in pixels. This should
 be an odd number; even numbers are rounded to the next odd one.}
@@ -40,17 +40,17 @@ the 0s pixels in the brush. If \code{type = "shadow"} is used, a shadow mask is 
 
 \item{plot}{Plots the generated mask? Defaults to \code{TRUE}.}
 
-\item{...}{Further arguments passed on to \code{\link[EBImage:morphology]{EBImage::makeBrush()}}.}
+\item{...}{Additional arguments passed to \code{\link[=make_brush]{make_brush()}}.}
 }
 \value{
-A color \code{Image} object
+A color \code{image} object
 }
 \description{
-It combines \code{\link[=make_mask]{make_mask()}} and \code{\link[=make_brush]{make_brush()}} to segment an \code{Image} object
+It combines \code{\link[=make_mask]{make_mask()}} and \code{\link[=make_brush]{make_brush()}} to segment an \code{image} object
 using a brush of desired size, shape, and position.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 img <- image_pliman("soybean_touch.jpg")
 plot(img)
 image_segment_mask(img, size = 601)

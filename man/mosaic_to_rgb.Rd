@@ -19,21 +19,21 @@ useful to adjust the brightness of the final image. Defaults to 0.}
 TRUE).}
 }
 \value{
-A three-band RGB image represented as a pliman (EBImage) object.
+An object of class \code{image} object.
 }
 \description{
-Convert an \code{SpatRaster} to a three-band RGB image of class \code{Image}.
+Convert an \code{SpatRaster} to a three-band RGB image of class \code{image}.
 }
 \details{
 This function converts \code{SpatRaster} that contains the RGB bands into
-a three-band RGB image using pliman (EBImage). It allows you to specify the
+a three-band RGB. It allows you to specify the
 band indices for the red, green, and blue channels, as well as apply a
 scaling coefficient to the final image. By default, the resulting RGB image
 is displayed, but this behavior can be controlled using the \code{plot}
 parameter.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 
 library(pliman)
 # Convert a mosaic raster to an RGB image and display it

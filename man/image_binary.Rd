@@ -12,13 +12,15 @@ image_binary(
   b = 3,
   re = 4,
   nir = 5,
-  return_class = "ebimage",
+  return_class = "image",
   threshold = c("Otsu", "adaptive"),
   k = 0.15,
   windowsize = NULL,
   has_white_bg = FALSE,
   resize = FALSE,
   fill_hull = FALSE,
+  max_size = NULL,
+  remove_reflection = FALSE,
   erode = FALSE,
   dilate = FALSE,
   opening = FALSE,
@@ -26,6 +28,7 @@ image_binary(
   filter = FALSE,
   filter_order = c("erode", "dilate", "opening", "closing", "filter", "fill_hull"),
   invert = FALSE,
+  return_exact = FALSE,
   plot = TRUE,
   nrow = NULL,
   ncol = NULL,
@@ -48,7 +51,7 @@ which are frequently presented in the 'BGR' format.}
 
 \item{return_class}{The class of object to be returned. If \verb{"terra} returns a
 SpatRaster object with the number of layers equal to the number of indexes
-computed. If \code{"ebimage"} (default) returns a list of \code{Image} objects, where
+computed. If \code{"ebimage"} (default) returns a list of \code{image} objects, where
 each element is one index computed.}
 
 \item{threshold}{The theshold method to be used.
@@ -109,6 +112,9 @@ operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closi
 
 \item{invert}{Inverts the binary image, if desired.}
 
+\item{return_exact}{Logical. If \code{TRUE}, exact morphological reconstruction via
+watershed-partitioned seed matching is performed when \code{opening > 0}.}
+
 \item{plot}{Show image after processing?}
 
 \item{nrow, ncol}{The number of rows or columns in the plot grid. Defaults to
@@ -135,7 +141,7 @@ Otsu's thresholding method (Otsu, 1979) is used to automatically perform
 clustering-based image thresholding.
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 image_binary(img, index = c("R, G"))

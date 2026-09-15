@@ -9,66 +9,76 @@ image_correction(
   card_colors = NULL,
   known_colors = NULL,
   k_mat = NULL,
-  model = "cubic"
+  model = c("ccm", "affine", "white_balance", "cubic", "root_polynomial"),
+  reference = "colorchecker24",
+  lambda = 1e-04,
+  plot = FALSE,
+  verbose = TRUE
 )
 }
 \arguments{
-\item{img}{An \code{Image} object to be corrected.}
+\item{img}{An \code{image} object to be corrected.}
 
-\item{card_colors}{A data frame of the \emph{observed} colors from the color
-checker in the image. Typically the output from \code{get_card_colors()}.
-Must contain 'R', 'G', and 'B' columns.}
+\item{card_colors}{A data frame of observed colors from the color checker
+(typically output directly from \code{get_card_colors()}). Must contain \verb{R, G, B}
+(or \verb{R_obs, G_obs, B_obs}) columns. If \code{NULL}, \code{k_mat} must be provided.}
 
-\item{known_colors}{A data frame of the \emph{known} reference colors for the
-color checker. Must have 'R', 'G', and 'B' columns and the same
-number of rows as \code{card_colors}.}
+\item{known_colors}{A data frame of known reference colors. Must contain \verb{R, G, B}
+(or \verb{ref_R, ref_G, ref_B}) columns. If \code{NULL} and \code{card_colors} contains reference
+data or \code{reference = "colorchecker24"}, the built-in reference chart is used automatically.}
 
-\item{k_mat}{A pre-calculated transformation matrix (\strong{K}).
-If provided, \code{card_colors} and \code{known_colors} are ignored, and the
-correction is applied directly using this matrix.
-This allows reusing a calculated matrix for multiple images taken in the same
-light conditions.
+\item{k_mat}{A pre-calculated transformation matrix (\eqn{\mathbf{K}}).
+If provided, \code{card_colors} and \code{known_colors} are optional, and the correction
+is applied directly to \code{img}. Useful for batch calibration of image series.}
+
+\item{model}{The calibration model to use:
 \itemize{
-\item If \code{model = "cubic"}, \code{k_mat} must be a \eqn{9 \times 3} matrix.
-\item If \code{model = "root_polynomial"}, \code{k_mat} must be a \eqn{20 \times 3} matrix.
-}
-Defaults to \code{NULL}.}
-
-\item{model}{The correction model to use.
-\itemize{
-\item \code{"cubic"} (default): Uses a 3rd-order polynomial with 9 terms
-(R, G, B, R^2, G^2, B^2, RG, RB, GB).
-\item \code{"root_polynomial"}: Uses a root-polynomial model with 20 terms,
-which usually provides higher accuracy for non-linear color distortions.
+\item \code{"ccm"} (default): 3x3 linear Color Correction Matrix (robust, standard in computer vision).
+\item \code{"affine"}: 4x3 matrix with intercept.
+\item \code{"white_balance"}: Channel gains derived from neutral white patch.
+\item \code{"cubic"}: 9-term 3rd-order polynomial model.
+\item \code{"root_polynomial"}: 20-term root-polynomial model.
 }}
+
+\item{reference}{Reference chart standard to use when \code{known_colors = NULL} (default \code{"colorchecker24"}).}
+
+\item{lambda}{Ridge regularization factor for matrix inversion (default \code{1e-4}).}
+
+\item{plot}{Logical. If \code{TRUE} (default \code{FALSE}), displays a side-by-side comparison
+of the original and calibrated image.}
+
+\item{verbose}{Logical. If \code{TRUE} (default), prints calibration diagnostics.}
 }
 \value{
-If both \code{card_colors} and \code{known_colors} are provided (or if \code{k_mat} is \code{NULL}
-and the required color data frames are present), a list is returned:
+If \code{card_colors} or \code{known_colors} are provided, returns a list containing:
 \itemize{
-\item \strong{img}: An \code{Image} object with the color correction applied,
-maintaining the original dimensions and color mode (\code{'Color'}).
-\item \strong{k}: The calculated transformation matrix (\strong{K}). Dimensions are
-\eqn{9 \times 3} or \eqn{20 \times 3} depending on the \code{model}.
+\item \code{img}: An \code{image} object with the color correction applied.
+\item \code{k}: The calculated transformation matrix (\eqn{\mathbf{K}}).
+\item \code{model}: The model used.
+\item \code{avg_delta_raw}: Mean Euclidean color error (\eqn{\Delta E}) before calibration.
+\item \code{avg_delta_calib}: Mean \eqn{\Delta E} after calibration.
+\item \code{wb_gains}: White balance channel gains.
+\item \code{df}: Comparison data frame with observed, calibrated, and reference colors.
 }
-If only \code{img} and a pre-calculated \code{k_mat} are provided, the function
-returns only the corrected \code{Image} object.
+If only \code{img} and a pre-calculated \code{k_mat} are supplied, returns the corrected \code{image} directly.
 }
 \description{
 Calibrates the color of an image using a set of known color references (e.g.,
-from a color checker) by implementing polynomial color correction models.
-It works by finding a transformation matrix (K) that maps the
-observed colors (sampled from the color card) to their known reference values.
-This matrix K is then applied to every pixel in the image.
-
-The correction model is based on solving the equation \eqn{S \times K = T}, where:
+from a color checker) by implementing multiple calibration models including
+industry-standard \strong{CCM (Color Correction Matrix 3x3)}, Affine (4x3),
+White Balance, Cubic (9-term polynomial), and Root-Polynomial (20-term).
+}
+\details{
+Color calibration finds an optimal transformation matrix \eqn{\mathbf{K}} mapping observed
+colors \eqn{\mathbf{S}} to reference target colors \eqn{\mathbf{T}}:
 \itemize{
-\item \code{S} is the source matrix of observed colors extended by polynomial terms.
-Dimensions are \eqn{n \times 9} for \code{model = "cubic"} or \eqn{n \times 20}
-for \code{model = "root_polynomial"}.
-\item \code{T} is the target matrix (\eqn{n \times 3}) of known reference colors (R, G, B).
-\item \code{K} is the transformation matrix (\eqn{P \times 3}) solved using the
-Moore-Penrose pseudo-inverse.
+\item \code{"ccm"} (default): Linear 3x3 Color Correction Matrix computed via Ridge-regularized
+least squares:
+\deqn{\mathbf{K} = (\mathbf{S}^T \mathbf{S} + \lambda \mathbf{I})^{-1} \mathbf{S}^T \mathbf{T}}
+\item \code{"affine"}: 4x3 linear transformation with translation offset (intercept) \eqn{[1, R, G, B]}.
+\item \code{"white_balance"}: Channel-wise gain correction derived from neutral/white patches.
+\item \code{"cubic"}: 9-term polynomial mapping (\eqn{R, G, B, R^2, G^2, B^2, R^3, G^3, B^3}).
+\item \code{"root_polynomial"}: 20-term root-polynomial mapping with cross-channel interactions.
 }
 }
 \examples{
@@ -76,26 +86,13 @@ if(interactive()){
 library(pliman)
 img <- image_pliman("colorcheck.jpg")
 
-# Standard Macbeth ColorChecker values (approximate)
-kvals <- data.frame(
- id = 1:24,
- R = c(0.976, 0, 0.870, 0.384, 0.792, 0.752, 0.227, 0.494, 0.631, 0.960,
-       0.764, 0.321, 0.478, 0.729, 0.325, 0.341, 0.313, 0.223, 0.615, 0.772,
-       0.168, 0.098, 0.933, 0.439),
- G = c(0.949, 0.498, 0.462, 0.733, 0.776, 0.294, 0.345, 0.490, 0.615, 0.803,
-       0.309, 0.415, 0.462, 0.101, 0.227, 0.470, 0.313, 0.572, 0.737, 0.568,
-       0.160, 0.215, 0.619, 0.298),
- B = c(0.933, 0.623, 0.125, 0.650, 0.764, 0.568, 0.623, 0.682, 0.603, 0,
-       0.372, 0.235, 0.454, 0.200, 0.415, 0.607, 0.305, 0.250, 0.211, 0.490,
-       0.168, 0.529, 0.098, 0.235)
- )
+# 1. Extract card colors
+card <- get_card_colors(img)
 
-card_colors <- get_card_colors(img, xpix = 20, ypix = 30, erode = 20)
+# 2. Calibrate image using default CCM 3x3 model
+calib <- image_correction(img, card, model = "ccm", plot = TRUE)
 
-# Correct using the default cubic model
-corrected <- image_correction(img, card_colors, kvals, model = "root-polynomial")
-
-# Compare original and corrected
-image_combine(img, corrected$img)
+# 3. Or using polynomial models
+calib_poly <- image_correction(img, card, model = "root_polynomial")
 }
 }

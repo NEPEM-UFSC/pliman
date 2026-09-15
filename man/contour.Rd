@@ -7,7 +7,7 @@
 contour(labels)
 }
 \arguments{
-\item{labels}{A labeled \code{Image} object or a matrix containing integer labels. Typically
+\item{labels}{A labeled \code{image} object or a matrix containing integer labels. Typically
 the result of \code{\link[=image_watershed]{image_watershed()}} or similar segmentation.}
 }
 \value{
@@ -21,7 +21,7 @@ watershed segmentation). It returns a list of coordinates for each object.
 \examples{
 library(pliman)
 # generate a binary image
-img <- image_pliman("soybean_touching.jpg")
+img <- image_pliman("soybean_touch.jpg")
 bin <- image_binary(img, "B")[[1]]
 # watershed segmentation
 wat <- image_watershed(bin)

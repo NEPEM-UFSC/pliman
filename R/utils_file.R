@@ -42,7 +42,7 @@
 #' attempted.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' # get file name, directory and extension
 #' file <- "E:/my_folder/my_subfolder/image1.png"
@@ -63,9 +63,7 @@
 #' list.files(dir)
 #' }
 file_extension <- function(file){
-  sapply(seq_along(file), function(x){
-    sub('.*\\.', '', basename(file[x]))
-  })
+  tools::file_ext(file)
 }
 #' @export
 #' @name utils_file

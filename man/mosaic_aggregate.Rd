@@ -4,7 +4,14 @@
 \alias{mosaic_aggregate}
 \title{SpatRaster aggregation}
 \usage{
-mosaic_aggregate(mosaic, pct = 50, fun = "nearest", in_memory = TRUE)
+mosaic_aggregate(
+  mosaic,
+  pct = 50,
+  fun = "nearest",
+  file = NULL,
+  overwrite = FALSE,
+  in_memory = TRUE
+)
 }
 \arguments{
 \item{mosaic}{SpatRaster}
@@ -19,6 +26,13 @@ nearest neighbor (simple sampling) resampler. Other accepted values are:
 'average', 'rms', 'bilinear', 'cubic', 'cubicspline', 'lanczos', and
 'mode'. See Details for a detailed explanation.}
 
+\item{file}{The file path (including filename and extension) where the
+aggregated raster should be saved. Defaults to \code{NULL}.}
+
+\item{overwrite}{Logical. If \code{TRUE}, overwrites \code{file} if it exists, or
+replaces the original raster file if \code{file = NULL} and \code{mosaic} is an
+in-disk \code{SpatRaster}. Defaults to \code{FALSE}.}
+
 \item{in_memory}{Wheter to return an 'in-memory' \code{SpatRaster}. If \code{FALSE},
 the aggregated raster will be returned as an 'in-disk' object.}
 }
@@ -31,7 +45,7 @@ Aggregate a SpatRaster to create a new SpatRaster with a lower resolution
 https://gdal.org/programs/gdal_translate.html
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 library(terra)
 r <- rast()

@@ -7,7 +7,7 @@
 image_contour_line(img, index = "GRAY", Q = 2)
 }
 \arguments{
-\item{img}{An \code{Image} object.}
+\item{img}{An \code{image} object.}
 
 \item{index}{A character string with the index to be used. Defaults to \code{"GRAY"}.}
 

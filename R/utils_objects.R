@@ -9,7 +9,7 @@
 #' @name utils_objects
 #'
 #' @inheritParams analyze_objects
-#' @param img An image of class `Image` or a list of `Image` objects.
+#' @param img An image of class `image` or a list of `image` objects.
 #' @param center If `TRUE` returns the object contours centered on the origin.
 #' @param id
 #' * For `object_coord()`, a vector (or scalar) of object `id` to compute the
@@ -76,7 +76,7 @@
 #' object.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' # Get the object's (leaves) identification
@@ -157,7 +157,7 @@ object_coord <- function(img,
                         fill_hull = fill_hull,
                         threshold = threshold)
     if(is.null(id)){
-      data_mask <- img2@.Data
+      data_mask <- image_data(img2)
       coord <- t(as.matrix(bounding_box(data_mask, edge)))
       colnames(coord) <- c("xleft", "xright", "ybottom", "ytop")
       if(plot == TRUE){
@@ -170,20 +170,11 @@ object_coord <- function(img,
     } else{
       if(isTRUE(watershed)){
         res <- length(img2)
-        parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-        parms2 <- parms[parms$object_size == object_size,]
-        rowid <-
-          which(sapply(as.character(parms2$resolution), function(x) {
-            eval(parse(text=x))}))
-        ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-        tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-        nmask <- EBImage::watershed(EBImage::distmap(img2),
-                                    tolerance = tol,
-                                    ext = ext)
+        nmask <- image_watershed(img2, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
       } else{
-        nmask <- EBImage::bwlabel(img2)
+        nmask <- image_bwlabel(img2)
       }
-      data_mask <- nmask@.Data
+      data_mask <- image_data(nmask)
       ifelse(id == "all",
              ids <- 1:max(data_mask),
              ids <- id)
@@ -300,20 +291,11 @@ object_contour <- function(img,
                           threshold = threshold)
       if(isTRUE(watershed)){
         res <- length(img2)
-        parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-        parms2 <- parms[parms$object_size == object_size,]
-        rowid <-
-          which(sapply(as.character(parms2$resolution), function(x) {
-            eval(parse(text=x))}))
-        ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-        tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-        nmask <- EBImage::watershed(EBImage::distmap(img2),
-                                    tolerance = tol,
-                                    ext = ext)
+        nmask <- image_watershed(img2, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
       } else{
-        nmask <- EBImage::bwlabel(img2)
+        nmask <- image_bwlabel(img2)
       }
-      contour <- EBImage::ocontour(nmask)
+      contour <- contour(nmask)
       contour <- lapply(contour, function(x){
         x + 1
       })
@@ -372,20 +354,11 @@ object_contour <- function(img,
                             threshold = threshold)
         if(isTRUE(watershed)){
           res <- length(img2)
-          parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-          parms2 <- parms[parms$object_size == object_size,]
-          rowid <-
-            which(sapply(as.character(parms2$resolution), function(x) {
-              eval(parse(text=x))}))
-          ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-          tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-          nmask <- EBImage::watershed(EBImage::distmap(img2),
-                                      tolerance = tol,
-                                      ext = ext)
+          nmask <- image_watershed(img2, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
         } else{
-          nmask <- EBImage::bwlabel(img2)
+          nmask <- image_bwlabel(img2)
         }
-        contour <- EBImage::ocontour(nmask)
+        contour <- contour(nmask)
         if(isTRUE(center)){
           contour <-
             lapply(contour, function(x){
@@ -415,11 +388,7 @@ object_contour <- function(img,
             left  = cli::col_blue("Parallel processing using {.val {nworkers}} cores"),
             right = cli::col_blue("Started on {.val {format(Sys.time(), '%Y-%m-%d | %H:%M:%OS0')}}")
           )
-          cli::cli_progress_step(
-            msg        = "Processing {.val {length(plants)}} images using {.val {nworkers}} cores...",
-            msg_done   = "Batch processing finished",
-            msg_failed = "Oops, something went wrong."
-          )
+
         }
 
         # run help_contour in parallel
@@ -427,7 +396,13 @@ object_contour <- function(img,
           .x = plants,
           .f = help_contour
         )[.progress]
-
+        if(verbose){
+          cli::cli_progress_step(
+            msg        = "Processing {.val {length(plants)}} images using {.val {nworkers}} cores...",
+            msg_done   = "Batch processing finished",
+            msg_failed = "Oops, something went wrong."
+          )
+        }
 
       } else{
         if(verbose){
@@ -436,14 +411,14 @@ object_contour <- function(img,
             right = cli::col_blue("Start on {.val {format(Sys.time(), format = '%Y-%m-%d - %H:%M:%OS0')}}")
           )
           cli::cli_progress_bar(
-            format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} [ETA:{cli::pb_eta}] | Current: {.val {cli::pb_status}}",
+            format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} [ETA:{cli::pb_eta}]",
             total = length(names_plant),
             clear = FALSE
           )
         }
         results <- list()
         for (i in seq_along(plants)) {
-          cli::cli_progress_update(status = plants[i])
+          cli::cli_progress_update()
           results[[i]] <- help_contour(img = plants[i])
         }
 
@@ -577,12 +552,12 @@ object_id <- function(img,
 #' @param remove_bg If `TRUE`, the pixels that are not part of objects are
 #'   converted to white.
 #' @param ... Additional arguments passed on to [image_combine()]
-#' @return A list of objects of class `Image`.
+#' @return A list of objects of class `image`.
 #' @export
 #' @seealso [analyze_objects()], [image_binary()]
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' imgs <- object_split(img) # set to NULL to use 50% of the cores
@@ -608,7 +583,7 @@ object_split <- function(img,
                          plot = TRUE,
                          verbose = TRUE,
                          ...){
-  check_ebi()
+
 
   img2 <- help_binary(img,
                       opening = opening,
@@ -621,19 +596,9 @@ object_split <- function(img,
                       fill_hull = fill_hull,
                       threshold = threshold)
   if(isTRUE(watershed)){
-    parms <- read.csv(file=system.file("parameters.csv", package = "pliman", mustWork = TRUE), header = T, sep = ";")
-    res <- length(img2)
-    parms2 <- parms[parms$object_size == object_size,]
-    rowid <-
-      which(sapply(as.character(parms2$resolution), function(x) {
-        eval(parse(text=x))}))
-    ext <- ifelse(is.null(extension),  parms2[rowid, 3], extension)
-    tol <- ifelse(is.null(tolerance), parms2[rowid, 4], tolerance)
-    nmask <- EBImage::watershed(EBImage::distmap(img2),
-                                tolerance = tol,
-                                ext = ext)
+    nmask <- image_watershed(img2, tolerance = tolerance, ext = ifelse(is.null(extension), 1, extension))
   } else{
-    nmask <- EBImage::bwlabel(img2)
+    nmask <- image_bwlabel(img2)
   }
 
   objcts <- get_area_mask(nmask)
@@ -644,10 +609,14 @@ object_split <- function(img,
   selected <- which(objcts > cutsize)
 
   split_objects <- function(img, nmask){
-    objects <- help_isolate_object(img[,,1], img[,,2], img[,,3], nmask, remove_bg, edge)
+    raw_mode <- is.raw(image_data(img))
+    dat_img <- image_data(img)
+    dat_mask <- image_data(nmask)
+    objects <- help_isolate_object(dat_img[,,1], dat_img[,,2], dat_img[,,3], dat_mask, remove_bg, edge)
     lapply(seq_along(objects), function(x){
       dimx <- dim(objects[[x]][[1]])
-      EBImage::Image(array(c(objects[[x]][[1]], objects[[x]][[2]], objects[[x]][[3]]), dim = c(dimx, 3)), colormode = "Color")
+      storage_type <- if (raw_mode) "raw" else "double"
+      as_image(array(c(objects[[x]][[1]], objects[[x]][[2]], objects[[x]][[3]]), dim = c(dimx, 3)), colormode = "Color", storage = storage_type)
     })
   }
   list_objects <- split_objects(img, nmask)
@@ -675,7 +644,7 @@ object_split <- function(img,
 #'
 #' This function takes an image and augments it by rotating it multiple times.
 #' @inheritParams analyze_objects
-#' @param img An `Image` object.
+#' @param img An `image` object.
 #' @param pattern A regular expression pattern to select multiple images from a
 #'   directory.
 #' @param times The number of times to rotate the image.
@@ -691,7 +660,7 @@ object_split <- function(img,
 #'
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' imgs <- image_augment(img, type = "return", times = 4)
@@ -730,16 +699,17 @@ image_augment <- function(img,
     angles <- angles[-length(angles)]
     obj_list <- list()
     for(i in 1:times){
-      top <- img@.Data[1:10,,]
-      bottom <- img@.Data[(nrow(img)-10):nrow(img),,]
-      left <- img@.Data[,1:10,]
-      right <- img@.Data[,(ncol(img) - 10):ncol(img),]
+      img_num <- image_data(img, type = "numeric")
+      top <- img_num[1:10,,]
+      bottom <- img_num[(nrow(img)-10):nrow(img),,]
+      left <- img_num[,1:10,]
+      right <- img_num[,(ncol(img) - 10):ncol(img),]
 
       rval <- mean(c(c(top[,,1]), c(bottom[,,1]), c(left[,,1]), c(right[,,1])))
       gval <- mean(c(c(top[,,2]), c(bottom[,,2]), c(left[,,2]), c(right[,,2])))
       bval <- mean(c(c(top[,,3]), c(bottom[,,3]), c(left[,,3]), c(right[,,3])))
 
-      tmp <- EBImage::rotate(img, angles[i], bg.col = rgb(rval, gval, bval))
+      tmp <- image_rotate(img, angles[i], bg_col = c(rval, gval, bval))
       if(type == "export"){
         image_export(tmp,
                      name = paste0("v", sub("\\.", "_", round(angles[i], 2)), ".jpg"),
@@ -822,7 +792,7 @@ image_augment <- function(img,
 
           for (ang in angles) {
             # compute background colour
-            frame  <- tmpimg@.Data
+            frame  <- as.numeric(image_data(tmpimg))
             border <- c(
               c(frame[1:10,,1]),   c(frame[(nrow(tmpimg)-9):nrow(tmpimg),,1]),
               c(frame[,1:10,1]),   c(frame[,(ncol(tmpimg)-9):ncol(tmpimg),1])
@@ -834,7 +804,7 @@ image_augment <- function(img,
             bval <- mean(c(frame[1:10,,3], frame[(nrow(tmpimg)-9):nrow(tmpimg),,3],
                            frame[,1:10,3], frame[,(ncol(tmpimg)-9):ncol(tmpimg),3]))
 
-            rotated <- EBImage::rotate(tmpimg, ang, bg.col = grDevices::rgb(rval, gval, bval))
+            rotated <- image_rotate(tmpimg, ang, bg_col = grDevices::rgb(rval, gval, bval))
 
             if (type == "export") {
               # build a full file path
@@ -863,16 +833,17 @@ image_augment <- function(img,
         angles <- seq(0, 360, by = 360 / times)
         angles <- angles[-length(angles)]
         for(j in 1:times){
-          top <- tmpimg@.Data[1:10,,]
-          bottom <- tmpimg@.Data[(nrow(tmpimg)-10):nrow(tmpimg),,]
-          left <- tmpimg@.Data[,1:10,]
-          right <- tmpimg@.Data[,(ncol(tmpimg) - 10):ncol(tmpimg),]
+          img_num <- image_data(tmpimg, type = "numeric")
+          top <- img_num[1:10,,]
+          bottom <- img_num[(nrow(tmpimg)-10):nrow(tmpimg),,]
+          left <- img_num[,1:10,]
+          right <- img_num[,(ncol(tmpimg) - 10):ncol(tmpimg),]
 
           rval <- mean(c(c(top[,,1]), c(bottom[,,1]), c(left[,,1]), c(right[,,1])))
           gval <- mean(c(c(top[,,2]), c(bottom[,,2]), c(left[,,2]), c(right[,,2])))
           bval <- mean(c(c(top[,,3]), c(bottom[,,3]), c(left[,,3]), c(right[,,3])))
 
-          tmp <- EBImage::rotate(tmpimg, angles[j], bg.col = rgb(rval, gval, bval))
+          tmp <- image_rotate(tmpimg, angles[j], bg_col = c(rval, gval, bval))
 
 
           if(type == "export"){
@@ -933,7 +904,7 @@ image_augment <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg")
 #' object_export(img,
@@ -1222,9 +1193,9 @@ object_export <- function(img,
 #' Given an image and a matrix of labels that identify each object, the function
 #' extracts the red, green, and blue values from each object.
 #'
-#' @param img An `Image` object
+#' @param img An `image` object
 #' @param labels A mask containing the labels for each object. This can be
-#'   obtained with [EBImage::bwlabel()] or [EBImage::watershed()]
+#'   obtained with [image_bwlabel()] or [image_watershed()].
 #'
 #' @return A data.frame with `n` rows (number of pixels for all the objects) and
 #'   the following columns:
@@ -1235,7 +1206,7 @@ object_export <- function(img,
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' # segment the objects using the "B" (blue) band (default)
@@ -1258,7 +1229,7 @@ object_rgb <- function(img, labels){
     df2 <- cbind(df2, df3[, 2:3])
     colnames(df2) <- c("id", "R", "G", "B", "RE", "NIR")
   }
-  invisible(df2)
+  return(df2)
 }
 
 
@@ -1280,11 +1251,11 @@ object_rgb <- function(img, labels){
 #'  respectively (optional).
 #' @param ... Additional arguments passed on to [image_binary()].
 #'
-#' @return An object of class `Image`
+#' @return An object of class `image`
 #' @export
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' img2 <- object_to_color(img, index = "G-R")
@@ -1333,21 +1304,20 @@ object_to_color <- function(img,
         fore <- foreground
       }
 
-      original <-
-        data.frame(CODE = "img",
-                   R = c(img@.Data[,,1]),
-                   G = c(img@.Data[,,2]),
-                   B = c(img@.Data[,,3]))
+      img_num <- image_data(img, type = "numeric")
+      fore_num <- image_data(fore, type = "numeric")
+      back_num <- image_data(back, type = "numeric")
+
       foreground <-
         data.frame(CODE = "foreground",
-                   R = c(fore@.Data[,,1]),
-                   G = c(fore@.Data[,,2]),
-                   B = c(fore@.Data[,,3]))
+                   R = c(fore_num[,,1]),
+                   G = c(fore_num[,,2]),
+                   B = c(fore_num[,,3]))
       background <-
         data.frame(CODE = "background",
-                   R = c(back@.Data[,,1]),
-                   G = c(back@.Data[,,2]),
-                   B = c(back@.Data[,,3]))
+                   R = c(back_num[,,1]),
+                   G = c(back_num[,,2]),
+                   B = c(back_num[,,3]))
       back_fore <-
         transform(rbind(foreground[sample(1:nrow(foreground)),][1:2000,],
                         background[sample(1:nrow(background)),][1:2000,]),
@@ -1358,8 +1328,7 @@ object_to_color <- function(img,
       modelo1 <- suppressWarnings(glm(formula,
                                       family = binomial("logit"),
                                       data = back_fore))
-      pred1 <- round(predict(modelo1, newdata = original, type="response"), 0)
-      bin <- EBImage::Image(matrix(pred1, ncol = dim(img)[[2]]))
+      bin <- as_image(predict_binary_glm(modelo1, img))
 
     }
   } else{
@@ -1369,10 +1338,10 @@ object_to_color <- function(img,
   }
 
   pix_ref <- which(bin == 1)
-  colto <- col2rgb(color) / 255
-  img@.Data[,,1][pix_ref] <- colto[1]
-  img@.Data[,,2][pix_ref] <- colto[2]
-  img@.Data[,,3][pix_ref] <- colto[3]
+  colto <- if (is.raw(unclass(img))) as.raw(round(col2rgb(color))) else col2rgb(color) / 255
+  img[,,1][pix_ref] <- colto[1]
+  img[,,2][pix_ref] <- colto[2]
+  img[,,3][pix_ref] <- colto[3]
   if(isTRUE(plot)){
     plot(img)
   }
@@ -1402,19 +1371,10 @@ object_to_color <- function(img,
 #'
 #' @export
 object_bbox <- function(contours) {
-  # Ensure contours is a list
   if (!is.list(contours)) {
     cli::cli_abort("contours must be a list of coordinate matrices")
   }
-  bbox_list <- lapply(contours, function(coords) {
-    list(
-      x_min = min(coords[, 1]),
-      y_min = min(coords[, 2]),
-      x_max = max(coords[, 1]),
-      y_max = max(coords[, 2])
-    )
-  })
-  return(bbox_list)
+  object_bbox_cpp(contours)
 }
 
 #' Add Bounding Boxes to an Existing Plot
@@ -1462,7 +1422,7 @@ plot_bbox <- function(bbox_list, col = "red") {
 #' centered at its corresponding `(x, y)` feature location in a ggplot.
 #' Optionally overlays object IDs. Caching can be used to avoid recomputing
 #' object features on repeated calls.
-#' @param img An image of class `EBImage::Image` (or compatible) from which
+#' @param img An image of class `image` (or compatible) from which
 #'   objects will be segmented and measured.
 #' @param x Character scalar. Name of the feature column (returned by
 #'   `get_measures(res)`) to use on the x-axis.
@@ -1537,23 +1497,22 @@ object_scatter <- function(img,
 
   # ---- helpers -------------------------------------------------------------
   ebimg_to_raster <- function(img, flip_vertical = FALSE) {
-    a <- EBImage::imageData(img)
+    a <- image_data(img)
     w <- dim(a)[1]; h <- dim(a)[2]
     c <- ifelse(length(dim(a)) == 3, dim(a)[3], 1)
 
-    norm01 <- function(x) {
-      r <- range(x, finite = TRUE)
-      if (!is.finite(r[1]) || r[1] == r[2]) return(ifelse(is.finite(x), 0, x))
-      (x - r[1]) / (r[2] - r[1])
+    to01 <- function(x) {
+      if (is.raw(x)) return(as.numeric(x) / 255)
+      pmin(pmax(as.numeric(x), 0), 1)
     }
 
     if (c == 1) {
-      g <- as.vector(norm01(a)); col <- grDevices::rgb(g, g, g, 1)
+      g <- as.vector(to01(a)); col <- grDevices::rgb(g, g, g, 1)
     } else {
-      r <- as.vector(norm01(a[, , 1]))
-      g <- as.vector(norm01(a[, , 2]))
-      b <- as.vector(norm01(a[, , 3]))
-      al <- if (c >= 4) as.vector(norm01(a[, , 4])) else 1
+      r <- as.vector(to01(a[, , 1]))
+      g <- as.vector(to01(a[, , 2]))
+      b <- as.vector(to01(a[, , 3]))
+      al <- if (c >= 4) as.vector(to01(a[, , 4])) else 1
       col <- grDevices::rgb(r, g, b, alpha = al)
     }
     mat <- t(matrix(col, nrow = w, ncol = h))
@@ -1606,7 +1565,7 @@ object_scatter <- function(img,
                            verbose = FALSE)
 
     bb   <- object_bbox(res[["contours"]])
-    mask <- res$mask
+    mask <- res$mask > 0
     if (is.numeric(erosion)) {
       mask <- image_erode(mask, size = erosion)
     }

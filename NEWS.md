@@ -1,6 +1,9 @@
 # pliman 3.2.0
 ## New Functions
-* New `image_correction()` function to perform color correction of an image using a set of known color references (e.g., from a color checker).
+* Modernized `get_card_colors()` with perspective-aware **Bilinear Homography**, dynamic **Negative Buffering** (`buffer = 0.45`), outer margins, multi-statistic extraction (`mean`, `median`, `sd`, `n_pixels`), automated reference matching, $\Delta E$ calculations, and modern overlay/swatch plotting.
+* Modernized `image_correction()` to support industry-standard **CCM (Color Correction Matrix 3x3)** with Ridge Regularization, **Affine (4x3)**, **White Balance**, **Cubic (9-term)**, and **Root-Polynomial (20-term)** models with native C++ acceleration and direct integration with `get_card_colors()`.
+* New `colorchecker_ref()` providing standard reference sRGB coordinates for 24-patch ColorChecker Classic (Macbeth) charts.
+* New `order_quad_corners()` helper for topological quadrilateral vertex sorting.
 * New `pick_rgb_area()` to pick RGB mean values of an area drawn by picking points in the image.
 * New `object_scatter()` function to plot object thumbnails at x-y coordinates derived from image features.
 * New functions for geometric operation on shapefiles.
@@ -13,6 +16,7 @@
 * New `get_uuid()` function for generating unique identifiers.
 
 ## Minor Improvements
+* Reduced external package dependencies by replacing heavy external imports (such as **EBImage**`) with native, standalone C++ algorithms for image processing and segmentation.
 * Removed dependencies on **future**, **foreach** and **doFuture** in favour of the new **mirai** background engine. This simplifies installation and delivers faster, more reliable parallel processing across all image-based functions.
 * Added **cli**-based messages (rules, progress steps and alerts) throughout both parallel and sequential workflows to provide clear, informative status updates during long-running image processing tasks.
 * Include morphologic operation when `foreground` and `background` arguments are used in `analyze_objects()`.
@@ -30,6 +34,7 @@
 * Update `ccc` function.
 * Clear progress bar after finishing batch processing.
 * Include erode and dilate options.
+* Added `return_exact = TRUE` to `image_opening()` and `analyze_objects()` to remove noise (including noise touching large objects) while preserving 100% of exact original object boundaries.
 
 ## Bug fixes
 * Fix bug with `mosaic_chm()` with lat/lon projection.

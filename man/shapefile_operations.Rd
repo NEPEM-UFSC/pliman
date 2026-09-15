@@ -53,7 +53,7 @@ All functions ensure that the coordinate reference systems (CRS) of both shapefi
 }
 }
 \examples{
-if (interactive() && requireNamespace("EBImage")) {
+if (interactive()) {
 library(pliman)
 
 shp1 <- shapefile_input(paste0(image_pliman(), "/shp1.rds"))

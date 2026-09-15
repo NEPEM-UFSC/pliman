@@ -8,7 +8,9 @@ make_grid <- function(points,
                       plot_height = NULL,
                       n_spline = 2000,
                       density = 20,
-                      curved = TRUE) {
+                      curved = TRUE,
+                      engine = c("cpp", "cpp_old")) {
+  engine <- match.arg(engine)
   coords <- sf::st_coordinates(points)[, 1:2]
   if(all(coords[1,] == coords[base::nrow(coords),])){
     coords <- coords[1:(base::nrow(coords)-1), , drop=FALSE]
@@ -52,6 +54,11 @@ make_grid <- function(points,
   }
   c_rail1 <- smooth_rail_coords(rail1_raw, n_spline)
   c_rail2 <- smooth_rail_coords(rail2_raw, n_spline)
+
+  fn_structure <- if (engine == "cpp") make_grid_structure else make_grid_structure_old
+  fn_curved    <- if (engine == "cpp") make_grid_curved else make_grid_curved_old
+  fn_landmarks <- if (engine == "cpp") make_grid_landmarks else make_grid_landmarks_old
+
   # 4. Method Dispatch (C++ Backend)
   raw_list <- list()
   if (method == "rectangular") {
@@ -59,7 +66,7 @@ make_grid <- function(points,
     if(is.null(ncol)) {
       cli::cli_abort("The {.arg ncol} argument is required for the {.val rectangular} method.")
     }
-    raw_list <- make_grid_structure(
+    raw_list <- fn_structure(
       rail1 = c_rail1,
       rail2 = c_rail2,
       nrow = nrow,
@@ -76,12 +83,12 @@ make_grid <- function(points,
       cli::cli_abort("The {.arg ncol} argument is required for the {.val radial} method.")
     }
     if(is.null(ncol)) cli::cli_abort("{.arg ncol} required for {.val radial}.")
-    raw_list <- make_grid_curved(rail1 = c_rail1,
-                                 rail2 = c_rail2,
-                                 nrow = nrow,
-                                 ncol = ncol,
-                                 density = density,
-                                 curved = curved)
+    raw_list <- fn_curved(rail1 = c_rail1,
+                          rail2 = c_rail2,
+                          nrow = nrow,
+                          ncol = ncol,
+                          density = density,
+                          curved = curved)
 
   } else if (method == "landmark") {
     find_anchors <- function(raw, smooth) {
@@ -94,7 +101,7 @@ make_grid <- function(points,
       indices[length(indices)] <- as.integer(base::nrow(smooth) - 1L)
       return(indices)
     }
-    raw_list <- make_grid_landmarks(
+    raw_list <- fn_landmarks(
       rail1 = c_rail1,
       rail2 = c_rail2,
       anchors1 = find_anchors(rail1_raw, c_rail1),
@@ -233,7 +240,7 @@ plot_id <- function(shapefile = NULL,
 #'
 #' @param sf_to_polygon Convert sf geometry like POINTS and LINES to POLYGONS?
 #'   Defaults to `FALSE`. Using `TRUE` allows using POINTS to extract values
-#'   from a raster using `exactextractr::exact_extract()`.
+#'   from a raster using `mosaic_extract()`.
 #' @param mosaic A `SpatRaster` object, typically imported using
 #'   [mosaic_input()].  If not provided, a latitude/longitude basemap will be
 #'   generated in the "EPSG:4326" coordinate reference system.
@@ -265,7 +272,7 @@ plot_id <- function(shapefile = NULL,
 #'   the coordinates of the drawn polygons.
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' mosaic <- image_pliman("soy_ortho.tif")
 #'
@@ -297,6 +304,7 @@ shapefile_build <- function(mosaic,
                             crop_to_shape_ext = FALSE,
                             grid = TRUE,
                             method = c("rectangular", "radial", "landmark"),
+                            engine = c("cpp", "cpp_old"),
                             nrow = 1,
                             ncol = 1,
                             curved = TRUE,
@@ -319,6 +327,8 @@ shapefile_build <- function(mosaic,
                             quantiles =  c(0, 1)){
 
   method <- match.arg(method)
+  engine <- match.arg(engine)
+
   nomosaic <- missing(mosaic)
   if(nomosaic){
     mosaic <- terra::rast(nrows=180, ncols=360, nlyrs=3, crs = "EPSG:4326")
@@ -462,18 +472,15 @@ shapefile_build <- function(mosaic,
                          plot_width = use_width,
                          plot_height = use_height,
                          density = density,
-                         curved = curved)
+                         curved = curved,
+                         engine = engine)
       if (method == "landmark") {
         use_ncol <- nrow(pg_sf) / use_nrow
       }
       if(is.numeric(buffer)){
         pg_sf <- sf::st_buffer(pg_sf, buffer)
       }
-      base_rows <- rep(1:use_nrow, use_ncol)
-      base_cols <- rep(1:use_ncol, each = use_nrow)
-      pg_sf$row <- base_rows
-      pg_sf$column <- base_cols
-      updateids <- plot_id(pg_sf, nrow = use_nrow, ncol = use_ncol, layout = use_layout, serpentine = serpentine[k])
+      updateids <- plot_id(nrow = use_nrow, ncol = use_ncol, layout = use_layout, serpentine = serpentine[k])
       if(rotate_logic){
         final_rows <- updateids$cols
         final_cols <- updateids$rows
@@ -481,14 +488,14 @@ shapefile_build <- function(mosaic,
         final_rows <- updateids$rows
         final_cols <- updateids$cols
       }
-      pg_final <- sf::st_sf(data.frame(
-        unique_id = seq_len(base::nrow(pg_sf)),
-        block = paste0("B", leading_zeros(1, 2)), # Assumi 1 fixo conforme seu código original, mas deveria ser k?
-        plot_id = updateids$plots,
-        row = final_rows,
-        column = final_cols
-      ),
-      geometry = sf::st_geometry(pg_sf))
+      pg_sf$unique_id <- seq_len(base::nrow(pg_sf))
+      pg_sf$block <- paste0("B", leading_zeros(k, 2))
+      pg_sf$plot_id <- updateids$plots
+      pg_sf$row <- final_rows
+      pg_sf$column <- final_cols
+
+      sf_col <- attr(pg_sf, "sf_column")
+      pg_final <- pg_sf[, c("unique_id", "block", "plot_id", "row", "column", sf_col)]
 
       created_shapes[[k]] <- pg_final
 
@@ -700,8 +707,22 @@ shapefile_input <- function(shapefile,
     return(shp)
   }
   if(inherits(shapefile, "list")){
+    if(all(vapply(shapefile, inherits, logical(1), "sf"))){
+      shapes <- do.call(rbind, shapefile)
+      if (!as_sf) {
+        shapes <- terra::vect(shapes)
+      }
+      if (info) print(shapes)
+      return(add_missing_columns(shapes))
+    }
     shapes <- do.call(rbind, lapply(shapefile, function(x){x}))
     create_shp(shapes, info, as_sf, multilinestring, ...) |> add_missing_columns()
+  } else if (inherits(shapefile, "sf")){
+    if (!as_sf) {
+      shapefile <- terra::vect(shapefile)
+    }
+    if (info) print(shapefile)
+    return(add_missing_columns(shapefile))
   } else{
     create_shp(shapefile, info, as_sf, multilinestring, ...) |> add_missing_columns()
   }
@@ -772,7 +793,7 @@ shapefile_view <- function(shapefile,
 #' @return A modified shapefile with user-edited features.
 #'
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #' shp <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 #' edited <- shapefile_edit(shp)
@@ -849,7 +870,7 @@ shapefile_edit <- function(shapefile,
 #'
 #' @export
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' path_shp <- paste0(image_pliman(), "/soy_shape.rds")
@@ -872,42 +893,21 @@ shapefile_measures <- function(shapefile, n = NULL, verbose = TRUE) {
     }
     shapefile <- sf::st_minimum_rotated_rectangle(shapefile)
   }
-  results <- lapply(1:nrow(shapefile), function(i) {
-    geom <- shapefile[i, ]$geometry
-    points <- sf::st_cast(geom, "POINT")
-    coords <- sf::st_coordinates(points) # Obter as coordenadas para análise
-    dists <- suppressWarnings(as.matrix(sf::st_distance(points)))
-    side_A <- as.numeric(dists[[2]])
-    side_B <- as.numeric(dists[[4]])
-    P1 <- coords[1, 1:2]
-    P2 <- coords[2, 1:2]
-    P4 <- coords[4, 1:2]
-    angle_B_rad <- atan2(P4[2] - P1[2], P4[1] - P1[1])
-    cos_angle_B <- abs(cos(angle_B_rad))
-    if (cos_angle_B > 0.707) {
-      width_val <- round(side_B, 3)
-      height_val <- round(side_A, 3)
-    } else {
-      width_val <- round(side_A, 3)
-      height_val <- round(side_B, 3)
-    }
-    c(width_val, height_val)
-  })
-  wh <- do.call(rbind, results)
 
-  # Calculate the centroid and add measurements
-  coords <- suppressWarnings(sf::st_centroid(shapefile))|> sf::st_coordinates()
-  measures <-
-    shapefile |>
-    dplyr::mutate(
-      xcoord = coords[, 1],
-      ycoord = coords[, 2],
-      area = as.numeric(sf::st_area(shapefile)),
-      perimeter = rcpp_st_perimeter(as.list(sf::st_geometry(shapefile))),
-      width = wh[, 1],
-      height = wh[, 2],
-      .before = geometry
-    )
+  res_mat <- cpp_shapefile_measures(as.list(sf::st_geometry(shapefile)))
+
+  sf_col <- attr(shapefile, "sf_column")
+  if (is.null(sf_col)) sf_col <- "geometry"
+
+  shapefile$xcoord <- res_mat[, 1]
+  shapefile$ycoord <- res_mat[, 2]
+  shapefile$area <- res_mat[, 3]
+  shapefile$perimeter <- res_mat[, 4]
+  shapefile$width <- res_mat[, 5]
+  shapefile$height <- res_mat[, 6]
+
+  other_cols <- setdiff(names(shapefile), sf_col)
+  measures <- shapefile[, c(other_cols, sf_col)]
 
   return(measures)
 }
@@ -1045,7 +1045,7 @@ check_cols_shp <- function(shpimp){
 #'
 #' @return A filtered `sf` object or the result of the geometric operation.
 #' @examples
-#' if (interactive() && requireNamespace("EBImage")) {
+#' if (interactive()) {
 #' library(pliman)
 #'
 #' shp1 <- shapefile_input(paste0(image_pliman(), "/shp1.rds"))
