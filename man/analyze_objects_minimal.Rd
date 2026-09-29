@@ -82,199 +82,80 @@ analyze_objects_minimal(
 \arguments{
 \item{img}{The image to be analyzed.}
 
-\item{segment_objects}{Segment objects in the image? Defaults to \code{TRUE}. In
-this case, objects are segmented using the index defined in the \code{index}
-argument, and each object is analyzed individually. If \code{segment_objects = FALSE} is used, the objects are not segmented and the entire image is
-analyzed. This is useful, for example, when analyzing an image without
-background, where an \code{object_index} could be computed for the entire image,
-like the index of a crop canopy.}
+\item{segment_objects}{Segment objects in the image? Defaults to \code{TRUE}. If
+\code{segment_objects = FALSE}, the objects are not segmented and the entire image
+is analyzed (useful for whole-canopy indices).}
 
-\item{reference}{Logical to indicate if a reference object is present in the
-image. This is useful to adjust measures when images are not obtained with
-standard resolution (e.g., field images). See more in the details section.}
+\item{reference}{Logical to indicate if a reference object is present in the image.}
 
-\item{reference_area}{The known area of the reference objects. The measures of
-all the objects in the image will be corrected using the same unit of the
-area informed here.}
+\item{reference_area}{The known area of the reference object.}
 
 \item{back_fore_index}{A character value to indicate the index to segment the
-foreground (objects and reference) from the background. Defaults to
-\code{"R/(G/B)"}. This index is optimized to segment white backgrounds from green
-leaves and a blue reference object.}
+foreground (objects and reference) from the background. Defaults to \code{"R/(G/B)"}.}
 
 \item{fore_ref_index}{A character value to indicate the index to segment
-objects and the reference object. It can be either an available index in
-\code{pliman} (see \code{\link[=pliman_indexes]{pliman_indexes()}} or an own index computed with the R, G, and
-B bands. Defaults to \code{"B-R"}. This index is optimized to segment green
-leaves from a blue reference object after a white background has been
-removed.}
+objects and the reference object. Defaults to \code{"B-R"}.}
 
 \item{reference_larger, reference_smaller}{Logical argument indicating when the
-larger/smaller object in the image must be used as the reference object.
-This only is valid when \code{reference} is set to \code{TRUE} and \code{reference_area}
-indicates the area of the reference object. IMPORTANT. When
-\code{reference_smaller} is used, objects with an area smaller than 1\% of the
-mean of all the objects are ignored. This is used to remove possible noise
-in the image such as dust. So, be sure the reference object has an area that
-will be not removed by that cutpoint.}
+larger/smaller object in the image must be used as the reference object.}
 
-\item{pattern}{A pattern of file name used to identify images to be imported.
-For example, if \code{pattern = "im"} all images in the current working directory
-that the name matches the pattern (e.g., img1.-, image1.-, im2.-) will be
-imported as a list. Providing any number as pattern (e.g., \code{pattern = "1"})
-will select images that are named as 1.-, 2.-, and so on. An error will be
-returned if the pattern matches any file that is not supported (e.g.,
-img1.pdf).}
+\item{pattern}{A pattern of file name used to identify images to be imported.}
 
-\item{parallel}{If \code{TRUE} processes the images asynchronously (in parallel) in
-separate R sessions running in the background on the same machine. It may
-speed up the processing time, especially when \code{pattern} is used is informed.
-When \code{object_index} is informed, multiple sections will be used to extract
-the RGB values for each object in the image. This may significantly speed up
-processing time when an image has lots of objects (say >1000).}
+\item{parallel}{If \code{TRUE} processes the images asynchronously in parallel.}
 
-\item{workers}{A positive numeric scalar or a function specifying the number
-of parallel processes that can be active at the same time. By default, the
-number of sections is set up to 30\% of available cores.}
+\item{workers}{Number of parallel processes.}
 
-\item{watershed}{If \code{TRUE} (default) performs watershed-based object
-detection. This will detect objects even when they are touching one other.
-If \code{FALSE}, all pixels for each connected set of foreground pixels are set
-to a unique object. This is faster but is not able to segment touching
-objects.}
+\item{watershed}{If \code{TRUE} (default) performs watershed-based object detection.}
 
-\item{fill_hull}{Fill holes in the binary image? Defaults to \code{FALSE}. This is
-useful to fill holes in objects that have portions with a color similar to
-the background. IMPORTANT: Objects touching each other can be combined into
-one single object, which may underestimate the number of objects in an
-image.}
+\item{fill_hull}{Fill holes in the binary image? Defaults to \code{FALSE}.}
 
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
-size)}, applied in hierarchical order.
-\itemize{
-\item \code{opening} performs an erosion followed by a dilation. This helps to
-remove small objects while preserving the shape and size of larger objects.
-\item \code{closing} performs a dilatation followed by an erosion. This helps to
-fill small holes while preserving the shape and size of larger objects.
-\item \code{filter} performs median filtering in the binary image. Provide a positive
-integer > 1 to indicate the size of the median filtering. Higher values are
-more efficient to remove noise in the background but can dramatically impact
-the perimeter of objects, mainly for irregular perimeters such as leaves
-with serrated edges.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-}}
+size)}, applied in hierarchical order.}
 
-\item{invert}{Inverts the binary image if desired. This is useful to process
-images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}
-is use, \code{invert} can be declared as a logical vector of length 2 (eg.,
-\verb{invert = c(FALSE, TRUE}). In this case, the segmentation of objects and
-reference from the foreground using \code{back_fore_index} is performed using the
-default (not inverted), and the segmentation of objects from the reference
-is performed by inverting the selection (selecting pixels higher than the
-threshold).}
+\item{invert}{Inverts the binary image if desired.}
 
-\item{object_size}{The size of the object. Used to automatically set up
-\code{tolerance} and \code{extension} parameters. One of the following. \code{"small"}
-(e.g, wheat grains), \code{"medium"} (e.g, soybean grains), \code{"large"}(e.g, peanut
-grains), and \code{"elarge"} (e.g, soybean pods)`.}
+\item{object_size}{The size of the object (\code{"small"}, \code{"medium"}, \code{"large"}, \code{"elarge"}).
+Used to automatically set up \code{tolerance} and \code{extension} parameters.}
 
-\item{index}{A character value specifying the target mode for conversion to
-binary image when \code{foreground} and \code{background} are not declared. Defaults
-to \code{"NB"} (normalized blue). See \code{\link[=image_index]{image_index()}} for more details. User can
-also calculate your own index using the bands names, e.g. \code{index = "R+B/G"}}
+\item{index}{A character value specifying the index for conversion to binary image.}
 
-\item{r, g, b, re, nir}{The red, green, blue, red-edge, and near-infrared bands
-of the image, respectively. Defaults to 1, 2, 3, 4, and 5, respectively. If
-a multispectral image is provided (5 bands), check the order of bands,
-which are frequently presented in the 'BGR' format.}
+\item{r, g, b, re, nir}{The red, green, blue, red-edge, and near-infrared bands, respectively.}
 
-\item{threshold}{The theshold method to be used.
-\itemize{
-\item By default (\code{threshold = "Otsu"}), a threshold value based
-on Otsu's method is used to reduce the grayscale image to a binary image. If
-a numeric value is informed, this value will be used as a threshold.
-\item If \code{threshold = "adaptive"}, adaptive thresholding (Shafait et al. 2008)
-is used, and will depend on the \code{k} and \code{windowsize} arguments.
-\item If any non-numeric value different than \code{"Otsu"} and \code{"adaptive"} is used,
-an iterative section will allow you to choose the threshold based on a
-raster plot showing pixel intensity of the index.
-}}
+\item{threshold}{The threshold method (\code{"Otsu"}, \code{"Adaptive"}, or numeric).}
 
-\item{tolerance}{The minimum height of the object in the units of image
-intensity between its highest point (seed) and the point where it contacts
-another object (checked for every contact pixel). If the height is smaller
-than the tolerance, the object will be combined with one of its neighbors,
-which is the highest. Values < 1.0 are interpreted as relative tolerance
-(percentage of the peak height). Values >= 1.0 are interpreted as absolute
-tolerance in pixels (linear Euclidean distance).}
+\item{tolerance}{Minimum height for watershed segmentation.}
 
-\item{extension}{Radius of the neighborhood in pixels for the detection of
-neighboring objects. Higher value smooths out small objects.}
+\item{extension}{Neighborhood radius for watershed segmentation.}
 
-\item{lower_noise}{To prevent noise from affecting the image analysis, objects
-with lesser than 10\% of the mean area of all objects are removed
-(\code{lower_noise = 0.1}). Increasing this value will remove larger noises (such
-as dust points), but can remove desired objects too. To define an explicit
-lower or upper size, use the \code{lower_size} and \code{upper_size} arguments.}
+\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.}
 
-\item{lower_size, upper_size}{Lower and upper limits for size for the image
-analysis. Plant images often contain dirt and dust.  Upper limit is set to
-\code{NULL}, i.e., no upper limit used. One can set a known area or use
-\code{lower_size = 0} to select all objects (not advised). Objects that matches
-the size of a given range of sizes can be selected by setting up the two
-arguments. For example, if \code{lower_size = 120} and \code{upper_size = 140},
-objects with size greater than or equal 120 and less than or equal 140 will
-be considered.}
+\item{lower_size, upper_size}{Lower and upper size limits for object filtering.}
 
-\item{topn_lower, topn_upper}{Select the top \code{n} objects based on its area.
-\code{topn_lower} selects the \code{n} elements with the smallest area whereas
-\code{topn_upper} selects the \code{n} objects with the largest area.}
+\item{topn_lower, topn_upper}{Select top \code{n} objects based on area.}
 
-\item{lower_eccent, upper_eccent, lower_circ, upper_circ}{Lower and upper limit
-for object eccentricity/circularity for the image analysis. Users may use
-these arguments to remove objects such as square papers for scale (low
-eccentricity) or cut petioles (high eccentricity) from the images. Defaults
-to \code{NULL} (i.e., no lower and upper limits).}
+\item{lower_eccent, upper_eccent, lower_circ, upper_circ}{Eccentricity and circularity limits.}
 
 \item{plot}{Show image after processing?}
 
-\item{show_original}{Show the count objects in the original image?}
+\item{show_original}{Show count objects on the original image?}
 
-\item{show_contour}{Show a contour line around the objects? Defaults to
-\code{TRUE}.}
+\item{show_contour}{Show contour line around objects?}
 
-\item{contour_col, contour_size}{The color and size for the contour line around
-objects. Defaults to \code{contour_col = "red"} and \code{contour_size = 1}.}
+\item{contour_col, contour_size}{Color and size for contour line.}
 
-\item{col_foreground, col_background}{Foreground and background color after
-image processing. Defaults to \code{NULL}, in which \code{"black"}, and \code{"white"} are
-used, respectively.}
+\item{col_foreground, col_background}{Foreground and background colors.}
 
-\item{marker, marker_col, marker_size}{The type, color and size of the object
-marker. Defaults to 'point', which plots a red point in each object. Use
-\code{marker = FALSE} to omit object marker.}
+\item{marker, marker_col, marker_size}{Type, color, and size of object marker.}
 
-\item{save_image}{Save the image after processing? The image is saved in the
-current working directory named as \verb{proc_*} where \code{*} is the image name
-given in \code{img}.}
+\item{save_image}{Save the image after processing?}
 
-\item{max_pixels}{Maximum number of pixels to render when plotting or saving
-the processed image. Defaults to \code{2e6}. Set to \code{NULL} for full rendering.}
+\item{max_pixels}{Maximum number of pixels to render when plotting or saving.}
 
-\item{prefix}{The prefix to be included in the processed images. Defaults to
-\code{"proc_"}.}
+\item{prefix}{Prefix for processed images.}
 
-\item{dir_original, dir_processed}{The directory containing the original and
-processed images. Defaults to \code{NULL}. In this case, the function will search
-for the image \code{img} in the current working directory. After processing, when
-\code{save_image = TRUE}, the processed image will be also saved in such a
-directory. It can be either a full path, e.g., \code{"C:/Desktop/imgs"}, or a
-subfolder within the current working directory, e.g., \code{"/imgs"}.}
+\item{dir_original, dir_processed}{Directories for original and processed images.}
 
-\item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
+\item{verbose}{If \code{TRUE} (default) shows progress summary in console.}
 
 \item{x}{An object of class \code{anal_obj}.}
 
@@ -286,11 +167,7 @@ subfolder within the current working directory, e.g., \code{"/imgs"}.}
 \item{type}{The type of plot. Either \code{"hist"} or \code{"density"}. Partial matches
 are recognized.}
 
-\item{...}{Depends on the function:
-\itemize{
-\item For \code{\link[=analyze_objects_iter]{analyze_objects_iter()}}, further arguments passed on to
-\code{\link[=analyze_objects]{analyze_objects()}}.
-}}
+\item{...}{Additional arguments passed to methods.}
 }
 \description{
 A lighter option to \code{\link[=analyze_objects]{analyze_objects()}}

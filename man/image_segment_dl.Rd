@@ -14,6 +14,8 @@ image_segment_dl(
   lwd = 1,
   bbox = FALSE,
   mask = TRUE,
+  show_id = TRUE,
+  rainbow = FALSE,
   model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1",
     "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1",
     "isnet-general-use", "silueta", "u2net"),
@@ -26,6 +28,10 @@ image_segment_dl(
   min_dist = 16,
   feat_res = 256,
   max_objects = 300,
+  superres_map = FALSE,
+  return_features = FALSE,
+  feature_model = c("yolo", "clip-vit-b32", "dinov2"),
+  plot_features = FALSE,
   threads = 0,
   engine = c("cpu", "gpu"),
   device_id = -1,
@@ -86,6 +92,13 @@ around detected instances. Defaults to \code{FALSE}.}
 When \code{mask = FALSE} and \code{bbox = TRUE}, skips the mask decoder step and returns only the detected
 bounding box coordinates (fast object detection). Defaults to \code{TRUE}.}
 
+\item{show_id}{Logical. If \code{TRUE} (default), overlays object instance IDs
+at their center of mass (computed via \code{\link[=poly_mass]{poly_mass()}}) when \code{type = "highlight"}
+and \code{bbox = FALSE}. Set to \code{FALSE} to hide instance ID numbers.}
+
+\item{rainbow}{Logical. If \code{TRUE}, assigns a distinct, unique color to each segmented object.
+If \code{FALSE} (the default), objects of the same class share the exact same color. Defaults to \code{FALSE}.}
+
 \item{model}{Model architecture or path to a custom ONNX file. Built-in choices:
 \itemize{
 \item \code{"yolo26n-seg"} (or \code{"yolo26s-seg"}, \code{"yolo26m-seg"}, \code{"yolo26l-seg"}, \code{"yolo26x-seg"}): YOLO26 Instance Segmentation (real-time polygon mask & box detection, 80 COCO categories).
@@ -124,21 +137,34 @@ against \emph{any} prototype, preventing vector dilution and capturing wide visu
 Higher values (e.g. \code{0.55} - \code{0.65}) require closer visual resemblance, while lower values (e.g. \code{0.40} - \code{0.50})
 capture more diverse, shadowed, or smaller instances. Default is \code{0.5}.}
 
-\item{min_dist}{Numeric minimum spatial distance in pixels (within the 1024×1024 embedding space) between candidate
+\item{min_dist}{Numeric minimum spatial distance in pixels (within the 1024x1024 embedding space) between candidate
 peaks to prevent duplicate instance detections of the same object. Default is \code{16}.}
 
 \item{feat_res}{Spatial resolution / algorithm for exemplar matching. Options:
 \itemize{
-\item \code{64} (or \code{"fast"}, \code{"vit"}, \code{"low"}): Fast 64×64 ViT patch token matching (stride 16). Extremely fast
+\item \code{64} (or \code{"fast"}, \code{"vit"}, \code{"low"}): Fast 64x64 ViT patch token matching (stride 16). Extremely fast
 and ideal for large objects (e.g. people, leaves, fruits, animals).
-\item \code{256} (or \code{"medium"}): 256×256 multi-scale CNN feature fusion (stride 4).
+\item \code{256} (or \code{"medium"}): 256x256 multi-scale CNN feature fusion (stride 4).
 \item \code{1024} (or \code{"dense"}, \code{"conv"}, \code{"high"}, \code{"grain"}): Dense Stride-1 Convolutional Exemplar matching
-at full 1024×1024 pixel resolution with single-pass Zero-Mean Normalized Cross-Correlation (ZNCC) and
+at full 1024x1024 pixel resolution with single-pass Zero-Mean Normalized Cross-Correlation (ZNCC) and
 ViT semantic guidance. Essential for resolving small touching objects, seeds, and grains with sharp pixel boundaries.
 Defaults to \code{256}.
 }}
 
 \item{max_objects}{Maximum number of instances to detect and segment. Default is \code{300}.}
+
+\item{superres_map}{Logical. If \code{TRUE}, applies Real-ESRGAN neural super-resolution to upscale the PerSAM similarity map for finer object boundaries and visualization. Defaults to \code{FALSE}.}
+
+\item{return_features}{Logical. If \code{TRUE}, extracts deep feature representations for detected or
+segmented objects and the global image. Attaches \code{"features"} (an \eqn{N \times D} matrix of per-object
+deep embeddings, 512-D for CLIP or 384-D for DINOv2) and \code{"feature_map"} (dense spatial 3-component PCA false-color \code{Image})
+as attributes to the returned object. Defaults to \code{FALSE}.}
+
+\item{feature_model}{Foundation model used for feature representation when \code{return_features = TRUE}.
+Options are \code{"clip-vit-b32"} (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
+\code{"dinov2"} (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).}
+
+\item{plot_features}{Logical. If \code{TRUE} and \code{return_features = TRUE}, visualizes the dense spatial PCA feature map. Defaults to \code{FALSE}.}
 
 \item{threads}{Integer specifying the number of threads for parallel ONNX Runtime execution. Default is \code{0},
 which automatically detects and utilizes all available logical CPU cores on the system.}
@@ -220,7 +246,8 @@ Defaults to \code{pliman_model_dir()}.}
 \item \code{"summary"}: Text summary of detected objects and counts.
 \item \code{"counts"}: Data frame of instance counts per class label.
 \item \code{"contours"}: List of polygon contour coordinate matrices.
-\item \code{"features"}: Morphological measures (\code{area}, \code{perimeter}, \code{solidity}, \code{convexity}, etc.) computed via \code{poly_measures()}.
+\item \code{"features"}: If \code{return_features = TRUE}, numeric matrix of per-object deep feature embeddings.
+\item \code{"feature_map"}: If \code{return_features = TRUE}, dense spatial 3-component PCA false-color \code{Image}.
 \item \code{"similarity_map"}: Continuous cosine similarity \code{image} object (when \code{exemplar = TRUE}).
 }
 \item If \code{img} is a list: A list of the corresponding outputs.

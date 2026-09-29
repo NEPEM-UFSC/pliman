@@ -57,72 +57,23 @@ with lesser than \verb{10\%} of the mean of all objects are removed. . One can
 set a known area or use \code{lower_limit = 0} to select all objects (not
 advised).}
 
-\item{watershed}{If \code{TRUE} (default) performs watershed-based object
-detection. This will detect objects even when they are touching one other.
-If \code{FALSE}, all pixels for each connected set of foreground pixels are set
-to a unique object. This is faster but is not able to segment touching
-objects.}
+\item{watershed}{If \code{TRUE} (default) performs watershed-based object detection.}
 
-\item{invert}{Inverts the binary image if desired. This is useful to process
-images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}
-is use, \code{invert} can be declared as a logical vector of length 2 (eg.,
-\verb{invert = c(FALSE, TRUE}). In this case, the segmentation of objects and
-reference from the foreground using \code{back_fore_index} is performed using the
-default (not inverted), and the segmentation of objects from the reference
-is performed by inverting the selection (selecting pixels higher than the
-threshold).}
+\item{invert}{Inverts the binary image if desired.}
 
-\item{fill_hull}{Fill holes in the binary image? Defaults to \code{FALSE}. This is
-useful to fill holes in objects that have portions with a color similar to
-the background. IMPORTANT: Objects touching each other can be combined into
-one single object, which may underestimate the number of objects in an
-image.}
+\item{fill_hull}{Fill holes in the binary image? Defaults to \code{FALSE}.}
 
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
-size)}, applied in hierarchical order.
-\itemize{
-\item \code{opening} performs an erosion followed by a dilation. This helps to
-remove small objects while preserving the shape and size of larger objects.
-\item \code{closing} performs a dilatation followed by an erosion. This helps to
-fill small holes while preserving the shape and size of larger objects.
-\item \code{filter} performs median filtering in the binary image. Provide a positive
-integer > 1 to indicate the size of the median filtering. Higher values are
-more efficient to remove noise in the background but can dramatically impact
-the perimeter of objects, mainly for irregular perimeters such as leaves
-with serrated edges.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-}}
+size)}, applied in hierarchical order.}
 
-\item{threshold}{The theshold method to be used.
-\itemize{
-\item By default (\code{threshold = "Otsu"}), a threshold value based
-on Otsu's method is used to reduce the grayscale image to a binary image. If
-a numeric value is informed, this value will be used as a threshold.
-\item If \code{threshold = "adaptive"}, adaptive thresholding (Shafait et al. 2008)
-is used, and will depend on the \code{k} and \code{windowsize} arguments.
-\item If any non-numeric value different than \code{"Otsu"} and \code{"adaptive"} is used,
-an iterative section will allow you to choose the threshold based on a
-raster plot showing pixel intensity of the index.
-}}
+\item{threshold}{The threshold method (\code{"Otsu"}, \code{"Adaptive"}, or numeric).}
 
-\item{extension}{Radius of the neighborhood in pixels for the detection of
-neighboring objects. Higher value smooths out small objects.}
+\item{extension}{Neighborhood radius for watershed segmentation.}
 
-\item{tolerance}{The minimum height of the object in the units of image
-intensity between its highest point (seed) and the point where it contacts
-another object (checked for every contact pixel). If the height is smaller
-than the tolerance, the object will be combined with one of its neighbors,
-which is the highest. Values < 1.0 are interpreted as relative tolerance
-(percentage of the peak height). Values >= 1.0 are interpreted as absolute
-tolerance in pixels (linear Euclidean distance).}
+\item{tolerance}{Minimum height for watershed segmentation.}
 
-\item{object_size}{The size of the object. Used to automatically set up
-\code{tolerance} and \code{extension} parameters. One of the following. \code{"small"}
-(e.g, wheat grains), \code{"medium"} (e.g, soybean grains), \code{"large"}(e.g, peanut
-grains), and \code{"elarge"} (e.g, soybean pods)`.}
+\item{object_size}{The size of the object (\code{"small"}, \code{"medium"}, \code{"large"}, \code{"elarge"}).
+Used to automatically set up \code{tolerance} and \code{extension} parameters.}
 
 \item{img_healthy}{A color palette of healthy tissues.}
 
@@ -159,7 +110,7 @@ number of parallel processes that can be active at the same time.}
 \item{show_features}{If \code{TRUE} returnS the lesion features such as number,
 area, perimeter, and radius. Defaults to \code{FALSE}.}
 
-\item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
+\item{verbose}{If \code{TRUE} (default) shows progress summary in console.}
 
 \item{...}{Additional arguments passed on to \code{\link[=measure_disease]{measure_disease()}}.}
 }

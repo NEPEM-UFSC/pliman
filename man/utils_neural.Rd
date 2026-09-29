@@ -12,73 +12,73 @@ and background removal powered by pre-trained Deep Learning models in \strong{ON
 \itemize{
 \item \strong{\code{"u2netp"} (Default for CPU)}:
 \itemize{
-\item \strong{Size:} ~4.4 MB | \strong{Input Resolution:} 320 × 320
+\item \strong{Size:} ~4.4 MB | \strong{Input Resolution:} 320 x 320
 \item \strong{Architecture:} Ultra-lightweight U2-Net with nested U-structure residual blocks.
 \item \strong{Best For:} Fast batch processing on standard laptops and CPUs without dedicated GPU.
 }
 \item \strong{\code{"ben2"} (Boundary-Aware Extraction Network)}:
 \itemize{
-\item \strong{Size:} ~212.6 MB | \strong{Input Resolution:} 1024 × 1024
+\item \strong{Size:} ~212.6 MB | \strong{Input Resolution:} 1024 x 1024
 \item \strong{Architecture:} BEN2 Base (Prama LLC) with boundary-focused refinement stream.
 \item \strong{Best For:} Crisp sub-pixel object boundaries, fine petioles, leaf margins, roots, and hairs.
 }
 \item \strong{\code{"grounded-sam"} (Zero-Shot Text-Prompted Detection & Instance Segmentation)}:
 \itemize{
-\item \strong{Size:} ~314.8 MB (Grounding DINO ~194.4 MB + SAM 2.1 ~120.2 MB) | \strong{Input Resolution:} 800 × 800 (DINO) & 1024 × 1024 (SAM)
+\item \strong{Size:} ~314.8 MB (Grounding DINO ~194.4 MB + SAM 2.1 ~120.2 MB) | \strong{Input Resolution:} 800 x 800 (DINO) & 1024 x 1024 (SAM)
 \item \strong{Architecture:} Combines Grounding DINO Tiny for open-vocabulary text-prompted bounding box detection with SAM 2.1 Hiera-Tiny for instance mask extraction.
 \item \strong{Best For:} Detecting and segmenting specific objects using natural language prompts (e.g. \code{"cow"}, \code{"leaf"}, \code{"lesion"}), with support for bounding-box-only detection (\verb{mask = FALSE, bbox = TRUE}).
 }
 \item \strong{\code{"sam2.1"} (Segment Anything 2.1 by Meta AI, alias \code{"sam2"})}:
 \itemize{
-\item \strong{Size:} ~120.2 MB (Encoder + Decoder) | \strong{Input Resolution:} 1024 × 1024
+\item \strong{Size:} ~120.2 MB (Encoder + Decoder) | \strong{Input Resolution:} 1024 x 1024
 \item \strong{Architecture:} Meta AI Hiera-Tiny foundation vision transformer with promptable mask decoder.
 \item \strong{Best For:} Zero-shot foundation segmentation with point prompts (\code{pick_object = TRUE}), box prompts, or center point defaults.
 }
 \item \strong{\code{"sam3.1"} (Segment Anything 3.1 by Meta AI, alias \code{"sam3"})}:
 \itemize{
-\item \strong{Size:} ~868.1 MB | \strong{Input Resolution:} 1024 × 1024
+\item \strong{Size:} ~868.1 MB | \strong{Input Resolution:} 1024 x 1024
 \item \strong{Architecture:} Meta AI Segment Anything 3.1 with real-time concept-driven segmentation.
 \item \strong{Best For:} Advanced foundation segmentation across diverse biological structures.
 }
 \item \strong{\code{"birefnet-lite"} (Bilateral Reference Network Lite)}:
 \itemize{
-\item \strong{Size:} ~213.6 MB | \strong{Input Resolution:} 1024 × 1024
+\item \strong{Size:} ~213.6 MB | \strong{Input Resolution:} 1024 x 1024
 \item \strong{Architecture:} Bilateral Reference Network for High-Resolution Dichotomous Image Segmentation (BiRefNet Lite).
 \item \strong{Best For:} Extremely fine margins, hair-thin leaf serrations, complex petioles, translucent halos, and subtle lesions.
 }
 \item \strong{\code{"isnet-general-use"} (High Precision Boundary Matting)}:
 \itemize{
-\item \strong{Size:} ~170.4 MB | \strong{Input Resolution:} 1024 × 1024
+\item \strong{Size:} ~170.4 MB | \strong{Input Resolution:} 1024 x 1024
 \item \strong{Architecture:} IS-Net (Intermediate Supervision Network) specialized in high-resolution boundary matting.
 \item \strong{Best For:} Plant leaves, fine serrated margins, lesion borders, chlorotic halos, veins, and complex natural backgrounds.
 }
 \item \strong{\code{"rmbg-1.4"} (BRIA AI Standard, alias \code{"rmbg"})}:
 \itemize{
-\item \strong{Size:} ~168.0 MB | \strong{Input Resolution:} 1024 × 1024
+\item \strong{Size:} ~168.0 MB | \strong{Input Resolution:} 1024 x 1024
 \item \strong{Architecture:} BRIA RMBG 1.4 trained on extensive curated foreground datasets.
 \item \strong{Best For:} General background removal under challenging lighting, shadows, reflections, and fine object edges.
 }
 \item \strong{\code{"rmbg-2.0"} (BRIA AI Next-Gen Model)}:
 \itemize{
-\item \strong{Size:} ~976.9 MB | \strong{Input Resolution:} 1024 × 1024
+\item \strong{Size:} ~976.9 MB | \strong{Input Resolution:} 1024 x 1024
 \item \strong{Architecture:} BRIA RMBG 2.0 based on a BiRefNet backbone trained on extensive curated commercial datasets.
 \item \strong{Best For:} Highest-fidelity boundary matting, transparent surfaces, fine plant hairs, and complex scenes.
 }
 \item \strong{\code{"withoutbg"} (State-of-the-Art DepthAnythingV2 + ConvNeXt Matting)}:
 \itemize{
-\item \strong{Size:} ~433.4 MB | \strong{Input Resolution:} 448 × 448
+\item \strong{Size:} ~433.4 MB | \strong{Input Resolution:} 448 x 448
 \item \strong{Architecture:} withoutBG Open Weights: DINOv3 ConvNeXt-fused U-Net guided by DepthAnythingV2 depth features.
 \item \strong{Best For:} Complex 3D depth-separated backgrounds, transparent materials, and fine details.
 }
 \item \strong{\code{"silueta"}}:
 \itemize{
-\item \strong{Size:} ~42.1 MB | \strong{Input Resolution:} 320 × 320
+\item \strong{Size:} ~42.1 MB | \strong{Input Resolution:} 320 x 320
 \item \strong{Architecture:} Compact silhouette extraction network.
 \item \strong{Best For:} Balanced speed-accuracy tradeoff on edge/CPU hardware.
 }
 \item \strong{\code{"u2net"}}:
 \itemize{
-\item \strong{Size:} ~167.8 MB | \strong{Input Resolution:} 320 × 320
+\item \strong{Size:} ~167.8 MB | \strong{Input Resolution:} 320 x 320
 \item \strong{Architecture:} Full-depth U2-Net salient object detection model.
 \item \strong{Best For:} Robust multi-scale salient object detection on standard resolution images.
 }

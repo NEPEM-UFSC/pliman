@@ -52,6 +52,6 @@ image_thinning_guo_hall(img, index = "R", plot = TRUE)
 }
 \references{
 Guo, Z., and R.W. Hall. 1989. Parallel thinning with
-two-subiteration algorithms. Commun. ACM 32(3): 359–373.
+two-subiteration algorithms. Commun. ACM 32(3): 359-373.
 \doi{10.1145/62065.62074}
 }

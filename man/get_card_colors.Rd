@@ -47,7 +47,7 @@ If provided as a percentage > 1 (e.g. 45), it is automatically scaled to fractio
 a 4x2 matrix, a list with \verb{$TL, $TR, $BR, $BL}, or an 8-element numeric vector.}
 
 \item{auto_orient}{Logical. If \code{TRUE} (default for 24-patch ColorChecker charts),
-automatically detects the physical chart orientation (0°, 90°, 180°, 270°) by
+automatically detects the physical chart orientation (0, 90, 180, 270 degrees) by
 identifying the White (patch 19) and Black (patch 24) corners, ensuring that
 patch 1 (Dark skin) to patch 24 (Black) are always indexed correctly regardless
 of camera tilt or card rotation.}

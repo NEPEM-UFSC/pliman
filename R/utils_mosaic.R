@@ -4165,10 +4165,13 @@ mosaic_chm_extract <- function(chm,
 
   height <-
     mosaic_extract(chm$chm[[2]],
-                   shapefile,
+                   shp,
                    exact = TRUE,
                    fun = custom_summary,
                    verbose = FALSE)
+  if(is.null(chm_threshold)){
+    height$coverage <- 1
+  }
   if(!chm$mask){
     height <-
       height |>
@@ -4185,7 +4188,7 @@ mosaic_chm_extract <- function(chm,
                                    coverage_area = TRUE)[, 2:4]
     height <-
       height |>
-      dplyr::select(-any_of("coverage")) |>
+      dplyr::select(-dplyr::any_of("coverage")) |>
       dplyr::bind_cols(covered_area)
   }
 

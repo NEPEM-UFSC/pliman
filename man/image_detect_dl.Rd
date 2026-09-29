@@ -11,7 +11,11 @@ image_detect_dl(
   iou_threshold = 0.45,
   labels = NULL,
   col = NULL,
+  rainbow = FALSE,
   lwd = 2,
+  return_features = FALSE,
+  feature_model = c("yolo", "clip-vit-b32", "dinov2"),
+  plot_features = FALSE,
   threads = 0,
   engine = c("cpu", "gpu"),
   device_id = -1,
@@ -35,7 +39,21 @@ Options include \code{"yolo26n"}, \code{"yolo26s"}, \code{"yolo26m"}, \code{"yol
 
 \item{col}{Optional color or palette for bounding boxes.}
 
+\item{rainbow}{Logical. If \code{TRUE}, assigns a distinct, unique color to each detected object.
+If \code{FALSE} (the default), objects of the same class share the exact same color. Defaults to \code{FALSE}.}
+
 \item{lwd}{Line width for bounding boxes (default 2).}
+
+\item{return_features}{Logical. If \code{TRUE}, extracts deep feature representations for detected
+bounding boxes and the global image. Attaches \code{"features"} (an \eqn{N \times D} matrix of per-object
+deep embeddings, 512-D for CLIP or 384-D for DINOv2) and \code{"feature_map"} (dense spatial 3-component PCA false-color \code{Image})
+as attributes to the returned object. Defaults to \code{FALSE}.}
+
+\item{feature_model}{Foundation model used for feature representation when \code{return_features = TRUE}.
+Options are \code{"clip-vit-b32"} (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
+\code{"dinov2"} (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).}
+
+\item{plot_features}{Logical. If \code{TRUE} and \code{return_features = TRUE}, visualizes the dense spatial PCA feature map. Defaults to \code{FALSE}.}
 
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 
@@ -53,7 +71,8 @@ Options include \code{"yolo26n"}, \code{"yolo26s"}, \code{"yolo26m"}, \code{"yol
 }
 \value{
 A data frame containing detected bounding boxes (\code{id}, \code{xmin}, \code{ymin}, \code{xmax}, \code{ymax}, \code{label}, \code{score}),
-with \code{summary} and \code{counts} stored as attributes.
+with \code{summary} and \code{counts} stored as attributes. If \code{return_features = TRUE}, \code{features} (an \eqn{N \times D} matrix)
+and \code{feature_map} (dense spatial PCA \code{Image}) are also attached as attributes.
 }
 \description{
 Performs real-time object detection using YOLO26 (or custom YOLO ONNX models)
@@ -64,5 +83,7 @@ with bounding box regression and End-to-End detection.
   library(pliman)
   img <- image_import("objects.png")
   boxes <- image_detect_dl(img)
+  # Rainbow coloring per box:
+  boxes_rb <- image_detect_dl(img, rainbow = TRUE)
 }
 }

@@ -1,2 +1,2 @@
-PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS) -O3
-PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lpng -lfftw3 -lm
+PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
+PKG_LIBS = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lpng -lfftw3 -lm -lmf -lmfplat -lmfreadwrite -lmfuuid -lole32 -loleaut32 -lgdi32 -luser32

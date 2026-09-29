@@ -62,6 +62,9 @@ extension.}
 \item{method}{Character. The generation method: \code{"rectangular"} (default),
 \code{"radial"}, or \code{"landmark"}.}
 
+\item{engine}{Character string specifying the computation engine to use: \code{"cpp"} (default)
+or \code{"cpp_old"}.}
+
 \item{nrow}{Number of rows for the grid (default: 1).}
 
 \item{ncol}{Number of columns for the grid (default: 1).}

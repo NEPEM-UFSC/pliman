@@ -2,62 +2,43 @@
 % Please edit documentation in R/utils_neural.R
 \name{pliman_download_model}
 \alias{pliman_download_model}
-\title{Download Pre-Trained ONNX Models}
+\title{Download Pre-Trained Neural Models}
 \usage{
 pliman_download_model(
   model = "u2netp",
   dir = pliman_model_dir(),
-  force = FALSE
+  force = FALSE,
+  refresh = FALSE
 )
 }
 \arguments{
-\item{model}{Character vector naming the model(s) to download. Options include:
-\itemize{
-\item \code{"u2netp"} (default): Ultra-lightweight (~4.4 MB, 320x320).
-\item \code{"ben2"}: Boundary-aware Extraction Network (~212.6 MB, 1024x1024).
-\item \code{"grounded-sam"}: Grounding DINO Tiny + SAM 2.1 (~314.8 MB, 800x800 & 1024x1024).
-\item \code{"sam2.1"}: Segment Anything 2.1 (~120.2 MB, 1024x1024).
-\item \code{"sam3.1"}: Segment Anything 3.1 (~868.1 MB, 1024x1024).
-\item \code{"rmbg-1.4"} (or \code{"rmbg"}): BRIA RMBG 1.4 (~168.0 MB, 1024x1024).
-\item \code{"rmbg-2.0"}: BRIA RMBG 2.0 (~976.9 MB, 1024x1024).
-\item \code{"withoutbg"}: withoutBG Open Weights (~433.4 MB, 448x448).
-\item \code{"birefnet-lite"}: BiRefNet Lite (~213.6 MB, 1024x1024).
-\item \code{"isnet-general-use"}: High-resolution boundary matting (~170.4 MB, 1024x1024).
-\item \code{"silueta"}: Compact silhouette model (~42.1 MB, 320x320).
-\item \code{"u2net"}: Full U2-Net (~167.8 MB, 320x320).
-\item \code{"all"}: Downloads all 12 models above at once.
-Defaults to \code{"u2netp"}.
-}}
+\item{model}{Character vector naming the model(s) or direct URL(s) to download.
+Can be a known model name (e.g. \code{"yolo26n"}, \code{"rmbg-2.0"}), an asset filename
+(e.g. \code{"yolo26x-cls.onnx"}, \code{"yolo26s-obb.pt"}), \code{"all"}, or a direct HTTP/HTTPS URL.}
 
 \item{dir}{Directory to save the model files (default: \code{pliman_model_dir()}).}
 
 \item{force}{Logical. If \code{TRUE}, forces re-download even if the file exists (default \code{FALSE}).}
+
+\item{refresh}{Logical. If \code{TRUE}, forces re-fetching the GitHub release asset catalog (default \code{FALSE}).}
 }
 \value{
-A character vector with the absolute path(s) to the downloaded \code{.onnx} model file(s).
+A character vector with the absolute path(s) to the downloaded model file(s).
 }
 \description{
-Downloads one or more pre-trained ONNX models into the user's model directory.
-Supports downloading individual models, a subset of models, or all models at once.
+Downloads one or more pre-trained neural models into the user's model directory.
+Supports downloading by model name, model asset name, dynamic GitHub release asset,
+or directly from a custom URL (e.g. \verb{https://.../model.onnx}).
 }
 \examples{
 \dontrun{
   # Download a single model
   pliman_download_model("u2netp")
 
-  # Download BRIA RMBG
-  pliman_download_model("rmbg")
-
-  # Download Segment Anything 2.1
-  pliman_download_model("sam2.1")
-
-  # Download withoutBG Open Weights
-  pliman_download_model("withoutbg")
+  # Download directly from a custom URL
+  pliman_download_model("https://example.com/custom_yolo.onnx")
 
   # Download all models at once
   pliman_download_model("all")
-
-  # Download specific multiple models
-  pliman_download_model(c("u2netp", "birefnet-lite"))
 }
 }

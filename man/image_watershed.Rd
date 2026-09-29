@@ -35,6 +35,10 @@ flooding.}
 \item{min_size}{Minimum area (in pixels) for an object segment retained after watershed.}
 
 \item{rel_size}{Relative threshold as a fraction of the mean segment area (e.g. \code{0.1} for 10\% of mean area).}
+
+\item{fill_hull}{Logical. Fill holes in the binary mask before watershed segmentation. Default is \code{FALSE}.}
+
+\item{max_size}{Maximum area (in pixels) for an object segment retained after watershed. Default is \code{NULL}.}
 }
 \value{
 A grayscale \code{image} object containing the labels.

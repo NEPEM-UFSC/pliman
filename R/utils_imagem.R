@@ -11,6 +11,10 @@
 #' @param verbose Shows the name of objects declared in `...` or a numeric
 #'   sequence if a list with no names is provided. Set to `FALSE` to supress the
 #'   text.
+#' @param mar,oma Margins for each panel and outer margins for the combined plot.
+#'   Defaults to `mar = c(1.5, 1.5, 1.5, 1.5)` and `oma = c(0, 0, 0, 0)`. Set
+#'   `mar = 0` or `mar = c(0, 0, 0, 0)` to eliminate margins and maximize the
+#'   plotting area.
 #' @importFrom stats reshape IQR quantile
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
@@ -21,13 +25,18 @@
 #' img1 <- image_pliman("sev_leaf.jpg")
 #' img2 <- image_pliman("sev_leaf_nb.jpg")
 #' image_combine(img1, img2)
+#'
+#' # Remove margins to optimize plotting area:
+#' image_combine(img1, img2, mar = 0)
 #' }
 image_combine <- function(...,
                           labels = NULL,
                           nrow = NULL,
                           ncol = NULL,
                           col = "black",
-                          verbose = TRUE) {
+                          verbose = TRUE,
+                          mar = c(1.5, 1.5, 1.5, 1.5),
+                          oma = c(0, 0, 0, 0)) {
   dots <- list(...)
   call_args <- match.call(expand.dots = FALSE)$...
 
@@ -79,7 +88,14 @@ image_combine <- function(...,
     nrow <- ceiling(num_plots / ncol)
   }
 
-  op <- par(mfrow = c(nrow, ncol), mar = c(1.5, 1.5, 1.5, 1.5))
+  if (length(mar) == 1L) {
+    mar <- rep(mar, 4L)
+  }
+  if (length(oma) == 1L) {
+    oma <- rep(oma, 4L)
+  }
+
+  op <- par(mfrow = c(nrow, ncol), mar = mar, oma = oma)
   on.exit(par(op), add = TRUE)
 
   idx_names <- if (is.null(names(plots))) as.character(seq_len(num_plots)) else names(plots)
@@ -958,7 +974,7 @@ image_rotate <- function(img,
     bg_col <- bg_color
   }
 
-  # ── inner helper ─────────────────────────────────────────────────────────
+  # -- inner helper ---------------------------------------------------------
   # Convert bg_col to a per-channel numeric vector [0, 1] for the C++ kernel.
   # Then call image_rotate_cpp (backward-mapping bilinear, OpenMP) and wrap
   .one <- function(im) {
@@ -1248,10 +1264,10 @@ image_hreflect <- function(img,
                            plot = FALSE) {
 
 
-  # ── inner helper: reflect one Image object ─────────────────────────────────
-  # 1. Extract image_data() (O(1) reference — no copy until modified).
+  # -- inner helper: reflect one Image object ---------------------------------
+  # 1. Extract image_data() (O(1) reference - no copy until modified).
   # 2. Call the optimised C++ kernel (allocates exactly one output buffer).
-  # 3. Wrap result with as_image() — O(1) S4 constructor, no data copy.
+  # 3. Wrap result with as_image() - O(1) S4 constructor, no data copy.
   # Total extra allocation: exactly one buffer of the image size.
   .one <- function(im) {
     as_image(
@@ -1317,7 +1333,7 @@ image_vreflect <- function(img,
                            plot = FALSE) {
 
 
-  # ── inner helper: reflect one Image object ─────────────────────────────────
+  # -- inner helper: reflect one Image object ---------------------------------
   .one <- function(im) {
     as_image(
       image_vreflect_cpp(image_data(im)),
@@ -1660,7 +1676,7 @@ image_skeleton <- function(img,
       cli::cli_abort("All elements in the list must be of class {.cls Image}.")
     }
 
-    # função auxiliar para aplicar skeletonization
+    # funcao auxiliar para aplicar skeletonization
     skel_fun <- function(im) {
       if (attr(im, "colormode") != "Grayscale") {
         im <- help_binary(im, ..., resize = FALSE)
@@ -1880,7 +1896,7 @@ image_thinning <- function(img,
 #'   \code{img} is not a binary image.
 #'
 #' @references Guo, Z., and R.W. Hall. 1989. Parallel thinning with
-#'    two-subiteration algorithms. Commun. ACM 32(3): 359–373.
+#'    two-subiteration algorithms. Commun. ACM 32(3): 359-373.
 #'    \doi{10.1145/62065.62074}
 #' @return If \code{img} is a single binary image, the function returns the
 #'   thinned binary image. If \code{img} is a list of binary images, the
@@ -2311,8 +2327,9 @@ image_create <- function(color,
 #' @param resize Resize the image before processing? Defaults to `FALSE`. Use a
 #'   numeric value as the percentage of desired resizing. For example, if
 #'   `resize = 30`, the resized image will have 30% of the size of original
-#'   image.
 #' @param fill_hull Fill holes in the objects? Defaults to `FALSE`.
+#' @param max_size Maximum size of objects to keep. Larger objects are removed. Default is `NULL`.
+#' @param remove_reflection Logical or numeric. If `TRUE` or numeric, removes internal reflection holes from binary objects. If numeric, specifies the neck distance threshold. Default is `FALSE`.
 #'
 #' @param erode,dilate,opening,closing,filter **Morphological operations (brush size)**
 #'  * `dilate` puts the mask over every background pixel, and sets it to
@@ -2348,11 +2365,11 @@ image_create <- function(color,
 #' @param verbose If `TRUE` (default) a summary is shown in the console.
 #' @references
 #' Otsu, N. 1979. Threshold selection method from gray-level histograms. IEEE
-#' Trans Syst Man Cybern SMC-9(1): 62–66. \doi{10.1109/tsmc.1979.4310076}
+#' Trans Syst Man Cybern SMC-9(1): 62-66. \doi{10.1109/tsmc.1979.4310076}
 #'
 #' Shafait, F., D. Keysers, and T.M. Breuel. 2008. Efficient implementation of
 #' local adaptive thresholding techniques using integral images. Document
-#' Recognition and Retrieval XV. SPIE. p. 317–322 \doi{10.1117/12.767755}
+#' Recognition and Retrieval XV. SPIE. p. 317-322 \doi{10.1117/12.767755}
 #'
 #' @md
 #' @export
@@ -2410,6 +2427,13 @@ image_binary <- function(img,
 
   check_filter_order(filter_order, verbose, erode, dilate, opening, closing, filter, fill_hull)
   threshold <- threshold[[1]]
+  if (is.character(threshold)) {
+    if (tolower(threshold) == "otsu") {
+      threshold <- "Otsu"
+    } else if (tolower(threshold) == "adaptive") {
+      threshold <- "adaptive"
+    }
+  }
 
   bin_img <- function(imgs) {
     if(threshold == "adaptive"){
@@ -2434,7 +2458,8 @@ image_binary <- function(img,
       } else if(is.numeric(threshold)) {
         threshold_val <- threshold
       } else {
-        pixels <- terra::rast(t(image_data(imgs)))
+        t_data <- image_data(imgs, type = "numeric")
+        pixels <- terra::rast(t(t_data))
         terra::plot(pixels, col = custom_palette(n = 100), axes = FALSE, asp = NA)
         threshold_val <- readline("Selected threshold: ")
       }
@@ -2453,7 +2478,7 @@ image_binary <- function(img,
     if (!is.logical(raw_bin)) raw_bin <- raw_bin != 0
     dim(raw_bin) <- dim(binary_mat)[1:2]
     res_mat <- help_binary_filters_cpp(
-      img = raw_bin,
+      img_sexp = raw_bin,
       erode = if (is.numeric(erode)) as.integer(erode) else 0L,
       dilate = if (is.numeric(dilate)) as.integer(dilate) else 0L,
       opening = if (!do_exact_opening && is.numeric(opening)) as.integer(opening) else 0L,
@@ -2599,11 +2624,11 @@ image_binary <- function(img,
 #'   \doi{10.1109/TSMC.1979.4310076}
 #'
 #' Karcher, D.E., and M.D. Richardson. 2003. Quantifying Turfgrass Color Using
-#' Digital Image Analysis. Crop Science 43(3): 943–951.
+#' Digital Image Analysis. Crop Science 43(3): 943-951.
 #' \doi{10.2135/cropsci2003.9430}
 #'
 #' Bannari, A., D. Morin, F. Bonn, and A.R. Huete. 1995. A review of vegetation
-#' indices. Remote Sensing Reviews 13(1–2): 95–120.
+#' indices. Remote Sensing Reviews 13(1-2): 95-120.
 #' \doi{10.1080/02757259509532298}
 #'
 #' @md
@@ -3357,7 +3382,7 @@ image_segment_iter <- function(img,
 #' `masks` A list with the binary matrices showing the segmentation.
 #' @export
 #' @references Hartigan, J. A. and Wong, M. A. (1979). Algorithm AS 136: A
-#'   K-means clustering algorithm. Applied Statistics, 28, 100–108.
+#'   K-means clustering algorithm. Applied Statistics, 28, 100-108.
 #'   \doi{10.2307/2346830}
 #'
 #' @examples
@@ -4747,7 +4772,7 @@ help_binary <- function(img,
     if (!is.logical(raw_bin)) raw_bin <- raw_bin != 0
     dim(raw_bin) <- dim(binary_mat)[1:2]
     res_mat <- help_binary_filters_cpp(
-      img = raw_bin,
+      img_sexp = raw_bin,
       erode = if (is.numeric(erode)) as.integer(erode) else 0L,
       dilate = if (is.numeric(dilate)) as.integer(dilate) else 0L,
       opening = if (!do_exact_opening && is.numeric(opening)) as.integer(opening) else 0L,
@@ -5153,26 +5178,6 @@ plot_line_segment <- function(x, col = "red", lwd = 1){
   })
 }
 
-#' @title Extract Mean Colors from a Color Checker Card
-#'
-#' @description
-#' This function identifies a color checker card in an image, finds its
-#' four corners to correct for perspective distortion, generates a grid
-#' corresponding to the color patches, and extracts the mean RGB values from
-#' the center of each patch.
-#'
-#' **Note:** The function attempts to automatically guess appropriate values
-#' for the parameters related to the card's dimensions (`nrow`, `ncol`) and
-#' the sampling process (`erode`, `xpix`, `ypix`) based on the detected
-#' coverage area of the card in the image. You may override these guesses
-#' by providing explicit values.
-#'
-#' @param img An `image` object.
-#' @param index The vegetation or color index string (e.g., "GRAY", "B", "R")
-#'   passed to `pliman::image_binary()` to segment the card from the
-#'   background. Default is **"GRAY"**.
-#' @param nrow The number of rows of color patches on the card. If **`NULL`**
-#'   (default), the function automatically determines this based on the card's
 #' @title Standard ColorChecker Reference Chart
 #'
 #' @description
@@ -5292,7 +5297,7 @@ order_quad_corners <- function(pts) {
 #' @param stat Primary statistic assigned to `R, G, B` columns: `"mean"` (default)
 #'   or `"median"`.
 #' @param auto_orient Logical. If `TRUE` (default for 24-patch ColorChecker charts),
-#'   automatically detects the physical chart orientation (0°, 90°, 180°, 270°) by
+#'   automatically detects the physical chart orientation (0, 90, 180, 270 degrees) by
 #'   identifying the White (patch 19) and Black (patch 24) corners, ensuring that
 #'   patch 1 (Dark skin) to patch 24 (Black) are always indexed correctly regardless
 #'   of camera tilt or card rotation.
@@ -5899,7 +5904,7 @@ plot.pliman_card_colors <- function(x,
         )
         graphics::rect(x0 + 0.05, y0 + 0.25, x0 + 0.43, y1 - 0.05, col = ref_col, border = "#94a3b8")
         graphics::rect(x0 + 0.47, y0 + 0.25, x1 - 0.05, y1 - 0.05, col = obs_col, border = "#94a3b8")
-        de_txt <- if (!is.null(x$Delta_E)) sprintf("ΔE: %.1f", x$Delta_E[i]) else ""
+        de_txt <- if (!is.null(x$Delta_E)) sprintf("\u0394E: %.1f", x$Delta_E[i]) else ""
         graphics::text(mean(c(x0, x1)), y0 + 0.14, sprintf("#%02d %s", x$id[i], de_txt),
                        cex = 0.7, font = 2, col = "#1e293b")
       } else {

@@ -1002,13 +1002,15 @@ object_haralick <- function(mask, ref, haralick.nbins = 32, haralick.scales = 1,
   mask_mat <- image_data(mask)
   ref_mat <- image_data(ref)
   if (is.raw(ref_mat)) {
-    ref_d <- as.numeric(ref_mat)
+    ref_d <- as.numeric(ref_mat) / 255
     dim(ref_d) <- dim(ref_mat)
     ref_mat <- ref_d
+  } else if (is.numeric(ref_mat) && max(ref_mat, na.rm = TRUE) > 1) {
+    ref_mat <- ref_mat / 255
   }
 
   if (length(dim(ref_mat)) == 3 && dim(ref_mat)[3] >= 3) {
-    if (haralick.band == "GRAY") {
+    if (is.character(haralick.band) && haralick.band == "GRAY") {
       ref_mat <- 0.299 * ref_mat[,,1] + 0.587 * ref_mat[,,2] + 0.114 * ref_mat[,,3]
     } else {
       ref_mat <- ref_mat[,,haralick.band]

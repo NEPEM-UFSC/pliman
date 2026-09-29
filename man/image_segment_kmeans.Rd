@@ -75,6 +75,6 @@ seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)
 }
 \references{
 Hartigan, J. A. and Wong, M. A. (1979). Algorithm AS 136: A
-K-means clustering algorithm. Applied Statistics, 28, 100–108.
+K-means clustering algorithm. Applied Statistics, 28, 100-108.
 \doi{10.2307/2346830}
 }

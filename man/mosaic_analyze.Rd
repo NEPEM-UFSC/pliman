@@ -214,41 +214,13 @@ Otsu's method is used to reduce the grayscale image to a binary image. If a
 numeric value is provided, this value will be used as a threshold.}
 
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
-size)}, applied in hierarchical order.
-\itemize{
-\item \code{opening} performs an erosion followed by a dilation. This helps to
-remove small objects while preserving the shape and size of larger objects.
-\item \code{closing} performs a dilatation followed by an erosion. This helps to
-fill small holes while preserving the shape and size of larger objects.
-\item \code{filter} performs median filtering in the binary image. Provide a positive
-integer > 1 to indicate the size of the median filtering. Higher values are
-more efficient to remove noise in the background but can dramatically impact
-the perimeter of objects, mainly for irregular perimeters such as leaves
-with serrated edges.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-}}
+size)}, applied in hierarchical order.}
 
-\item{lower_noise}{To prevent noise from affecting the image analysis, objects
-with lesser than 10\% of the mean area of all objects are removed
-(\code{lower_noise = 0.1}). Increasing this value will remove larger noises (such
-as dust points), but can remove desired objects too. To define an explicit
-lower or upper size, use the \code{lower_size} and \code{upper_size} arguments.}
+\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.}
 
-\item{lower_size, upper_size}{Lower and upper limits for size for the image
-analysis. Plant images often contain dirt and dust.  Upper limit is set to
-\code{NULL}, i.e., no upper limit used. One can set a known area or use
-\code{lower_size = 0} to select all objects (not advised). Objects that matches
-the size of a given range of sizes can be selected by setting up the two
-arguments. For example, if \code{lower_size = 120} and \code{upper_size = 140},
-objects with size greater than or equal 120 and less than or equal 140 will
-be considered.}
+\item{lower_size, upper_size}{Lower and upper size limits for object filtering.}
 
-\item{topn_lower, topn_upper}{Select the top \code{n} objects based on its area.
-\code{topn_lower} selects the \code{n} elements with the smallest area whereas
-\code{topn_upper} selects the \code{n} objects with the largest area.}
+\item{topn_lower, topn_upper}{Select top \code{n} objects based on area.}
 
 \item{summarize_fun}{The function to compute summaries for the pixel values.
 Defaults to "mean," i.e., the mean value of the pixels (either at a plot- or

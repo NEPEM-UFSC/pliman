@@ -82,10 +82,13 @@ background will not be considered for the threshold computation.}
 
 \item{resize}{Resize the image before processing? Defaults to \code{FALSE}. Use a
 numeric value as the percentage of desired resizing. For example, if
-\code{resize = 30}, the resized image will have 30\% of the size of original
-image.}
+\code{resize = 30}, the resized image will have 30\% of the size of original}
 
 \item{fill_hull}{Fill holes in the objects? Defaults to \code{FALSE}.}
+
+\item{max_size}{Maximum size of objects to keep. Larger objects are removed. Default is \code{NULL}.}
+
+\item{remove_reflection}{Logical or numeric. If \code{TRUE} or numeric, removes internal reflection holes from binary objects. If numeric, specifies the neck distance threshold. Default is \code{FALSE}.}
 
 \item{erode, dilate, opening, closing, filter}{\strong{Morphological operations (brush size)}
 \itemize{
@@ -150,11 +153,11 @@ image_binary(img, index = c("R, G"))
 }
 \references{
 Otsu, N. 1979. Threshold selection method from gray-level histograms. IEEE
-Trans Syst Man Cybern SMC-9(1): 62–66. \doi{10.1109/tsmc.1979.4310076}
+Trans Syst Man Cybern SMC-9(1): 62-66. \doi{10.1109/tsmc.1979.4310076}
 
 Shafait, F., D. Keysers, and T.M. Breuel. 2008. Efficient implementation of
 local adaptive thresholding techniques using integral images. Document
-Recognition and Retrieval XV. SPIE. p. 317–322 \doi{10.1117/12.767755}
+Recognition and Retrieval XV. SPIE. p. 317-322 \doi{10.1117/12.767755}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

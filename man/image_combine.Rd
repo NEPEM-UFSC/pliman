@@ -10,7 +10,9 @@ image_combine(
   nrow = NULL,
   ncol = NULL,
   col = "black",
-  verbose = TRUE
+  verbose = TRUE,
+  mar = c(1.5, 1.5, 1.5, 1.5),
+  oma = c(0, 0, 0, 0)
 )
 }
 \arguments{
@@ -28,6 +30,11 @@ objects in \code{...} to indicate the plot labels.}
 \item{verbose}{Shows the name of objects declared in \code{...} or a numeric
 sequence if a list with no names is provided. Set to \code{FALSE} to supress the
 text.}
+
+\item{mar, oma}{Margins for each panel and outer margins for the combined plot.
+Defaults to \code{mar = c(1.5, 1.5, 1.5, 1.5)} and \code{oma = c(0, 0, 0, 0)}. Set
+\code{mar = 0} or \code{mar = c(0, 0, 0, 0)} to eliminate margins and maximize the
+plotting area.}
 }
 \value{
 A grid with the images in \code{...}
@@ -41,6 +48,9 @@ library(pliman)
 img1 <- image_pliman("sev_leaf.jpg")
 img2 <- image_pliman("sev_leaf_nb.jpg")
 image_combine(img1, img2)
+
+# Remove margins to optimize plotting area:
+image_combine(img1, img2, mar = 0)
 }
 }
 \author{

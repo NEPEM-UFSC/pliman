@@ -263,6 +263,8 @@ plot_id <- function(shapefile = NULL,
 #'   curved edges of each polygon. This argument is ignored if \code{curved} is
 #'   \code{FALSE} (as the border will be drawn with only 1 step). Typical values
 #'   are 20 to 50 for visual smoothness.
+#' @param engine Character string specifying the computation engine to use: `"cpp"` (default)
+#'   or `"cpp_old"`.
 #' @inheritParams mosaic_analyze
 #' @inheritParams mosaic_index
 #' @inheritParams mosaic_view

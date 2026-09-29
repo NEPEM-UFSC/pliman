@@ -4,18 +4,24 @@
 \alias{pliman_available_models}
 \title{List Available Pre-Trained Neural Models}
 \usage{
-pliman_available_models(dir = pliman_model_dir())
+pliman_available_models(dir = pliman_model_dir(), refresh = FALSE)
 }
 \arguments{
 \item{dir}{Directory where models are stored (default: \code{pliman_model_dir()}).}
+
+\item{refresh}{Logical. If \code{TRUE}, forces re-fetching the asset catalog from GitHub releases (default \code{FALSE}).}
 }
 \value{
 A data frame containing model metadata and local availability.
 }
 \description{
-Lists all supported background removal and salient object detection models,
-their disk sizes, input resolutions, description, and local download status.
+Lists all supported background removal, object detection, segmentation, and classification models,
+their disk sizes, input resolutions, descriptions, local download status, and models dynamically
+discovered from GitHub release assets.
 }
 \examples{
+\dontrun{
 pliman_available_models()
+pliman_available_models(refresh = TRUE)
+}
 }

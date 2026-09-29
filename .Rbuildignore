@@ -20,3 +20,8 @@ vignettes
 ^imgs$
 ^Meta$
 ^CRAN-SUBMISSION$
+^runs$
+^capsulas_yolo2$
+^scratch$
+^weights$
+.*\.pt$

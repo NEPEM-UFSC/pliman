@@ -82,27 +82,14 @@ The value declared in each argument will define the brush size.}
 \item{filter_order}{A character vector indicating the order in which morphological
 operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
 
-\item{watershed}{If \code{TRUE} (default) performs watershed-based object
-detection. This will detect objects even when they are touching one other.
-If \code{FALSE}, all pixels for each connected set of foreground pixels are set
-to a unique object. This is faster but is not able to segment touching
-objects.}
+\item{watershed}{If \code{TRUE} (default) performs watershed-based object detection.}
 
-\item{tolerance}{The minimum height of the object in the units of image
-intensity between its highest point (seed) and the point where it contacts
-another object (checked for every contact pixel). If the height is smaller
-than the tolerance, the object will be combined with one of its neighbors,
-which is the highest. Values < 1.0 are interpreted as relative tolerance
-(percentage of the peak height). Values >= 1.0 are interpreted as absolute
-tolerance in pixels (linear Euclidean distance).}
+\item{tolerance}{Minimum height for watershed segmentation.}
 
-\item{extension}{Radius of the neighborhood in pixels for the detection of
-neighboring objects. Higher value smooths out small objects.}
+\item{extension}{Neighborhood radius for watershed segmentation.}
 
-\item{object_size}{The size of the object. Used to automatically set up
-\code{tolerance} and \code{extension} parameters. One of the following. \code{"small"}
-(e.g, wheat grains), \code{"medium"} (e.g, soybean grains), \code{"large"}(e.g, peanut
-grains), and \code{"elarge"} (e.g, soybean pods)`.}
+\item{object_size}{The size of the object (\code{"small"}, \code{"medium"}, \code{"large"}, \code{"elarge"}).
+Used to automatically set up \code{tolerance} and \code{extension} parameters.}
 
 \item{plot}{Show image after processing?}
 

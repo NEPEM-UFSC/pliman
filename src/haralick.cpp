@@ -54,8 +54,13 @@ NumericMatrix haralick_features_cpp(IntegerMatrix labels, SEXP ref_sexp, int nc 
     }
   } else if (TYPEOF(ref_sexp) == REALSXP) {
     double* p_ref = REAL(ref_sexp);
+    double max_val = 0.0;
     for (int i = 0; i < total_cells; i++) {
-      double val = p_ref[i];
+      if (p_ref[i] > max_val) max_val = p_ref[i];
+    }
+    double denom = (max_val > 1.0) ? 255.0 : 1.0;
+    for (int i = 0; i < total_cells; i++) {
+      double val = p_ref[i] / denom;
       if (val > 1.0) val = 1.0;
       if (val < 0.0) val = 0.0;
       int q = static_cast<int>(std::floor(val * (nc - 1)));

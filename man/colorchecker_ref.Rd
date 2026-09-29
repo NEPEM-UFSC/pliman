@@ -2,22 +2,13 @@
 % Please edit documentation in R/utils_imagem.R
 \name{colorchecker_ref}
 \alias{colorchecker_ref}
-\title{Extract Mean Colors from a Color Checker Card}
+\title{Standard ColorChecker Reference Chart}
 \usage{
 colorchecker_ref(chart = c("colorchecker24", "macbeth"))
 }
 \arguments{
 \item{chart}{The reference chart standard. Currently \code{"colorchecker24"} (default)
 or \code{"macbeth"}.}
-
-\item{img}{An \code{image} object.}
-
-\item{index}{The vegetation or color index string (e.g., "GRAY", "B", "R")
-passed to \code{pliman::image_binary()} to segment the card from the
-background. Default is \strong{"GRAY"}.}
-
-\item{nrow}{The number of rows of color patches on the card. If \strong{\code{NULL}}
-(default), the function automatically determines this based on the card's}
 }
 \value{
 A \code{data.frame} with 24 rows and columns:
@@ -30,17 +21,6 @@ A \code{data.frame} with 24 rows and columns:
 }
 }
 \description{
-This function identifies a color checker card in an image, finds its
-four corners to correct for perspective distortion, generates a grid
-corresponding to the color patches, and extracts the mean RGB values from
-the center of each patch.
-
-\strong{Note:} The function attempts to automatically guess appropriate values
-for the parameters related to the card's dimensions (\code{nrow}, \code{ncol}) and
-the sampling process (\code{erode}, \code{xpix}, \code{ypix}) based on the detected
-coverage area of the card in the image. You may override these guesses
-by providing explicit values.
-
 Provides the standard reference RGB values for the 24-patch ColorChecker
 Classic (Macbeth) chart in sRGB D65 color space.
 }
