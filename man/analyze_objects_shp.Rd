@@ -55,12 +55,9 @@ means no buffering and 0.5 means complete buffering (default: 0). A value of
 analysis using \code{\link[=image_prepare]{image_prepare()}} function. Defaults to \code{FALSE}. Set to
 \code{TRUE} to interactively align and crop the image before processing.}
 
-\item{segment_objects}{Segment objects in the image? Defaults to \code{TRUE}. In
-this case, objects are segmented using the index defined in the \code{index}
-argument, and each object is analyzed individually. If \code{segment_objects = FALSE} is used, the objects are not segmented and the entire image is
-analyzed. This is useful, for example, when analyzing an image without
-background, where an \code{object_index} could be computed for the entire image,
-like the index of a crop canopy.}
+\item{segment_objects}{Segment objects in the image? Defaults to \code{TRUE}. If
+\code{segment_objects = FALSE}, the objects are not segmented and the entire image
+is analyzed (useful for whole-canopy indices).}
 
 \item{viewer}{The viewer option. If not provided, the value is retrieved
 using \code{\link[=get_pliman_viewer]{get_pliman_viewer()}}. This option controls the type of viewer to use
@@ -72,15 +69,9 @@ argument globally for all functions in the package, you can use the
 \code{set_pliman_viewer("mapview")} to set the viewer option to "mapview" for
 all functions.}
 
-\item{index}{A character value specifying the target mode for conversion to
-binary image when \code{foreground} and \code{background} are not declared. Defaults
-to \code{"NB"} (normalized blue). See \code{\link[=image_index]{image_index()}} for more details. User can
-also calculate your own index using the bands names, e.g. \code{index = "R+B/G"}}
+\item{index}{A character value specifying the index for conversion to binary image.}
 
-\item{r, g, b, re, nir}{The red, green, blue, red-edge, and near-infrared bands
-of the image, respectively. Defaults to 1, 2, 3, 4, and 5, respectively. If
-a multispectral image is provided (5 bands), check the order of bands,
-which are frequently presented in the 'BGR' format.}
+\item{r, g, b, re, nir}{The red, green, blue, red-edge, and near-infrared bands, respectively.}
 
 \item{shapefile}{(Optional) An object created with \code{\link[=image_shp]{image_shp()}}. If \code{NULL}
 (default), both \code{nrow} and \code{ncol} must be declared.}
@@ -91,72 +82,29 @@ that will contain the grid.}
 
 \item{plot}{Plots the processed images? Defaults to \code{FALSE}.}
 
-\item{parallel}{If \code{TRUE} processes the images asynchronously (in parallel) in
-separate R sessions running in the background on the same machine. It may
-speed up the processing time, especially when \code{pattern} is used is informed.
-When \code{object_index} is informed, multiple sections will be used to extract
-the RGB values for each object in the image. This may significantly speed up
-processing time when an image has lots of objects (say >1000).}
+\item{parallel}{If \code{TRUE} processes the images asynchronously in parallel.}
 
-\item{workers}{A positive numeric scalar or a function specifying the number
-of parallel processes that can be active at the same time. By default, the
-number of sections is set up to 30\% of available cores.}
+\item{workers}{Number of parallel processes.}
 
-\item{watershed}{If \code{TRUE} (default) performs watershed-based object
-detection. This will detect objects even when they are touching one other.
-If \code{FALSE}, all pixels for each connected set of foreground pixels are set
-to a unique object. This is faster but is not able to segment touching
-objects.}
+\item{watershed}{If \code{TRUE} (default) performs watershed-based object detection.}
 
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
-size)}, applied in hierarchical order.
-\itemize{
-\item \code{opening} performs an erosion followed by a dilation. This helps to
-remove small objects while preserving the shape and size of larger objects.
-\item \code{closing} performs a dilatation followed by an erosion. This helps to
-fill small holes while preserving the shape and size of larger objects.
-\item \code{filter} performs median filtering in the binary image. Provide a positive
-integer > 1 to indicate the size of the median filtering. Higher values are
-more efficient to remove noise in the background but can dramatically impact
-the perimeter of objects, mainly for irregular perimeters such as leaves
-with serrated edges.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-}}
+size)}, applied in hierarchical order.}
 
 \item{object_size}{Argument to control control the watershed segmentation.
 See \code{\link[=analyze_objects]{analyze_objects()}} for more details.}
 
-\item{efourier}{Logical argument indicating if Elliptical Fourier should be
-computed for each object. This will call \code{\link[=efourier]{efourier()}} internally. It
-\code{efourier = TRUE} is used, both standard and normalized Fourier coefficients
-are returned.}
+\item{efourier}{Logical argument indicating if Elliptical Fourier should be computed.}
 
-\item{object_index}{Defaults to \code{FALSE}. If an index is informed, the average
-value for each object is returned. It can be the R, G, and B values or any
-operation involving them, e.g., \code{object_index = "R/B"}. In this case, it
-will return for each object in the image, the average value of the R/B
-ratio. Use \code{\link[=pliman_indexes_eq]{pliman_indexes_eq()}} to see the equations of available indexes.}
+\item{object_index}{If informed, the average index value for each object is returned.}
 
-\item{veins}{Logical argument indicating whether vein features are computed per object.
-Defaults to \code{FALSE}. If \code{TRUE}, detects veins using Difference of Gaussians (DoG)
-bandpass filtering and dynamic resolution-independent boundary erosion.}
+\item{veins}{Logical argument indicating whether vein features are computed per object.}
 
-\item{width_at}{Logical. If \code{TRUE}, the widths of the object at a given set
-of quantiles of the height are computed.}
+\item{width_at}{Logical. If \code{TRUE}, widths at quantiles of height are computed.}
 
-\item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
+\item{verbose}{If \code{TRUE} (default) shows progress summary in console.}
 
-\item{invert}{Inverts the binary image if desired. This is useful to process
-images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}
-is use, \code{invert} can be declared as a logical vector of length 2 (eg.,
-\verb{invert = c(FALSE, TRUE}). In this case, the segmentation of objects and
-reference from the foreground using \code{back_fore_index} is performed using the
-default (not inverted), and the segmentation of objects from the reference
-is performed by inverting the selection (selecting pixels higher than the
-threshold).}
+\item{invert}{Inverts the binary image if desired.}
 
 \item{...}{Aditional arguments passed on to \link{analyze_objects}.}
 }

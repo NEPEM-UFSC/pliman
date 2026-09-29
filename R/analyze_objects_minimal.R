@@ -5,6 +5,7 @@
 #' @export
 #' @name analyze_objects_minimal
 #' @inheritParams analyze_objects
+#' @param r,g,b,re,nir The red, green, blue, red-edge, and near-infrared bands, respectively.
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @examples
@@ -698,7 +699,11 @@ analyze_objects_minimal <- function(img,
 
 
 #' @name analyze_objects_minimal
-#' @inheritParams plot.analyze_objects
+#' @param which Which to plot. Either 'measure' (object measures) or 'index'
+#'   (object index). Defaults to `"measure"`.
+#' @param measure The measure to plot. Defaults to `"area"`.
+#' @param type The type of plot. Either `"hist"` or `"density"`. Partial matches
+#'   are recognized.
 #' @method plot anal_obj_minimal
 #' @export
 #'

@@ -298,6 +298,8 @@ image_dilate <- function(img,
 #'
 #' @param img An `image` object or a list of `image` objects. Must be binary
 #'   (`storage.mode = "logical"`).
+#' @param max_size Maximum size of holes to fill (in pixels). Default is `NULL` (fills all holes).
+#' @param min_neck_dist Minimum neck distance threshold for hole filling. Default is `0.0`.
 #' @param parallel Logical. If `TRUE`, processes the list of images in parallel.
 #' @param workers Number of parallel workers. If `NULL`, defaults to 40% of
 #'   available cores.

@@ -49,37 +49,13 @@ tolerance in pixels (linear Euclidean distance).}
 neighboring objects. A higher value smooths out small objects.}
 
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
-size)}, applied in hierarchical order.
-\itemize{
-\item \code{opening} performs an erosion followed by a dilation. This helps to
-remove small objects while preserving the shape and size of larger objects.
-\item \code{closing} performs a dilatation followed by an erosion. This helps to
-fill small holes while preserving the shape and size of larger objects.
-\item \code{filter} performs median filtering in the binary image. Provide a positive
-integer > 1 to indicate the size of the median filtering. Higher values are
-more efficient to remove noise in the background but can dramatically impact
-the perimeter of objects, mainly for irregular perimeters such as leaves
-with serrated edges.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-}}
+size)}, applied in hierarchical order.}
 
 \item{fill_hull}{Fill holes in the binary image? Defaults to \code{FALSE}.}
 
-\item{lower_size, upper_size}{Lower and upper limits for size for the image
-analysis. Plant images often contain dirt and dust.  Upper limit is set to
-\code{NULL}, i.e., no upper limit used. One can set a known area or use
-\code{lower_size = 0} to select all objects (not advised). Objects that matches
-the size of a given range of sizes can be selected by setting up the two
-arguments. For example, if \code{lower_size = 120} and \code{upper_size = 140},
-objects with size greater than or equal 120 and less than or equal 140 will
-be considered.}
+\item{lower_size, upper_size}{Lower and upper size limits for object filtering.}
 
-\item{topn_lower, topn_upper}{Select the top \code{n} objects based on its area.
-\code{topn_lower} selects the \code{n} elements with the smallest area whereas
-\code{topn_upper} selects the \code{n} objects with the largest area.}
+\item{topn_lower, topn_upper}{Select top \code{n} objects based on area.}
 
 \item{smooth}{Smoothes the contours using a moving average filter. Default is
 \code{FALSE}.}

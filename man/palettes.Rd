@@ -28,13 +28,7 @@ image_palette(
 \arguments{
 \item{img}{An image object.}
 
-\item{pattern}{A pattern of file name used to identify images to be imported.
-For example, if \code{pattern = "im"} all images in the current working directory
-that the name matches the pattern (e.g., img1.-, image1.-, im2.-) will be
-imported as a list. Providing any number as pattern (e.g., \code{pattern = "1"})
-will select images that are named as 1.-, 2.-, and so on. An error will be
-returned if the pattern matches any file that is not supported (e.g.,
-img1.pdf).}
+\item{pattern}{A pattern of file name used to identify images to be imported.}
 
 \item{npal}{The number of color palettes.}
 
@@ -51,35 +45,24 @@ algorithm be applied.}
 \item{index}{An image index used to remove the background, passed to
 \code{\link[=image_binary]{image_binary()}}.}
 
-\item{filter_order}{A character vector indicating the order in which morphological
-operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
+\item{filter_order}{Hierarchical order of morphological operations.}
 
 \item{plot}{Plot the generated palette? Defaults to \code{TRUE}.}
 
-\item{save_image}{Save the image after processing? The image is saved in the
-current working directory named as \verb{proc_*} where \code{*} is the image name
-given in \code{img}.}
+\item{save_image}{Save the image after processing?}
 
-\item{prefix}{The prefix to be included in the processed images. Defaults to
-\code{"proc_"}.}
+\item{prefix}{Prefix for processed images.}
 
-\item{dir_original, dir_processed}{The directory containing the original and
-processed images. Defaults to \code{NULL}. In this case, the function will search
-for the image \code{img} in the current working directory. After processing, when
-\code{save_image = TRUE}, the processed image will be also saved in such a
-directory. It can be either a full path, e.g., \code{"C:/Desktop/imgs"}, or a
-subfolder within the current working directory, e.g., \code{"/imgs"}.}
+\item{dir_original, dir_processed}{Directories for original and processed images.}
 
 \item{return_pal}{Return the color palette image? Defaults to \code{FALSE}.}
 
 \item{parallel}{If TRUE processes the images asynchronously (in parallel) in
 separate R sessions running in the background on the same machine.}
 
-\item{workers}{A positive numeric scalar or a function specifying the number
-of parallel processes that can be active at the same time. By default, the
-number of sections is set up to 30\% of available cores.}
+\item{workers}{Number of parallel processes.}
 
-\item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
+\item{verbose}{If \code{TRUE} (default) shows progress summary in console.}
 }
 \value{
 \code{image_palette()} returns a list with two elements:

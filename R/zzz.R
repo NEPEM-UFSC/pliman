@@ -83,7 +83,8 @@ if (getRversion() >= "2.15.1") {
       "re", "nir", "coverage_fraction", "sigma", "summarize_quantiles", "prop", "plot_id_seq",
       "B1", "B2", "B3", "cluster", "h", "s", "column", "data", "plot_area", "unique_id",
       "diam_max", "uuids", ".progress", "show", "caliper", "width",
-      "utils_contours"))
+      "utils_contours", "coverage", "lp", "mask_disease", "mask_leaf",
+      "mind_temp", "p_dir", "progress_bar", "shp"))
 }
 
 
@@ -157,6 +158,16 @@ set_pliman_viewer <- function(value) {
   )
   toset <- !(names(op.pliman) %in% names(op))
   if (any(toset)) options(op.pliman[toset])
+
+  # Safely wipe any dangling ghost progress bars from previously interrupted sessions
+  try({
+    cli::cli_progress_cleanup()
+    cli_ns <- asNamespace("cli")
+    if (exists("clienv", envir = cli_ns, inherits = FALSE)) {
+      if (exists("progress", envir = cli_ns$clienv)) assign("progress", list(), envir = cli_ns$clienv)
+      if (exists("status_bars", envir = cli_ns$clienv)) assign("status_bars", list(), envir = cli_ns$clienv)
+    }
+  }, silent = TRUE)
 }
 
 .onUnload <- function(libpath) {

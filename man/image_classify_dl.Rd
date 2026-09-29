@@ -2,18 +2,21 @@
 % Please edit documentation in R/utils_neural.R
 \name{image_classify_dl}
 \alias{image_classify_dl}
-\title{Real-Time Image Classification with YOLO26}
+\title{Real-Time and Zero-Shot Image Classification}
 \usage{
 image_classify_dl(
   img,
-  model = "yolo26n-cls",
-  top_k = 5,
+  candidates = NULL,
+  model = NULL,
+  top_k = NULL,
   labels = NULL,
+  format_prompt = TRUE,
+  plot = FALSE,
+  col = "#2b5c8f",
   threads = 0,
   engine = c("cpu", "gpu"),
   device_id = -1,
   verbose = TRUE,
-  plot = FALSE,
   dir = pliman_model_dir(),
   ...
 )
@@ -21,12 +24,23 @@ image_classify_dl(
 \arguments{
 \item{img}{An \code{Image} object, a 2D/3D numeric array, a path to an image file, or a list of images.}
 
-\item{model}{Model name or path to a custom ONNX file. Defaults to \code{"yolo26n-cls"}.
-Options include \code{"yolo26n-cls"}, \code{"yolo26s-cls"}, \code{"yolo26m-cls"}, \code{"yolo26l-cls"}.}
+\item{candidates}{An optional character vector of candidate class names or natural language descriptions.
+When supplied, performs zero-shot open-vocabulary classification using CLIP. Defaults to \code{NULL}.}
 
-\item{top_k}{Integer. Number of top class predictions to return (default 5).}
+\item{model}{Model name or path to a custom ONNX file. Defaults to \code{"yolo26n-cls"} when \code{candidates = NULL},
+or \code{"clip-vit-b32"} when \code{candidates} is provided.}
+
+\item{top_k}{Integer. Number of top class predictions to return (defaults to 5 for YOLO models,
+or \code{length(candidates)} for CLIP zero-shot classification).}
 
 \item{labels}{Optional character vector of class names (defaults to 1,000 standard ImageNet classes).}
+
+\item{format_prompt}{Logical. If \code{TRUE} (default), candidate strings that do not contain
+\code{"photo"} or \code{"a "} are automatically formatted as \code{"a photo of a {candidate}"} for optimal CLIP zero-shot accuracy.}
+
+\item{plot}{Logical. Whether to display the image with top predicted class labels (or horizontal bar chart for CLIP).}
+
+\item{col}{Fill color for probability bar chart when \code{candidates} is supplied (default \code{"#2b5c8f"}).}
 
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 
@@ -36,22 +50,27 @@ Options include \code{"yolo26n-cls"}, \code{"yolo26s-cls"}, \code{"yolo26m-cls"}
 
 \item{verbose}{Logical. Whether to show progress messages.}
 
-\item{plot}{Logical. Whether to display the image with top predicted class labels.}
-
 \item{dir}{Model directory (default \code{pliman_model_dir()}).}
 
-\item{...}{Additional arguments passed to \code{\link[graphics:plot]{graphics::plot()}}.}
+\item{...}{Additional arguments passed to \code{\link[graphics:plot]{graphics::plot()}} or \code{\link[graphics:barplot]{graphics::barplot()}}.}
 }
 \value{
-A data frame containing top predictions (\code{rank}, \code{class}, \code{probability}).
+A data frame containing top predictions.
 }
 \description{
-Classifies images using pre-trained YOLO26 classification models across 1,000 ImageNet categories.
+Classifies images using pre-trained YOLO26 classification models across
+1,000 ImageNet categories, or open-vocabulary text candidates using OpenAI
+CLIP (ViT-B/32) cross-modal embeddings and cosine similarity softmax.
 }
 \examples{
 \dontrun{
   library(pliman)
   img <- image_import("sample.png")
+  # YOLO classification
   image_classify_dl(img)
+
+  # CLIP zero-shot classification
+  res <- image_classify_dl(img, candidates = c("healthy leaf", "rust lesion", "insect damage"))
+  print(res)
 }
 }

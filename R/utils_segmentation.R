@@ -25,6 +25,8 @@
 #'   flooding.
 #' @param min_size Minimum area (in pixels) for an object segment retained after watershed.
 #' @param rel_size Relative threshold as a fraction of the mean segment area (e.g. `0.1` for 10% of mean area).
+#' @param fill_hull Logical. Fill holes in the binary mask before watershed segmentation. Default is `FALSE`.
+#' @param max_size Maximum area (in pixels) for an object segment retained after watershed. Default is `NULL`.
 #'
 #' @return A grayscale `image` object containing the labels.
 #' @importFrom methods .hasSlot slot

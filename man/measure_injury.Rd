@@ -26,60 +26,18 @@ measure_injury(
 \arguments{
 \item{img}{The image to be analyzed.}
 
-\item{pattern}{A pattern of file name used to identify images to be imported.
-For example, if \code{pattern = "im"} all images in the current working directory
-that the name matches the pattern (e.g., img1.-, image1.-, im2.-) will be
-imported as a list. Providing any number as pattern (e.g., \code{pattern = "1"})
-will select images that are named as 1.-, 2.-, and so on. An error will be
-returned if the pattern matches any file that is not supported (e.g.,
-img1.pdf).}
+\item{pattern}{A pattern of file name used to identify images to be imported.}
 
-\item{index}{A character value specifying the target mode for conversion to
-binary image when \code{foreground} and \code{background} are not declared. Defaults
-to \code{"NB"} (normalized blue). See \code{\link[=image_index]{image_index()}} for more details. User can
-also calculate your own index using the bands names, e.g. \code{index = "R+B/G"}}
+\item{index}{A character value specifying the index for conversion to binary image.}
 
-\item{threshold}{The theshold method to be used.
-\itemize{
-\item By default (\code{threshold = "Otsu"}), a threshold value based
-on Otsu's method is used to reduce the grayscale image to a binary image. If
-a numeric value is informed, this value will be used as a threshold.
-\item If \code{threshold = "adaptive"}, adaptive thresholding (Shafait et al. 2008)
-is used, and will depend on the \code{k} and \code{windowsize} arguments.
-\item If any non-numeric value different than \code{"Otsu"} and \code{"adaptive"} is used,
-an iterative section will allow you to choose the threshold based on a
-raster plot showing pixel intensity of the index.
-}}
+\item{threshold}{The threshold method (\code{"Otsu"}, \code{"Adaptive"}, or numeric).}
 
-\item{invert}{Inverts the binary image if desired. This is useful to process
-images with a black background. Defaults to \code{FALSE}. If \code{reference = TRUE}
-is use, \code{invert} can be declared as a logical vector of length 2 (eg.,
-\verb{invert = c(FALSE, TRUE}). In this case, the segmentation of objects and
-reference from the foreground using \code{back_fore_index} is performed using the
-default (not inverted), and the segmentation of objects from the reference
-is performed by inverting the selection (selecting pixels higher than the
-threshold).}
+\item{invert}{Inverts the binary image if desired.}
 
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
-size)}, applied in hierarchical order.
-\itemize{
-\item \code{opening} performs an erosion followed by a dilation. This helps to
-remove small objects while preserving the shape and size of larger objects.
-\item \code{closing} performs a dilatation followed by an erosion. This helps to
-fill small holes while preserving the shape and size of larger objects.
-\item \code{filter} performs median filtering in the binary image. Provide a positive
-integer > 1 to indicate the size of the median filtering. Higher values are
-more efficient to remove noise in the background but can dramatically impact
-the perimeter of objects, mainly for irregular perimeters such as leaves
-with serrated edges.
-\item \code{erode} puts the mask over every foreground pixel, and sets it to
-background if any of the pixels covered by the mask is from the background.
-\item \code{dilate} puts the mask over every background pixel, and sets it to
-foreground if any of the pixels covered by the mask is from the foreground.
-}}
+size)}, applied in hierarchical order.}
 
-\item{filter_order}{A character vector indicating the order in which morphological
-operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closing", "filter", "fill_hull")}.}
+\item{filter_order}{Hierarchical order of morphological operations.}
 
 \item{plot}{Show image after processing?}
 
@@ -87,18 +45,11 @@ operations are applied. Defaults to \code{c("erode", "dilate", "opening", "closi
 images. Defaults to NULL. In this case, the function will search for the
 image img in the current working directory.}
 
-\item{parallel}{If \code{TRUE} processes the images asynchronously (in parallel) in
-separate R sessions running in the background on the same machine. It may
-speed up the processing time, especially when \code{pattern} is used is informed.
-When \code{object_index} is informed, multiple sections will be used to extract
-the RGB values for each object in the image. This may significantly speed up
-processing time when an image has lots of objects (say >1000).}
+\item{parallel}{If \code{TRUE} processes the images asynchronously in parallel.}
 
-\item{workers}{A positive numeric scalar or a function specifying the number
-of parallel processes that can be active at the same time. By default, the
-number of sections is set up to 30\% of available cores.}
+\item{workers}{Number of parallel processes.}
 
-\item{verbose}{If \code{TRUE} (default) a summary is shown in the console.}
+\item{verbose}{If \code{TRUE} (default) shows progress summary in console.}
 }
 \value{
 A numeric value representing the injury percentage for a single

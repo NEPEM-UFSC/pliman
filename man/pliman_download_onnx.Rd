@@ -31,7 +31,7 @@ and \strong{zero Python}.
 }
 \details{
 Automatically detects the host operating system (Windows, Linux, or macOS),
-downloads the pre-compiled CPU binary (~15–60 MB), extracts the shared library
+downloads the pre-compiled CPU binary (~15-60 MB), extracts the shared library
 (\code{onnxruntime.dll} on Windows, \code{libonnxruntime.so} on Linux, \code{libonnxruntime.dylib} on macOS),
 places it in \code{pliman}'s binary directory, and configures the environment.
 }

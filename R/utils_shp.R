@@ -598,6 +598,7 @@ image_align <- function(img,
 #'
 #' @inheritParams analyze_objects
 #' @inheritParams  image_shp
+#' @param r,g,b,re,nir The red, green, blue, red-edge, and near-infrared bands, respectively.
 #'
 #' @param img An `image` object
 #' @param nrow,ncol The number of rows and columns to generate the shapefile
