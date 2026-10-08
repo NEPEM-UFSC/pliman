@@ -689,10 +689,10 @@ yolo_fewshot_fit <- function(img,
 
     for (s in seq_along(img_list)) {
       curr_target <- img_list[[s]]
-      curr_im <- if (is.character(curr_target) && file.exists(curr_target[1])) {
-        image_import(curr_target[1])
-      } else if (inherits(curr_target, c("image", "Image"))) {
+      curr_im <- if (inherits(curr_target, c("image", "Image"))) {
         curr_target
+      } else if (is.character(curr_target)) {
+        image_import(curr_target[1])
       } else {
         as_image(curr_target)
       }
@@ -981,10 +981,10 @@ yolo_fewshot_fit <- function(img,
 
   # Single Image Training Mode
   img_single <- img_list[[1]]
-  im <- if (is.character(img_single) && file.exists(img_single[1])) {
-    image_import(img_single[1])
-  } else if (inherits(img_single, c("image", "Image"))) {
+  im <- if (inherits(img_single, c("image", "Image"))) {
     img_single
+  } else if (is.character(img_single)) {
+    image_import(img_single[1])
   } else {
     as_image(img_single)
   }
@@ -1467,10 +1467,10 @@ yolo_fewshot_predict <- function(model,
     cli::cli_abort("{.arg model} must be a {.cls yolo_fewshot_model} from {.fn yolo_fewshot_fit}.")
   }
 
-  im <- if (is.character(img) && file.exists(img[1])) {
-    image_import(img[1])
-  } else if (inherits(img, c("image", "Image"))) {
+  im <- if (inherits(img, c("image", "Image"))) {
     img
+  } else if (is.character(img)) {
+    image_import(img[1])
   } else {
     as_image(img)
   }
