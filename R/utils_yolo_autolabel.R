@@ -40,6 +40,7 @@
 #'   or `"adaptive"` (fast color-texture morphology). Defaults to `"sam"`.
 #' @param engine Execution engine for SAM: `"cpu"` or `"gpu"`. Defaults to `"cpu"`.
 #' @param device_id GPU device ID if `engine = "gpu"`. Defaults to `-1`.
+#' @param interactive Logical. Whether to enable interactive review and refinement after exemplar segmentation (allows adding missed objects, removing false positives, adjusting threshold, or resampling). Defaults to `interactive()`.
 #' @param rainbow Logical. If `TRUE` (default), plots instances in distinct rainbow colors..
 #' @param plot Logical. Display the detection and segmentation overlay. Defaults to `TRUE`.
 #' @param verbose Logical. Show progress messages. Defaults to `TRUE`.
@@ -60,6 +61,471 @@
 #' # 3. Auto-label entire directory of 300 photos into a YOLO dataset
 #' ds <- yolo_dataset_autolabel("toras_raw/", model = modelo_tora, output_dir = "dataset_toras_yolo")
 #' }
+
+.point_in_polygon <- function(px, py, pol_x, pol_y) {
+  n <- length(pol_x)
+  if (n < 3L) return(FALSE)
+  inside <- FALSE
+  j <- n
+  for (i in seq_len(n)) {
+    xi <- pol_x[i]; yi <- pol_y[i]
+    xj <- pol_x[j]; yj <- pol_y[j]
+    if (((yi > py) != (yj > py)) &&
+        (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+      inside <- !inside
+    }
+    j <- i
+  }
+  inside
+}
+
+.render_fewshot_review_plot <- function(im,
+                                        boxes = data.frame(),
+                                        polygons = list(),
+                                        exemplar_points = NULL,
+                                        task = "segment",
+                                        label = "object",
+                                        conf_threshold = 0.5,
+                                        rainbow = TRUE,
+                                        img_name = "",
+                                        img_idx = 1L,
+                                        total_imgs = 1L) {
+  w <- dim(im)[1]
+  h <- dim(im)[2]
+  n_b <- if (is.data.frame(boxes)) nrow(boxes) else 0L
+  n_p <- if (is.list(polygons)) length(polygons) else 0L
+  n_inst <- if (task == "segment" && n_p > 0L) n_p else n_b
+
+  plot(im)
+
+  if (isTRUE(rainbow) && n_inst > 0L) {
+    cols_border <- grDevices::rainbow(n_inst, s = 0.85, v = 0.95)
+    cols_poly <- grDevices::adjustcolor(cols_border, alpha.f = 0.40)
+  } else {
+    cols_border <- rep("#00FFCC", max(1L, n_inst))
+    cols_poly <- rep("#00FFCC55", max(1L, n_inst))
+  }
+
+  # 1. Draw segmentation polygons
+  if (identical(task, "segment") && n_p > 0L) {
+    for (i in seq_along(polygons)) {
+      poly <- polygons[[i]]
+      if (!is.null(poly) && length(poly) >= 6L) {
+        px <- poly[c(TRUE, FALSE)] * w
+        py <- poly[c(FALSE, TRUE)] * h
+        cb <- cols_border[((i - 1L) %% length(cols_border)) + 1L]
+        cp <- cols_poly[((i - 1L) %% length(cols_poly)) + 1L]
+        graphics::polygon(px, py, col = cp, border = cb, lwd = 2)
+      }
+    }
+  }
+
+  # 2. Draw bounding boxes (if detect, or if segment has boxes and no polygons)
+  if (identical(task, "detect") && n_b > 0L) {
+    for (b in seq_len(n_b)) {
+      bx <- boxes[b, ]
+      cb <- cols_border[((b - 1L) %% length(cols_border)) + 1L]
+      graphics::rect(bx$xmin, bx$ymin, bx$xmax, bx$ymax, border = cb, lwd = 2)
+      score_txt <- if (!is.null(bx$conf) && !is.na(bx$conf)) sprintf("%.2f", bx$conf) else ""
+      lbl_txt <- if (!is.null(bx$class_name) && nzchar(bx$class_name)) bx$class_name else label
+      tag <- if (nzchar(score_txt)) paste0(lbl_txt, " ", score_txt) else lbl_txt
+      tw <- graphics::strwidth(tag, cex = 0.7)
+      th <- graphics::strheight(tag, cex = 0.7)
+      y_top <- max(th + 6, bx$ymin)
+      bg_tag <- grDevices::adjustcolor(cb, alpha.f = 0.90)
+      graphics::rect(bx$xmin, y_top - th - 6, bx$xmin + tw + 6, y_top, col = bg_tag, border = NA)
+      graphics::text(bx$xmin + 3, y_top - 3, labels = tag, col = "#FFFFFF", cex = 0.7, font = 2, adj = c(0, 1))
+    }
+  }
+
+  # 3. Draw exemplar points as small yellow dots
+  if (!is.null(exemplar_points) && length(exemplar_points) > 0L) {
+    if (is.matrix(exemplar_points) || is.data.frame(exemplar_points)) {
+      graphics::points(exemplar_points[, 1], exemplar_points[, 2], col = "#FFFF00", pch = 19, cex = 1.3)
+      graphics::points(exemplar_points[, 1], exemplar_points[, 2], col = "#000000", pch = 1, cex = 1.3, lwd = 1.5)
+    }
+  }
+
+  # Title with metadata
+  title_str <- sprintf("Image [%d/%d] (%s): %d %s [%s, conf >= %.2f]",
+                       img_idx, total_imgs, img_name, n_inst, label, task, conf_threshold)
+  graphics::title(main = title_str, font.main = 2, col.main = "#006622", cex.main = 1.05)
+}
+
+.interactive_fewshot_review_step <- function(curr_im,
+                                             r_boxes,
+                                             r_polys,
+                                             curr_points,
+                                             c_num_arr,
+                                             cw,
+                                             ch,
+                                             pre_proto,
+                                             task = "segment",
+                                             label = "object",
+                                             conf_threshold = 0.50,
+                                             radius = NULL,
+                                             min_dist = 12,
+                                             max_objects = NULL,
+                                             method = "sam",
+                                             engine = "gpu",
+                                             device_id = -1,
+                                             rainbow = TRUE,
+                                             img_name = "",
+                                             img_idx = 1L,
+                                             total_imgs = 1L) {
+  .render_fewshot_review_plot(
+    im = curr_im,
+    boxes = r_boxes,
+    polygons = r_polys,
+    exemplar_points = curr_points,
+    task = task,
+    label = label,
+    conf_threshold = conf_threshold,
+    rainbow = rainbow,
+    img_name = img_name,
+    img_idx = img_idx,
+    total_imgs = total_imgs
+  )
+
+  deleted_centers <- list()
+  curr_conf <- conf_threshold
+
+  repeat {
+    n_inst <- if (identical(task, "segment") && length(r_polys) > 0L) length(r_polys) else nrow(r_boxes)
+    cat("\n")
+    cli::cli_rule(left = paste0("Few-Shot Review [", img_name, "]"))
+    cli::cli_alert_success("{n_inst} instance(s) detected [task: {.val {task}}, conf >= {curr_conf}].")
+    cli::cli_bullets(c(
+      "*" = "{.bold [Enter] / c}: Accept detections and proceed to next image",
+      "*" = "{.bold r}: Remove false positives (click on masks/boxes to delete, <Esc> when done)",
+      "*" = "{.bold a}: Add missed objects (click on objects, <Esc> when done)",
+      "*" = "{.bold t <val>}: Adjust confidence threshold (e.g. {.code t 0.70} or {.code t 0.50})",
+      "*" = "{.bold s}: Sample again (clear exemplars and re-click points for this image)",
+      "*" = "{.bold q}: Quit / finish model fitting now with completed images"
+    ))
+
+    ans <- tolower(trimws(readline("Select action [Enter to accept]: ")))
+
+    if (ans == "" || ans %in% c("c", "continue", "y", "yes", "ok")) {
+      return(list(
+        action = "continue",
+        boxes = r_boxes,
+        polygons = r_polys,
+        points = curr_points,
+        conf = curr_conf
+      ))
+    }
+
+    if (ans %in% c("s", "sample", "resample", "retry")) {
+      return(list(action = "resample"))
+    }
+
+    if (ans %in% c("q", "quit", "stop", "abort")) {
+      return(list(
+        action = "stop",
+        boxes = r_boxes,
+        polygons = r_polys,
+        points = curr_points,
+        conf = curr_conf
+      ))
+    }
+
+    if (ans %in% c("r", "remove", "delete", "d")) {
+      cli::cli_alert_info("Click on masks or bounding boxes to remove them.")
+      cli::cli_alert_info("Press <Esc> or right-click when finished.")
+
+      del_pts <- tryCatch(
+        graphics::locator(n = 200, type = "p", pch = 4, col = "#FF0033", cex = 1.6, lwd = 2.5),
+        error = function(e) NULL
+      )
+
+      if (!is.null(del_pts) && length(del_pts$x) > 0L) {
+        remove_idx <- integer()
+        for (pt_i in seq_along(del_pts$x)) {
+          cx <- del_pts$x[pt_i]; cy <- del_pts$y[pt_i]
+          best_match <- NULL
+          best_dist <- Inf
+
+          if (identical(task, "segment") && length(r_polys) > 0L) {
+            for (pi in seq_along(r_polys)) {
+              if (pi %in% remove_idx) next
+              poly <- r_polys[[pi]]
+              if (is.null(poly) || length(poly) < 6L) next
+              px <- poly[c(TRUE, FALSE)] * cw
+              py <- poly[c(FALSE, TRUE)] * ch
+              cent_x <- mean(px); cent_y <- mean(py)
+              d_cent <- (cent_x - cx)^2 + (cent_y - cy)^2
+
+              inside <- .point_in_polygon(cx, cy, px, py)
+              if (inside) {
+                if (d_cent < best_dist) {
+                  best_dist <- d_cent
+                  best_match <- pi
+                }
+              } else if (d_cent < (min(cw, ch) * 0.08)^2 && d_cent < best_dist) {
+                best_dist <- d_cent
+                best_match <- pi
+              }
+            }
+          } else if (nrow(r_boxes) > 0L) {
+            for (bi in seq_len(nrow(r_boxes))) {
+              if (bi %in% remove_idx) next
+              bx <- r_boxes[bi, ]
+              cent_x <- (bx$xmin + bx$xmax) / 2
+              cent_y <- (bx$ymin + bx$ymax) / 2
+              d_cent <- (cent_x - cx)^2 + (cent_y - cy)^2
+
+              inside <- (cx >= bx$xmin && cx <= bx$xmax && cy >= bx$ymin && cy <= bx$ymax)
+              if (inside) {
+                if (d_cent < best_dist) {
+                  best_dist <- d_cent
+                  best_match <- bi
+                }
+              } else if (d_cent < (min(cw, ch) * 0.08)^2 && d_cent < best_dist) {
+                best_dist <- d_cent
+                best_match <- bi
+              }
+            }
+          }
+
+          if (!is.null(best_match)) {
+            remove_idx <- c(remove_idx, best_match)
+          }
+        }
+
+        remove_idx <- unique(remove_idx)
+        if (length(remove_idx) > 0L) {
+          if (nrow(r_boxes) > 0L) {
+            for (ri in remove_idx) {
+              if (ri <= nrow(r_boxes)) {
+                deleted_centers[[length(deleted_centers) + 1L]] <- c(
+                  (r_boxes$xmin[ri] + r_boxes$xmax[ri]) / 2,
+                  (r_boxes$ymin[ri] + r_boxes$ymax[ri]) / 2
+                )
+              }
+            }
+            r_boxes <- r_boxes[-remove_idx, , drop = FALSE]
+          }
+          if (length(r_polys) > 0L) {
+            r_polys <- r_polys[-remove_idx]
+          }
+
+          cli::cli_alert_success("Removed {length(remove_idx)} instance(s). {if (identical(task, 'segment') && length(r_polys) > 0L) length(r_polys) else nrow(r_boxes)} remaining.")
+          .render_fewshot_review_plot(
+            im = curr_im,
+            boxes = r_boxes,
+            polygons = r_polys,
+            exemplar_points = curr_points,
+            task = task,
+            label = label,
+            conf_threshold = curr_conf,
+            rainbow = rainbow,
+            img_name = img_name,
+            img_idx = img_idx,
+            total_imgs = total_imgs
+          )
+        } else {
+          cli::cli_alert_warning("No instance was close to the clicked point(s).")
+        }
+      }
+      next
+    }
+
+    if (ans %in% c("a", "add")) {
+      cli::cli_alert_info("Click on missed objects to add them.")
+      cli::cli_alert_info("Press <Esc> or right-click when finished.")
+
+      add_pts <- tryCatch(
+        graphics::locator(n = 64, type = "p", pch = 3, col = "#00FF66", cex = 1.4, lwd = 2.5),
+        error = function(e) NULL
+      )
+
+      if (!is.null(add_pts) && length(add_pts$x) > 0L) {
+        new_coords <- cbind(x = add_pts$x, y = add_pts$y)
+        curr_points <- if (!is.null(curr_points)) rbind(curr_points, new_coords) else new_coords
+
+        cli::cli_alert_info("Re-evaluating with {nrow(new_coords)} added exemplar point(s)...")
+        new_pres <- tryCatch({
+          .run_persam(
+            mat = c_num_arr,
+            exemplar_points = curr_points,
+            precomputed_prototypes = pre_proto,
+            sim_threshold = curr_conf,
+            min_dist = min_dist,
+            max_objects = max_objects,
+            feat_res = 256L,
+            engine = engine,
+            device_id = device_id,
+            fill_hull = TRUE,
+            verbose = FALSE
+          )
+        }, error = function(e) NULL)
+
+        if (!is.null(new_pres) && nrow(new_pres$boxes) > 0L) {
+          nbx <- data.frame(
+            xmin = as.numeric(new_pres$boxes$xmin),
+            ymin = as.numeric(new_pres$boxes$ymin),
+            xmax = as.numeric(new_pres$boxes$xmax),
+            ymax = as.numeric(new_pres$boxes$ymax),
+            conf = round(as.numeric(new_pres$boxes$score), 3),
+            class_id = 0L,
+            class_name = label,
+            stringsAsFactors = FALSE
+          )
+          npl <- list()
+          for (ci in seq_along(new_pres$contours)) {
+            cnt <- new_pres$contours[[ci]]
+            if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+              gx <- cnt[, 1] / cw; gy <- cnt[, 2] / ch
+              if (length(gx) > 32L) {
+                idx <- round(seq(1, length(gx), length.out = 32))
+                gx <- gx[idx]; gy <- gy[idx]
+              }
+              npl[[ci]] <- as.vector(rbind(gx, gy))
+            }
+          }
+
+          if (length(deleted_centers) > 0L) {
+            keep_idx <- rep(TRUE, nrow(nbx))
+            for (bi in seq_len(nrow(nbx))) {
+              bc_x <- (nbx$xmin[bi] + nbx$xmax[bi]) / 2
+              bc_y <- (nbx$ymin[bi] + nbx$ymax[bi]) / 2
+              for (dc in deleted_centers) {
+                if (((bc_x - dc[1])^2 + (bc_y - dc[2])^2) < (min(cw, ch) * 0.05)^2) {
+                  keep_idx[bi] <- FALSE
+                  break
+                }
+              }
+            }
+            nbx <- nbx[keep_idx, , drop = FALSE]
+            if (length(npl) > 0L) {
+              npl <- npl[keep_idx[seq_along(npl)]]
+            }
+          }
+
+          r_boxes <- nbx
+          r_polys <- npl
+
+          cli::cli_alert_success("Model updated! {if (identical(task, 'segment') && length(r_polys) > 0L) length(r_polys) else nrow(r_boxes)} total instance(s) detected.")
+          .render_fewshot_review_plot(
+            im = curr_im,
+            boxes = r_boxes,
+            polygons = r_polys,
+            exemplar_points = curr_points,
+            task = task,
+            label = label,
+            conf_threshold = curr_conf,
+            rainbow = rainbow,
+            img_name = img_name,
+            img_idx = img_idx,
+            total_imgs = total_imgs
+          )
+        }
+      }
+      next
+    }
+
+    if (startsWith(ans, "t")) {
+      new_val_str <- trimws(sub("^t\\s*", "", ans))
+      new_val <- if (nzchar(new_val_str)) as.numeric(new_val_str) else NA_real_
+      if (is.na(new_val)) {
+        ans_t <- readline("Enter new confidence threshold (e.g. 0.70): ")
+        new_val <- as.numeric(trimws(ans_t))
+      }
+
+      if (!is.na(new_val) && new_val > 0 && new_val < 1) {
+        curr_conf <- new_val
+        cli::cli_alert_info("Re-evaluating with threshold = {curr_conf}...")
+
+        new_pres <- tryCatch({
+          .run_persam(
+            mat = c_num_arr,
+            exemplar_points = curr_points,
+            precomputed_prototypes = pre_proto,
+            sim_threshold = curr_conf,
+            min_dist = min_dist,
+            max_objects = max_objects,
+            feat_res = 256L,
+            engine = engine,
+            device_id = device_id,
+            fill_hull = TRUE,
+            verbose = FALSE
+          )
+        }, error = function(e) NULL)
+
+        if (!is.null(new_pres) && nrow(new_pres$boxes) > 0L) {
+          nbx <- data.frame(
+            xmin = as.numeric(new_pres$boxes$xmin),
+            ymin = as.numeric(new_pres$boxes$ymin),
+            xmax = as.numeric(new_pres$boxes$xmax),
+            ymax = as.numeric(new_pres$boxes$ymax),
+            conf = round(as.numeric(new_pres$boxes$score), 3),
+            class_id = 0L,
+            class_name = label,
+            stringsAsFactors = FALSE
+          )
+          npl <- list()
+          for (ci in seq_along(new_pres$contours)) {
+            cnt <- new_pres$contours[[ci]]
+            if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+              gx <- cnt[, 1] / cw; gy <- cnt[, 2] / ch
+              if (length(gx) > 32L) {
+                idx <- round(seq(1, length(gx), length.out = 32))
+                gx <- gx[idx]; gy <- gy[idx]
+              }
+              npl[[ci]] <- as.vector(rbind(gx, gy))
+            }
+          }
+
+          if (length(deleted_centers) > 0L) {
+            keep_idx <- rep(TRUE, nrow(nbx))
+            for (bi in seq_len(nrow(nbx))) {
+              bc_x <- (nbx$xmin[bi] + nbx$xmax[bi]) / 2
+              bc_y <- (nbx$ymin[bi] + nbx$ymax[bi]) / 2
+              for (dc in deleted_centers) {
+                if (((bc_x - dc[1])^2 + (bc_y - dc[2])^2) < (min(cw, ch) * 0.05)^2) {
+                  keep_idx[bi] <- FALSE
+                  break
+                }
+              }
+            }
+            nbx <- nbx[keep_idx, , drop = FALSE]
+            if (length(npl) > 0L) {
+              npl <- npl[keep_idx[seq_along(npl)]]
+            }
+          }
+
+          r_boxes <- nbx
+          r_polys <- npl
+        } else {
+          r_boxes <- data.frame()
+          r_polys <- list()
+        }
+
+        cli::cli_alert_success("Updated threshold to {curr_conf}. {if (identical(task, 'segment') && length(r_polys) > 0L) length(r_polys) else nrow(r_boxes)} instance(s) detected.")
+        .render_fewshot_review_plot(
+          im = curr_im,
+          boxes = r_boxes,
+          polygons = r_polys,
+          exemplar_points = curr_points,
+          task = task,
+          label = label,
+          conf_threshold = curr_conf,
+          rainbow = rainbow,
+          img_name = img_name,
+          img_idx = img_idx,
+          total_imgs = total_imgs
+        )
+      } else {
+        cli::cli_alert_warning("Invalid threshold value. Must be between 0 and 1 (e.g. 't 0.70').")
+      }
+      next
+    }
+
+    cli::cli_alert_warning("Unrecognized option: {.val {ans}}. Please select [Enter], 'r', 'a', 't', 's', or 'q'.")
+  }
+}
+
 yolo_fewshot_fit <- function(img,
                              points = NULL,
                              sample = NULL,
@@ -75,6 +541,7 @@ yolo_fewshot_fit <- function(img,
                              engine = c("gpu", "cpu"),
                              device_id = -1,
                              rainbow = TRUE,
+                             interactive = base::interactive(),
                              plot = TRUE,
                              verbose = TRUE) {
   task <- match.arg(task)
@@ -119,6 +586,7 @@ yolo_fewshot_fit <- function(img,
         engine = engine,
         device_id = device_id,
         rainbow = rainbow,
+        interactive = interactive,
         plot = FALSE,
         verbose = verbose
       )
@@ -384,6 +852,44 @@ yolo_fewshot_fit <- function(img,
           }
         }
       }
+
+      if (isTRUE(interactive)) {
+        rev <- .interactive_fewshot_review_step(
+          curr_im = curr_im,
+          r_boxes = r_boxes,
+          r_polys = r_polys,
+          curr_points = curr_points,
+          c_num_arr = c_num_arr,
+          cw = cw,
+          ch = ch,
+          pre_proto = pre_proto,
+          task = task,
+          label = label,
+          conf_threshold = conf_threshold,
+          radius = radius,
+          min_dist = min_dist,
+          max_objects = max_objects,
+          method = "sam",
+          engine = engine,
+          device_id = device_id,
+          rainbow = rainbow,
+          img_name = basename(as.character(curr_target[1])),
+          img_idx = s,
+          total_imgs = length(img_list)
+        )
+
+        r_boxes <- rev$boxes
+        r_polys <- rev$polygons
+        curr_points <- rev$points
+
+        if (identical(rev$action, "stop")) {
+          all_ref_boxes[[ref_id]] <- r_boxes
+          all_ref_polys[[ref_id]] <- r_polys
+          if (!is.null(curr_points)) all_ref_points[[ref_id]] <- curr_points
+          break
+        }
+      }
+
       all_ref_boxes[[ref_id]] <- r_boxes
       all_ref_polys[[ref_id]] <- r_polys
     }
@@ -729,6 +1235,36 @@ yolo_fewshot_fit <- function(img,
     }
   }
 
+  if (isTRUE(interactive)) {
+    rev <- .interactive_fewshot_review_step(
+      curr_im = im,
+      r_boxes = df_boxes,
+      r_polys = cand_polys,
+      curr_points = points,
+      c_num_arr = num_arr,
+      cw = w,
+      ch = h,
+      pre_proto = NULL,
+      task = task,
+      label = label,
+      conf_threshold = conf_threshold,
+      radius = radius,
+      min_dist = min_dist,
+      max_objects = max_objects,
+      method = used_method,
+      engine = engine,
+      device_id = device_id,
+      rainbow = rainbow,
+      img_name = if (is.character(img_single)) basename(img_single[1]) else "reference",
+      img_idx = 1L,
+      total_imgs = 1L
+    )
+    df_boxes <- rev$boxes
+    cand_polys <- rev$polygons
+    points <- rev$points
+    conf_threshold <- rev$conf
+  }
+
   ref_path <- if (is.character(img) && file.exists(img[1])) normalizePath(img[1], winslash = "/", mustWork = FALSE) else NULL
   prototypes <- if (exists("persam_res") && !is.null(persam_res)) persam_res$prototypes else NULL
 
@@ -775,7 +1311,7 @@ yolo_fewshot_fit <- function(img,
     cli::cli_alert_success("Model fitted! {n_det} instances {if (task == 'segment') 'segmented' else 'detected'} on reference image.")
   }
 
-  if (isTRUE(plot)) {
+  if (isTRUE(plot) && !isTRUE(interactive)) {
     plot(model_obj, rainbow = rainbow)
   }
 
