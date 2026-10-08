@@ -10,9 +10,16 @@ image_detect_world(
   conf_threshold = 0.25,
   iou_threshold = 0.45,
   model = "yolov8s-world",
-  rainbow = FALSE,
+  rainbow = TRUE,
   col = NULL,
   lwd = 2,
+  cex = 1,
+  pad = 1,
+  show_text = TRUE,
+  show_conf = TRUE,
+  show_class = TRUE,
+  show_id = FALSE,
+  badge = TRUE,
   return_features = FALSE,
   feature_model = c("yolo", "clip-vit-b32", "dinov2"),
   plot_features = FALSE,
@@ -40,6 +47,21 @@ If \code{FALSE} (default), objects of the same class share the exact same color.
 \item{col}{Optional color or palette for bounding boxes.}
 
 \item{lwd}{Bounding box line width (default 2).}
+
+\item{cex}{Size factor for bounding box label text (default \code{1.0}).}
+
+\item{pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).}
+
+\item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
+
+\item{show_conf}{Logical. Whether to display confidence scores in labels (default \code{TRUE}).}
+
+\item{show_class}{Logical. Whether to display class names in labels (default \code{TRUE}).}
+
+\item{show_id}{Logical. Whether to display object IDs (\verb{#1}, \verb{#2}, ...) in labels (default \code{FALSE}).}
+
+\item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
+If \code{FALSE}, only the text is drawn directly.}
 
 \item{return_features}{Logical. If \code{TRUE}, extracts deep feature representations for detected
 bounding boxes and the global image. Attaches \code{"features"} (an \eqn{N \times D} matrix of per-object

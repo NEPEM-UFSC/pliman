@@ -14,7 +14,7 @@ image_classify_dl(
   plot = FALSE,
   col = "#2b5c8f",
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   dir = pliman_model_dir(),

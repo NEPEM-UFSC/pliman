@@ -11,13 +11,20 @@ image_detect_dl(
   iou_threshold = 0.45,
   labels = NULL,
   col = NULL,
-  rainbow = FALSE,
+  rainbow = TRUE,
   lwd = 2,
+  cex = 1,
+  pad = 1,
+  show_text = TRUE,
+  show_conf = TRUE,
+  show_class = TRUE,
+  show_id = FALSE,
+  badge = TRUE,
   return_features = FALSE,
   feature_model = c("yolo", "clip-vit-b32", "dinov2"),
   plot_features = FALSE,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,
@@ -43,6 +50,23 @@ Options include \code{"yolo26n"}, \code{"yolo26s"}, \code{"yolo26m"}, \code{"yol
 If \code{FALSE} (the default), objects of the same class share the exact same color. Defaults to \code{FALSE}.}
 
 \item{lwd}{Line width for bounding boxes (default 2).}
+
+\item{cex}{Size factor for label text (default \code{1.0}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
+to reduce text size for dense scenes or many objects.}
+
+\item{pad}{Padding multiplier controlling the area/background badge size around label text (default \code{1.0}).
+Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad = 0} or smaller values for a compact area.}
+
+\item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
+
+\item{show_conf}{Logical. Whether to display confidence scores in labels (default \code{TRUE}).}
+
+\item{show_class}{Logical. Whether to display class names in labels (default \code{TRUE}).}
+
+\item{show_id}{Logical. Whether to display object IDs (\verb{#1}, \verb{#2}, ...) in labels (default \code{FALSE}).}
+
+\item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
+If \code{FALSE}, only the text is drawn directly.}
 
 \item{return_features}{Logical. If \code{TRUE}, extracts deep feature representations for detected
 bounding boxes and the global image. Attaches \code{"features"} (an \eqn{N \times D} matrix of per-object

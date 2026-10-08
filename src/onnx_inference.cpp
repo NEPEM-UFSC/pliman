@@ -314,8 +314,14 @@ static CachedSession get_or_create_cached_session(
   }
   (void)ort->SetSessionGraphOptimizationLevel(cs.options, ORT_ENABLE_ALL);
   (void)ort->SetSessionLogSeverityLevel(cs.options, ORT_LOGGING_LEVEL_ERROR);
-  (void)ort->EnableCpuMemArena(cs.options);
-  (void)ort->EnableMemPattern(cs.options);
+
+  if (use_gpu) {
+    (void)ort->DisableMemPattern(cs.options);
+    (void)ort->SetSessionExecutionMode(cs.options, ORT_SEQUENTIAL);
+  } else {
+    (void)ort->EnableCpuMemArena(cs.options);
+    (void)ort->EnableMemPattern(cs.options);
+  }
 
 #ifdef _WIN32
   if (use_gpu && g_ort_lib_handle != NULL) {
@@ -337,6 +343,25 @@ static CachedSession get_or_create_cached_session(
 #else
   OrtStatus* status = ort->CreateSession(cs.env, model_path.c_str(), cs.options, &cs.session);
 #endif
+
+  // If GPU session creation failed, gracefully fall back to CPU session without crashing!
+  if ((status != NULL || !cs.session) && use_gpu) {
+    if (status) ort->ReleaseStatus(status);
+    if (cs.options) ort->ReleaseSessionOptions(cs.options);
+    (void)ort->CreateSessionOptions(&cs.options);
+    if (num_threads > 0) {
+      (void)ort->SetIntraOpNumThreads(cs.options, num_threads);
+    }
+    (void)ort->SetSessionGraphOptimizationLevel(cs.options, ORT_ENABLE_ALL);
+    (void)ort->SetSessionLogSeverityLevel(cs.options, ORT_LOGGING_LEVEL_ERROR);
+    (void)ort->EnableCpuMemArena(cs.options);
+    (void)ort->EnableMemPattern(cs.options);
+#ifdef _WIN32
+    status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
+#else
+    status = ort->CreateSession(cs.env, model_path.c_str(), cs.options, &cs.session);
+#endif
+  }
 
   if (status != NULL || !cs.session) {
     std::string msg = status ? ort->GetErrorMessage(status) : "Unknown error";
@@ -1139,11 +1164,19 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
                                int feat_res = 256,
                                int num_threads = 0,
                                bool use_gpu = false,
-                               int device_id = -1) {
+                               int device_id = -1,
+                               Rcpp::Nullable<Rcpp::List> precomputed_prototypes = R_NilValue) {
+  // SAM 2.1 Vision Transformer backbone has known DirectML driver issues (DXGI_ERROR_DEVICE_HUNG 887A0006)
+  // on Windows when executing hierarchical attention / mask downscaling kernels.
+  // We force CPU execution for SAM 2.1 to guarantee 100% session stability and prevent RStudio crashes.
+  (void)use_gpu;
+  (void)device_id;
+  if (max_objects <= 0) max_objects = 100000;
+
   const OrtApi* ort = get_ort_api(lib_path);
 
-  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, use_gpu, device_id);
-  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path, 1, use_gpu, device_id);
+  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, false, -1);
+  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path, 1, false, -1);
   OrtSession* session_enc = cs_enc.session;
   OrtSession* session_dec = cs_dec.session;
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
@@ -1220,14 +1253,46 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   std::vector<std::vector<float>> exemplar_prototypes_hr0;
   std::vector<float> exemplar_areas;
   std::vector<DenseExemplarKernel> exemplar_dense_kernels;
-  int num_exemplars = (int)exemplar_x.size();
-  if (num_exemplars < 1) {
-    exemplar_x = Rcpp::NumericVector::create(orig_w / 2.0);
-    exemplar_y = Rcpp::NumericVector::create(orig_h / 2.0);
-    num_exemplars = 1;
-  }
+  float min_ex_area = 1e9f;
+  float max_ex_area = 0.0f;
+  float avg_ex_area = 100.0f;
 
-  for (int ex = 0; ex < num_exemplars; ++ex) {
+  if (precomputed_prototypes.isNotNull()) {
+    Rcpp::List p_list(precomputed_prototypes.get());
+    if (p_list.containsElementNamed("semantic")) {
+      Rcpp::List sem_list = p_list["semantic"];
+      for (int i = 0; i < sem_list.size(); ++i) {
+        Rcpp::NumericVector sv = sem_list[i];
+        std::vector<float> fv(sv.begin(), sv.end());
+        exemplar_prototypes.push_back(fv);
+      }
+    }
+    if (p_list.containsElementNamed("hr0")) {
+      Rcpp::List hr_list = p_list["hr0"];
+      for (int i = 0; i < hr_list.size(); ++i) {
+        Rcpp::NumericVector hv = hr_list[i];
+        std::vector<float> fv(hv.begin(), hv.end());
+        exemplar_prototypes_hr0.push_back(fv);
+      }
+    }
+    if (p_list.containsElementNamed("avg_area")) {
+      avg_ex_area = Rcpp::as<float>(p_list["avg_area"]);
+    }
+    if (p_list.containsElementNamed("min_area")) {
+      min_ex_area = Rcpp::as<float>(p_list["min_area"]);
+    }
+    if (p_list.containsElementNamed("max_area")) {
+      max_ex_area = Rcpp::as<float>(p_list["max_area"]);
+    }
+  } else {
+    int num_exemplars = (int)exemplar_x.size();
+    if (num_exemplars < 1) {
+      exemplar_x = Rcpp::NumericVector::create(orig_w / 2.0);
+      exemplar_y = Rcpp::NumericVector::create(orig_h / 2.0);
+      num_exemplars = 1;
+    }
+
+    for (int ex = 0; ex < num_exemplars; ++ex) {
     float px = (float)(exemplar_x[ex] / orig_w * 1024.0);
     float py = (float)(exemplar_y[ex] / orig_h * 1024.0);
     px = std::max(0.0f, std::min(1023.0f, px));
@@ -1550,17 +1615,23 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     exemplar_prototypes_hr0.push_back(proto_hr0);
   }
 
-  float avg_ex_area = 100.0f;
-  if (!exemplar_areas.empty()) {
-    float sum_area = 0.0f;
-    int cnt_area = 0;
-    for (float a : exemplar_areas) {
-      if (a > 5.0f) {
-        sum_area += a;
-        cnt_area++;
+    if (!exemplar_areas.empty()) {
+      float sum_area = 0.0f;
+      int cnt_area = 0;
+      for (float a : exemplar_areas) {
+        if (a > 5.0f) {
+          sum_area += a;
+          cnt_area++;
+          if (a < min_ex_area) min_ex_area = a;
+          if (a > max_ex_area) max_ex_area = a;
+        }
       }
+      if (cnt_area > 0) avg_ex_area = sum_area / cnt_area;
     }
-    if (cnt_area > 0) avg_ex_area = sum_area / cnt_area;
+    if (min_ex_area > max_ex_area) {
+      min_ex_area = std::max(5.0f, avg_ex_area * 0.40f);
+      max_ex_area = std::max(min_ex_area, avg_ex_area * 2.20f);
+    }
   }
 
   // 4. Compute Cosine Similarity Heatmap with Multi-Prototype Max-Pooling (64x64 base):
@@ -1858,6 +1929,16 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   if (grid_min_dist < 1.0f) grid_min_dist = 1.0f;
 
   std::vector<CandPeak> accepted_peaks;
+  if (precomputed_prototypes.isNull()) {
+    int num_ex = (int)exemplar_x.size();
+    for (int ex = 0; ex < num_ex; ++ex) {
+      int ek = std::max(0, std::min(grid_res - 1, (int)std::round(exemplar_x[ex] / orig_w * (double)grid_res)));
+      int er = std::max(0, std::min(grid_res - 1, (int)std::round(exemplar_y[ex] / orig_h * (double)grid_res)));
+      float sim = peak_grid[(size_t)er * grid_res + ek];
+      accepted_peaks.push_back({ er, ek, std::max(1.0f, sim) });
+    }
+  }
+
   for (size_t i = 0; i < cand_peaks.size(); ++i) {
     bool suppressed = false;
     for (size_t j = 0; j < accepted_peaks.size(); ++j) {
@@ -1870,7 +1951,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     }
     if (!suppressed) {
       accepted_peaks.push_back(cand_peaks[i]);
-      if ((int)accepted_peaks.size() >= max_objects) break;
+      if (max_objects > 0 && (int)accepted_peaks.size() >= max_objects) break;
     }
   }
 
@@ -1951,22 +2032,46 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       for (int m = 0; m < num_masks; ++m) {
         size_t offset = (size_t)m * mask_h * mask_w;
         int fg_c = 0;
-        for (int j = 0; j < mask_h * mask_w; ++j) {
-          if (mask_data[offset + j] > 0.0f) fg_c++;
+        float sum_r = 0.0f, sum_c = 0.0f;
+        for (int r = 0; r < mask_h; ++r) {
+          size_t roff = (size_t)r * mask_w;
+          for (int c = 0; c < mask_w; ++c) {
+            if (mask_data[offset + roff + c] > 0.0f) {
+              fg_c++;
+              sum_r += (float)r;
+              sum_c += (float)c;
+            }
+          }
         }
         float fg_ratio = (float)fg_c / (float)(mask_h * mask_w);
         float score = iou_data[m];
         if (fg_ratio > 0.80f) score -= 5.0f;
 
-        // Area prior from exemplar: penalize masks that merge adjacent objects into clusters
-        if (avg_ex_area > 5.0f && fg_c > 0) {
-          float area_ratio = (float)fg_c / avg_ex_area;
-          if (area_ratio > 1.35f) {
-            // Mask is noticeably larger than exemplar: penalize multi-object cluster
-            score -= (area_ratio - 1.35f) * 2.0f;
-          } else if (area_ratio < 0.25f) {
-            // Tiny fragment
-            score -= (0.25f - area_ratio) * 2.0f;
+        // Verify if prompt point is inside this candidate mask
+        int pr = (int)(cand_py / 4.0f);
+        int pc = (int)(cand_px / 4.0f);
+        pr = std::max(0, std::min(mask_h - 1, pr));
+        pc = std::max(0, std::min(mask_w - 1, pc));
+        bool pt_in_mask = (mask_data[offset + (size_t)pr * mask_w + pc] > 0.0f);
+        if (!pt_in_mask) score -= 3.0f;
+
+        // If mask is not empty, check compactness around prompt point
+        if (fg_c > 0) {
+          float cen_r = sum_r / (float)fg_c;
+          float cen_c = sum_c / (float)fg_c;
+          float dist_cen = std::sqrt((cen_r - (float)pr) * (cen_r - (float)pr) +
+                                     (cen_c - (float)pc) * (cen_c - (float)pc));
+          float r_approx = std::sqrt((float)fg_c / 3.14159f);
+          if (r_approx > 4.0f && dist_cen > r_approx * 1.5f) {
+            score -= 2.0f;
+          }
+        }
+
+        // Only penalize massive full-screen multi-object agglomerations, never small valid objects!
+        if (max_ex_area > 5.0f && fg_c > 0) {
+          if (fg_c > max_ex_area * 2.5f) {
+            float ratio = (float)fg_c / (max_ex_area * 2.5f);
+            score -= (ratio - 1.0f) * 2.0f;
           }
         }
 
@@ -1982,7 +2087,6 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       int fg_total = 0;
 
       // Direct logit thresholding: logit > 0.0f <=> sigmoid(logit) > 0.5
-      // Eliminates 9.7 million redundant std::exp() evaluations!
       for (int r = 0; r < mask_h; ++r) {
         size_t row_off = (size_t)r * mask_w;
         for (int c = 0; c < mask_w; ++c) {
@@ -2073,7 +2177,42 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
 
       int union_cnt = instances[i].fg_count + instances[j].fg_count - intersection;
       double iou = (union_cnt > 0) ? ((double)intersection / (double)union_cnt) : 0.0;
-      if (iou > iou_threshold) {
+      int min_fg = std::min(instances[i].fg_count, instances[j].fg_count);
+      double iom = (min_fg > 0) ? ((double)intersection / (double)min_fg) : 0.0;
+
+      double bx1 = std::max(instances[i].x1, instances[j].x1);
+      double by1 = std::max(instances[i].y1, instances[j].y1);
+      double bx2 = std::min(instances[i].x2, instances[j].x2);
+      double by2 = std::min(instances[i].y2, instances[j].y2);
+      double b_inter = (bx2 > bx1 && by2 > by1) ? (bx2 - bx1) * (by2 - by1) : 0.0;
+      double b_area_i = (instances[i].x2 - instances[i].x1) * (instances[i].y2 - instances[i].y1);
+      double b_area_j = (instances[j].x2 - instances[j].x1) * (instances[j].y2 - instances[j].y1);
+      double b_iou = (b_inter > 0) ? (b_inter / (b_area_i + b_area_j - b_inter)) : 0.0;
+      double b_iom = (b_inter > 0) ? (b_inter / std::min(b_area_i, b_area_j)) : 0.0;
+
+      // Centers for geometric containment verification:
+      double cx_i = (instances[i].x1 + instances[i].x2) * 0.5;
+      double cy_i = (instances[i].y1 + instances[i].y2) * 0.5;
+      double cx_j = (instances[j].x1 + instances[j].x2) * 0.5;
+      double cy_j = (instances[j].y1 + instances[j].y2) * 0.5;
+
+      bool center_contained = (cx_i >= instances[j].x1 && cx_i <= instances[j].x2 &&
+                               cy_i >= instances[j].y1 && cy_i <= instances[j].y2) ||
+                              (cx_j >= instances[i].x1 && cx_j <= instances[i].x2 &&
+                               cy_j >= instances[i].y1 && cy_j <= instances[i].y2);
+
+      // CRITICAL FIX: Two circular/compact objects (like logs or seeds) packed tightly
+      // often have high bounding box overlap (b_iou or b_iom) at corners or curvatures,
+      // but their pixel masks are completely disjoint (mask IoU ~ 0).
+      // We must NEVER suppress an instance based on bounding box overlap if their masks do not overlap!
+      bool should_suppress = false;
+      if (iou > iou_threshold || iom > 0.60) {
+        should_suppress = true;
+      } else if (iou > 0.20 && (b_iou > 0.80 || (b_iom > 0.85 && center_contained))) {
+        should_suppress = true;
+      }
+
+      if (should_suppress) {
         if (instances[i].sim_score >= instances[j].sim_score) {
           suppressed[j] = true;
         } else {
@@ -2130,12 +2269,30 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   ort->ReleaseValue(has_mask_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);
 
+  Rcpp::List ret_protos;
+  Rcpp::List sem_ret(exemplar_prototypes.size());
+  for (size_t i = 0; i < exemplar_prototypes.size(); ++i) {
+    sem_ret[i] = Rcpp::wrap(exemplar_prototypes[i]);
+  }
+  Rcpp::List hr0_ret(exemplar_prototypes_hr0.size());
+  for (size_t i = 0; i < exemplar_prototypes_hr0.size(); ++i) {
+    hr0_ret[i] = Rcpp::wrap(exemplar_prototypes_hr0[i]);
+  }
+  ret_protos = Rcpp::List::create(
+    Rcpp::Named("semantic") = sem_ret,
+    Rcpp::Named("hr0") = hr0_ret,
+    Rcpp::Named("avg_area") = avg_ex_area,
+    Rcpp::Named("min_area") = min_ex_area,
+    Rcpp::Named("max_area") = max_ex_area
+  );
+
   return Rcpp::List::create(
     Rcpp::Named("boxes") = res_boxes,
     Rcpp::Named("scores") = res_scores,
     Rcpp::Named("labels") = combined_labels,
     Rcpp::Named("masks") = Rcpp::List(),
-    Rcpp::Named("similarity_map") = sim_mat
+    Rcpp::Named("similarity_map") = sim_mat,
+    Rcpp::Named("prototypes") = ret_protos
   );
 }
 
@@ -3149,10 +3306,31 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   std::vector<const char*> in_names, out_names;
   get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
 
-  int64_t in_shape[4] = {1, 3, 640, 640};
-  size_t total_floats = 3 * 640 * 640;
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) input_vals[i] = (float)tensor_vec[i];
+  int64_t in_h = 224;
+  int64_t in_w = 224;
+  OrtTypeInfo* in_ti = NULL;
+  (void)ort->SessionGetInputTypeInfo(session, 0, &in_ti);
+  if (in_ti) {
+    const OrtTensorTypeAndShapeInfo* in_si = NULL;
+    (void)ort->CastTypeInfoToTensorInfo(in_ti, &in_si);
+    if (in_si) {
+      size_t in_dims_cnt = 0;
+      (void)ort->GetDimensionsCount(in_si, &in_dims_cnt);
+      if (in_dims_cnt >= 4) {
+        std::vector<int64_t> in_dims(in_dims_cnt);
+        (void)ort->GetDimensions(in_si, in_dims.data(), in_dims_cnt);
+        if (in_dims[2] > 0) in_h = in_dims[2];
+        if (in_dims[3] > 0) in_w = in_dims[3];
+      }
+    }
+    ort->ReleaseTypeInfo(in_ti);
+  }
+
+  int64_t in_shape[4] = {1, 3, in_h, in_w};
+  size_t total_floats = (size_t)(3 * in_h * in_w);
+  std::vector<float> input_vals(total_floats, 0.0f);
+  size_t n_copy = std::min((size_t)tensor_vec.size(), total_floats);
+  for (size_t i = 0; i < n_copy; ++i) input_vals[i] = (float)tensor_vec[i];
 
   OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(

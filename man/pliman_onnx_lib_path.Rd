@@ -4,7 +4,7 @@
 \alias{pliman_onnx_lib_path}
 \title{Locate ONNX Runtime C++ Shared Library}
 \usage{
-pliman_onnx_lib_path(engine = c("cpu", "gpu"))
+pliman_onnx_lib_path(engine = c("gpu", "cpu"))
 }
 \arguments{
 \item{engine}{Execution engine: \code{"cpu"} (default) or \code{"gpu"}.}

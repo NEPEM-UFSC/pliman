@@ -8,7 +8,7 @@ pliman_configure_dl(
   models = "u2netp",
   dir = pliman_model_dir(),
   force = FALSE,
-  engine = c("cpu", "gpu")
+  engine = c("gpu", "cpu")
 )
 }
 \arguments{

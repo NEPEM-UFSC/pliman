@@ -11,7 +11,7 @@ image_superres_dl(
   tile_size = 256,
   tile_pad = 16,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,

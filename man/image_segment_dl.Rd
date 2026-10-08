@@ -14,8 +14,14 @@ image_segment_dl(
   lwd = 1,
   bbox = FALSE,
   mask = TRUE,
-  show_id = TRUE,
-  rainbow = FALSE,
+  cex = 1,
+  pad = 1,
+  show_text = TRUE,
+  show_conf = TRUE,
+  show_class = TRUE,
+  show_id = FALSE,
+  badge = TRUE,
+  rainbow = TRUE,
   model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1",
     "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1",
     "isnet-general-use", "silueta", "u2net"),
@@ -27,13 +33,13 @@ image_segment_dl(
   sim_threshold = 0.5,
   min_dist = 16,
   feat_res = 256,
-  max_objects = 300,
+  max_objects = NULL,
   superres_map = FALSE,
   return_features = FALSE,
   feature_model = c("yolo", "clip-vit-b32", "dinov2"),
   plot_features = FALSE,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   fill_hull = TRUE,
   filter = 0,
@@ -92,9 +98,24 @@ around detected instances. Defaults to \code{FALSE}.}
 When \code{mask = FALSE} and \code{bbox = TRUE}, skips the mask decoder step and returns only the detected
 bounding box coordinates (fast object detection). Defaults to \code{TRUE}.}
 
-\item{show_id}{Logical. If \code{TRUE} (default), overlays object instance IDs
-at their center of mass (computed via \code{\link[=poly_mass]{poly_mass()}}) when \code{type = "highlight"}
-and \code{bbox = FALSE}. Set to \code{FALSE} to hide instance ID numbers.}
+\item{cex}{Size factor for bounding box label text (default \code{1.0}). Use smaller values (e.g., \code{0.2} or \code{0.5})
+to reduce text size for dense scenes or many objects.}
+
+\item{pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).
+Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad = 0} for a badge fitting tightly to the text.}
+
+\item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
+
+\item{show_conf}{Logical. Whether to display confidence scores in labels (default \code{TRUE}).}
+
+\item{show_class}{Logical. Whether to display class names in labels (default \code{TRUE}).}
+
+\item{show_id}{Logical. If \code{TRUE}, overlays object instance IDs in bounding box
+labels or at their center of mass (computed via \code{\link[=poly_mass]{poly_mass()}}) when \code{type = "highlight"}
+and \code{bbox = FALSE}. Defaults to \code{FALSE}.}
+
+\item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
+If \code{FALSE}, only the text is drawn directly.}
 
 \item{rainbow}{Logical. If \code{TRUE}, assigns a distinct, unique color to each segmented object.
 If \code{FALSE} (the default), objects of the same class share the exact same color. Defaults to \code{FALSE}.}

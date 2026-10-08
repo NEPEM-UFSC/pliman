@@ -21,7 +21,7 @@ image_binary_dl(
   prompt = NULL,
   exemplar = FALSE,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,

@@ -1994,6 +1994,132 @@ image_thinning_guo_hall <- function(img,
   }
 }
 
+#' Medial Axis Tree (MAT) Topological Skeletonization
+#'
+#' @description
+#' `image_skeleton_mat()` performs noise-resistant, topological Medial Axis Tree (MAT)
+#' skeletonization. Unlike conventional morphological erosion or iterative thinning algorithms
+#' (e.g., Guo-Hall, Zhang-Suen) which are prone to internal "ladder rungs", loops, and surface
+#' hair spurs on thick or textured objects, this algorithm:
+#' 1. Solidifies the binary mask by filling small cavities and applying morphological closing.
+#' 2. Computes the Exact Euclidean Distance Transform (EDT) for sub-pixel centerline tracing.
+#' 3. Applies fast thinning followed by radius-adaptive spur pruning (filtering boundary hairs
+#'    proportional to local thickness).
+#' 4. Converts the skeleton to a topological graph and applies Maximum Spanning Forest (Kruskal's
+#'    algorithm) to dissolve 100% of internal loops and ladder rungs.
+#' 5. Smooths centerlines along the medial ridge.
+#'
+#' @param img An `Image` object, a 2D binary matrix, or a list of images.
+#' @param closing Integer radius (in pixels) for morphological closing before skeletonization
+#'   (default: 1). Smooths bark roughness and bridges boundary fissures.
+#' @param fill_size Integer maximum area (in pixels) of enclosed cavities to fill (default: 200).
+#' @param prune_length Minimum branch length (in pixels) to retain (default: 8).
+#' @param radius_prune Numeric factor multiplied by local radius for adaptive spur pruning (default: 1.2).
+#' @param dissolve_cycles Logical. If `TRUE` (default), dissolves all loops and ladder rungs into an acyclic tree.
+#' @param smooth Logical. If `TRUE` (default), applies moving-average smoothing to skeleton paths.
+#' @param index The index to use to binarize the image if `img` is not already binary. Default is `"GRAY"`.
+#' @param parallel Logical. If `TRUE`, processes multiple images in parallel.
+#' @param workers Number of workers for parallel execution.
+#' @param verbose Logical. If `TRUE`, displays progress.
+#' @param plot Logical. If `TRUE`, plots the resulting skeleton.
+#' @param ... Additional arguments passed to \code{help_binary()} if `img` is not binary.
+#'
+#' @return A binary `Image` object (or list of `Image` objects) with values 0 and 1.
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#' img <- image_import(image_pliman("root.jpg"))
+#' skel <- image_skeleton_mat(img, plot = TRUE)
+#' }
+image_skeleton_mat <- function(img,
+                               index = "GRAY",
+                               closing = 1,
+                               fill_size = 200,
+                               prune_length = 8,
+                               radius_prune = 1.2,
+                               dissolve_cycles = TRUE,
+                               smooth = TRUE,
+                               parallel = FALSE,
+                               workers = NULL,
+                               verbose = TRUE,
+                               plot = FALSE,
+                               ...) {
+  if (is.list(img) && !is_image(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+    skel_fun <- function(im) {
+      if (attr(im, "colormode") != "Grayscale") {
+        idx <- if (is.null(index)) "GRAY" else index
+        im <- help_binary(im, index = idx, ..., resize = FALSE)
+      }
+      mat <- (as.matrix(im) > 0.5) * 1.0
+      storage.mode(mat) <- "double"
+      res <- skeleton_mat_cpp(
+        binary_mat = mat,
+        closing_rad = as.integer(closing),
+        fill_size = as.integer(fill_size),
+        min_len = as.integer(prune_length),
+        rad_fac = as.double(radius_prune),
+        dissolve_cycles = isTRUE(dissolve_cycles),
+        smooth = isTRUE(smooth)
+      )
+      as_image(res, colormode = "Grayscale")
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("MAT Skeletonizing {length(img)} images"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+      }
+      res <- mirai::mirai_map(.x = img, .f = skel_fun)[.progress]
+    } else {
+      res <- lapply(img, skel_fun)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+    return(res)
+  } else {
+    if (is_image(img)) {
+      if (attr(img, "colormode") != "Grayscale") {
+        idx <- if (is.null(index)) "GRAY" else index
+        img <- help_binary(img, index = idx, ..., resize = FALSE)
+      }
+      mat <- (as.matrix(img) > 0.5) * 1.0
+    } else if (is.matrix(img)) {
+      mat <- (img > 0.5) * 1.0
+    } else {
+      cli::cli_abort("Unsupported input type for {.fn image_skeleton_mat}.")
+    }
+    storage.mode(mat) <- "double"
+
+    res <- skeleton_mat_cpp(
+      binary_mat = mat,
+      closing_rad = as.integer(closing),
+      fill_size = as.integer(fill_size),
+      min_len = as.integer(prune_length),
+      rad_fac = as.double(radius_prune),
+      dissolve_cycles = isTRUE(dissolve_cycles),
+      smooth = isTRUE(smooth)
+    )
+
+    skel_img <- as_image(res, colormode = "Grayscale")
+    if (isTRUE(plot)) {
+      plot(skel_img)
+    }
+    return(skel_img)
+  }
+}
+
 #' @name utils_transform
 #' @export
 image_filter <- function(img,

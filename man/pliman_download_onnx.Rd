@@ -8,7 +8,7 @@ pliman_download_onnx(
   version = "1.20.1",
   dir = pliman_onnx_dir(),
   force = FALSE,
-  engine = c("cpu", "gpu")
+  engine = c("gpu", "cpu")
 )
 }
 \arguments{

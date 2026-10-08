@@ -5,12 +5,12 @@
 \alias{pliman_install_onnx}
 \title{Proprietary ONNX Runtime Installer for pliman}
 \usage{
-onnx_install(version = "1.20.1", force = FALSE, engine = c("cpu", "gpu"))
+onnx_install(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu"))
 
 pliman_install_onnx(
   version = "1.20.1",
   force = FALSE,
-  engine = c("cpu", "gpu")
+  engine = c("gpu", "cpu")
 )
 }
 \arguments{

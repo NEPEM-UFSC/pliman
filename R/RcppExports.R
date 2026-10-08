@@ -391,8 +391,8 @@ preprocess_yolo_file_cpp <- function(filename, target_size = 640L) {
     .Call(`_pliman_preprocess_yolo_file_cpp`, filename, target_size)
 }
 
-draw_yolo_detections_bgr_cpp <- function(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd = 2L, hud_text = "", font_scale = 1.0, keypoints = NULL, kpt_threshold = 0.3, kpt_radius = 4L, draw_skeleton = TRUE, draw_boxes = TRUE, track_ids = NULL, flash = NULL, history_x = NULL, history_y = NULL, roi = NULL, roi_label = "", count_line = NULL, count_line_label = "", counted = NULL, hide_outside_roi = TRUE, hide_counted = TRUE, flash_counted = TRUE, show_text = TRUE, show_conf = TRUE, show_class = TRUE, show_id = TRUE, mask_labels = NULL, mask_alpha = 0.4, mask_offset_x = 0L, mask_offset_y = 0L, draw_masks = TRUE, mask_ids = NULL, hud_pos = "top-right", hud_layout = "vertical") {
-    .Call(`_pliman_draw_yolo_detections_bgr_cpp`, bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout)
+draw_yolo_detections_bgr_cpp <- function(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd = 2L, hud_text = "", font_scale = 1.0, keypoints = NULL, kpt_threshold = 0.3, kpt_radius = 4L, draw_skeleton = TRUE, draw_boxes = TRUE, track_ids = NULL, flash = NULL, history_x = NULL, history_y = NULL, roi = NULL, roi_label = "", count_line = NULL, count_line_label = "", counted = NULL, hide_outside_roi = TRUE, hide_counted = TRUE, flash_counted = TRUE, show_text = TRUE, show_conf = TRUE, show_class = TRUE, show_id = FALSE, badge = TRUE, pad_scale = 1.0, mask_labels = NULL, mask_alpha = 0.4, mask_offset_x = 0L, mask_offset_y = 0L, draw_masks = TRUE, mask_ids = NULL, hud_pos = "top-right", hud_layout = "vertical") {
+    .Call(`_pliman_draw_yolo_detections_bgr_cpp`, bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, badge, pad_scale, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout)
 }
 
 crop_bgr_cpp <- function(bm, x1, y1, x2, y2) {
@@ -609,8 +609,8 @@ run_sam2_instances_cpp <- function(tensor_vec, boxes, orig_w, orig_h, encoder_pa
     .Call(`_pliman_run_sam2_instances_cpp`, tensor_vec, boxes, orig_w, orig_h, encoder_path, decoder_path, lib_path, num_threads, use_gpu, device_id)
 }
 
-run_sam2_persam_cpp <- function(tensor_vec, exemplar_x, exemplar_y, orig_w, orig_h, encoder_path, decoder_path, lib_path, sim_threshold = 0.5, min_dist = 16.0, iou_threshold = 0.5, max_objects = 200L, feat_res = 256L, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
-    .Call(`_pliman_run_sam2_persam_cpp`, tensor_vec, exemplar_x, exemplar_y, orig_w, orig_h, encoder_path, decoder_path, lib_path, sim_threshold, min_dist, iou_threshold, max_objects, feat_res, num_threads, use_gpu, device_id)
+run_sam2_persam_cpp <- function(tensor_vec, exemplar_x, exemplar_y, orig_w, orig_h, encoder_path, decoder_path, lib_path, sim_threshold = 0.5, min_dist = 16.0, iou_threshold = 0.5, max_objects = 200L, feat_res = 256L, num_threads = 0L, use_gpu = FALSE, device_id = -1L, precomputed_prototypes = NULL) {
+    .Call(`_pliman_run_sam2_persam_cpp`, tensor_vec, exemplar_x, exemplar_y, orig_w, orig_h, encoder_path, decoder_path, lib_path, sim_threshold, min_dist, iou_threshold, max_objects, feat_res, num_threads, use_gpu, device_id, precomputed_prototypes)
 }
 
 inspect_onnx_model_cpp <- function(model_path, lib_path) {
@@ -659,6 +659,14 @@ preprocess_yolo_cpp <- function(img_data, target_size = 640L) {
 
 canny_edge_detector <- function(image, X, Y, s = 2, low_thr = 3, high_thr = 10, accGrad = FALSE) {
     .Call(`_pliman_canny_edge_detector`, image, X, Y, s, low_thr, high_thr, accGrad)
+}
+
+skeleton_mat_cpp <- function(binary_mat, closing_rad = 1L, fill_size = 200L, min_len = 10L, rad_fac = 1.2, dissolve_cycles = TRUE, smooth = TRUE) {
+    .Call(`_pliman_skeleton_mat_cpp`, binary_mat, closing_rad, fill_size, min_len, rad_fac, dissolve_cycles, smooth)
+}
+
+analyze_root_system_cpp <- function(binary_mat, pixel_size = 1.0, prune_length_px = 12L, cluster_radius_px = 8.0, crown_x_in = -1.0, crown_y_in = -1.0, num_classes = 4L, diameter_bins = NULL, n_depth_slices = 10L, max_order = 3L, gravitropic_alpha = 1.5, closing_rad = 1L, fill_size = 200L, rad_fac = 1.2, dissolve_cycles = TRUE) {
+    .Call(`_pliman_analyze_root_system_cpp`, binary_mat, pixel_size, prune_length_px, cluster_radius_px, crown_x_in, crown_y_in, num_classes, diameter_bins, n_depth_slices, max_order, gravitropic_alpha, closing_rad, fill_size, rad_fac, dissolve_cycles)
 }
 
 update_tracker_cpp <- function(xmin, ymin, xmax, ymax, labels, scores, state, count_line = NULL, roi = NULL, max_dist = 120.0, min_iou = 0.25, max_lost = 15L, max_history = 30L) {

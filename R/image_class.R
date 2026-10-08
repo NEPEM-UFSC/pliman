@@ -52,6 +52,15 @@ as_image <- function(data,
     dim(data) <- dim
   }
 
+  if (!is.null(colormode)) {
+    cm_check <- tolower(colormode)
+    if (cm_check == "color" && (length(dim(data)) == 2 || (length(dim(data)) == 3 && dim(data)[3] == 1))) {
+      d_cur <- dim(data)
+      mat_src <- if (length(d_cur) == 3) data[, , 1] else data
+      data <- array(rep(mat_src, 3), dim = c(d_cur[1], d_cur[2], 3))
+    }
+  }
+
   if (inherits(data, "image")) {
     target_storage <- match.arg(storage)
     current_storage <- if (is.raw(data)) "raw" else if (is.double(data)) "double" else if (is.integer(data)) "integer" else if (is.logical(data)) "logical" else "unknown"
