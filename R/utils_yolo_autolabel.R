@@ -344,7 +344,10 @@
         new_coords <- cbind(x = add_pts$x, y = add_pts$y)
         curr_points <- if (!is.null(curr_points)) rbind(curr_points, new_coords) else new_coords
 
-        cli::cli_alert_info("Re-evaluating with {nrow(new_coords)} added exemplar point(s)...")
+        cli::cli_progress_step(
+          msg = "Re-evaluating SAM 2.1 with {nrow(new_coords)} added exemplar(s) [{toupper(engine)}]... (aguarde alguns segundos)",
+          msg_done = "SAM 2.1 re-evaluation complete"
+        )
         new_pres <- tryCatch({
           .run_persam(
             mat = c_num_arr,
@@ -435,8 +438,10 @@
 
       if (!is.na(new_val) && new_val > 0 && new_val < 1) {
         curr_conf <- new_val
-        cli::cli_alert_info("Re-evaluating with threshold = {curr_conf}...")
-
+        cli::cli_progress_step(
+          msg = "Re-evaluating detections with threshold = {curr_conf} [{toupper(engine)}]... (aguarde alguns segundos)",
+          msg_done = "Threshold update complete"
+        )
         new_pres <- tryCatch({
           .run_persam(
             mat = c_num_arr,
@@ -782,6 +787,19 @@ yolo_fewshot_fit <- function(img,
         )
       } else {
         NULL
+      }
+
+      if (isTRUE(verbose)) {
+        im_name_lbl <- basename(as.character(curr_target[1]))
+        if (!is.null(curr_points) && nrow(curr_points) > 0L) {
+          cli::cli_alert_success("Collected {nrow(curr_points)} exemplar point{?s} on {.file {im_name_lbl}}.")
+        } else {
+          cli::cli_alert_info("Auto-detecting on {.file {im_name_lbl}} using {length(all_prototypes_sem)} learned prototype{?s}.")
+        }
+        cli::cli_progress_step(
+          msg = "Running SAM 2.1 inference on {.file {im_name_lbl}} [{toupper(engine)}]... (aguarde alguns segundos)",
+          msg_done = "SAM 2.1 inference complete on {.file {im_name_lbl}}"
+        )
       }
 
       p_res <- tryCatch({
