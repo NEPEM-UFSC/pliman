@@ -129,6 +129,23 @@ yolo_fewshot_fit <- function(img,
       models[[i]] <- mod_i
     }
 
+    all_ref_b <- list()
+    all_ref_p <- list()
+    for (m_idx in seq_along(models)) {
+      if (!is.null(models[[m_idx]]$detected_boxes) && nrow(models[[m_idx]]$detected_boxes) > 0L) {
+        all_ref_b[[length(all_ref_b) + 1L]] <- models[[m_idx]]$detected_boxes
+        all_ref_p <- c(all_ref_p, models[[m_idx]]$detected_polygons)
+      }
+    }
+    comb_ref_boxes <- if (length(all_ref_b) > 0L) do.call(rbind, all_ref_b) else data.frame()
+    if (nrow(comb_ref_boxes) > 0L) {
+      nms_ref <- .cross_class_nms(comb_ref_boxes, all_ref_p, iou_thresh = 0.40)
+      comb_ref_boxes <- nms_ref$boxes
+      comb_ref_polys <- nms_ref$polygons
+    } else {
+      comb_ref_polys <- list()
+    }
+
     comb_obj <- structure(
       list(
         label = label,
@@ -138,6 +155,8 @@ yolo_fewshot_fit <- function(img,
         conf_threshold = conf_threshold,
         method = method,
         engine = engine,
+        detected_boxes = comb_ref_boxes,
+        detected_polygons = comb_ref_polys,
         reference_image = models[[1]]$reference_image,
         reference_images = models[[1]]$reference_images
       ),
@@ -763,6 +782,56 @@ yolo_fewshot_fit <- function(img,
   invisible(model_obj)
 }
 
+# Cross-class Non-Maximum Suppression (competitive disambiguation across classes)
+.cross_class_nms <- function(boxes, polygons = NULL, iou_thresh = 0.40) {
+  if (is.null(boxes) || nrow(boxes) <= 1L) {
+    return(list(boxes = boxes, polygons = polygons))
+  }
+  # Sort all candidate boxes across all classes by confidence descending
+  ord <- order(boxes$conf, decreasing = TRUE)
+  boxes <- boxes[ord, , drop = FALSE]
+  if (!is.null(polygons) && length(polygons) == nrow(boxes)) {
+    polygons <- polygons[ord]
+  }
+
+  x1 <- boxes$xmin
+  y1 <- boxes$ymin
+  x2 <- boxes$xmax
+  y2 <- boxes$ymax
+  areas <- pmax(0, x2 - x1) * pmax(0, y2 - y1)
+
+  n <- nrow(boxes)
+  suppressed <- rep(FALSE, n)
+
+  for (i in seq_len(n)) {
+    if (suppressed[i]) next
+    for (j in seq(i + 1L, n)) {
+      if (suppressed[j]) next
+      xx1 <- max(x1[i], x1[j])
+      yy1 <- max(y1[i], y1[j])
+      xx2 <- min(x2[i], x2[j])
+      yy2 <- min(y2[i], y2[j])
+      w_int <- max(0, xx2 - xx1)
+      h_int <- max(0, yy2 - yy1)
+      inter <- w_int * h_int
+      if (inter > 0) {
+        union_area <- areas[i] + areas[j] - inter
+        iou <- if (union_area > 0) inter / union_area else 0
+        min_area <- min(areas[i], areas[j])
+        iom <- if (min_area > 0) inter / min_area else 0
+        if (iou >= iou_thresh || iom >= 0.60) {
+          suppressed[j] <- TRUE
+        }
+      }
+    }
+  }
+
+  keep <- which(!suppressed)
+  res_boxes <- boxes[keep, , drop = FALSE]
+  res_polys <- if (!is.null(polygons) && length(polygons) == n) polygons[keep] else polygons
+  list(boxes = res_boxes, polygons = res_polys)
+}
+
 #' @title Combine Few-Shot Models
 #' @description Combines multiple `yolo_fewshot_model` objects into a multi-class few-shot model.
 #' @param ... `yolo_fewshot_model` objects to combine.
@@ -881,6 +950,11 @@ yolo_fewshot_predict <- function(model,
       }
     }
     comb_boxes <- if (length(all_b) > 0L) do.call(rbind, all_b) else data.frame()
+    if (nrow(comb_boxes) > 0L) {
+      nms_res <- .cross_class_nms(comb_boxes, all_p, iou_thresh = 0.40)
+      comb_boxes <- nms_res$boxes
+      all_p <- nms_res$polygons
+    }
     res <- list(boxes = comb_boxes, polygons = all_p, image = im)
     if (isTRUE(plot)) {
       plot(im)
@@ -910,6 +984,11 @@ yolo_fewshot_predict <- function(model,
                          labels = sprintf("%s %.2f", res$boxes$class_name[r], res$boxes$conf[r]),
                          col = c_col, cex = 0.8, pos = 4)
         }
+        cls_counts <- table(res$boxes$class_name)
+        sum_str <- paste(sprintf("%d %s", as.integer(cls_counts), names(cls_counts)), collapse = ", ")
+        graphics::title(sprintf("Few-Shot Multi-Class: %s [%s]", sum_str, task),
+                        col.main = if (isTRUE(rainbow)) "#00CC66" else "#00FFCC",
+                        cex.main = 1.0)
       }
     }
     return(invisible(res))
@@ -1553,10 +1632,17 @@ plot.yolo_fewshot_model <- function(x,
                                     which = NULL,
                                     ...) {
   if (inherits(x, "yolo_fewshot_multimodel") && !is.null(x$models)) {
-    for (m in x$models) {
-      plot(m, task = task, rainbow = rainbow, show_boxes = show_boxes,
-           show_polygons = show_polygons, show_points = show_points,
-           lwd = lwd, ...)
+    im_ref <- if (!is.null(x$reference_image)) x$reference_image else x$models[[1]]$reference_image
+    if (!is.null(im_ref)) {
+      yolo_fewshot_predict(
+        model = x,
+        img = im_ref,
+        task = task,
+        plot = TRUE,
+        rainbow = rainbow,
+        conf_threshold = x$conf_threshold,
+        engine = x$engine
+      )
     }
     return(invisible(x))
   }
