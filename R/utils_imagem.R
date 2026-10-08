@@ -151,7 +151,8 @@ image_combine <- function(...,
   # Helper to decode webp array
   .decode_webp_file <- function(f, ...) {
     if (requireNamespace("webp", quietly = TRUE)) {
-      img_arr <- webp::read_webp(f, ...)
+      img_arr <- tryCatch(webp::read_webp(f, ...), error = function(e) NULL)
+      if (is.null(img_arr)) return(NULL)
       if (length(dim(img_arr)) == 3L && dim(img_arr)[3L] == 4L) {
         img_arr <- img_arr[, , 1:3, drop = FALSE]
       }
@@ -179,26 +180,30 @@ image_combine <- function(...,
     NULL
   }
 
-  # 2. Check for WebP (.webp or magic bytes RIFF...WEBP commonly saved with .jpg/.png)
-  is_webp_file <- (ext == "webp")
-  if (!is_webp_file && file.size(file) >= 12L) {
+  # 2. Check for WebP: true WebP has RIFF...WEBP magic bytes
+  is_riff_webp <- FALSE
+  if (file.size(file) >= 12L) {
     magic <- tryCatch(readBin(file, "raw", n = 12L), error = function(e) raw(0))
     if (length(magic) >= 12L &&
         identical(magic[1:4], as.raw(c(0x52, 0x49, 0x46, 0x46))) &&
         identical(magic[9:12], as.raw(c(0x57, 0x45, 0x42, 0x50)))) {
-      is_webp_file <- TRUE
+      is_riff_webp <- TRUE
     }
   }
 
-  if (is_webp_file) {
+  if (is_riff_webp || ext == "webp") {
     w_out <- .decode_webp_file(file, ...)
     if (!is.null(w_out)) return(w_out)
     m_out <- .decode_magick_file(file)
     if (!is.null(m_out)) return(m_out)
-    cli::cli_abort(c(
-      "!" = "Package {.pkg webp} is required to import WebP image files ({.val {basename(file)}}).",
-      "i" = "Please install it with: {.code install.packages('webp')}"
-    ))
+    if (is_riff_webp) {
+      cli::cli_abort(c(
+        "!" = "Package {.pkg webp} is required to import WebP image files ({.val {basename(file)}}).",
+        "i" = "Please install it with: {.code install.packages('webp')}"
+      ))
+    }
+    # If file had .webp extension but is not RIFF...WEBP (e.g. JPEG/PNG renamed to .webp),
+    # let it fall through to native C++ engine below.
   }
 
   # 3. Native C++ Engine (JPEG, PNG, TIFF, BMP, TGA, GIF, etc.) with Fallback for Complex TIFFs
