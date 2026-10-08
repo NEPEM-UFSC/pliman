@@ -148,21 +148,57 @@ image_combine <- function(...,
     }
   }
 
-  # 2. WebP (.webp)
-  if (ext == "webp") {
+  # Helper to decode webp array
+  .decode_webp_file <- function(f, ...) {
     if (requireNamespace("webp", quietly = TRUE)) {
-      img_arr <- webp::read_webp(file, ...)
+      img_arr <- webp::read_webp(f, ...)
       if (length(dim(img_arr)) == 3L && dim(img_arr)[3L] == 4L) {
         img_arr <- img_arr[, , 1:3, drop = FALSE]
       }
+      if (length(dim(img_arr)) == 3L) {
+        img_arr <- aperm(img_arr, c(2L, 1L, 3L))
+      } else if (length(dim(img_arr)) == 2L) {
+        img_arr <- t(img_arr)
+      }
       raw_data <- float_to_raw_cpp(img_arr)
       return(as_image(raw_data, colormode = if (length(dim(raw_data)) == 3L) "Color" else "Grayscale"))
-    } else {
-      cli::cli_abort(c(
-        "!" = "Package {.pkg webp} is required to import {.val .webp} image files.",
-        "i" = "Please install it with: {.code install.packages('webp')}"
-      ))
     }
+    NULL
+  }
+
+  # Helper to decode via magick if available
+  .decode_magick_file <- function(f) {
+    if (requireNamespace("magick", quietly = TRUE)) {
+      m <- tryCatch(magick::image_read(f), error = function(e) NULL)
+      if (!is.null(m)) {
+        d <- magick::image_data(m, "rgb")
+        d <- aperm(d, c(2L, 3L, 1L))
+        return(as_image(d, colormode = "Color"))
+      }
+    }
+    NULL
+  }
+
+  # 2. Check for WebP (.webp or magic bytes RIFF...WEBP commonly saved with .jpg/.png)
+  is_webp_file <- (ext == "webp")
+  if (!is_webp_file && file.size(file) >= 12L) {
+    magic <- tryCatch(readBin(file, "raw", n = 12L), error = function(e) raw(0))
+    if (length(magic) >= 12L &&
+        identical(magic[1:4], as.raw(c(0x52, 0x49, 0x46, 0x46))) &&
+        identical(magic[9:12], as.raw(c(0x57, 0x45, 0x42, 0x50)))) {
+      is_webp_file <- TRUE
+    }
+  }
+
+  if (is_webp_file) {
+    w_out <- .decode_webp_file(file, ...)
+    if (!is.null(w_out)) return(w_out)
+    m_out <- .decode_magick_file(file)
+    if (!is.null(m_out)) return(m_out)
+    cli::cli_abort(c(
+      "!" = "Package {.pkg webp} is required to import WebP image files ({.val {basename(file)}}).",
+      "i" = "Please install it with: {.code install.packages('webp')}"
+    ))
   }
 
   # 3. Native C++ Engine (JPEG, PNG, TIFF, BMP, TGA, GIF, etc.) with Fallback for Complex TIFFs
@@ -199,6 +235,15 @@ image_combine <- function(...,
         ))
       }
     }
+
+    # Fallback 1: Attempt webp decoder
+    w_out <- tryCatch(.decode_webp_file(file, ...), error = function(err) NULL)
+    if (!is.null(w_out)) return(w_out)
+
+    # Fallback 2: Attempt magick decoder (handles non-standard JPEG, CMYK, progressive, AVIF, HEIC, etc.)
+    m_out <- tryCatch(.decode_magick_file(file), error = function(err) NULL)
+    if (!is.null(m_out)) return(m_out)
+
     cli::cli_abort(c(
       "!" = "Failed to import image {.val {basename(file)}}.",
       "x" = conditionMessage(e)
