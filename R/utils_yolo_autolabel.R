@@ -804,8 +804,8 @@ yolo_fewshot_fit <- function(img,
   suppressed <- rep(FALSE, n)
 
   for (i in seq_len(n)) {
-    if (suppressed[i]) next
-    for (j in seq(i + 1L, n)) {
+    if (suppressed[i] || i >= n) next
+    for (j in (i + 1L):n) {
       if (suppressed[j]) next
       xx1 <- max(x1[i], x1[j])
       yy1 <- max(y1[i], y1[j])
