@@ -12,11 +12,18 @@ image_pose_dl(
   kpt_threshold = 0.3,
   col = NULL,
   lwd = 2,
+  cex = 1,
+  pad = 1,
+  show_text = TRUE,
+  show_conf = TRUE,
+  show_class = TRUE,
+  show_id = FALSE,
+  badge = TRUE,
   kpt_radius = 4,
   bbox = TRUE,
   skeleton = TRUE,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,
@@ -39,6 +46,21 @@ Options include \code{"yolo26n-pose"}, \code{"yolo26s-pose"}, \code{"yolo26m-pos
 \item{col}{Optional color or palette for bounding boxes and keypoint markers.}
 
 \item{lwd}{Line width for bounding boxes and skeleton limbs (default 2).}
+
+\item{cex}{Size factor for bounding box label text (default \code{1.0}).}
+
+\item{pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).}
+
+\item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
+
+\item{show_conf}{Logical. Whether to display confidence scores in labels (default \code{TRUE}).}
+
+\item{show_class}{Logical. Whether to display class names in labels (default \code{TRUE}).}
+
+\item{show_id}{Logical. Whether to display object IDs (\verb{#1}, \verb{#2}, ...) in labels (default \code{FALSE}).}
+
+\item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
+If \code{FALSE}, only the text is drawn directly.}
 
 \item{kpt_radius}{Radius/size for keypoint markers (default 4).}
 

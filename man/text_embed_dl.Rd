@@ -8,7 +8,7 @@ text_embed_dl(
   text,
   model = "clip-vit-b32",
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = FALSE,
   dir = pliman_model_dir(),

@@ -10,7 +10,7 @@ image_depth_dl(
   col_palette = "magma",
   invert = FALSE,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,

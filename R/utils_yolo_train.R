@@ -245,14 +245,14 @@ yolo_dataset_export <- function(img,
                                 text_threshold = 0.25,
                                 iou_threshold = 0.50,
                                 feat_res = 256,
-                                max_objects = 300,
+                                max_objects = NULL,
                                 train_prop = 0.8,
                                 n_points = 40L,
                                 min_area = 15,
                                 filter_edge = TRUE,
                                 show_similarity = FALSE,
                                 superres_map = FALSE,
-                                engine = c("cpu", "gpu"),
+                                engine = c("gpu", "cpu"),
                                 device_id = -1,
                                 overwrite = TRUE,
                                 verbose = TRUE,
@@ -859,37 +859,47 @@ yolo_dataset_export <- function(img,
 #' @name yolo_dataset_preview
 #' @description
 #' Loads sample images and their matching `.txt` annotation labels from a YOLO
-#' dataset directory and displays them with overlaid segmentation polygons or bounding boxes.
+#' dataset directory and displays them in a multi-panel grid with overlaid segmentation polygons
+#' or bounding boxes. By default, randomly samples `n` images from the requested split.
 #'
-#' @param dir Path to the YOLO dataset directory (containing `images/` and `labels/`).
-#' Visualizes bounding boxes or segmentation polygons from a YOLO dataset created with
-#' [yolo_dataset_export()]. Allows inspecting both training and validation splits.
-#'
-#' @param dir Character or `yolo_dataset` object. Path to the dataset directory (or the list returned by [yolo_dataset_export()]).
-#' @param split Character. Either `"train"` (default) or `"val"`.
+#' @param dir Character or `yolo_dataset` object. Path to the dataset directory (or list from [yolo_dataset_export()] / [yolo_dataset_split()]).
+#' @param split Character. The subset to preview: `"train"` (default), `"val"`, or `"test"`.
+#' @param pattern Optional regex pattern to filter specific image names (e.g. `"toras5\\.png"`). Defaults to `NULL`.
 #' @param n Integer. Number of sample images to preview. Defaults to `4L`.
-#' @param col Border color for bounding boxes/polygons. If `NULL`, uses a distinct color per class.
-#' @param lwd Numeric. Line width for borders. Defaults to `2`.
+#' @param random Logical. If `TRUE` (default), samples random images from the split. If `FALSE`, picks the first `n` images.
+#' @param seed Optional integer seed for reproducible random selection.
+#' @param rainbow Logical. If `TRUE` (default), assigns distinct rainbow colors to each object within the image (matching review previews). If `FALSE`, colors are assigned by class.
+#' @param col Border color for bounding boxes/polygons. If provided, overrides `rainbow` and default class palette.
+#' @param lwd Numeric. Line width for borders. Defaults to `1.5`.
 #' @param fill Fill color for polygons with transparency (e.g. `"#00FF6633"`). If `NULL`, no fill.
-#' @param show_labels Logical. If `TRUE` (default), displays class name badges.
-#' @param cex Numeric. Text size for class name badges. Defaults to `0.8`.
+#' @param show_labels Logical. If `TRUE` (default), displays class name labels.
+#' @param label_bg Logical. If `TRUE`, draws a subtle background badge behind each label. If `FALSE` (default), draws clean, discreet text matching review previews without blocking objects.
+#' @param cex Numeric. Text size for class name labels. Defaults to `0.6`.
+#' @param title Logical or character. If `TRUE` (default), displays panel titles with filename and object count.
 #'
-#' @return An invisible list of plotted image objects.
+#' @return An invisible list of the sampled image file paths.
 #' @export
 #' @examples
 #' \dontrun{
 #' dataset <- yolo_dataset_export(img, dir = "dataset_cafe", model = "persam")
-#' yolo_dataset_preview(dataset)
-#' plot(dataset)
+#' yolo_dataset_preview(dataset, n = 4, random = TRUE)
+#' plot(dataset, n = 6)
 #' }
 yolo_dataset_preview <- function(dir = "yolo_dataset",
-                                 split = c("train", "val"),
+                                 split = c("train", "val", "test"),
+                                 pattern = NULL,
                                  n = 4L,
+                                 random = TRUE,
+                                 seed = NULL,
+                                 mfrow = NULL,
+                                 rainbow = TRUE,
                                  col = NULL,
-                                 lwd = 2,
+                                 lwd = 1.5,
                                  fill = NULL,
                                  show_labels = TRUE,
-                                 cex = 0.8) {
+                                 label_bg = FALSE,
+                                 cex = 0.6,
+                                 title = TRUE) {
   split <- match.arg(split)
 
   if (is.null(dir)) {
@@ -961,38 +971,95 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
 
   default_palette <- c("#00FF66", "#00F0FF", "#FF0055", "#FFD700", "#9D00FF", "#FF8800", "#00B4D8", "#E63946")
 
-  img_files <- list.files(img_dir, pattern = "\\.(jpg|jpeg|png)$", ignore.case = TRUE, full.names = TRUE)
+  img_files <- list.files(img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", ignore.case = TRUE, full.names = TRUE)
   if (length(img_files) == 0L) {
     cli::cli_abort("No images found in {.path {img_dir}}.")
   }
 
+  if (!is.null(pattern) && is.character(pattern) && nzchar(pattern[1])) {
+    img_files <- img_files[grepl(pattern[1], basename(img_files), ignore.case = TRUE)]
+    if (length(img_files) == 0L) {
+      cli::cli_abort("No images matching pattern {.val {pattern[1]}} found in {.path {img_dir}}.")
+    }
+  }
+
+  all_stems <- tools::file_path_sans_ext(basename(img_files))
+  if (any(duplicated(all_stems))) {
+    dup_names <- unique(all_stems[duplicated(all_stems)])
+    cli::cli_alert_warning("Found {length(dup_names)} image stem collision(s) in split {.val {split}} (e.g. {.val {head(dup_names, 3)}}). Multiple images with different extensions share the same base name, causing them to compete for the same {.file .txt} label file!")
+  }
+
   n_samples <- min(as.integer(n), length(img_files))
-  sample_files <- img_files[seq_len(n_samples)]
+  if (isTRUE(random)) {
+    if (!is.null(seed)) set.seed(seed)
+    sample_files <- sample(img_files, size = n_samples)
+  } else {
+    sample_files <- img_files[seq_len(n_samples)]
+  }
+
+  if (n_samples > 1L) {
+    if (is.null(mfrow)) {
+      nc <- ceiling(sqrt(n_samples))
+      nr <- ceiling(n_samples / nc)
+      mfrow <- c(nr, nc)
+    }
+    op <- graphics::par(mfrow = mfrow, mar = c(1, 1, if (isTRUE(title)) 2.2 else 1, 1))
+    on.exit(graphics::par(op), add = TRUE)
+  }
 
   for (img_path in sample_files) {
     base_name <- tools::file_path_sans_ext(basename(img_path))
     lbl_path  <- file.path(lbl_dir, paste0(base_name, ".txt"))
 
+    same_stem_imgs <- img_files[all_stems == base_name]
+    if (length(same_stem_imgs) > 1L) {
+      cli::cli_alert_warning("Image {.file {basename(img_path)}} shares base name with {.file {basename(setdiff(same_stem_imgs, img_path))}} on label {.file {paste0(base_name, '.txt')}}!")
+    }
+
     img <- image_import(img_path)
-    plot(img)
+
+    lines <- if (file.exists(lbl_path)) readLines(lbl_path, warn = FALSE) else character(0)
+    lines <- lines[nzchar(trimws(lines))]
+    n_objs <- length(lines)
+
+    p_title <- if (isTRUE(title)) {
+      if (n_objs == 0L) {
+        sprintf("%s [background]", basename(img_path))
+      } else {
+        sprintf("%s (%d obj%s)", basename(img_path), n_objs, ifelse(n_objs == 1, "", "s"))
+      }
+    } else if (is.character(title)) {
+      title
+    } else {
+      NULL
+    }
+
+    plot(img, main = p_title)
 
     dims <- dim(img)
     img_w <- dims[1]
     img_h <- dims[2]
 
-    if (file.exists(lbl_path)) {
-      lines <- readLines(lbl_path, warn = FALSE)
-      lines <- lines[nzchar(trimws(lines))]
+    if (n_objs > 0L) {
+      box_colors <- if (isTRUE(rainbow) && is.null(col)) {
+        grDevices::rainbow(n_objs, s = 0.85, v = 0.95)
+      } else {
+        NULL
+      }
 
+      obj_i <- 0L
       for (ln in lines) {
         vals <- as.numeric(strsplit(trimws(ln), "\\s+")[[1]])
         if (length(vals) < 5L) next
+        obj_i <- obj_i + 1L
 
         cls_id <- as.integer(vals[1])
         coords <- vals[-1]
 
         draw_col <- if (!is.null(col)) {
           if (length(col) == 1L) col else col[(cls_id %% length(col)) + 1L]
+        } else if (!is.null(box_colors)) {
+          box_colors[min(obj_i, length(box_colors))]
         } else {
           default_palette[(cls_id %% length(default_palette)) + 1L]
         }
@@ -1012,25 +1079,34 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
           graphics::rect(xmin, ymin, xmax, ymax, border = draw_col, lwd = lwd)
 
           if (isTRUE(show_labels)) {
-            th <- graphics::strheight(lbl_text, cex = cex) * 1.5
-            tw <- graphics::strwidth(lbl_text, cex = cex) * 1.4
-            lbl_y1 <- max(0, ymin - th)
-            graphics::rect(xmin, lbl_y1, xmin + tw, ymin, col = draw_col, border = NA)
-            graphics::text(xmin + tw / 2, ymin - th / 2, labels = lbl_text, col = "black", cex = cex, font = 2)
+            if (isTRUE(label_bg)) {
+              th <- graphics::strheight(lbl_text, cex = cex) * 1.2
+              tw <- graphics::strwidth(lbl_text, cex = cex) * 1.2
+              lbl_y1 <- max(0, ymin - th)
+              graphics::rect(xmin, lbl_y1, xmin + tw, ymin, col = grDevices::adjustcolor(draw_col, alpha.f = 0.6), border = NA)
+              graphics::text(xmin + tw / 2, ymin - th / 2, labels = lbl_text, col = "black", cex = cex, font = 2)
+            } else {
+              graphics::text(xmin, ymin - 3, labels = lbl_text, col = draw_col, cex = cex, pos = 4, font = 2)
+            }
           }
         } else if (length(coords) >= 6L && length(coords) %% 2 == 0) {
           # Segmentation polygon format: x1 y1 x2 y2 ...
           xs <- coords[seq(1, length(coords), by = 2L)] * img_w
           ys <- coords[seq(2, length(coords), by = 2L)] * img_h
-          graphics::polygon(xs, ys, border = draw_col, col = fill, lwd = lwd)
+          poly_fill <- if (!is.null(fill)) fill else if (isTRUE(rainbow)) grDevices::adjustcolor(draw_col, alpha.f = 0.35) else NULL
+          graphics::polygon(xs, ys, border = draw_col, col = poly_fill, lwd = lwd)
 
           if (isTRUE(show_labels)) {
             min_x <- min(xs); min_y <- min(ys)
-            th <- graphics::strheight(lbl_text, cex = cex) * 1.5
-            tw <- graphics::strwidth(lbl_text, cex = cex) * 1.4
-            lbl_y1 <- max(0, min_y - th)
-            graphics::rect(min_x, lbl_y1, min_x + tw, min_y, col = draw_col, border = NA)
-            graphics::text(min_x + tw / 2, min_y - th / 2, labels = lbl_text, col = "black", cex = cex, font = 2)
+            if (isTRUE(label_bg)) {
+              th <- graphics::strheight(lbl_text, cex = cex) * 1.2
+              tw <- graphics::strwidth(lbl_text, cex = cex) * 1.2
+              lbl_y1 <- max(0, min_y - th)
+              graphics::rect(min_x, lbl_y1, min_x + tw, min_y, col = grDevices::adjustcolor(draw_col, alpha.f = 0.6), border = NA)
+              graphics::text(min_x + tw / 2, min_y - th / 2, labels = lbl_text, col = "black", cex = cex, font = 2)
+            } else {
+              graphics::text(min_x, min_y - 3, labels = lbl_text, col = draw_col, cex = cex, pos = 4, font = 2)
+            }
           }
         }
       }
@@ -1158,22 +1234,126 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
   added_val <- character()
 
   # Check if source is a URL
-  if (is.character(source) && length(source) == 1L && grepl("^https?://", source, ignore.case = TRUE)) {
+  if (is.character(source) && length(source) == 1L && grepl("^https?://", source, ignore.case = TRUE) && grepl("\\.ndjson$", source, ignore.case = TRUE)) {
     if (isTRUE(verbose)) cli::cli_alert_info("Downloading NDJSON file from URL {.url {source}}...")
     tmp_nd <- file.path(tempdir(), "source_download.ndjson")
     utils::download.file(source, tmp_nd, mode = "wb", quiet = !verbose)
     source <- tmp_nd
   }
 
-  # Check if source is NDJSON
   is_ndjson <- is.character(source) && length(source) == 1L && grepl("\\.ndjson$", source, ignore.case = TRUE) && file.exists(source)
+  is_zip_url <- is.character(source) && length(source) == 1L && grepl("^https?://.*\\.zip$", source, ignore.case = TRUE)
+  is_local_zip <- is.character(source) && length(source) == 1L && grepl("\\.zip$", source, ignore.case = TRUE) && file.exists(source)
+  is_slug_name <- is.character(source) && length(source) == 1L && !file.exists(source) && !grepl("[/\\\\]", source) &&
+                  grepl("^[a-z0-9_-]+$", source, ignore.case = TRUE)
 
-  if (is_ndjson) {
+  # Helper to extract background samples from a ZIP archive
+  extract_from_zip <- function(zip_path) {
+    z_list <- utils::unzip(zip_path, list = TRUE)
+    img_entries <- z_list$Name[grepl("\\.(jpg|jpeg|png|bmp|webp)$", z_list$Name, ignore.case = TRUE)]
+    if (length(img_entries) == 0L) {
+      cli::cli_abort("No image files found inside archive {.path {zip_path}}.")
+    }
+    n_sample <- min(n, length(img_entries))
+    n_tr <- max(1L, round(n_sample * train_prop))
+    if (n_tr >= n_sample && n_sample > 1L) n_tr <- n_sample - 1L
+    n_v <- n_sample - n_tr
+
+    set.seed(42)
+    selected_entries <- sample(img_entries, size = n_sample)
+
+    if (isTRUE(verbose)) {
+      cli::cli_alert_info("Extracting {n_sample} background images ({n_tr} train / {n_v} val)...")
+      pb <- cli::cli_progress_bar(
+        name = "Extracting background images",
+        total = n_sample,
+        format = "{cli::pb_spin} [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}"
+      )
+    }
+
+    tmp_dir <- file.path(tempdir(), paste0("pliman_bg_", as.integer(stats::runif(1, 1000, 999999))))
+    dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+    utils::unzip(zip_path, files = selected_entries, exdir = tmp_dir)
+
+    tr_added <- character()
+    val_added <- character()
+
+    for (k in seq_along(selected_entries)) {
+      is_tr <- (k <= n_tr)
+      dest_img_dir <- if (is_tr) train_img_dir else val_img_dir
+      dest_lbl_dir <- if (is_tr) train_lbl_dir else val_lbl_dir
+
+      src_f <- file.path(tmp_dir, selected_entries[k])
+      ext <- tools::file_ext(selected_entries[k])
+      if (!nzchar(ext)) ext <- "jpg"
+      base_fn <- sprintf("%s%04d", prefix, k)
+      dest_img <- file.path(dest_img_dir, paste0(base_fn, ".", ext))
+      dest_lbl <- file.path(dest_lbl_dir, paste0(base_fn, ".txt"))
+
+      if (file.exists(src_f)) {
+        file.copy(src_f, dest_img, overwrite = TRUE)
+        file.create(dest_lbl)
+        if (is_tr) tr_added <- c(tr_added, dest_img) else val_added <- c(val_added, dest_img)
+      }
+      if (isTRUE(verbose)) cli::cli_progress_update(id = pb)
+    }
+    if (isTRUE(verbose)) cli::cli_progress_done(id = pb)
+    unlink(tmp_dir, recursive = TRUE, force = TRUE)
+
+    list(train = tr_added, val = val_added)
+  }
+
+  if (is_local_zip) {
+    if (isTRUE(verbose)) cli::cli_alert_info("Reading local ZIP archive {.path {source}}...")
+    res_z <- extract_from_zip(source)
+    added_train <- res_z$train
+    added_val   <- res_z$val
+
+  } else if (is_zip_url) {
+    if (isTRUE(verbose)) cli::cli_alert_info("Downloading background dataset from {.url {source}}...")
+    tmp_z <- file.path(tempdir(), paste0("bg_download_", as.integer(stats::runif(1, 1000, 999999)), ".zip"))
+    if (requireNamespace("curl", quietly = TRUE)) {
+      curl::curl_download(source, tmp_z, quiet = !verbose)
+    } else {
+      utils::download.file(source, tmp_z, mode = "wb", quiet = !verbose)
+    }
+    res_z <- extract_from_zip(tmp_z)
+    added_train <- res_z$train
+    added_val   <- res_z$val
+    unlink(tmp_z, force = TRUE)
+
+  } else if (is_slug_name) {
+    slug <- tolower(gsub("[^a-z0-9]+", "-", source))
+    slug <- gsub("^-+|-+$", "", slug)
+    zip_url <- sprintf("https://github.com/ultralytics/assets/releases/download/v0.0.0/%s.zip", slug)
+    if (isTRUE(verbose)) cli::cli_alert_info("Downloading official Ultralytics dataset archive ({slug}.zip)...")
+    tmp_z <- file.path(tempdir(), paste0(slug, "_", as.integer(stats::runif(1, 1000, 999999)), ".zip"))
+    ok_dl <- tryCatch({
+      if (requireNamespace("curl", quietly = TRUE)) {
+        curl::curl_download(zip_url, tmp_z, quiet = !verbose)
+      } else {
+        utils::download.file(zip_url, tmp_z, mode = "wb", quiet = !verbose)
+      }
+      TRUE
+    }, error = function(e) FALSE)
+
+    if (isTRUE(ok_dl) && file.exists(tmp_z) && file.size(tmp_z) > 1000) {
+      res_z <- extract_from_zip(tmp_z)
+      added_train <- res_z$train
+      added_val   <- res_z$val
+      unlink(tmp_z, force = TRUE)
+    } else {
+      cli::cli_abort("Failed to download Ultralytics dataset {.val {source}} from {.url {zip_url}}.")
+    }
+
+  } else if (is_ndjson) {
     if (isTRUE(verbose)) {
       cli::cli_alert_info("Reading Ultralytics NDJSON file {.path {source}}...")
     }
     lines <- readLines(source, warn = FALSE)
     lines <- lines[nzchar(trimws(lines))]
+    meta <- if (length(lines) > 0L) tryCatch(jsonlite::fromJSON(lines[1]), error = function(e) list()) else list()
+
     # Filter image lines with URL
     records <- list()
     for (ln in lines[-1]) {
@@ -1192,41 +1372,96 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
     indices <- round(seq(1, length(records), length.out = n_sample))
     selected <- records[indices]
 
-    if (isTRUE(verbose)) {
-      cli::cli_alert_info("Downloading {n_sample} background images ({n_train} train / {n_val} val)...")
-      pb <- cli::cli_progress_bar(
-        name = "Downloading background images",
-        total = n_sample,
-        format = "{cli::pb_spin} [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}"
-      )
+    # Pre-test first URL to detect expired signed URLs
+    first_url <- selected[[1]]$url
+    first_ok <- FALSE
+    test_h <- tryCatch({
+      if (requireNamespace("curl", quietly = TRUE)) curl::curl_fetch_memory(first_url) else NULL
+    }, error = function(e) NULL)
+    if (!is.null(test_h) && !is.null(test_h$status_code) && test_h$status_code == 200L) {
+      first_ok <- TRUE
     }
 
-    for (k in seq_along(selected)) {
-      rec <- selected[[k]]
-      is_tr <- (k <= n_train)
-      dest_img_dir <- if (is_tr) train_img_dir else val_img_dir
-      dest_lbl_dir <- if (is_tr) train_lbl_dir else val_lbl_dir
-
-      base_fn <- sprintf("%s%04d", prefix, k)
-      dest_img <- file.path(dest_img_dir, paste0(base_fn, ".jpg"))
-      dest_lbl <- file.path(dest_lbl_dir, paste0(base_fn, ".txt"))
-
-      ok <- tryCatch({
-        if (requireNamespace("curl", quietly = TRUE)) {
-          curl::curl_download(rec$url, dest_img, quiet = TRUE)
-        } else {
-          utils::download.file(rec$url, dest_img, mode = "wb", quiet = TRUE)
-        }
-        file.create(dest_lbl)
-        TRUE
-      }, error = function(e) FALSE)
-
-      if (ok) {
-        if (is_tr) added_train <- c(added_train, dest_img) else added_val <- c(added_val, dest_img)
+    if (!first_ok) {
+      # Extract dataset slug to check official persistent GitHub archive
+      slug <- NULL
+      if (!is.null(meta[["url"]]) && nzchar(meta[["url"]])) {
+        slug <- basename(meta[["url"]])
+      } else if (!is.null(meta[["name"]]) && nzchar(meta[["name"]])) {
+        slug <- tolower(gsub("[^a-z0-9]+", "-", meta[["name"]]))
+        slug <- gsub("^-+|-+$", "", slug)
+      } else {
+        slug <- tolower(gsub("\\.ndjson$", "", basename(source), ignore.case = TRUE))
+        slug <- tolower(gsub("[^a-z0-9]+", "-", slug))
+        slug <- gsub("^-+|-+$", "", slug)
       }
-      if (isTRUE(verbose)) cli::cli_progress_update(id = pb)
+
+      fallback_url <- sprintf("https://github.com/ultralytics/assets/releases/download/v0.0.0/%s.zip", slug)
+      fb_check <- tryCatch({
+        if (requireNamespace("curl", quietly = TRUE)) curl::curl_fetch_memory(fallback_url) else NULL
+      }, error = function(e) NULL)
+
+      if (!is.null(fb_check) && !is.null(fb_check$status_code) && fb_check$status_code == 200L) {
+        if (isTRUE(verbose)) {
+          cli::cli_alert_warning("Signed CDN URLs in {.path {basename(source)}} have expired (HTTP 403 Forbidden).")
+          cli::cli_alert_info("Automatically falling back to persistent Ultralytics release archive ({slug}.zip)...")
+        }
+        tmp_z <- file.path(tempdir(), paste0(slug, "_", as.integer(stats::runif(1, 1000, 999999)), ".zip"))
+        if (requireNamespace("curl", quietly = TRUE)) {
+          curl::curl_download(fallback_url, tmp_z, quiet = !verbose)
+        } else {
+          utils::download.file(fallback_url, tmp_z, mode = "wb", quiet = !verbose)
+        }
+        res_z <- extract_from_zip(tmp_z)
+        added_train <- res_z$train
+        added_val   <- res_z$val
+        unlink(tmp_z, force = TRUE)
+      } else {
+        cli::cli_abort(c(
+          "x" = "Failed to download background images: signed URLs in {.path {basename(source)}} have expired (HTTP 403 Forbidden).",
+          "i" = "Ultralytics HUB generates pre-signed URLs that expire after 14 days.",
+          "*" = "To fix: re-export a fresh NDJSON from Ultralytics HUB, pass a dataset keyword like {.code source = \"african-wildlife\"}, or provide a local folder of background images."
+        ))
+      }
+
+    } else {
+      # Direct NDJSON URLs are valid and accessible
+      if (isTRUE(verbose)) {
+        cli::cli_alert_info("Downloading {n_sample} background images ({n_train} train / {n_val} val)...")
+        pb <- cli::cli_progress_bar(
+          name = "Downloading background images",
+          total = n_sample,
+          format = "{cli::pb_spin} [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}"
+        )
+      }
+
+      for (k in seq_along(selected)) {
+        rec <- selected[[k]]
+        is_tr <- (k <= n_train)
+        dest_img_dir <- if (is_tr) train_img_dir else val_img_dir
+        dest_lbl_dir <- if (is_tr) train_lbl_dir else val_lbl_dir
+
+        base_fn <- sprintf("%s%04d", prefix, k)
+        dest_img <- file.path(dest_img_dir, paste0(base_fn, ".jpg"))
+        dest_lbl <- file.path(dest_lbl_dir, paste0(base_fn, ".txt"))
+
+        ok <- tryCatch({
+          if (requireNamespace("curl", quietly = TRUE)) {
+            curl::curl_download(rec$url, dest_img, quiet = TRUE)
+          } else {
+            utils::download.file(rec$url, dest_img, mode = "wb", quiet = TRUE)
+          }
+          file.create(dest_lbl)
+          TRUE
+        }, error = function(e) FALSE)
+
+        if (ok) {
+          if (is_tr) added_train <- c(added_train, dest_img) else added_val <- c(added_val, dest_img)
+        }
+        if (isTRUE(verbose)) cli::cli_progress_update(id = pb)
+      }
+      if (isTRUE(verbose)) cli::cli_progress_done(id = pb)
     }
-    if (isTRUE(verbose)) cli::cli_progress_done(id = pb)
 
   } else {
     # Source is local files or folder
@@ -1260,6 +1495,7 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
       dest_lbl_dir <- if (is_tr) train_lbl_dir else val_lbl_dir
 
       ext <- tools::file_ext(selected_files[k])
+      if (!nzchar(ext)) ext <- "jpg"
       base_fn <- sprintf("%s%04d", prefix, k)
       dest_img <- file.path(dest_img_dir, paste0(base_fn, ".", ext))
       dest_lbl <- file.path(dest_lbl_dir, paste0(base_fn, ".txt"))
@@ -1273,17 +1509,28 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
     if (isTRUE(verbose)) cli::cli_progress_done(id = pb)
   }
 
-  tot_tr <- length(list.files(train_img_dir))
-  tot_val <- length(list.files(val_img_dir))
+  tot_added <- length(added_train) + length(added_val)
+  if (tot_added == 0L) {
+    cli::cli_abort("No background images could be added to {.path {dir}}.")
+  }
+
+  # Invalidate stale YOLO label caches
+  unlink(file.path(dir, "labels", "train.cache"), force = TRUE)
+  unlink(file.path(dir, "labels", "val.cache"), force = TRUE)
+  unlink(file.path(dir, "labels", "test.cache"), force = TRUE)
+
+  tot_tr <- length(list.files(train_img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", ignore.case = TRUE))
+  tot_val <- length(list.files(val_img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", ignore.case = TRUE))
 
   if (isTRUE(verbose)) {
     cli::cli_alert_success(
-      "Successfully added {length(added_train) + length(added_val)} background images to {.path {dir}}."
+      "Successfully added {tot_added} background images to {.path {dir}}."
     )
     cli::cli_bullets(c(
       "*" = "Train images: {tot_tr} (+{length(added_train)} background)",
       "*" = "Validation images: {tot_val} (+{length(added_val)} background)",
-      "v" = "Matching empty .txt label files created for all background samples."
+      "v" = "Matching empty .txt label files created for all background samples.",
+      "v" = "Stale YOLO dataset caches cleared."
     ))
   }
 
@@ -1293,6 +1540,421 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
     total_train = tot_tr,
     total_val = tot_val
   ))
+}
+
+
+#' @title Organize and Split Images into a YOLO Classification Dataset
+#' @name yolo_dataset_classify
+#' @aliases yolo_dataset_cls
+#' @description
+#' `yolo_dataset_classify()` organizes raw images structured in class subfolders (or custom
+#' lists of files) into a standardized YOLO classification dataset with `train/`, `val/`,
+#' and optionally `test/` splits per class. The output directory is 100% compliant with Ultralytics
+#' YOLOv8, YOLO11, and YOLO26, and can be passed directly to [yolo_train()] for deep learning training.
+#'
+#' @details
+#' The resulting directory structure conforms to the official YOLO classification format:
+#' ```
+#' out_dir/
+#' ├── train/
+#' │   ├── class_a/
+#' │   ├── class_b/
+#' │   └── ...
+#' ├── val/
+#' │   ├── class_a/
+#' │   ├── class_b/
+#' │   └── ...
+#' └── test/ (optional)
+#'     ├── class_a/
+#'     ├── class_b/
+#'     └── ...
+#' ```
+#'
+#' @param src_dir Character path to the source root directory containing class subdirectories
+#'   (e.g., `"flower_photos"` containing `"daisy"`, `"dandelion"`, `"roses"`, `"sunflowers"`, `"tulips"`).
+#'   Non-directory files (such as `LICENSE.txt`) and hidden folders (starting with `.`) are
+#'   automatically ignored.
+#' @param out_dir Output directory path for the YOLO classification dataset. Defaults to `"yolo_cls_dataset"`.
+#' @param split Numeric vector specifying the train / val / test split ratios.
+#'   Can be of length 2 (e.g. `c(train = 0.80, val = 0.20)`) or length 3
+#'   (e.g. `c(train = 0.70, val = 0.20, test = 0.10)`). Ratios are automatically normalized to sum to 1.
+#' @param classes Optional character vector of specific class folder names to include. If `NULL` (default),
+#'   all detected subdirectories in `src_dir` are included.
+#' @param ext Character vector of valid image file extensions (default: `c("jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp")`).
+#' @param copy Logical. If `TRUE` (default), image files are copied to `out_dir`. If `FALSE`,
+#'   files are moved using [file.rename()].
+#' @param balance Logical or integer. If `TRUE`, balances the dataset by randomly sampling
+#'   each class down to the count of the smallest class. If an integer `N`, samples at most `N` images per class.
+#'   Default is `FALSE`.
+#' @param min_images Integer threshold for displaying a warning if a class contains very few images
+#'   (default: `10L`). Ultralytics recommends >= 30-100 images per class for robust generalization.
+#' @param seed Optional integer for reproducible random shuffling and train/val/test partitioning (default: 42).
+#' @param overwrite Logical. If `TRUE`, overwrites `out_dir` if it already exists (default: `FALSE`).
+#' @param verbose Logical. If `TRUE` (default), displays progress and an informative summary table.
+#'
+#' @return An object of class `c("yolo_dataset_cls", "yolo_dataset", "list")` containing:
+#' * `dir`: Absolute path to the created dataset directory (ready to pass to `yolo_train(data = ...)`).
+#' * `classes`: Character vector of class names.
+#' * `splits`: Character vector of split names created (`"train"`, `"val"`, and optionally `"test"`).
+#' * `summary`: `data.frame` with the number of images per class in each split and totals.
+#' * `total_images`: Total count of processed images.
+#' * `split_ratio`: Named numeric vector of split ratios used.
+#'
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#'
+#' # Organize flower photos into train (70%), val (20%), test (10%)
+#' ds <- yolo_dataset_classify(
+#'   src_dir = "D:/Downloads/pliman_dl/flower_photos",
+#'   out_dir = "dataset_flores_yolo",
+#'   split = c(train = 0.70, val = 0.20, test = 0.10),
+#'   min_images = 10
+#' )
+#'
+#' # Inspect summary table
+#' ds
+#'
+#' # Train a YOLO classification model directly with pliman!
+#' model <- yolo_train(
+#'   data = ds,
+#'   model = "yolo11n-cls",
+#'   epochs = 50
+#' )
+#' }
+yolo_dataset_classify <- function(src_dir,
+                                  out_dir = "yolo_cls_dataset",
+                                  split = c(train = 0.70, val = 0.20, test = 0.10),
+                                  classes = NULL,
+                                  ext = c("jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp"),
+                                  copy = TRUE,
+                                  balance = FALSE,
+                                  min_images = 10L,
+                                  seed = 42,
+                                  overwrite = FALSE,
+                                  verbose = TRUE) {
+  if (missing(src_dir) || is.null(src_dir) || !nzchar(src_dir[1])) {
+    cli::cli_abort("The {.arg src_dir} argument must be provided (path to the directory containing class subfolders).")
+  }
+
+  src_dir <- normalizePath(src_dir[1], winslash = "/", mustWork = FALSE)
+  if (!dir.exists(src_dir)) {
+    cli::cli_abort("Source directory {.path {src_dir}} does not exist.")
+  }
+
+  # Parse splits
+  if (!is.numeric(split) || length(split) < 2L || length(split) > 3L) {
+    cli::cli_abort("{.arg split} must be a numeric vector of length 2 (train, val) or length 3 (train, val, test).")
+  }
+  if (any(split <= 0)) {
+    cli::cli_abort("All values in {.arg split} must be strictly positive.")
+  }
+
+  split_names <- names(split)
+  if (is.null(split_names) || any(!nzchar(split_names))) {
+    split_names <- if (length(split) == 2L) c("train", "val") else c("train", "val", "test")
+  }
+  split_norm <- split / sum(split)
+  names(split_norm) <- split_names
+
+  # Identify class subdirectories
+  all_subdirs <- list.dirs(src_dir, full.names = FALSE, recursive = FALSE)
+  all_subdirs <- all_subdirs[nzchar(all_subdirs) & !startsWith(all_subdirs, ".")]
+
+  if (length(all_subdirs) == 0L) {
+    cli::cli_abort("No subdirectories found in {.path {src_dir}}. Each class must have its own folder.")
+  }
+
+  if (!is.null(classes)) {
+    cls_found <- intersect(classes, all_subdirs)
+    if (length(cls_found) == 0L) {
+      cli::cli_abort("None of the specified {.arg classes} were found in {.path {src_dir}}.")
+    }
+    all_subdirs <- cls_found
+  }
+
+  # Setup output directory
+  out_dir_norm <- normalizePath(out_dir[1], winslash = "/", mustWork = FALSE)
+  if (dir.exists(out_dir_norm)) {
+    existing_files <- list.files(out_dir_norm, all.files = TRUE, no.. = TRUE)
+    if (length(existing_files) > 0L) {
+      if (isTRUE(overwrite)) {
+        unlink(out_dir_norm, recursive = TRUE, force = TRUE)
+        dir.create(out_dir_norm, recursive = TRUE, showWarnings = FALSE)
+      } else {
+        cli::cli_abort("Output directory {.path {out_dir_norm}} already exists and is not empty. Set {.code overwrite = TRUE} to replace it.")
+      }
+    }
+  } else {
+    dir.create(out_dir_norm, recursive = TRUE, showWarnings = FALSE)
+  }
+
+  ext_pat <- paste0("\\.(", paste(tolower(ext), collapse = "|"), ")$")
+
+  if (!is.null(seed)) {
+    set.seed(seed)
+  }
+
+  # Discover files per class
+  class_files <- list()
+  for (cls in all_subdirs) {
+    c_path <- file.path(src_dir, cls)
+    f_list <- list.files(c_path, pattern = ext_pat, full.names = TRUE, ignore.case = TRUE)
+    if (length(f_list) > 0L) {
+      class_files[[cls]] <- f_list
+    }
+  }
+
+  if (length(class_files) < 2L) {
+    cli::cli_abort("Found fewer than 2 valid classes with images in {.path {src_dir}}. Classification requires at least 2 classes.")
+  }
+
+  active_classes <- names(class_files)
+
+  # Handle class balancing if requested
+  if (isTRUE(balance)) {
+    min_cnt <- min(vapply(class_files, length, integer(1)))
+    for (cls in active_classes) {
+      class_files[[cls]] <- sample(class_files[[cls]], size = min_cnt)
+    }
+  } else if (is.numeric(balance) && length(balance) == 1L && balance > 0) {
+    bal_cnt <- as.integer(balance)
+    for (cls in active_classes) {
+      if (length(class_files[[cls]]) > bal_cnt) {
+        class_files[[cls]] <- sample(class_files[[cls]], size = bal_cnt)
+      }
+    }
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_h2("YOLO Classification Dataset Generator (pliman)")
+    cli::cli_alert_info("Source directory: {.path {src_dir}}")
+    cli::cli_alert_info("Destination directory: {.path {out_dir_norm}}")
+    cli::cli_alert_info("Found {length(active_classes)} classes: {.val {active_classes}}")
+    cli::cli_alert_info(
+      "Splits: {paste(paste0(split_names, ' (', round(split_norm * 100, 1), '%)'), collapse = ' | ')}"
+    )
+    pb <- cli::cli_progress_bar(
+      name = if (isTRUE(copy)) "Copying images" else "Moving images",
+      total = sum(vapply(class_files, length, integer(1))),
+      format = "{cli::pb_spin} [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}"
+    )
+  }
+
+  summary_rows <- list()
+  total_moved <- 0L
+
+  for (cls in active_classes) {
+    fl <- sample(class_files[[cls]]) # shuffle
+    n_tot <- length(fl)
+
+    # Compute partition indices
+    if (length(split_norm) == 2L) {
+      n_tr <- max(1L, round(n_tot * split_norm[1]))
+      n_tr <- min(n_tr, n_tot - 1L)
+      part_list <- list(
+        train = fl[seq_len(n_tr)],
+        val   = fl[(n_tr + 1L):n_tot]
+      )
+      names(part_list) <- split_names
+    } else {
+      n_tr <- max(1L, round(n_tot * split_norm[1]))
+      n_val <- max(1L, round(n_tot * split_norm[2]))
+      if (n_tr + n_val >= n_tot) {
+        n_tr <- max(1L, n_tot - 2L)
+        n_val <- 1L
+      }
+      part_list <- list(
+        train = fl[seq_len(n_tr)],
+        val   = fl[(n_tr + 1L):(n_tr + n_val)],
+        test  = fl[(n_tr + n_val + 1L):n_tot]
+      )
+      names(part_list) <- split_names
+    }
+
+    row_data <- list(class = cls)
+    for (s_name in split_names) {
+      dest_dir <- file.path(out_dir_norm, s_name, cls)
+      if (!dir.exists(dest_dir)) dir.create(dest_dir, recursive = TRUE, showWarnings = FALSE)
+
+      cur_files <- part_list[[s_name]]
+      row_data[[s_name]] <- length(cur_files)
+
+      if (length(cur_files) > 0L) {
+        dest_paths <- file.path(dest_dir, basename(cur_files))
+        if (isTRUE(copy)) {
+          file.copy(cur_files, dest_paths, overwrite = TRUE)
+        } else {
+          file.rename(cur_files, dest_paths)
+        }
+        total_moved <- total_moved + length(cur_files)
+        if (isTRUE(verbose)) cli::cli_progress_update(id = pb, inc = length(cur_files))
+      }
+    }
+    row_data$total <- n_tot
+    summary_rows[[cls]] <- as.data.frame(row_data, stringsAsFactors = FALSE)
+  }
+
+  if (isTRUE(verbose)) cli::cli_progress_done(id = pb)
+
+  summary_df <- do.call(rbind, summary_rows)
+  rownames(summary_df) <- NULL
+
+  # Add Total row
+  tot_row <- list(class = "TOTAL")
+  for (nm in setdiff(names(summary_df), "class")) {
+    tot_row[[nm]] <- sum(summary_df[[nm]])
+  }
+  summary_df_full <- rbind(summary_df, as.data.frame(tot_row, stringsAsFactors = FALSE))
+
+  out <- list(
+    dir = out_dir_norm,
+    classes = active_classes,
+    splits = split_names,
+    summary = summary_df_full,
+    total_images = total_moved,
+    split_ratio = split_norm,
+    min_images = min_images
+  )
+  class(out) <- c("yolo_dataset_cls", "yolo_dataset", "list")
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_success(
+      "YOLO classification dataset successfully created in {.path {out_dir_norm}} ({total_moved} images across {length(active_classes)} classes)."
+    )
+    cli::cli_rule(left = "Dataset Summary")
+    print(summary_df_full, row.names = FALSE)
+    cli::cli_rule()
+
+    # Health Check 1: Classes with very few total images
+    low_classes <- summary_df[summary_df$total < min_images, ]
+    if (nrow(low_classes) > 0L) {
+      for (i in seq_len(nrow(low_classes))) {
+        cli::cli_alert_warning(
+          "Class {.val {low_classes$class[i]}} has only {low_classes$total[i]} image(s) (< {min_images}). Model accuracy for this class may be limited. (Recommended: >= 30-100 images/class)."
+        )
+      }
+    }
+
+    # Health Check 2: Validation split with critically few images
+    if ("val" %in% names(summary_df)) {
+      low_val <- summary_df[summary_df$val < 3L, ]
+      if (nrow(low_val) > 0L) {
+        for (i in seq_len(nrow(low_val))) {
+          cli::cli_alert_warning(
+            "Validation split for class {.val {low_val$class[i]}} has only {low_val$val[i]} image(s). Validation metrics may be unstable."
+          )
+        }
+      }
+    }
+
+    # Health Check 3: Severe class imbalance
+    if (nrow(summary_df) >= 2L) {
+      max_row <- summary_df[which.max(summary_df$total), ]
+      min_row <- summary_df[which.min(summary_df$total), ]
+      imb_ratio <- max_row$total / max(1L, min_row$total)
+      if (imb_ratio >= 3.0) {
+        cli::cli_alert_info(
+          "Class imbalance detected: {.val {max_row$class}} ({max_row$total} imgs) has {round(imb_ratio, 1)}x more samples than {.val {min_row$class}} ({min_row$total} imgs). Tip: Use {.code balance = TRUE} to balance sample sizes."
+        )
+      }
+    }
+
+    cli::cli_alert_info("Ready to train! Run: {.code yolo_train(data = '{out_dir_norm}', model = 'yolo11n-cls', epochs = 50)}")
+  }
+
+  invisible(out)
+}
+
+#' @export
+yolo_dataset_cls <- yolo_dataset_classify
+
+#' @export
+print.yolo_dataset_cls <- function(x, ...) {
+  cli::cli_h3("YOLO Classification Dataset (pliman)")
+  cli::cli_bullets(c(
+    "*" = "Directory: {.path {x$dir}}",
+    "*" = "Classes ({length(x$classes)}): {.val {x$classes}}",
+    "*" = "Splits: {paste(x$splits, collapse = ', ')}",
+    "*" = "Total images: {x$total_images}"
+  ))
+  if (!is.null(x$summary)) {
+    cli::cli_rule(left = "Split Breakdown")
+    print(x$summary, row.names = FALSE)
+    cli::cli_rule()
+
+    # Alert if any class has low sample counts
+    sub_df <- x$summary[x$summary$class != "TOTAL", , drop = FALSE]
+    min_thresh <- if (!is.null(x$min_images)) x$min_images else 10L
+    low_classes <- sub_df[sub_df$total < min_thresh, ]
+    if (nrow(low_classes) > 0L) {
+      cli::cli_alert_warning(
+        "Low sample size in class(es): {paste0(low_classes$class, ' (', low_classes$total, ')', collapse = ', ')}."
+      )
+    }
+  }
+  cli::cli_alert_info("Train with: {.code yolo_train(data = '{x$dir}', model = 'yolo11n-cls', epochs = 50)}")
+  invisible(x)
+}
+
+#' @export
+plot.yolo_dataset_cls <- function(x, n_per_class = 2, max_images = 12, ...) {
+  train_dir <- file.path(x$dir, "train")
+  if (!dir.exists(train_dir)) {
+    train_dir <- file.path(x$dir, x$splits[1])
+  }
+
+  sample_imgs <- list()
+  sample_labels <- character()
+
+  for (cls in x$classes) {
+    cls_folder <- file.path(train_dir, cls)
+    if (dir.exists(cls_folder)) {
+      files <- list.files(cls_folder, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", full.names = TRUE, ignore.case = TRUE)
+      if (length(files) > 0L) {
+        pick <- files[seq_len(min(length(files), n_per_class))]
+        for (f in pick) {
+          sample_imgs[[length(sample_imgs) + 1L]] <- f
+          sample_labels <- c(sample_labels, cls)
+        }
+      }
+    }
+  }
+
+  if (length(sample_imgs) == 0L) {
+    cli::cli_warn("No images found to display.")
+    return(invisible())
+  }
+
+  if (length(sample_imgs) > max_images) {
+    sample_imgs <- sample_imgs[seq_len(max_images)]
+    sample_labels <- sample_labels[seq_len(max_images)]
+  }
+
+  imgs_loaded <- lapply(sample_imgs, function(f) try(image_import(f), silent = TRUE))
+  valid_idx <- vapply(imgs_loaded, function(im) !inherits(im, "try-error") && is_image(im), logical(1))
+
+  if (!any(valid_idx)) {
+    cli::cli_warn("Could not load sample images for plotting.")
+    return(invisible())
+  }
+
+  imgs_loaded <- imgs_loaded[valid_idx]
+  sample_labels <- sample_labels[valid_idx]
+
+  n_plots <- length(imgs_loaded)
+  nc <- ceiling(sqrt(n_plots))
+  nr <- ceiling(n_plots / nc)
+
+  op <- graphics::par(mfrow = c(nr, nc), mar = c(1, 1, 2.5, 1))
+  on.exit(graphics::par(op), add = TRUE)
+
+  for (i in seq_along(imgs_loaded)) {
+    plot(imgs_loaded[[i]], main = sample_labels[i], axes = FALSE)
+  }
+  invisible(x)
 }
 
 
@@ -2112,9 +2774,19 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
                        workers = if (.Platform$OS.type == "windows") 0L else 4L,
                        auto_install = TRUE,
                        ...) {
+  if (is.list(data)) {
+    if (!is.null(data$data_yaml) && is.character(data$data_yaml) && nzchar(data$data_yaml[1])) {
+      data <- data$data_yaml[1]
+    } else if (!is.null(data$yaml_file) && is.character(data$yaml_file) && nzchar(data$yaml_file[1])) {
+      data <- data$yaml_file[1]
+    } else if (!is.null(data$dir) && is.character(data$dir) && nzchar(data$dir[1])) {
+      data <- data$dir[1]
+    }
+  }
+
   data <- normalizePath(data, winslash = "/", mustWork = FALSE)
-  if (!file.exists(data)) {
-    cli::cli_abort("Could not find dataset configuration file at {.path {data}}.")
+  if (!file.exists(data) && !dir.exists(data)) {
+    cli::cli_abort("Could not find dataset configuration file or directory at {.path {data}}.")
   }
 
   output_dir <- pliman_model_dir(output_dir)
@@ -2124,7 +2796,12 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
   env_info <- .setup_python_yolo_env(py_exec, auto_install = auto_install)
 
   # 2. Inspect dataset structure to prevent task mismatch
-  lbl_files <- list.files(file.path(dirname(data), "labels"), pattern = "\\.txt$", recursive = TRUE, full.names = TRUE)
+  lbl_dir <- if (dir.exists(file.path(data, "labels"))) {
+    file.path(data, "labels")
+  } else {
+    file.path(dirname(data), "labels")
+  }
+  lbl_files <- list.files(lbl_dir, pattern = "\\.txt$", recursive = TRUE, full.names = TRUE)
   dataset_task <- "unknown"
   if (length(lbl_files) > 0L) {
     for (lf in lbl_files[seq_len(min(10L, length(lbl_files)))]) {
@@ -2142,9 +2819,29 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
       }
       if (dataset_task != "unknown") break
     }
+  } else {
+    # Check if dataset is a classification directory (contains train/ and val/ class folders)
+    train_dir <- if (dir.exists(file.path(data, "train"))) file.path(data, "train") else file.path(dirname(data), "train")
+    val_dir   <- if (dir.exists(file.path(data, "val"))) file.path(data, "val") else file.path(dirname(data), "val")
+    if (dir.exists(train_dir) && dir.exists(val_dir)) {
+      tr_sub <- list.dirs(train_dir, recursive = FALSE, full.names = FALSE)
+      if (length(tr_sub) >= 2L) {
+        dataset_task <- "classify"
+      }
+    }
   }
 
-  if (identical(dataset_task, "detect") && grepl("seg", model, ignore.case = TRUE)) {
+  if (identical(dataset_task, "classify") && !grepl("cls", model, ignore.case = TRUE)) {
+    cls_model <- if (grepl("yolo26", model, ignore.case = TRUE)) "yolo26n-cls" else "yolo11n-cls"
+    cli::cli_alert_warning(
+      "The dataset at {.path {data}} is structured for image classification ({.val classify}), but model {.val {model}} was requested."
+    )
+    cli::cli_alert_info(
+      "Automatically adjusting base model to classification ({.val {cls_model}})."
+    )
+    model <- cls_model
+    if (missing(imgsz) || imgsz == 640) imgsz <- 224
+  } else if (identical(dataset_task, "detect") && grepl("seg", model, ignore.case = TRUE)) {
     det_model <- sub("[-_]seg", "", model, ignore.case = TRUE)
     cli::cli_alert_warning(
       "The dataset at {.path {data}} contains bounding boxes ({.val detect}), but a segmentation model ({.val {model}}) was requested."
@@ -2181,7 +2878,7 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
     "detect"
   }
 
-  data_folder_name <- basename(dirname(data))
+  data_folder_name <- if (dir.exists(data)) basename(data) else basename(dirname(data))
   if (is.null(output_name) || !nzchar(output_name)) {
     prefix <- if (nzchar(data_folder_name) && data_folder_name != ".") data_folder_name else "custom_yolo"
     suffix <- if (is_seg) "_seg" else if (is_obb) "_obb" else if (is_pose) "_pose" else if (is_cls) "_cls" else "_det"
@@ -2257,6 +2954,7 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
   base_model_norm <- normalizePath(base_model, winslash = "/", mustWork = FALSE)
   run_dir_norm <- normalizePath(run_dir, winslash = "/", mustWork = FALSE)
   is_seg_py <- if (is_seg) "True" else "False"
+  is_cls_py <- if (is_cls) "True" else "False"
   dev_str <- as.character(device)
 
   py_code <- paste0(
@@ -2298,7 +2996,8 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
     "best_map50 = 0.0\n",
     "t_start = None\n",
     "ep_start = None\n",
-    "is_seg = ", is_seg_py, "\n\n",
+    "is_seg = ", is_seg_py, "\n",
+    "is_cls = ", is_cls_py, "\n\n",
     "def format_time(s):\n",
     "    if s is None or s < 0:\n",
     "        return '0s'\n",
@@ -2323,7 +3022,10 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
     "    global t_start\n",
     "    t_start = time.time()\n",
     "    print('')\n",
-    "    if is_seg:\n",
+    "    if is_cls:\n",
+    "        print('  Epoch    GPU Mem       Loss     Top1-Acc     Top5-Acc          Time')\n",
+    "        print('  ' + '-' * 70)\n",
+    "    elif is_seg:\n",
     "        print('  Epoch    GPU Mem     Box Loss     Seg Loss     Cls Loss       mAP50     mAP50-95          Time')\n",
     "        print('  ' + '-' * 88)\n",
     "    else:\n",
@@ -2344,20 +3046,27 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
     "    else:\n",
     "        gpu_mem = 'CPU'\n\n",
     "    tloss = getattr(trainer, 'tloss', {})\n",
-    "    if isinstance(tloss, dict):\n",
-    "        b_loss = float(tloss.get('box_loss', 0.0))\n",
-    "        s_loss = float(tloss.get('seg_loss', 0.0))\n",
-    "        c_loss = float(tloss.get('cls_loss', 0.0))\n",
-    "    elif isinstance(tloss, (list, tuple)):\n",
-    "        b_loss = float(tloss[0]) if len(tloss) > 0 else 0.0\n",
-    "        s_loss = float(tloss[1]) if len(tloss) > 2 else 0.0\n",
-    "        c_loss = float(tloss[-1]) if len(tloss) > 1 else 0.0\n",
-    "    else:\n",
-    "        b_loss, s_loss, c_loss = 0.0, 0.0, 0.0\n\n",
     "    metrics = getattr(trainer, 'metrics', {})\n",
-    "    m50 = float(metrics.get('metrics/mAP50(B)', metrics.get('metrics/mAP50(M)', 0.0)))\n",
-    "    m95 = float(metrics.get('metrics/mAP50-95(B)', metrics.get('metrics/mAP50-95(M)', 0.0)))\n",
-    "    fitness = float(getattr(trainer, 'fitness', 0.0))\n\n",
+    "    if is_cls:\n",
+    "        c_loss = float(tloss[0]) if isinstance(tloss, (list, tuple)) and len(tloss) > 0 else float(getattr(trainer, 'loss', 0.0))\n",
+    "        top1 = float(metrics.get('metrics/accuracy_top1', 0.0))\n",
+    "        top5 = float(metrics.get('metrics/accuracy_top5', 0.0))\n",
+    "        fitness = top1\n",
+    "        m50 = top1\n",
+    "    else:\n",
+    "        if isinstance(tloss, dict):\n",
+    "            b_loss = float(tloss.get('box_loss', 0.0))\n",
+    "            s_loss = float(tloss.get('seg_loss', 0.0))\n",
+    "            c_loss = float(tloss.get('cls_loss', 0.0))\n",
+    "        elif isinstance(tloss, (list, tuple)):\n",
+    "            b_loss = float(tloss[0]) if len(tloss) > 0 else 0.0\n",
+    "            s_loss = float(tloss[1]) if len(tloss) > 2 else 0.0\n",
+    "            c_loss = float(tloss[-1]) if len(tloss) > 1 else 0.0\n",
+    "        else:\n",
+    "            b_loss, s_loss, c_loss = 0.0, 0.0, 0.0\n",
+    "        m50 = float(metrics.get('metrics/mAP50(B)', metrics.get('metrics/mAP50(M)', 0.0)))\n",
+    "        m95 = float(metrics.get('metrics/mAP50-95(B)', metrics.get('metrics/mAP50-95(M)', 0.0)))\n",
+    "        fitness = float(getattr(trainer, 'fitness', 0.0))\n\n",
     "    is_best = False\n",
     "    if fitness > best_fitness:\n",
     "        best_fitness = fitness\n",
@@ -2366,16 +3075,23 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
     "        is_best = True\n\n",
     "    ep_t = format_time(time.time() - ep_start) if ep_start else ''\n",
     "    tag = '  * (best)' if is_best else ''\n\n",
-    "    if is_seg:\n",
+    "    if is_cls:\n",
+    "        line = f'  {ep:>3}/{total:<3}  {gpu_mem:>8}   {c_loss:>8.4f}     {top1:>7.3f}      {top5:>7.3f}    {ep_t:>10}{tag}'\n",
+    "    elif is_seg:\n",
     "        line = f'  {ep:>3}/{total:<3}  {gpu_mem:>8}     {b_loss:>8.4f}     {s_loss:>8.4f}     {c_loss:>8.4f}     {m50:>7.3f}     {m95:>7.3f}    {ep_t:>10}{tag}'\n",
     "    else:\n",
     "        line = f'  {ep:>3}/{total:<3}  {gpu_mem:>8}     {b_loss:>8.4f}     {c_loss:>8.4f}     {m50:>7.3f}     {m95:>7.3f}    {ep_t:>10}{tag}'\n\n",
     "    print(line)\n",
     "    sys.stdout.flush()\n\n",
     "def on_train_end(trainer):\n",
-    "    print('  ' + '-' * (88 if is_seg else 76))\n",
-    "    elapsed_str = format_time(time.time() - t_start)\n",
-    "    print(f'  [OK] Training finished in {elapsed_str} (Best mAP50: {best_map50:.3f} at epoch {best_epoch})')\n",
+    "    if is_cls:\n",
+    "        print('  ' + '-' * 70)\n",
+    "        elapsed_str = format_time(time.time() - t_start)\n",
+    "        print(f'  [OK] Training finished in {elapsed_str} (Best Accuracy Top-1: {best_fitness:.3f} at epoch {best_epoch})')\n",
+    "    else:\n",
+    "        print('  ' + '-' * (88 if is_seg else 76))\n",
+    "        elapsed_str = format_time(time.time() - t_start)\n",
+    "        print(f'  [OK] Training finished in {elapsed_str} (Best mAP50: {best_map50:.3f} at epoch {best_epoch})')\n",
     "    print('')\n",
     "    sys.stdout.flush()\n\n",
     "def main():\n",
@@ -2411,22 +3127,27 @@ yolo_train <- function(data = "yolo_dataset/data.yaml",
     "        val_res = best_model.val(plots=True, workers=0)\n",
     "        cm = getattr(val_res, 'confusion_matrix', None)\n",
     "        if cm is not None and hasattr(cm, 'matrix') and cm.matrix is not None:\n",
-    "            names = [best_model.names[i] for i in range(len(best_model.names))] + ['background']\n",
-    "            matrix = cm.matrix\n",
+    "            matrix = np.array(cm.matrix)\n",
+    "            n_rows, n_cols = matrix.shape\n",
+    "            raw_names = [best_model.names[i] for i in range(len(best_model.names))]\n",
+    "            col_names = (raw_names + ['background']) if n_cols > len(raw_names) else raw_names[:n_cols]\n",
+    "            row_names = raw_names[:n_rows]\n",
     "            cm_csv = os.path.join(target_dir, 'confusion_matrix.csv')\n",
     "            with open(cm_csv, 'w', newline='', encoding='utf-8') as f:\n",
     "                writer = csv.writer(f)\n",
-    "                writer.writerow(['true_class'] + names)\n",
+    "                writer.writerow(['true_class'] + col_names)\n",
     "                for i, row in enumerate(matrix):\n",
-    "                    writer.writerow([names[i]] + [int(val) for val in row])\n",
+    "                    r_lbl = row_names[i] if i < len(row_names) else f'class_{i}'\n",
+    "                    writer.writerow([r_lbl] + [int(val) for val in row])\n",
     "            row_sums = matrix.sum(axis=1, keepdims=True)\n",
     "            norm_matrix = np.divide(matrix, row_sums, out=np.zeros_like(matrix, dtype=float), where=row_sums > 0)\n",
     "            norm_csv = os.path.join(target_dir, 'confusion_matrix_normalized.csv')\n",
     "            with open(norm_csv, 'w', newline='', encoding='utf-8') as f:\n",
     "                writer = csv.writer(f)\n",
-    "                writer.writerow(['true_class'] + names)\n",
+    "                writer.writerow(['true_class'] + col_names)\n",
     "                for i, row in enumerate(norm_matrix):\n",
-    "                    writer.writerow([names[i]] + [round(float(val), 4) for val in row])\n",
+    "                    r_lbl = row_names[i] if i < len(row_names) else f'class_{i}'\n",
+    "                    writer.writerow([r_lbl] + [round(float(val), 4) for val in row])\n",
     "        box = getattr(val_res, 'box', None)\n",
     "        if box is not None and hasattr(box, 'curves_results') and len(box.curves_results) >= 1:\n",
     "            cr_pr = box.curves_results[0]\n",
@@ -3076,10 +3797,23 @@ print.yolo_train <- function(x, ...) {
     return(invisible(NULL))
   }
 
+  # Helper to remove columns that are entirely NA (e.g. background column in classification)
+  clean_cm_df <- function(df) {
+    if (is.null(df) || !is.data.frame(df) || ncol(df) <= 2L) return(df)
+    na_cols <- vapply(df[, -1, drop = FALSE], function(col) all(is.na(col)), logical(1))
+    if (any(na_cols)) {
+      df <- df[, c(TRUE, !na_cols), drop = FALSE]
+    }
+    df
+  }
+
+  if (!is.null(cm_norm)) cm_norm <- clean_cm_df(cm_norm)
+  if (!is.null(cm_counts)) cm_counts <- clean_cm_df(cm_counts)
+
   if (is.null(cm_norm) && !is.null(cm_counts)) {
     cm_norm <- cm_counts
     mat_tmp <- as.matrix(cm_counts[, -1, drop = FALSE])
-    rsums <- rowSums(mat_tmp)
+    rsums <- rowSums(mat_tmp, na.rm = TRUE)
     rsums[rsums == 0] <- 1
     cm_norm[, -1] <- round(mat_tmp / rsums, 4)
   }
@@ -3088,10 +3822,13 @@ print.yolo_train <- function(x, ...) {
     cm_counts <- cm_norm
   }
 
-  row_labels <- cm_norm[[1]]
+  row_labels <- as.character(cm_norm[[1]])
   col_labels <- names(cm_norm)[-1]
   mat_norm <- as.matrix(cm_norm[, -1, drop = FALSE])
   mat_counts <- as.matrix(cm_counts[, -1, drop = FALSE])
+
+  mat_norm[is.na(mat_norm)] <- 0
+  mat_counts[is.na(mat_counts)] <- 0
 
   nr <- nrow(mat_norm)
   nc <- ncol(mat_norm)
@@ -3099,7 +3836,7 @@ print.yolo_train <- function(x, ...) {
   op <- graphics::par(no.readonly = TRUE)
   if (identical(graphics::par("mfrow"), c(1L, 1L))) {
     on.exit(graphics::par(op), add = TRUE)
-    graphics::par(mar = c(4.5, 6, 3.5, 2), bg = bg)
+    graphics::par(mar = c(5, 6.5, 3.5, 2), bg = bg)
   }
 
   main_title <- if (isTRUE(normalized)) "Confusion Matrix (Normalized)" else "Confusion Matrix (Counts)"
@@ -3107,7 +3844,7 @@ print.yolo_train <- function(x, ...) {
   graphics::plot(1, type = "n", xlim = c(0.5, nc + 0.5), ylim = c(0.5, nr + 0.5),
                  axes = FALSE, xlab = "Predicted Class", ylab = "",
                  main = main_title, font.main = 2, cex.main = 1.15)
-  graphics::title(ylab = "True Class", line = 3.8, font.lab = 1)
+  graphics::title(ylab = "True Class", line = 4.2, font.lab = 1)
 
   blues <- grDevices::colorRampPalette(c("#f8fafc", "#bfdbfe", "#3b82f6", "#1d4ed8"))(100)
 
@@ -3118,13 +3855,13 @@ print.yolo_train <- function(x, ...) {
       y_pos <- nr - r + 1
       x_pos <- c
 
-      col_idx <- max(1, min(100, round(val * 99) + 1))
+      col_idx <- if (is.na(val)) 1 else max(1, min(100, round(val * 99) + 1))
       bg_col <- blues[col_idx]
 
       graphics::rect(x_pos - 0.48, y_pos - 0.48, x_pos + 0.48, y_pos + 0.48,
                      col = bg_col, border = "#cbd5e1", lwd = 1.2)
 
-      txt_col <- if (val > 0.55) "#ffffff" else "#0f172a"
+      txt_col <- if (!is.na(val) && val > 0.55) "#ffffff" else "#0f172a"
       if (isTRUE(normalized)) {
         graphics::text(x_pos, y_pos + 0.08, labels = sprintf("%.2f", val), col = txt_col, font = 2, cex = 1.05)
         graphics::text(x_pos, y_pos - 0.18, labels = sprintf("(%d)", cnt), col = txt_col, cex = 0.82)
@@ -3261,82 +3998,133 @@ print.yolo_train <- function(x, ...) {
 
   ep <- if (has_metrics && "epoch" %in% names(df)) df$epoch else if (has_metrics) seq_len(nrow(df)) else NULL
 
+  is_cls_task <- identical(x$task, "classify") ||
+    (has_metrics && any(grepl("accuracy_top", names(df))))
+
   # Panel 1: Loss curves
   if (has_metrics) {
-    c_tr_box <- get_col(c("train.*box.*loss", "box.*loss"))
-    c_vl_box <- get_col("val.*box.*loss")
-    c_tr_cls <- get_col(c("train.*cls.*loss", "cls.*loss", "train.*seg.*loss"))
-    c_vl_cls <- get_col(c("val.*cls.*loss", "val.*seg.*loss"))
+    if (is_cls_task) {
+      c_tr_loss <- get_col(c("train.*loss", "^loss"))
+      c_vl_loss <- get_col(c("val.*loss"))
+      tr_loss <- if (!is.null(c_tr_loss)) df[[c_tr_loss]] else NULL
+      vl_loss <- if (!is.null(c_vl_loss)) df[[c_vl_loss]] else NULL
 
-    tr_box <- if (!is.null(c_tr_box)) df[[c_tr_box]] else NULL
-    vl_box <- if (!is.null(c_vl_box)) df[[c_vl_box]] else NULL
-    tr_cls <- if (!is.null(c_tr_cls)) df[[c_tr_cls]] else NULL
-    vl_cls <- if (!is.null(c_vl_cls)) df[[c_vl_cls]] else NULL
+      all_losses <- c(tr_loss, vl_loss)
+      y_max <- if (length(all_losses) > 0L) max(all_losses, na.rm = TRUE) * 1.05 else 1
 
-    all_losses <- c(tr_box, vl_box, tr_cls, vl_cls)
-    y_max <- if (length(all_losses) > 0L) max(all_losses, na.rm = TRUE) * 1.05 else 1
+      graphics::plot(ep, tr_loss, type = "n", xlab = "Epoch", ylab = "Loss",
+                     main = "Training & Validation Loss", ylim = c(0, y_max),
+                     cex.main = 1.15, font.main = 2)
+      add_grid()
+      if (!is.null(tr_loss)) graphics::lines(ep, tr_loss, col = "#2563eb", lwd = 2.2)
+      if (!is.null(vl_loss)) graphics::lines(ep, vl_loss, col = "#dc2626", lwd = 2.2, lty = 2)
+      graphics::legend("topright", legend = c("Train Loss", "Val Loss"),
+                       col = c("#2563eb", "#dc2626"), lty = c(1, 2), lwd = 2, bty = "n", cex = 0.85)
+    } else {
+      c_tr_box <- get_col(c("train.*box.*loss", "box.*loss"))
+      c_vl_box <- get_col("val.*box.*loss")
+      c_tr_cls <- get_col(c("train.*cls.*loss", "cls.*loss", "train.*seg.*loss"))
+      c_vl_cls <- get_col(c("val.*cls.*loss", "val.*seg.*loss"))
 
-    graphics::plot(ep, tr_box, type = "n", xlab = "Epoch", ylab = "Loss",
-                   main = "Training & Validation Loss", ylim = c(0, y_max),
-                   cex.main = 1.15, font.main = 2)
-    add_grid()
-    if (!is.null(tr_box)) graphics::lines(ep, tr_box, col = "#2563eb", lwd = 2.2)
-    if (!is.null(vl_box)) graphics::lines(ep, vl_box, col = "#dc2626", lwd = 2.2, lty = 2)
-    if (!is.null(tr_cls)) graphics::lines(ep, tr_cls, col = "#059669", lwd = 2)
-    if (!is.null(vl_cls)) graphics::lines(ep, vl_cls, col = "#d97706", lwd = 2, lty = 2)
+      tr_box <- if (!is.null(c_tr_box)) df[[c_tr_box]] else NULL
+      vl_box <- if (!is.null(c_vl_box)) df[[c_vl_box]] else NULL
+      tr_cls <- if (!is.null(c_tr_cls)) df[[c_tr_cls]] else NULL
+      vl_cls <- if (!is.null(c_vl_cls)) df[[c_vl_cls]] else NULL
 
-    leg_names <- c(
-      if (!is.null(tr_box)) "Box (Train)",
-      if (!is.null(vl_box)) "Box (Val)",
-      if (!is.null(tr_cls)) "Class (Train)",
-      if (!is.null(vl_cls)) "Class (Val)"
-    )
-    leg_cols <- c(
-      if (!is.null(tr_box)) "#2563eb",
-      if (!is.null(vl_box)) "#dc2626",
-      if (!is.null(tr_cls)) "#059669",
-      if (!is.null(vl_cls)) "#d97706"
-    )
-    leg_ltys <- c(
-      if (!is.null(tr_box)) 1,
-      if (!is.null(vl_box)) 2,
-      if (!is.null(tr_cls)) 1,
-      if (!is.null(vl_cls)) 2
-    )
-    if (length(leg_names) > 0L) {
-      graphics::legend("topright", legend = leg_names, col = leg_cols,
-                       lty = leg_ltys, lwd = 2, bty = "n", cex = 0.8)
+      all_losses <- c(tr_box, vl_box, tr_cls, vl_cls)
+      y_max <- if (length(all_losses) > 0L) max(all_losses, na.rm = TRUE) * 1.05 else 1
+
+      graphics::plot(ep, tr_box, type = "n", xlab = "Epoch", ylab = "Loss",
+                     main = "Training & Validation Loss", ylim = c(0, y_max),
+                     cex.main = 1.15, font.main = 2)
+      add_grid()
+      if (!is.null(tr_box)) graphics::lines(ep, tr_box, col = "#2563eb", lwd = 2.2)
+      if (!is.null(vl_box)) graphics::lines(ep, vl_box, col = "#dc2626", lwd = 2.2, lty = 2)
+      if (!is.null(tr_cls)) graphics::lines(ep, tr_cls, col = "#059669", lwd = 2)
+      if (!is.null(vl_cls)) graphics::lines(ep, vl_cls, col = "#d97706", lwd = 2, lty = 2)
+
+      leg_names <- c(
+        if (!is.null(tr_box)) "Box (Train)",
+        if (!is.null(vl_box)) "Box (Val)",
+        if (!is.null(tr_cls)) "Class (Train)",
+        if (!is.null(vl_cls)) "Class (Val)"
+      )
+      leg_cols <- c(
+        if (!is.null(tr_box)) "#2563eb",
+        if (!is.null(vl_box)) "#dc2626",
+        if (!is.null(tr_cls)) "#059669",
+        if (!is.null(vl_cls)) "#d97706"
+      )
+      leg_ltys <- c(
+        if (!is.null(tr_box)) 1,
+        if (!is.null(vl_box)) 2,
+        if (!is.null(tr_cls)) 1,
+        if (!is.null(vl_cls)) 2
+      )
+      if (length(leg_names) > 0L) {
+        graphics::legend("topright", legend = leg_names, col = leg_cols,
+                         lty = leg_ltys, lwd = 2, bty = "n", cex = 0.8)
+      }
     }
   }
 
-  # Panel 2: Validation mAP Progression
+  # Panel 2: Accuracy Progression (Classification) or mAP Progression (Detection/Segmentation)
   best_m50 <- NULL
   if (has_metrics) {
-    c_m50 <- get_col(c("map50.*b", "map50(?!.*95)", "map50"))
-    c_m95 <- get_col(c("map50.*95.*b", "map50.*95"))
-    m50 <- if (!is.null(c_m50)) df[[c_m50]] else NULL
-    m95 <- if (!is.null(c_m95)) df[[c_m95]] else NULL
+    if (is_cls_task) {
+      c_top1 <- get_col(c("accuracy_top1", "top1", "accuracy"))
+      c_top5 <- get_col(c("accuracy_top5", "top5"))
+      top1_v <- if (!is.null(c_top1)) df[[c_top1]] else NULL
+      top5_v <- if (!is.null(c_top5)) df[[c_top5]] else NULL
 
-    if (!is.null(m50)) {
-      graphics::plot(ep, m50, type = "n", xlab = "Epoch", ylab = "mAP",
-                     main = "Validation mAP Progression", ylim = c(0, 1.05),
-                     cex.main = 1.15, font.main = 2)
-      add_grid()
-      graphics::lines(ep, m50, col = "#16a34a", lwd = 2.5)
-      if (!is.null(m95)) graphics::lines(ep, m95, col = "#ea580c", lwd = 2.5, lty = 2)
-      best_ep <- which.max(m50)
-      if (length(best_ep) > 0L && !is.na(best_ep)) {
-        best_m50 <- m50[best_ep]
-        graphics::points(ep[best_ep], m50[best_ep], pch = 21, bg = "#16a34a", col = "white", cex = 1.5)
-        text_pos <- if (m50[best_ep] > 0.88) 1 else 4
-        graphics::text(ep[best_ep], m50[best_ep],
-                       labels = sprintf(" \u2605 Best: %.3f (ep %d)", m50[best_ep], ep[best_ep]),
-                       pos = text_pos, font = 2, cex = 0.85, col = "#15803d")
+      if (!is.null(top1_v)) {
+        graphics::plot(ep, top1_v, type = "n", xlab = "Epoch", ylab = "Accuracy",
+                       main = "Validation Accuracy Progression", ylim = c(0, 1.05),
+                       cex.main = 1.15, font.main = 2)
+        add_grid()
+        graphics::lines(ep, top1_v, col = "#16a34a", lwd = 2.5)
+        if (!is.null(top5_v)) graphics::lines(ep, top5_v, col = "#ea580c", lwd = 2.5, lty = 2)
+
+        best_ep <- which.max(top1_v)
+        if (length(best_ep) > 0L && !is.na(best_ep)) {
+          graphics::points(ep[best_ep], top1_v[best_ep], pch = 21, bg = "#16a34a", col = "white", cex = 1.5)
+          text_pos <- if (top1_v[best_ep] > 0.88) 1 else 4
+          graphics::text(ep[best_ep], top1_v[best_ep],
+                         labels = sprintf(" \u2605 Best: %.1f%% (ep %d)", top1_v[best_ep] * 100, ep[best_ep]),
+                         pos = text_pos, font = 2, cex = 0.85, col = "#15803d")
+        }
+        leg_acc_names <- c("Top-1 Acc", if (!is.null(top5_v)) "Top-5 Acc")
+        leg_acc_cols <- c("#16a34a", if (!is.null(top5_v)) "#ea580c")
+        graphics::legend("bottomright", legend = leg_acc_names, col = leg_acc_cols,
+                         lty = if (!is.null(top5_v)) c(1, 2) else 1, lwd = 2.5, bty = "n", cex = 0.85)
       }
-      leg_m_names <- c("mAP50", if (!is.null(m95)) "mAP50-95")
-      leg_m_cols <- c("#16a34a", if (!is.null(m95)) "#ea580c")
-      graphics::legend("bottomright", legend = leg_m_names, col = leg_m_cols,
-                       lty = if (!is.null(m95)) c(1, 2) else 1, lwd = 2.5, bty = "n", cex = 0.85)
+    } else {
+      c_m50 <- get_col(c("map50.*b", "map50(?!.*95)", "map50"))
+      c_m95 <- get_col(c("map50.*95.*b", "map50.*95"))
+      m50 <- if (!is.null(c_m50)) df[[c_m50]] else NULL
+      m95 <- if (!is.null(c_m95)) df[[c_m95]] else NULL
+
+      if (!is.null(m50)) {
+        graphics::plot(ep, m50, type = "n", xlab = "Epoch", ylab = "mAP",
+                       main = "Validation mAP Progression", ylim = c(0, 1.05),
+                       cex.main = 1.15, font.main = 2)
+        add_grid()
+        graphics::lines(ep, m50, col = "#16a34a", lwd = 2.5)
+        if (!is.null(m95)) graphics::lines(ep, m95, col = "#ea580c", lwd = 2.5, lty = 2)
+        best_ep <- which.max(m50)
+        if (length(best_ep) > 0L && !is.na(best_ep)) {
+          best_m50 <- m50[best_ep]
+          graphics::points(ep[best_ep], m50[best_ep], pch = 21, bg = "#16a34a", col = "white", cex = 1.5)
+          text_pos <- if (m50[best_ep] > 0.88) 1 else 4
+          graphics::text(ep[best_ep], m50[best_ep],
+                         labels = sprintf(" \u2605 Best: %.3f (ep %d)", m50[best_ep], ep[best_ep]),
+                         pos = text_pos, font = 2, cex = 0.85, col = "#15803d")
+        }
+        leg_m_names <- c("mAP50", if (!is.null(m95)) "mAP50-95")
+        leg_m_cols <- c("#16a34a", if (!is.null(m95)) "#ea580c")
+        graphics::legend("bottomright", legend = leg_m_names, col = leg_m_cols,
+                         lty = if (!is.null(m95)) c(1, 2) else 1, lwd = 2.5, bty = "n", cex = 0.85)
+      }
     }
   }
 
@@ -3357,7 +4145,7 @@ print.yolo_train <- function(x, ...) {
     }
   }
 
-  # Panel 4: Precision-Recall Curve
+  # Panel 4: Precision-Recall Curve (or Learning Rate Schedule)
   if (has_pr) {
     .plot_yolo_pr_curve_native(x$pr_curve, mAP50 = best_m50, bg = bg, ...)
   } else if (!is.null(x$f1_curve)) {
@@ -3602,6 +4390,13 @@ plot.yolo_train <- function(x,
   }
 
   if (which == "pr_curve") {
+    is_cls <- identical(x$task, "classify") ||
+      (!is.null(x$metrics) && any(grepl("accuracy_top", names(x$metrics))))
+    if (is_cls) {
+      cli::cli_alert_info("Precision-Recall (PR) curves apply to Object Detection/Segmentation tasks and are not generated for Image Classification.")
+      cli::cli_alert_info("Displaying Confusion Matrix instead.")
+      return(invisible(.plot_yolo_confusion_matrix_native(x$confusion_matrix_norm, x$confusion_matrix, normalized = TRUE, bg = bg, ...)))
+    }
     if (isTRUE(native) && !is.null(x$pr_curve)) {
       best_m50 <- NULL
       if (!is.null(x$best_metrics) && nrow(x$best_metrics) > 0L) {
@@ -3615,6 +4410,13 @@ plot.yolo_train <- function(x,
   }
 
   if (which == "f1_curve") {
+    is_cls <- identical(x$task, "classify") ||
+      (!is.null(x$metrics) && any(grepl("accuracy_top", names(x$metrics))))
+    if (is_cls) {
+      cli::cli_alert_info("F1-Confidence curves apply to Object Detection/Segmentation tasks and are not generated for Image Classification.")
+      cli::cli_alert_info("Displaying Confusion Matrix instead.")
+      return(invisible(.plot_yolo_confusion_matrix_native(x$confusion_matrix_norm, x$confusion_matrix, normalized = TRUE, bg = bg, ...)))
+    }
     if (isTRUE(native) && !is.null(x$f1_curve)) {
       return(invisible(.plot_yolo_f1_curve_native(x$f1_curve, bg = bg, ...)))
     }

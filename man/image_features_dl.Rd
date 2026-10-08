@@ -11,7 +11,7 @@ image_features_dl(
   return_pca = TRUE,
   interpolate = TRUE,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,

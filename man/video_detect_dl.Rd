@@ -18,11 +18,14 @@ video_detect_dl(
   return_data = TRUE,
   track = FALSE,
   trail = TRUE,
-  text_size = 1,
+  cex = 1,
+  pad = 1,
+  badge = TRUE,
   show_text = TRUE,
   show_conf = TRUE,
   show_class = TRUE,
-  show_id = TRUE,
+  show_id = FALSE,
+  text_size = 1,
   count_line = NULL,
   count_line_label = NULL,
   roi = NULL,
@@ -74,11 +77,14 @@ video_detect(
   return_data = TRUE,
   track = FALSE,
   trail = TRUE,
-  text_size = 1,
+  cex = 1,
+  pad = 1,
+  badge = TRUE,
   show_text = TRUE,
   show_conf = TRUE,
   show_class = TRUE,
-  show_id = TRUE,
+  show_id = FALSE,
+  text_size = 1,
   count_line = NULL,
   count_line_label = NULL,
   roi = NULL,
@@ -150,7 +156,14 @@ fast real-time streaming and recording. Defaults to \code{TRUE}.}
 
 \item{trail}{Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when \code{track = TRUE}. Defaults to \code{TRUE}. Set to \code{FALSE} to maintain persistent IDs while hiding the trail.}
 
-\item{text_size}{Numeric font scale for bounding box text labels and badges (default \code{1.0}).}
+\item{cex}{Size factor for label text (default \code{1.0}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
+to reduce text size for dense scenes or many objects.}
+
+\item{pad}{Padding multiplier controlling the area/background badge size around label text (default \code{1.0}).
+Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad = 0} or smaller values for a compact area.}
+
+\item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
+If \code{FALSE}, only the text is drawn directly.}
 
 \item{show_text}{Logical. Whether to display text badges above bounding boxes (default \code{TRUE}).}
 
@@ -158,7 +171,9 @@ fast real-time streaming and recording. Defaults to \code{TRUE}.}
 
 \item{show_class}{Logical. Whether to display class label names in badges (default \code{TRUE}).}
 
-\item{show_id}{Logical. Whether to display persistent tracking IDs (\verb{#1}, \verb{#2}) in badges when \code{track = TRUE} (default \code{TRUE}).}
+\item{show_id}{Logical. Whether to display persistent tracking IDs (\verb{#1}, \verb{#2}) in badges when \code{track = TRUE} (default \code{FALSE}).}
+
+\item{text_size}{Numeric font scale for bounding box text labels and badges (alias for \code{cex}, default \code{1.0}).}
 
 \item{count_line}{Optional counting tripwire line specified as \code{c(x1, y1, x2, y2)} in normalized coordinates (\code{0} to \code{1}). Objects crossing this virtual line are counted.}
 

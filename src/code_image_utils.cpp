@@ -333,8 +333,6 @@ IntegerMatrix helper_guo_hall(IntegerMatrix image) {
   auto get = [&](int col, int row) { return image(row, col) != 0; };
   auto clear = [&](int col, int row) { data2(row, col) = 0; };
 
-  IntegerMatrix stepCounter(wid, hgt);
-
   auto removePixel = [&](int col, int row, bool even) {
     if (!get(col, row)) return 0;
     int p2 = get(col - 1, row);
@@ -354,7 +352,6 @@ IntegerMatrix helper_guo_hall(IntegerMatrix image) {
     int m = even ? ((p6 | p7 | (!p9)) & p8) : ((p2 | p3 | (!p5)) & p4);
     if (m == 0) {
       clear(col, row);
-      stepCounter(row, col) = 1;
       return 1;
     }
     return 0;
@@ -375,7 +372,6 @@ IntegerMatrix helper_guo_hall(IntegerMatrix image) {
 
   int n = 0;
   do {
-    stepCounter.fill(0);
     n = thinStep();
   } while (n > 0);
 

@@ -6,43 +6,63 @@
 \usage{
 yolo_dataset_preview(
   dir = "yolo_dataset",
-  split = c("train", "val"),
+  split = c("train", "val", "test"),
+  pattern = NULL,
   n = 4L,
+  random = TRUE,
+  seed = NULL,
+  mfrow = NULL,
+  rainbow = TRUE,
   col = NULL,
-  lwd = 2,
+  lwd = 1.5,
   fill = NULL,
   show_labels = TRUE,
-  cex = 0.8
+  label_bg = FALSE,
+  cex = 0.6,
+  title = TRUE
 )
 }
 \arguments{
-\item{dir}{Character or \code{yolo_dataset} object. Path to the dataset directory (or the list returned by \code{\link[=yolo_dataset_export]{yolo_dataset_export()}}).}
+\item{dir}{Character or \code{yolo_dataset} object. Path to the dataset directory (or list from \code{\link[=yolo_dataset_export]{yolo_dataset_export()}} / \code{\link[=yolo_dataset_split]{yolo_dataset_split()}}).}
 
-\item{split}{Character. Either \code{"train"} (default) or \code{"val"}.}
+\item{split}{Character. The subset to preview: \code{"train"} (default), \code{"val"}, or \code{"test"}.}
+
+\item{pattern}{Optional regex pattern to filter specific image names (e.g. \code{"toras5\\\\.png"}). Defaults to \code{NULL}.}
 
 \item{n}{Integer. Number of sample images to preview. Defaults to \code{4L}.}
 
-\item{col}{Border color for bounding boxes/polygons. If \code{NULL}, uses a distinct color per class.}
+\item{random}{Logical. If \code{TRUE} (default), samples random images from the split. If \code{FALSE}, picks the first \code{n} images.}
 
-\item{lwd}{Numeric. Line width for borders. Defaults to \code{2}.}
+\item{seed}{Optional integer seed for reproducible random selection.}
+
+\item{rainbow}{Logical. If \code{TRUE} (default), assigns distinct rainbow colors to each object within the image (matching review previews). If \code{FALSE}, colors are assigned by class.}
+
+\item{col}{Border color for bounding boxes/polygons. If provided, overrides \code{rainbow} and default class palette.}
+
+\item{lwd}{Numeric. Line width for borders. Defaults to \code{1.5}.}
 
 \item{fill}{Fill color for polygons with transparency (e.g. \code{"#00FF6633"}). If \code{NULL}, no fill.}
 
-\item{show_labels}{Logical. If \code{TRUE} (default), displays class name badges.}
+\item{show_labels}{Logical. If \code{TRUE} (default), displays class name labels.}
 
-\item{cex}{Numeric. Text size for class name badges. Defaults to \code{0.8}.}
+\item{label_bg}{Logical. If \code{TRUE}, draws a subtle background badge behind each label. If \code{FALSE} (default), draws clean, discreet text matching review previews without blocking objects.}
+
+\item{cex}{Numeric. Text size for class name labels. Defaults to \code{0.6}.}
+
+\item{title}{Logical or character. If \code{TRUE} (default), displays panel titles with filename and object count.}
 }
 \value{
-An invisible list of plotted image objects.
+An invisible list of the sampled image file paths.
 }
 \description{
 Loads sample images and their matching \code{.txt} annotation labels from a YOLO
-dataset directory and displays them with overlaid segmentation polygons or bounding boxes.
+dataset directory and displays them in a multi-panel grid with overlaid segmentation polygons
+or bounding boxes. By default, randomly samples \code{n} images from the requested split.
 }
 \examples{
 \dontrun{
 dataset <- yolo_dataset_export(img, dir = "dataset_cafe", model = "persam")
-yolo_dataset_preview(dataset)
-plot(dataset)
+yolo_dataset_preview(dataset, n = 4, random = TRUE)
+plot(dataset, n = 6)
 }
 }

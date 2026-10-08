@@ -14,7 +14,7 @@ image_stardist_dl(
   border = "white",
   lwd = 2,
   threads = 0,
-  engine = c("cpu", "gpu"),
+  engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,

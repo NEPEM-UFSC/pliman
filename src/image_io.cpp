@@ -908,7 +908,9 @@ bool draw_yolo_detections_bgr_cpp(
     bool show_text = true,
     bool show_conf = true,
     bool show_class = true,
-    bool show_id = true,
+    bool show_id = false,
+    bool badge = true,
+    double pad_scale = 1.0,
     Rcpp::Nullable<Rcpp::IntegerMatrix> mask_labels = R_NilValue,
     double mask_alpha = 0.4,
     int mask_offset_x = 0,
@@ -1191,7 +1193,8 @@ bool draw_yolo_detections_bgr_cpp(
       if (!lbl.empty()) {
         int char_w = use_micro ? 4 : (8 * scale_int);
         int char_h = use_micro ? 5 : (8 * scale_int);
-        int tag_pad = use_micro ? 1 : (2 * scale_int);
+        int base_pad = use_micro ? 1 : (2 * scale_int);
+        int tag_pad = (int)std::round(base_pad * std::max(0.0, pad_scale));
         int text_w = (int)lbl.size() * char_w;
         int text_h = char_h;
         int tag_w = text_w + 2 * tag_pad;
@@ -1210,14 +1213,19 @@ bool draw_yolo_detections_bgr_cpp(
           tag_x1 = std::max(0, tag_x2 - tag_w);
         }
 
-        // Draw tag background
-        fill_rect_rgb(p, orig_w, orig_h, tag_x1, tag_y1, tag_x2, tag_y2, r, g, b);
+        // Draw tag background if badge == true
+        if (badge) {
+          fill_rect_rgb(p, orig_w, orig_h, tag_x1, tag_y1, tag_x2, tag_y2, r, g, b);
+        }
 
-        // Contrast text color
-        uint8_t tr = 255, tg = 255, tb = 255;
-        double luma = 0.299 * r + 0.587 * g + 0.114 * b;
-        if (luma > 180.0) {
-          tr = 0; tg = 0; tb = 0;
+        // Contrast text color (white/black on solid badge, or box border color if no badge)
+        uint8_t tr = r, tg = g, tb = b;
+        if (badge) {
+          tr = 255; tg = 255; tb = 255;
+          double luma = 0.299 * r + 0.587 * g + 0.114 * b;
+          if (luma > 180.0) {
+            tr = 0; tg = 0; tb = 0;
+          }
         }
 
         // Draw text
