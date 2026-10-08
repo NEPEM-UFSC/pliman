@@ -9213,11 +9213,13 @@ image_superres_dl <- function(img,
   }
   tensor <- c(R, G, B)
 
+  # Real-ESRGAN Compact natively runs at fixed 4x upscaling in the neural network
+  model_scale <- 4L
   raw_vec <- run_super_resolution_cpp(
     tensor_vec = tensor,
     in_w = orig_w,
     in_h = orig_h,
-    scale = as.integer(scale),
+    scale = model_scale,
     tile_size = as.integer(tile_size),
     tile_pad = as.integer(tile_pad),
     model_path = model_file,
@@ -9227,8 +9229,8 @@ image_superres_dl <- function(img,
     device_id = as.integer(device_id)
   )
 
-  out_w <- orig_w * as.integer(scale)
-  out_h <- orig_h * as.integer(scale)
+  out_w <- orig_w * model_scale
+  out_h <- orig_h * model_scale
   plane <- out_w * out_h
 
   out_arr <- array(0.0, dim = c(out_w, out_h, 3L))
@@ -9237,6 +9239,13 @@ image_superres_dl <- function(img,
   out_arr[, , 3] <- matrix(raw_vec[(2 * plane + 1):(3 * plane)], nrow = out_w, ncol = out_h)
 
   out_img <- as_image(out_arr)
+
+  # If the user requested a scale factor other than the model's native 4x (e.g., scale = 2, 6, 8)
+  if (scale != model_scale) {
+    target_w <- as.integer(round(orig_w * scale))
+    target_h <- as.integer(round(orig_h * scale))
+    out_img <- image_resize(out_img, width = target_w, height = target_h, filter = "lanczos", plot = FALSE)
+  }
 
   if (isTRUE(plot)) {
     plot(out_img, ...)
