@@ -1,0 +1,548 @@
+---
+title: "Supplementary Material: High-Throughput Bioimage Phenotyping and Computer Vision Workflows Using pliman"
+subtitle: "A Python-Free R Framework Integrating Foundation Models, Few-Shot Learning, and Native ONNX GPU Acceleration"
+author: "Tiago Olivoto et al."
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    theme: cosmo
+    code-fold: show
+    code-tools: true
+    code-copy: true
+    code-overflow: wrap
+    highlight-style: github
+---
+
+# Overview and Architecture
+
+This document provides a comprehensive, reproducible reference guide for the computer vision and deep learning modules in **pliman** (Plant Image Analysis in R). 
+
+### Eliminating the Python Dependency Barrier
+In conventional R workflows, deploying deep learning models (such as YOLO, SAM, or CLIP) requires maintaining Python virtual environments, Conda installations, and framework bindings (e.g., `reticulate` with PyTorch or TensorFlow). This dependency chain frequently leads to software fragility, CUDA driver mismatches, and reproducibility failures on non-specialist hardware.
+
+**pliman** resolves this bottleneck by implementing a native **C++ ONNX Runtime engine** directly compiled into the R package. Key advantages include:
+1. **Zero Python or Conda requirements:** Everything runs natively in R.
+2. **Universal GPU Acceleration:** Hardware acceleration is provided through Microsoft DirectML and ONNX Runtime, delivering high-speed tensor execution across NVIDIA, AMD, and Intel GPUs on Windows and Linux, as well as multi-threaded CPU execution on macOS.
+3. **End-to-End Pipeline:** Covers everything from zero-shot foundation models and 1-click few-shot interactive dataset annotation, to full YOLO training, model quantization, focus stacking, root system architecture phenotyping, and real-time video tracking.
+
+```{r setup, message=FALSE, warning=FALSE}
+library(pliman)
+
+# Set random seed for reproducibility
+set.seed(42)
+```
+
+---
+
+# Foundation Models and Deep Learning Inference
+
+Foundation models are large neural networks trained on broad visual data that can be applied directly to novel biological scenes without prior dataset collection or model retraining.
+
+## 4x Deep Super-Resolution and Salient Instance Segmentation
+
+When images contain low-resolution details (e.g., small foliar lesions or micro-structures), Real-ESRGAN super-resolution enhances edge clarity prior to instance segmentation.
+
+```{r superres-instance-seg, eval=FALSE}
+# 1. Import image and apply 4x Deep Learning Super-Resolution (Real-ESRGAN)
+img_leaf <- image_import("leaf.jpg") |> 
+  image_superres_dl(scale = 4, engine = "gpu")
+
+# 2. Salient instance segmentation with rainbow color palette
+seg_leaf <- image_segment_dl(
+  img = img_leaf,
+  model = "silueta",
+  type = "highlight",
+  bbox = TRUE,
+  rainbow = TRUE,
+  engine = "gpu"
+)
+
+# 3. Visualize feature activation and saliency heatmap
+plot_yolo_heatmap(seg_leaf, col_palette = "viridis")
+```
+
+## Open-Vocabulary Zero-Shot Detection and Prompting (Grounded-SAM)
+
+Researchers can segment specific biological organs, symptoms, or foreground targets using natural language prompts without any training data:
+
+```{r grounded-sam, eval=FALSE}
+img_canopy <- image_import("canopy.jpg")
+
+# Segment specific targets via text prompts
+canopy_seg <- image_segment_dl(
+  img = img_canopy,
+  model = "grounded-sam",
+  prompt = "green leaf, necrotic lesion",
+  type = "highlight",
+  box_threshold = 0.25,
+  text_threshold = 0.25,
+  bbox = TRUE,
+  rainbow = TRUE,
+  engine = "gpu"
+)
+
+# Inspect detected bounding boxes and confidence scores
+head(canopy_seg$boxes)
+```
+
+## Oriented Bounding Boxes (YOLO OBB)
+
+In agricultural remote sensing, drone imagery, and forestry, objects often appear at arbitrary orientations. Oriented Bounding Boxes (OBB) provide tightly bounded rotated rectangles:
+
+```{r yolo-obb, eval=FALSE}
+img_aerial <- image_import("aerial_field.jpg")
+
+# Detect rotated bounding boxes
+obb_res <- image_detect_dl(
+  img = img_aerial,
+  model = "yolo26",
+  task = "obb",
+  conf_threshold = 0.50,
+  engine = "gpu"
+)
+
+plot(obb_res)
+```
+
+## Cellular and Dense Nuclei Segmentation (StarDist)
+
+For microscopy phenotyping, seed embryos, and dense cellular structures, **pliman** provides StarDist integration:
+
+```{r stardist, eval=FALSE}
+img_cells <- image_import("microscopy_nuclei.png")
+
+cells_seg <- image_segment_dl(
+  img = img_cells,
+  model = "stardist",
+  engine = "gpu"
+)
+
+plot(cells_seg)
+```
+
+## Salient Foreground Extraction (U2-Net)
+
+Salient object extraction isolates foreground biological specimens (e.g., leaves, fruits, grains) from complex backgrounds:
+
+```{r u2net-batch, eval=FALSE}
+# Import a list of specimen images
+specimens <- list(
+  coffee1 = image_import("coffee_bean1.jpg"),
+  coffee2 = image_import("coffee_bean2.jpg"),
+  soybean = image_import("soybean_seed.jpg"),
+  fruit   = image_import("citrus_fruit.jpg")
+)
+
+# Batch background removal
+cleaned_specimens <- lapply(specimens, function(im) {
+  image_segment_dl(im, model = "u2net", engine = "gpu", alpha = 0.8)
+})
+
+# Display mosaic of segmented foregrounds
+image_combine(cleaned_specimens, ncol = 4, mar = 0)
+```
+
+---
+
+# Few-Shot Learning and Automated Dataset Labeling
+
+Manual bounding-box and polygon annotation is a major bottleneck in agricultural machine learning. **pliman** implements a human-in-the-loop few-shot pipeline using Meta's Segment Anything 2.1 (SAM 2.1 / PerSAM).
+
+## Interactive Few-Shot Prototype Fitting (`yolo_fewshot_fit`)
+
+The researcher clicks on only 3–5 representative object instances across one or more reference images. The engine extracts high-dimensional visual prototypes and automatically segments all matching objects across the scene.
+
+```{r fewshot-fitting, eval=FALSE}
+# Reference images representing visual pile variation
+ref_images <- c(
+  "toras/toras19.jpg", "toras/toras28.jpg",
+  "toras/toras27.png", "toras/toras20.jpg"
+)
+
+# Interactive model fitting
+# 1. Click 3-5 exemplar objects in the plot window and press <Esc>
+# 2. SAM 2.1 segments instances and immediately displays the feedback overlay
+# 3. Use the interactive console menu:
+#    - [Enter]: Accept detections and proceed to the next image
+#    - [r]: Remove false positives (click on masks/boxes to delete)
+#    - [a]: Add missed objects (click on missed instances to incorporate them)
+#    - [t <val>]: Fine-tune confidence threshold on the fly
+#    - [s]: Resample points for this image
+model_toras <- yolo_fewshot_fit(
+  img = ref_images,
+  label = "log",
+  task = "segment",        # "segment" for polygons or "detect" for bounding boxes
+  method = "sam",
+  conf_threshold = 0.60,
+  rainbow = TRUE,
+  engine = "gpu"
+)
+
+# Inspect the multi-image visual prototypes and segmentation overlay
+plot(model_toras, rainbow = TRUE)
+```
+
+## Batch Dataset Auto-Labeling (`yolo_dataset_autolabel`)
+
+Once the few-shot visual prototypes are calibrated, propagate annotations across hundreds of unannotated field images in seconds, generating standard YOLO dataset structures (`images/`, `labels/`, and `data.yaml`):
+
+```{r batch-autolabel, eval=FALSE}
+# Automatically annotate entire directory into YOLO format
+ds_toras <- yolo_dataset_autolabel(
+  input_dir  = "toras/",
+  model      = model_toras,
+  output_dir = "dataset_logs_yolo",
+  engine     = "gpu",
+  review     = TRUE,       # Exports visual review overlays
+  rainbow    = TRUE
+)
+
+# Inject negative/background images to prevent false positives
+yolo_dataset_add_background(
+  dir    = ds_toras,
+  source = "backgrounds/",
+  n      = 30
+)
+
+# Apply data augmentation (flips, rotations, lighting adjustments)
+yolo_dataset_augment(ds_toras)
+
+# Preview generated dataset annotations
+yolo_dataset_preview("dataset_logs_yolo", n = 4)
+```
+
+## Traditional and Assisted Contour Export (`yolo_dataset_export`)
+
+For high-contrast images (e.g., leaves on a white background, seeds on a scanner tray), classical morphological algorithms can directly generate YOLO-format polygonal datasets with Bézier/contour smoothing:
+
+```{r dataset-export, eval=FALSE}
+# Generate YOLO segmentation dataset using morphological contours
+dataset_vitis <- yolo_dataset_export(
+  img         = "vitis_leaves/",
+  dir         = "dataset_vitis",
+  task        = "segment",
+  class_names = "grape_leaf",
+  train_prop  = 0.80,          # 80% train, 20% validation
+  n_points    = 150,           # Polygonal vertex count per contour
+  index       = "GRAY",
+  watershed   = FALSE,
+  opening     = 5,
+  return_exact = TRUE
+)
+
+# Preview dataset
+yolo_dataset_preview("dataset_vitis", n = 4)
+```
+
+---
+
+# Custom YOLO Model Training and Validation
+
+Researchers can train cutting-edge YOLO architectures directly inside R without switching to external Python environments.
+
+## Object Detection and Instance Segmentation Training
+
+```{r yolo-training, eval=FALSE}
+# Train a custom YOLO26 instance segmentation model
+model_trained <- yolo_train(
+  data        = "dataset_logs_yolo/data.yaml",
+  model       = "yolo26n-seg",
+  output_name = "logs_seg.onnx",
+  output_dir  = "models_logs",
+  epochs      = 50,
+  batch       = 8,
+  imgsz       = 640
+)
+
+# Plot training loss curves, Precision-Recall curves, and confusion matrix
+plot(model_trained)
+plot(model_trained, which = "pr_curve")
+plot(model_trained, which = "confusion_matrix")
+```
+
+## Model Validation and Real-World Inference
+
+Deploy the trained ONNX model directly within R:
+
+```{r yolo-inference, eval=FALSE}
+img_test <- image_import("toras/toras89.jpg")
+
+# Run inference with the custom-trained model
+res_test <- image_segment_dl(
+  img            = img_test,
+  model          = "models_logs/logs_seg.onnx",
+  conf_threshold = 0.40,
+  rainbow        = TRUE
+)
+
+plot(res_test)
+```
+
+## Deep Image Classification Pipeline
+
+**pliman** also provides a streamlined workflow for image-level classification (e.g., disease diagnosis, botanical variety identification):
+
+```{r classification-pipeline, eval=FALSE}
+# 1. Structure raw image folders into train (70%), val (20%), and test (10%) splits
+ds_flowers <- yolo_dataset_classify(
+  src_dir = "flower_photos",
+  out_dir = "dataset_flowers_yolo",
+  split   = c(train = 0.70, val = 0.20, test = 0.10),
+  seed    = 42
+)
+
+# Inspect dataset balance and summary
+yolo_dataset_balance(ds_flowers)
+plot(ds_flowers)
+
+# 2. Train a classification model
+model_flowers <- yolo_train(
+  data   = ds_flowers,
+  model  = "yolo11l-cls",
+  epochs = 50,
+  batch  = 16,
+  imgsz  = 224
+)
+
+# 3. Classify a novel specimen
+new_img <- image_import("flower_photos/sunflowers/sample1.jpg")
+pred_class <- image_classify_dl(new_img, model = "models/flowers_cls.onnx")
+plot(pred_class)
+```
+
+---
+
+# Model Optimization for Edge Computing (INT8 Quantization)
+
+For deployment on edge devices (e.g., agricultural robots, smart tractors, battery-powered camera traps), 8-bit integer quantization reduces model size by ~75% and significantly accelerates inference.
+
+```{r int8-quantization, eval=FALSE}
+# Quantize standard FP32 ONNX model to INT8
+onnx_quantize(
+  model_path  = "models_logs/logs_seg.onnx",
+  output_path = "models_logs/logs_seg_int8.onnx"
+)
+
+# Benchmark execution latency: FP32 vs. INT8
+test_sample <- image_import("toras/toras19.jpg")
+
+latency_benchmark <- bench::mark(
+  FP32 = image_detect_dl(test_sample, model = "models_logs/logs_seg.onnx", plot = FALSE, engine = "gpu"),
+  INT8 = image_detect_dl(test_sample, model = "models_logs/logs_seg_int8.onnx", plot = FALSE, engine = "gpu"),
+  iterations = 20,
+  check = FALSE
+)
+
+summary(latency_benchmark)
+```
+
+---
+
+# Real-Time Video Monitoring and Tracking
+
+Video analysis enables dynamic monitoring of conveyor belts, livestock, and real-time field operations.
+
+## Live Camera and Human Pose Estimation
+
+Detect and track anatomical skeletons in real-time from webcam feeds:
+
+```{r video-pose, eval=FALSE}
+# Real-time pose estimation from connected webcam (device 0)
+live_pose <- video_detect_dl(
+  video          = 0,
+  model          = "yolo26n-pose",
+  engine         = "gpu",
+  conf_threshold = 0.50,
+  skeleton       = TRUE,      # Draws 17-point anatomical skeleton
+  bbox           = TRUE,
+  return_data    = TRUE
+)
+```
+
+## Video Tracking and Trajectory Tracing
+
+Track moving objects across video files with persistent identity assignment:
+
+```{r video-tracking, eval=FALSE}
+# Multi-object tracking on video file
+tracked_video <- video_detect_dl(
+  video       = "livestock_pasture.mp4",
+  model       = "yolo26x-seg",
+  engine      = "gpu",
+  fps         = 24,
+  track       = TRUE,         # Enables persistent object ID tracking
+  trail       = TRUE,         # Draws movement trajectory trails
+  mask        = TRUE,
+  rainbow     = TRUE,
+  output      = "livestock_tracked.mp4",
+  return_data = TRUE
+)
+
+print(tracked_video)
+plot(tracked_video)
+```
+
+## Conveyor Belt Threshold Counting
+
+Automate the enumeration of seeds, fruits, or parts passing along a conveyor system:
+
+```{r video-conveyor, eval=FALSE}
+# Automated object counting crossing a virtual line
+conveyor_data <- video_detect_dl(
+  video            = "conveyor_system.mp4",
+  model            = "yolo26n",
+  engine           = "gpu",
+  conf_threshold   = 0.70,
+  roi              = c(0.2, 0.0, 0.8, 1.0),       # Crop Region of Interest [xmin, ymin, xmax, ymax]
+  roi_mode         = "crop",
+  count_line       = c(0.5, 0.0, 0.5, 1.0),       # Vertical virtual counting line
+  count_line_label = "Belt Total",
+  track            = TRUE,
+  output           = "conveyor_annotated.mp4",
+  return_data      = TRUE
+)
+
+# Inspect enumerated count total
+conveyor_data$counts
+```
+
+## Video Frame Extraction
+
+```{r video-split, eval=FALSE}
+# Extract frames from video at a constant frequency for dataset creation
+video_split(
+  video = "field_recording.mp4",
+  dir   = "extracted_frames/",
+  fps   = 2                  # Extract 2 frames per second
+)
+```
+
+---
+
+# Specialized Computational Imaging and Phenotyping
+
+## Deep Learning Focus Stacking (IFCNN)
+
+In macro photography and stereo-microscopy, limited depth of field causes foreground and background structures to blur. Deep convolutional focus stacking fuses multi-focal image series into an all-in-focus composite:
+
+```{r focus-stacking, eval=FALSE}
+# Load focus bracketed series
+focus_series <- list(
+  image_import("focus/plane_top.jpg"),
+  image_import("focus/plane_middle.jpg"),
+  image_import("focus/plane_bottom.jpg")
+)
+
+# Deep neural feature fusion via IFCNN
+fused_composite <- process_focus_stack(
+  images        = focus_series,
+  fusion_method = "ifcnn",
+  strategy      = "pyramid",
+  engine        = "gpu"
+)
+
+plot(fused_composite)
+```
+
+## Panoramic Aerial Image Stitching
+
+Stitch multi-angle aerial or ground photograph sequences into a panoramic orthomosaic:
+
+```{r image-stitching, eval=FALSE}
+# Import overlapping aerial photographs
+drone_tiles <- image_import(pattern = "DJI_")
+
+# Automatically align, warp, and blend tiles
+field_mosaic <- image_stitch(
+  drone_tiles,
+  direction = "auto",
+  blend     = TRUE
+)
+
+plot(field_mosaic)
+```
+
+## Root System Architecture (RSA) Phenotyping
+
+Comprehensive architectural quantification of root systems:
+
+```{r root-phenotyping, eval=FALSE}
+img_root <- image_import("root_scan.png") |> 
+  image_vertical()
+
+# Comprehensive root morphological extraction
+root_traits <- root_analyze(img_root)
+
+# Multifaceted architectural trait visualizations
+plot(root_traits, type = "hierarchy",   nodes = FALSE)
+plot(root_traits, type = "skeleton",    nodes = FALSE, lwd = 2)
+plot(root_traits, type = "overlay",     cex_nodes = 0.9, nodes = FALSE)
+plot(root_traits, type = "classes")
+plot(root_traits, type = "depth")
+plot(root_traits, type = "angles")
+plot(root_traits, type = "profile",     asp = 1)        # Spatial envelope and centroid
+plot(root_traits, type = "topology")                    # Gravitropism: angle vs. depth
+plot(root_traits, type = "diameter_dist")               # Diameter distribution and KDE
+plot(root_traits, type = "orders")                      # Biomass distribution by root order
+```
+
+## Generative Image Synthesis (Latent Diffusion)
+
+Generate synthetic biological training samples or background variations via diffusion models:
+
+```{r diffusion-synthesis, eval=FALSE}
+# Generate high-resolution synthetic botanical imagery
+synthetic_field <- image_generate_dl(
+  prompt   = "a mature wheat field under natural morning light, high resolution botanical photography",
+  aspect   = "landscape",
+  n_steps  = 4,
+  superres = TRUE,
+  engine   = "gpu"
+)
+
+plot(synthetic_field)
+```
+
+---
+
+# Classical Morphology vs. Deep Learning Benchmark
+
+To assist researchers in selecting the appropriate methodology, **pliman** allows side-by-side comparison between classical color-index thresholding and deep learning segmentation:
+
+```{r classical-comparison, eval=FALSE}
+img_sample <- image_import("standard_sample.jpg")
+
+# 1. Classical color index segmentation (Otsu threshold on R channel)
+classical_res <- analyze_objects(
+  img_sample,
+  index = "R",
+  show_segmentation = TRUE
+)
+
+# Inspect classical shape statistics (area, perimeter, circularity)
+head(classical_res$results)
+
+# 2. Deep learning instance segmentation (SAM 2.1)
+dl_res <- image_segment_dl(
+  img_sample,
+  model = "silueta",
+  type = "highlight",
+  rainbow = TRUE
+)
+
+# Comparison plot
+image_combine(
+  list(Classical = classical_res$plot, DeepLearning = dl_res),
+  ncol = 2
+)
+```
+
+---
+
+# Session Information
+
+```{r session-info}
+sessionInfo()
+```
