@@ -941,15 +941,23 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
     }
   }
 
-  img_dir <- file.path(dir, "images", split)
-  lbl_dir <- file.path(dir, "labels", split)
+  # Split aliases (support valid, validation, training, testing)
+  split_aliases <- switch(
+    split,
+    "train" = c("train", "training"),
+    "val"   = c("val", "valid", "validation"),
+    "test"  = c("test", "testing"),
+    split
+  )
 
-  if (!dir.exists(img_dir) || !dir.exists(lbl_dir)) {
-    cli::cli_abort("Could not find dataset directories for split {.val {split}} in {.path {dir}}.")
-  }
+  img_dir <- NULL
+  lbl_dir <- NULL
 
+  # 1. Try reading paths and class names from data.yaml if present
   yaml_file <- file.path(dir, "data.yaml")
   class_map <- character()
+  yaml_img_dir <- NULL
+
   if (file.exists(yaml_file)) {
     y_lines <- readLines(yaml_file, warn = FALSE)
     name_idx <- grep("^names:", y_lines)
@@ -967,6 +975,77 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
         }
       }
     }
+
+    # Check for split line in yaml (e.g. train: ..., val: ..., test: ...)
+    for (s in split_aliases) {
+      split_line <- grep(paste0("^\\s*", s, "\\s*:"), y_lines, value = TRUE)
+      if (length(split_line) > 0L) {
+        raw_p <- trimws(sub(paste0("^\\s*", s, "\\s*:\\s*"), "", split_line[1]))
+        raw_p <- gsub("['\"]", "", raw_p)
+        clean_p <- sub("^(\\.\\.[\\\\/])+", "", raw_p)
+        for (cand in c(file.path(dir, raw_p), file.path(dir, clean_p), raw_p)) {
+          if (dir.exists(cand)) {
+            yaml_img_dir <- normalizePath(cand, winslash = "/", mustWork = FALSE)
+            break
+          }
+        }
+        if (!is.null(yaml_img_dir)) break
+      }
+    }
+  }
+
+  if (!is.null(yaml_img_dir)) {
+    img_dir <- yaml_img_dir
+    cand_lbl1 <- sub("/images$", "/labels", img_dir)
+    cand_lbl2 <- sub("/images/", "/labels/", img_dir)
+    for (c_lbl in c(cand_lbl1, cand_lbl2)) {
+      if (dir.exists(c_lbl)) {
+        lbl_dir <- c_lbl
+        break
+      }
+    }
+  }
+
+  # 2. Check candidate directory structures (Roboflow & standard pliman)
+  if (is.null(img_dir) || is.null(lbl_dir)) {
+    for (s in split_aliases) {
+      # Roboflow / Ultralytics: dir/<split>/images & dir/<split>/labels
+      c_img_rf <- file.path(dir, s, "images")
+      c_lbl_rf <- file.path(dir, s, "labels")
+      if (dir.exists(c_img_rf) && dir.exists(c_lbl_rf)) {
+        img_dir <- c_img_rf
+        lbl_dir <- c_lbl_rf
+        break
+      }
+
+      # Standard pliman: dir/images/<split> & dir/labels/<split>
+      c_img_pl <- file.path(dir, "images", s)
+      c_lbl_pl <- file.path(dir, "labels", s)
+      if (dir.exists(c_img_pl) && dir.exists(c_lbl_pl)) {
+        img_dir <- c_img_pl
+        lbl_dir <- c_lbl_pl
+        break
+      }
+    }
+  }
+
+  # 3. Check flat / unpartitioned directory structures
+  if (is.null(img_dir) || is.null(lbl_dir)) {
+    c_img_flat <- file.path(dir, "images")
+    c_lbl_flat <- file.path(dir, "labels")
+    if (dir.exists(c_img_flat) && dir.exists(c_lbl_flat)) {
+      img_dir <- c_img_flat
+      lbl_dir <- c_lbl_flat
+    }
+  }
+
+  if (is.null(img_dir) || !dir.exists(img_dir) || is.null(lbl_dir) || !dir.exists(lbl_dir)) {
+    cli::cli_abort(c(
+      "Could not find dataset directories for split {.val {split}} in {.path {dir}}.",
+      "i" = "Expected either:",
+      "*" = "{.path {file.path(dir, split, 'images')}} and {.path {file.path(dir, split, 'labels')}} (Roboflow structure)",
+      "*" = "{.path {file.path(dir, 'images', split)}} and {.path {file.path(dir, 'labels', split)}} (Standard pliman structure)"
+    ))
   }
 
   default_palette <- c("#00FF66", "#00F0FF", "#FF0055", "#FFD700", "#9D00FF", "#FF8800", "#00B4D8", "#E63946")
