@@ -27,7 +27,7 @@
   }
   raw_path <- as.character(data)[1]
   if (!file.exists(raw_path) && !dir.exists(raw_path)) {
-    for (cand in c(file.path(getwd(), raw_path), file.path("D:/Downloads/pliman_dl", raw_path))) {
+    for (cand in c(file.path(getwd(), raw_path), file.path("D:/Downloads/pliman4", raw_path), file.path("D:/Downloads/pliman_dl", raw_path))) {
       if (file.exists(cand) || dir.exists(cand)) {
         raw_path <- cand
         break
