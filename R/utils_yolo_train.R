@@ -928,10 +928,6 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
   if (!dir.exists(dir)) {
     candidates <- c(
       file.path(getwd(), raw_dir),
-      file.path("D:/Downloads/pliman4", raw_dir),
-      file.path("D:/Downloads/pliman4", basename(raw_dir)),
-      file.path("D:/Downloads/pliman_dl", raw_dir),
-      file.path("D:/Downloads/pliman_dl", basename(raw_dir)),
       file.path(tempdir(), raw_dir),
       file.path(pliman_model_dir(), raw_dir)
     )
@@ -1252,7 +1248,7 @@ print.yolo_dataset <- function(x, ...) {
 #' # Using a local NDJSON downloaded from Ultralytics Hub:
 #' yolo_dataset_add_background(
 #'   dir = "yolo_toras",
-#'   source = "D:/Downloads/pliman_dl/african-wildlife.ndjson",
+#'   source = "african-wildlife.ndjson",
 #'   n = 20
 #' )
 #' }
@@ -1282,10 +1278,6 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
   if (!dir.exists(dir)) {
     candidates <- c(
       file.path(getwd(), raw_dir),
-      file.path("D:/Downloads/pliman4", raw_dir),
-      file.path("D:/Downloads/pliman4", basename(raw_dir)),
-      file.path("D:/Downloads/pliman_dl", raw_dir),
-      file.path("D:/Downloads/pliman_dl", basename(raw_dir)),
       file.path(tempdir(), raw_dir),
       file.path(pliman_model_dir(), raw_dir)
     )
@@ -1691,7 +1683,7 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
 #'
 #' # Organize flower photos into train (70%), val (20%), test (10%)
 #' ds <- yolo_dataset_classify(
-#'   src_dir = "D:/Downloads/pliman_dl/flower_photos",
+#'   src_dir = "flower_photos",
 #'   out_dir = "dataset_flores_yolo",
 #'   split = c(train = 0.70, val = 0.20, test = 0.10),
 #'   min_images = 10
@@ -2085,7 +2077,7 @@ plot.yolo_dataset_cls <- function(x, n_per_class = 2, max_images = 12, ...) {
 #' \dontrun{
 #' # Download and export the entire dataset permanently before URLs expire:
 #' ds <- yolo_dataset_from_ndjson(
-#'   file = "D:/Downloads/pliman_dl/african-wildlife.ndjson",
+#'   file = "african-wildlife.ndjson",
 #'   zip = TRUE
 #' )
 #' yolo_dataset_preview(ds)
@@ -2540,7 +2532,6 @@ yolo_dataset_import_ndjson <- yolo_dataset_from_ndjson
 
   cands <- c(
     file.path(output_dir, pt_file),
-    file.path("D:/Desktop/models", pt_file),
     file.path(pliman_model_dir(), pt_file)
   )
   for (cand in unique(cands)) {
@@ -3511,7 +3502,6 @@ yolo_results <- function(model = NULL,
       file.path(output_dir, paste0(stem_clean, "_results")),
       file.path(pliman_model_dir(), paste0(base_stem, "_results")),
       file.path(pliman_model_dir(), paste0(stem_clean, "_results")),
-      file.path("D:/Desktop/models", paste0(base_stem, "_results")),
       list.files(output_dir, pattern = paste0("^", stem_clean, ".*_results$"), full.names = TRUE),
       list.files(pliman_model_dir(), pattern = paste0("^", stem_clean, ".*_results$"), full.names = TRUE)
     )

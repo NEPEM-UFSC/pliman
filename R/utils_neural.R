@@ -3878,10 +3878,6 @@ image_remove_bg_dl <- function(img,
     model_file <- normalizePath(file.path(dir, model), winslash = "/")
   } else if (file.exists(file.path(dir, paste0(model, ".onnx")))) {
     model_file <- normalizePath(file.path(dir, paste0(model, ".onnx")), winslash = "/")
-  } else if (file.exists(file.path("D:/Desktop/models", model))) {
-    model_file <- normalizePath(file.path("D:/Desktop/models", model), winslash = "/")
-  } else if (file.exists(file.path("D:/Desktop/models", paste0(model, ".onnx")))) {
-    model_file <- normalizePath(file.path("D:/Desktop/models", paste0(model, ".onnx")), winslash = "/")
   } else {
     model_file <- pliman_download_model(model = model, dir = dir)
   }
@@ -6682,10 +6678,6 @@ video_detect_dl <- function(video = 0,
       model_file <- normalizePath(file.path(dir, model[1]), winslash = "/")
     } else if (file.exists(file.path(dir, paste0(model[1], ".onnx")))) {
       model_file <- normalizePath(file.path(dir, paste0(model[1], ".onnx")), winslash = "/")
-    } else if (file.exists(file.path("D:/Desktop/models", model[1]))) {
-      model_file <- normalizePath(file.path("D:/Desktop/models", model[1]), winslash = "/")
-    } else if (file.exists(file.path("D:/Desktop/models", paste0(model[1], ".onnx")))) {
-      model_file <- normalizePath(file.path("D:/Desktop/models", paste0(model[1], ".onnx")), winslash = "/")
     } else {
       model_file <- pliman_download_model(model = model[1], dir = dir)
     }
