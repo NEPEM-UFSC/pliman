@@ -928,6 +928,8 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
   if (!dir.exists(dir)) {
     candidates <- c(
       file.path(getwd(), raw_dir),
+      file.path("D:/Downloads/pliman4", raw_dir),
+      file.path("D:/Downloads/pliman4", basename(raw_dir)),
       file.path("D:/Downloads/pliman_dl", raw_dir),
       file.path("D:/Downloads/pliman_dl", basename(raw_dir)),
       file.path(tempdir(), raw_dir),
@@ -1280,6 +1282,8 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
   if (!dir.exists(dir)) {
     candidates <- c(
       file.path(getwd(), raw_dir),
+      file.path("D:/Downloads/pliman4", raw_dir),
+      file.path("D:/Downloads/pliman4", basename(raw_dir)),
       file.path("D:/Downloads/pliman_dl", raw_dir),
       file.path("D:/Downloads/pliman_dl", basename(raw_dir)),
       file.path(tempdir(), raw_dir),
