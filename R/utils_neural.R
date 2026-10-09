@@ -2744,76 +2744,96 @@ image_remove_bg_dl <- function(img,
     vocab_env <- get(vocab_path, envir = .pliman_vocab_cache)
   }
 
-  if (length(text) > 1) {
-    text <- paste(trimws(text), collapse = " and ")
+  # Parse distinct target classes/categories from text
+  if (is.character(text) && length(text) > 1) {
+    target_classes <- trimws(text)
+  } else {
+    raw_str <- as.character(text)[1]
+    if (grepl("\\.", raw_str)) {
+      raw_parts <- strsplit(raw_str, "\\s*\\.\\s*")[[1]]
+      target_classes <- trimws(raw_parts)
+    } else if (grepl("[,;]", raw_str)) {
+      raw_parts <- strsplit(raw_str, "[,;]+")[[1]]
+      target_classes <- trimws(raw_parts)
+    } else {
+      target_classes <- trimws(raw_str)
+    }
   }
-  text_clean <- tolower(trimws(text))
-  # Support commas, semicolons, and normalize delimiters into natural conjunctions
-  text_clean <- gsub("[,;]+", " and ", text_clean)
-  # Normalize internal periods between class names (e.g. "people . book ." -> "people and book .")
-  text_clean <- gsub("\\s*\\.\\s*(?=[a-zA-Z0-9])", " and ", text_clean, perl = TRUE)
-  # Collapse redundant 'and's or spaces
-  text_clean <- gsub("\\b(and\\s*)+", "and ", text_clean)
-  text_clean <- gsub("\\s+", " ", text_clean)
-  text_clean <- trimws(text_clean)
-  # Ensure clean trailing period expected by Grounding DINO
-  text_clean <- gsub("\\s*\\.*$", " .", text_clean)
-  if (!grepl("\\.$", text_clean)) {
-    text_clean <- paste0(text_clean, " .")
-  }
-
-  # Insert spaces around punctuation
-  text_spaced <- gsub("([[:punct:]])", " \\1 ", text_clean)
-  words <- strsplit(text_spaced, "\\s+")[[1]]
-  words <- words[nzchar(words)]
+  target_classes <- target_classes[nzchar(target_classes)]
+  if (length(target_classes) == 0) target_classes <- "object"
 
   token_ids <- 101L # [CLS]
   token_words <- "[CLS]"
+  token_classes <- NA_character_
   unk_id <- 100L
 
-  for (w in words) {
-    start <- 1L
-    w_len <- nchar(w)
-    cur_ids <- integer(0)
-    is_unk <- FALSE
+  for (i in seq_along(target_classes)) {
+    cls <- target_classes[i]
+    if (i > 1L) {
+      token_ids <- c(token_ids, 1998L) # 'and'
+      token_words <- c(token_words, "and")
+      token_classes <- c(token_classes, NA_character_)
+    }
+    cls_clean <- tolower(trimws(cls))
+    cls_clean <- gsub("([[:punct:]])", " \\1 ", cls_clean)
+    words <- strsplit(cls_clean, "\\s+")[[1]]
+    words <- words[nzchar(words) & words != "."]
+    if (length(words) == 0) next
 
-    while (start <= w_len) {
-      end <- w_len
-      found_sub <- FALSE
-      while (start <= end) {
-        sub <- substr(w, start, end)
-        if (start > 1L) sub <- paste0("##", sub)
-        if (exists(sub, envir = vocab_env, inherits = FALSE)) {
-          cur_ids <- c(cur_ids, as.integer(get(sub, envir = vocab_env)))
-          start <- end + 1L
-          found_sub <- TRUE
+    for (w in words) {
+      start <- 1L
+      w_len <- nchar(w)
+      cur_ids <- integer(0)
+      is_unk <- FALSE
+
+      while (start <= w_len) {
+        end <- w_len
+        found_sub <- FALSE
+        while (start <= end) {
+          sub <- substr(w, start, end)
+          if (start > 1L) sub <- paste0("##", sub)
+          if (exists(sub, envir = vocab_env, inherits = FALSE)) {
+            cur_ids <- c(cur_ids, as.integer(get(sub, envir = vocab_env)))
+            start <- end + 1L
+            found_sub <- TRUE
+            break
+          }
+          end <- end - 1L
+        }
+        if (!found_sub) {
+          is_unk <- TRUE
           break
         }
-        end <- end - 1L
       }
-      if (!found_sub) {
-        is_unk <- TRUE
-        break
-      }
-    }
 
-    if (is_unk) {
-      token_ids <- c(token_ids, unk_id)
-      token_words <- c(token_words, w)
-    } else {
-      token_ids <- c(token_ids, cur_ids)
-      token_words <- c(token_words, rep(w, length(cur_ids)))
+      if (is_unk) {
+        token_ids <- c(token_ids, unk_id)
+        token_words <- c(token_words, w)
+        token_classes <- c(token_classes, cls)
+      } else {
+        token_ids <- c(token_ids, cur_ids)
+        token_words <- c(token_words, rep(w, length(cur_ids)))
+        token_classes <- c(token_classes, rep(cls, length(cur_ids)))
+      }
     }
   }
 
+  # Separator period and [SEP] expected by Grounding DINO
+  token_ids <- c(token_ids, 1012L) # '.'
+  token_words <- c(token_words, ".")
+  token_classes <- c(token_classes, NA_character_)
+
   token_ids <- c(token_ids, 102L) # [SEP]
   token_words <- c(token_words, "[SEP]")
+  token_classes <- c(token_classes, NA_character_)
 
   return(list(
     input_ids = token_ids,
     attention_mask = rep(1L, length(token_ids)),
     token_type_ids = rep(0L, length(token_ids)),
-    token_words = token_words
+    token_words = token_words,
+    token_classes = token_classes,
+    target_classes = target_classes
   ))
 }
 
@@ -3210,23 +3230,25 @@ image_remove_bg_dl <- function(img,
   boxes_px[, 3] <- pmin(as.double(orig_w), raw_boxes[, 3] * orig_w)
   boxes_px[, 4] <- pmin(as.double(orig_h), raw_boxes[, 4] * orig_h)
 
-  # Map token indices to labels (avoiding conjunctions or punctuation)
+  # Map token indices to full target class labels
   labels_str <- character(num_boxes)
-  stop_tokens <- c("[cls]", "[sep]", "and", ".", ",", ";")
+  stop_tokens <- c("[cls]", "[sep]")
   for (i in seq_len(num_boxes)) {
     t_idx <- dino_res$token_indices[i] + 1L
+    cls_cand <- if (t_idx >= 1 && t_idx <= length(tok$token_classes)) tok$token_classes[t_idx] else NA_character_
     w_cand <- if (t_idx >= 1 && t_idx <= length(tok$token_words)) tok$token_words[t_idx] else ""
-    if (tolower(w_cand) %in% stop_tokens || !nzchar(w_cand)) {
-      dists <- abs(seq_along(tok$token_words) - t_idx)
-      valid_mask <- !(tolower(tok$token_words) %in% stop_tokens)
+
+    if (is.na(cls_cand) || tolower(w_cand) %in% stop_tokens || !nzchar(cls_cand)) {
+      valid_mask <- !is.na(tok$token_classes) & nzchar(tok$token_classes) & !(tolower(tok$token_words) %in% stop_tokens)
       if (any(valid_mask)) {
+        dists <- abs(seq_along(tok$token_classes) - t_idx)
         dists[!valid_mask] <- Inf
-        w_cand <- tok$token_words[which.min(dists)]
+        cls_cand <- tok$token_classes[which.min(dists)]
       } else {
-        w_cand <- prompt
+        cls_cand <- if (!is.null(tok$target_classes) && length(tok$target_classes) > 0) tok$target_classes[1] else "object"
       }
     }
-    labels_str[i] <- w_cand
+    labels_str[i] <- cls_cand
   }
 
   boxes_df <- data.frame(
@@ -5857,8 +5879,8 @@ image_features_dl <- function(img,
 #' @param img An `Image` object, a 2D/3D numeric array, a path to an image file, or a list of images.
 #' @param model Model name or path to a custom ONNX file. Defaults to `"yolo26n"`.
 #'   Options include `"yolo26n"`, `"yolo26s"`, `"yolo26m"`, `"yolo26l"`, `"yolo26x"`.
-#' @param conf_threshold Minimum confidence score for candidate boxes (default 0.25).
-#' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.45).
+#' @param conf_threshold Minimum confidence score for candidate boxes (default 0.40).
+#' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.40).
 #' @param labels Optional character vector of class names (defaults to standard 80 COCO classes).
 #' @param col Optional color or palette for bounding boxes.
 #' @param rainbow Logical. If `TRUE`, assigns a distinct, unique color to each detected object.
@@ -5903,8 +5925,8 @@ image_features_dl <- function(img,
 #' }
 image_detect_dl <- function(img,
                             model = "yolo26n",
-                            conf_threshold = 0.25,
-                            iou_threshold = 0.45,
+                            conf_threshold = 0.4,
+                            iou_threshold = 0.4,
                             labels = NULL,
                             col = NULL,
                             rainbow = TRUE,
