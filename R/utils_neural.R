@@ -6340,7 +6340,12 @@ list_cameras <- function(details = FALSE) {
 #' @param show_conf Logical. Whether to display confidence scores in badges (default `TRUE`).
 #' @param show_class Logical. Whether to display class label names in badges (default `TRUE`).
 #' @param show_id Logical. Whether to display persistent tracking IDs (`#1`, `#2`) in badges when `track = TRUE` (default `FALSE`).
-#' @param count_line Optional counting tripwire line specified as `c(x1, y1, x2, y2)` in normalized coordinates (`0` to `1`). Objects crossing this virtual line are counted.
+#' @param count_line Optional virtual counting tripwire line. Can be specified as a single numeric
+#'   value between `0` and `1` (indicating relative position along the axis, e.g. `0.5` for center)
+#'   combined with `count_line_orientation`, or legacy 4-element coordinates `c(x1, y1, x2, y2)`.
+#'   Objects crossing this virtual line are counted.
+#' @param count_line_orientation Orientation of the counting line when `count_line` is a single scalar:
+#'   either `"vertical"` (default) or `"horizontal"`. Can also be passed as `count_line_dir`.
 #' @param count_line_label Optional label displayed along the counting line (default `NULL`, no text).
 #' @param roi Optional Region of Interest coordinates `c(xmin, ymin, xmax, ymax)` in normalized coordinates (`0` to `1`).
 #' @param roi_mode Either `"crop"` (infer only inside ROI) or `"filter"` (detect everywhere, retain only detections inside ROI).
@@ -6463,6 +6468,29 @@ list_cameras <- function(details = FALSE) {
 #'     return_data = TRUE
 #'   )
 #' }
+.resolve_count_line <- function(count_line, width, height, orientation = "vertical") {
+  if (is.null(count_line)) return(NULL)
+  count_line <- as.numeric(count_line)
+  if (length(count_line) == 1L) {
+    orientation <- match.arg(tolower(orientation), c("vertical", "horizontal"))
+    if (orientation == "vertical") {
+      px <- if (count_line <= 1.0) round(count_line * width) else round(count_line)
+      c(as.numeric(px), 0.0, as.numeric(px), as.numeric(height))
+    } else {
+      py <- if (count_line <= 1.0) round(count_line * height) else round(count_line)
+      c(0.0, as.numeric(py), as.numeric(width), as.numeric(py))
+    }
+  } else if (length(count_line) >= 4L) {
+    lx1 <- if (count_line[1] <= 1.0) round(count_line[1] * width) else round(count_line[1])
+    ly1 <- if (count_line[2] <= 1.0) round(count_line[2] * height) else round(count_line[2])
+    lx2 <- if (count_line[3] <= 1.0) round(count_line[3] * width) else round(count_line[3])
+    ly2 <- if (count_line[4] <= 1.0) round(count_line[4] * height) else round(count_line[4])
+    c(as.numeric(lx1), as.numeric(ly1), as.numeric(lx2), as.numeric(ly2))
+  } else {
+    cli::cli_abort("{.arg count_line} must be a single numeric value (0 to 1) or a vector of 4 coordinates c(x1, y1, x2, y2).")
+  }
+}
+
 video_detect_dl <- function(video = 0,
                             model = "yolo26n",
                             conf_threshold = 0.25,
@@ -6484,6 +6512,7 @@ video_detect_dl <- function(video = 0,
                             show_id = FALSE,
                             text_size = 1.0,
                             count_line = NULL,
+                            count_line_orientation = c("vertical", "horizontal"),
                             count_line_label = NULL,
                             roi = NULL,
                             roi_mode = c("crop", "filter"),
@@ -6631,6 +6660,10 @@ video_detect_dl <- function(video = 0,
   track_min_iou <- if ("min_iou" %in% names(dots)) as.numeric(dots$min_iou) else 0.25
   track_max_lost <- if ("max_lost" %in% names(dots)) as.integer(dots$max_lost) else 15L
   track_max_history <- if ("max_history" %in% names(dots)) as.integer(dots$max_history) else 30L
+  if ("count_line_dir" %in% names(dots)) {
+    count_line_orientation <- dots$count_line_dir
+  }
+  count_line_orientation <- match.arg(count_line_orientation, c("vertical", "horizontal"))
   roi_mode <- match.arg(roi_mode)
   backend <- match.arg(backend)
   if (backend == "auto") backend <- "native"
@@ -6926,19 +6959,7 @@ video_detect_dl <- function(video = 0,
         }
 
         # Virtual count line coordinates calculation
-        line_coords <- NULL
-        if (!is.null(count_line)) {
-          if (length(count_line) == 1) {
-            pos_x <- if (count_line <= 1.0) round(count_line * orig_w) else round(count_line)
-            line_coords <- c(as.numeric(pos_x), 0.0, as.numeric(pos_x), as.numeric(orig_h))
-          } else if (length(count_line) >= 4) {
-            lx1 <- if (count_line[1] <= 1.0) round(count_line[1] * orig_w) else round(count_line[1])
-            ly1 <- if (count_line[2] <= 1.0) round(count_line[2] * orig_h) else round(count_line[2])
-            lx2 <- if (count_line[3] <= 1.0) round(count_line[3] * orig_w) else round(count_line[3])
-            ly2 <- if (count_line[4] <= 1.0) round(count_line[4] * orig_h) else round(count_line[4])
-            line_coords <- c(as.numeric(lx1), as.numeric(ly1), as.numeric(lx2), as.numeric(ly2))
-          }
-        }
+        line_coords <- .resolve_count_line(count_line, orig_w, orig_h, count_line_orientation)
 
         df_b <- data.frame(
           frame = integer(0), timestamp = numeric(0), id = integer(0),
@@ -7396,19 +7417,7 @@ video_detect_dl <- function(video = 0,
       roi_coords <- c(rx1, ry1, rx2, ry2)
     }
 
-    line_coords <- NULL
-    if (!is.null(count_line)) {
-      if (length(count_line) == 1) {
-        pos_x <- if (count_line <= 1.0) round(count_line * src_w) else round(count_line)
-        line_coords <- c(as.numeric(pos_x), 0.0, as.numeric(pos_x), as.numeric(src_h))
-      } else if (length(count_line) >= 4) {
-        lx1 <- if (count_line[1] <= 1.0) round(count_line[1] * src_w) else round(count_line[1])
-        ly1 <- if (count_line[2] <= 1.0) round(count_line[2] * src_h) else round(count_line[2])
-        lx2 <- if (count_line[3] <= 1.0) round(count_line[3] * src_w) else round(count_line[3])
-        ly2 <- if (count_line[4] <= 1.0) round(count_line[4] * src_h) else round(count_line[4])
-        line_coords <- c(as.numeric(lx1), as.numeric(ly1), as.numeric(lx2), as.numeric(ly2))
-      }
-    }
+    line_coords <- .resolve_count_line(count_line, src_w, src_h, count_line_orientation)
 
     if (save_video) {
       out_video_file <- normalizePath(output, winslash = "/", mustWork = FALSE)
@@ -8273,7 +8282,10 @@ video_detect_dl <- function(video = 0,
     res$roi <- roi
     res$roi_mode <- roi_mode
   }
-  if (!is.null(count_line)) res$count_line <- count_line
+  if (!is.null(count_line)) {
+    res$count_line <- count_line
+    res$count_line_orientation <- count_line_orientation
+  }
   if (!is.null(output)) res$output <- normalizePath(output, winslash = "/", mustWork = FALSE)
 
   class(res) <- c("pliman_video_detect", "list")
