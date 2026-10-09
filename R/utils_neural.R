@@ -6347,7 +6347,11 @@ list_cameras <- function(details = FALSE) {
 #' @param count_line_orientation Orientation of the counting line when `count_line` is a single scalar:
 #'   either `"vertical"` (default) or `"horizontal"`. Can also be passed as `count_line_dir`.
 #' @param count_line_label Optional label displayed along the counting line (default `NULL`, no text).
-#' @param roi Optional Region of Interest coordinates `c(xmin, ymin, xmax, ymax)` in normalized coordinates (`0` to `1`).
+#' @param roi Optional Region of Interest coordinates. Can be specified as a numeric vector of
+#'   length 2 `c(min, max)` in relative coordinates (`0` to `1`) combined with `roi_orientation`
+#'   (e.g., `roi = c(0.2, 0.8), roi_orientation = "vertical"`), or legacy 4-element coordinates `c(xmin, ymin, xmax, ymax)`.
+#' @param roi_orientation Orientation of the ROI band when `roi` has length 2:
+#'   either `"vertical"` (default) or `"horizontal"`. Can also be passed as `roi_dir`.
 #' @param roi_mode Either `"crop"` (infer only inside ROI) or `"filter"` (detect everywhere, retain only detections inside ROI).
 #' @param roi_label Label displayed on the ROI box (default `"ROI / MONITORED ZONE"`).
 #' @param hide_outside_roi Logical. Whether to remove / suppress bounding boxes and visual annotations for objects outside the ROI zone. Defaults to `TRUE` when `roi` is provided.
@@ -6491,6 +6495,39 @@ list_cameras <- function(details = FALSE) {
   }
 }
 
+.resolve_roi <- function(roi, width, height, orientation = "vertical") {
+  if (is.null(roi)) return(NULL)
+  roi <- as.numeric(roi)
+  if (length(roi) == 2L) {
+    orientation <- match.arg(tolower(orientation), c("vertical", "horizontal"))
+    r_min <- min(roi)
+    r_max <- max(roi)
+    if (orientation == "vertical") {
+      rx1 <- if (r_min <= 1.0) round(r_min * width) else round(r_min)
+      ry1 <- 0L
+      rx2 <- if (r_max <= 1.0) round(r_max * width) else round(r_max)
+      ry2 <- as.integer(height)
+    } else {
+      rx1 <- 0L
+      ry1 <- if (r_min <= 1.0) round(r_min * height) else round(r_min)
+      rx2 <- as.integer(width)
+      ry2 <- if (r_max <= 1.0) round(r_max * height) else round(r_max)
+    }
+  } else if (length(roi) >= 4L) {
+    rx1 <- if (roi[1] <= 1.0) round(roi[1] * width) else round(roi[1])
+    ry1 <- if (roi[2] <= 1.0) round(roi[2] * height) else round(roi[2])
+    rx2 <- if (roi[3] <= 1.0) round(roi[3] * width) else round(roi[3])
+    ry2 <- if (roi[4] <= 1.0) round(roi[4] * height) else round(roi[4])
+  } else {
+    cli::cli_abort("{.arg roi} must be a numeric vector of length 2 c(min, max) or length 4 c(xmin, ymin, xmax, ymax).")
+  }
+  rx1 <- max(0L, min(width - 2L, as.integer(rx1)))
+  ry1 <- max(0L, min(height - 2L, as.integer(ry1)))
+  rx2 <- max(rx1 + 2L, min(width, as.integer(rx2)))
+  ry2 <- max(ry1 + 2L, min(height, as.integer(ry2)))
+  c(rx1, ry1, rx2, ry2)
+}
+
 video_detect_dl <- function(video = 0,
                             model = "yolo26n",
                             conf_threshold = 0.25,
@@ -6515,6 +6552,7 @@ video_detect_dl <- function(video = 0,
                             count_line_orientation = c("vertical", "horizontal"),
                             count_line_label = NULL,
                             roi = NULL,
+                            roi_orientation = c("vertical", "horizontal"),
                             roi_mode = c("crop", "filter"),
                             roi_label = "ROI / MONITORED ZONE",
                             hide_outside_roi = TRUE,
@@ -6664,6 +6702,10 @@ video_detect_dl <- function(video = 0,
     count_line_orientation <- dots$count_line_dir
   }
   count_line_orientation <- match.arg(count_line_orientation, c("vertical", "horizontal"))
+  if ("roi_dir" %in% names(dots)) {
+    roi_orientation <- dots$roi_dir
+  }
+  roi_orientation <- match.arg(roi_orientation, c("vertical", "horizontal"))
   roi_mode <- match.arg(roi_mode)
   backend <- match.arg(backend)
   if (backend == "auto") backend <- "native"
@@ -6945,18 +6987,7 @@ video_detect_dl <- function(video = 0,
         t_elapsed <- as.numeric(t_cur - t_start, units = "secs")
 
         # ROI coordinates calculation
-        roi_coords <- NULL
-        if (!is.null(roi) && length(roi) >= 4) {
-          rx1 <- if (roi[1] <= 1.0) round(roi[1] * orig_w) else round(roi[1])
-          ry1 <- if (roi[2] <= 1.0) round(roi[2] * orig_h) else round(roi[2])
-          rx2 <- if (roi[3] <= 1.0) round(roi[3] * orig_w) else round(roi[3])
-          ry2 <- if (roi[4] <= 1.0) round(roi[4] * orig_h) else round(roi[4])
-          rx1 <- max(0L, min(orig_w - 2L, as.integer(rx1)))
-          ry1 <- max(0L, min(orig_h - 2L, as.integer(ry1)))
-          rx2 <- max(rx1 + 2L, min(orig_w, as.integer(rx2)))
-          ry2 <- max(ry1 + 2L, min(orig_h, as.integer(ry2)))
-          roi_coords <- c(rx1, ry1, rx2, ry2)
-        }
+        roi_coords <- .resolve_roi(roi, orig_w, orig_h, roi_orientation)
 
         # Virtual count line coordinates calculation
         line_coords <- .resolve_count_line(count_line, orig_w, orig_h, count_line_orientation)
@@ -7404,18 +7435,7 @@ video_detect_dl <- function(video = 0,
     out_h <- src_h - (src_h %% 2)
 
     # ROI coordinates for Mode B
-    roi_coords <- NULL
-    if (!is.null(roi) && length(roi) >= 4) {
-      rx1 <- if (roi[1] <= 1.0) round(roi[1] * src_w) else round(roi[1])
-      ry1 <- if (roi[2] <= 1.0) round(roi[2] * src_h) else round(roi[2])
-      rx2 <- if (roi[3] <= 1.0) round(roi[3] * src_w) else round(roi[3])
-      ry2 <- if (roi[4] <= 1.0) round(roi[4] * src_h) else round(roi[4])
-      rx1 <- max(0L, min(src_w - 2L, as.integer(rx1)))
-      ry1 <- max(0L, min(src_h - 2L, as.integer(ry1)))
-      rx2 <- max(rx1 + 2L, min(src_w, as.integer(rx2)))
-      ry2 <- max(ry1 + 2L, min(src_h, as.integer(ry2)))
-      roi_coords <- c(rx1, ry1, rx2, ry2)
-    }
+    roi_coords <- .resolve_roi(roi, src_w, src_h, roi_orientation)
 
     line_coords <- .resolve_count_line(count_line, src_w, src_h, count_line_orientation)
 
@@ -8280,6 +8300,8 @@ video_detect_dl <- function(video = 0,
   if (!is.null(all_kpts) && nrow(all_kpts) > 0) res$keypoints <- all_kpts
   if (!is.null(roi)) {
     res$roi <- roi
+    res$roi_coords <- roi_coords
+    res$roi_orientation <- roi_orientation
     res$roi_mode <- roi_mode
   }
   if (!is.null(count_line)) {

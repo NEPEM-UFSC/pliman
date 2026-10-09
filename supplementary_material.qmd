@@ -404,8 +404,9 @@ conveyor_data <- video_detect_dl(
   model            = "yolo26n",
   engine           = "gpu",
   conf_threshold   = 0.70,
-  roi              = c(0.2, 0.0, 0.8, 1.0),       # Crop Region of Interest [xmin, ymin, xmax, ymax]
-  roi_mode         = "crop",
+  roi                    = c(0.2, 0.8),                 # Monitored relative band [min, max]
+  roi_orientation        = "vertical",                  # "vertical" or "horizontal"
+  roi_mode               = "crop",
   count_line             = 0.5,                         # Normalized position (0 to 1)
   count_line_orientation = "vertical",                  # "vertical" or "horizontal"
   count_line_label       = "Belt Total",
