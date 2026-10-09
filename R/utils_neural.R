@@ -6328,6 +6328,7 @@ list_cameras <- function(details = FALSE) {
 #' @param save_video Logical. Whether to save the processed video. Automatically `TRUE` if `output` is specified.
 #' @param return_data Logical. Whether to compute and return the detection dataset and ecological summary statistics (default `TRUE`). If `FALSE`, returns `invisible(NULL)`.
 #' @param track Logical. Whether to enable multi-object tracking and assign persistent IDs (`#1`, `#2`, etc.) across frames. Defaults to `FALSE`.
+#' @param min_frames Minimum number of frames an object must persist across the video to be retained in tracking statistics. Defaults to `10L`, discarding fleeting, transient noise artifacts (e.g. spurious false positives appearing in 10 or fewer frames). Set to `0` or `NULL` to retain all detections.
 #' @param trail Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when `track = TRUE`. Defaults to `TRUE`. Set to `FALSE` to maintain persistent IDs while hiding the trail.
 #' @param cex Size factor for label text (default `1.0`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
@@ -6539,6 +6540,7 @@ video_detect_dl <- function(video = 0,
                             save_video = !is.null(output),
                             return_data = TRUE,
                             track = FALSE,
+                            min_frames = 10L,
                             trail = TRUE,
                             cex = 1.0,
                             pad = 1.0,
@@ -8035,6 +8037,16 @@ video_detect_dl <- function(video = 0,
   duration_sec <- if (is_camera) t_elapsed else (tot_frames / src_fps)
   v_source <- if (is_camera) "Live Webcam" else normalizePath(video, winslash = "/")
 
+  # Filter transient noise detections if tracking is enabled (removes objects in <= min_frames)
+  valid_track_ids <- NULL
+  if (isTRUE(track) && !is.null(all_dets) && nrow(all_dets) > 0 && "id" %in% names(all_dets) &&
+      !is.null(min_frames) && as.integer(min_frames) > 0L) {
+    min_f_val <- as.integer(min_frames)
+    id_tab <- table(all_dets$id[all_dets$id > 0L])
+    valid_track_ids <- as.integer(names(id_tab)[id_tab > min_f_val])
+    all_dets <- all_dets[all_dets$id %in% valid_track_ids, , drop = FALSE]
+  }
+
   if (is.null(all_dets) || nrow(all_dets) == 0) {
     all_dets <- data.frame(
       frame = integer(0), timestamp = numeric(0), id = integer(0),
@@ -8291,12 +8303,18 @@ video_detect_dl <- function(video = 0,
   )
 
   if (isTRUE(track) || !is.null(count_line)) {
-    if (!is.null(total_count_val)) res$total_counted <- total_count_val
     if (length(track_state$crossing_events) > 0) {
       ev_df <- do.call(rbind, lapply(track_state$crossing_events, as.data.frame))
+      if (!is.null(valid_track_ids)) {
+        ev_df <- ev_df[ev_df$id %in% valid_track_ids, , drop = FALSE]
+      }
       res$crossings <- ev_df
+      if (!is.null(total_count_val)) res$total_counted <- nrow(ev_df)
+    } else if (!is.null(total_count_val)) {
+      res$total_counted <- total_count_val
     }
   }
+  if (isTRUE(track)) res$min_frames <- min_frames
   if (!is.null(all_kpts) && nrow(all_kpts) > 0) res$keypoints <- all_kpts
   if (!is.null(roi)) {
     res$roi <- roi
