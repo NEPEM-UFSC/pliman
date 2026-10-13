@@ -1434,8 +1434,9 @@ pliman_download_model <- function(model = "u2netp",
         if (file.exists(dest_file)) unlink(dest_file)
         stop("Failed to download model from URL: ", m)
       }
-      cli::cli_alert_success("Model {.file {fname}} successfully downloaded!")
-      return(normalizePath(dest_file, winslash = "/"))
+      dest_norm <- normalizePath(dest_file, winslash = "/")
+      cli::cli_alert_success("Model {.file {fname}} successfully downloaded to {.path {dest_norm}}")
+      return(dest_norm)
     }
 
     # CASE 2: Local file already exists
@@ -1500,8 +1501,9 @@ pliman_download_model <- function(model = "u2netp",
         cli::cli_alert_info("Probing repository asset {.val {cand}} at {.url {probe_url}}...")
         ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000, progress = FALSE)
         if (ok_probe && file.exists(probe_dest) && file.info(probe_dest)$size > 1000) {
-          cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully!")
-          downloaded_probe <- probe_dest
+          dest_norm <- normalizePath(probe_dest, winslash = "/")
+          cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully to {.path {dest_norm}}")
+          downloaded_probe <- dest_norm
           break
         } else {
           if (file.exists(probe_dest)) unlink(probe_dest)
@@ -1538,8 +1540,9 @@ pliman_download_model <- function(model = "u2netp",
       if (!ok_enc || !ok_dec) {
         stop("Failed to download SAM 2.1 model. Please check your internet connection.")
       }
-      cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded!")
-      return(normalizePath(enc_file, winslash = "/"))
+      dest_norm <- normalizePath(enc_file, winslash = "/")
+      cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded to {.path {dest_norm}}")
+      return(dest_norm)
     }
 
     if (actual_model %in% c("grounded-sam", "grounding-dino")) {
@@ -1557,8 +1560,9 @@ pliman_download_model <- function(model = "u2netp",
       if (!ok_dino || !ok_vocab) {
         stop("Failed to download Grounding DINO model/vocab. Please check your internet connection.")
       }
-      cli::cli_alert_success("Grounding DINO model and vocab successfully downloaded!")
-      return(normalizePath(model_file, winslash = "/"))
+      dest_norm <- normalizePath(model_file, winslash = "/")
+      cli::cli_alert_success("Grounding DINO model and vocab successfully downloaded to {.path {dest_norm}}")
+      return(dest_norm)
     }
 
     if (actual_model %in% c("clip", "clip-vit-b32", "clip-vit-base-patch32")) {
@@ -1584,8 +1588,9 @@ pliman_download_model <- function(model = "u2netp",
       if (!ok_vis || !ok_txt || !ok_vocab || !ok_merges) {
         stop("Failed to download CLIP models/tokenizer. Please check your internet connection.")
       }
-      cli::cli_alert_success("CLIP ViT-B/32 successfully downloaded!")
-      return(normalizePath(vis_file, winslash = "/"))
+      dest_norm <- normalizePath(vis_file, winslash = "/")
+      cli::cli_alert_success("CLIP ViT-B/32 successfully downloaded to {.path {dest_norm}}")
+      return(dest_norm)
     }
 
     if (grepl("world", actual_model)) {
@@ -1613,8 +1618,9 @@ pliman_download_model <- function(model = "u2netp",
       if (!ok_world) {
         stop("Failed to download YOLO-World model. Please check your internet connection.")
       }
-      cli::cli_alert_success("YOLO-World successfully downloaded!")
-      return(normalizePath(world_file, winslash = "/"))
+      dest_norm <- normalizePath(world_file, winslash = "/")
+      cli::cli_alert_success("YOLO-World successfully downloaded to {.path {dest_norm}}")
+      return(dest_norm)
     }
 
     filename <- if (!is.null(row$filename) && length(row$filename) > 0 && !is.na(row$filename[1]) && nzchar(row$filename[1])) {
@@ -1654,8 +1660,9 @@ pliman_download_model <- function(model = "u2netp",
       stop("Failed to download model ", actual_model, ". Please check your internet connection (e.g., Wi-Fi captive portal login).")
     }
 
-    cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded!")
-    return(normalizePath(dest_file, winslash = "/"))
+    dest_norm <- normalizePath(dest_file, winslash = "/")
+    cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded to {.path {dest_norm}}")
+    return(dest_norm)
   }
 
   if (identical(model, "all") || ("all" %in% model)) {
