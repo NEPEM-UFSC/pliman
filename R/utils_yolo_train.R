@@ -2541,16 +2541,23 @@ yolo_dataset_import_ndjson <- yolo_dataset_from_ndjson
   }
 
   dest_file <- file.path(output_dir, pt_file)
-  nepem_base <- pliman_models_base_url()
-  nepem_url <- paste0(nepem_base, pt_file)
 
-  cli::cli_alert_info("Pre-trained weights {.val {pt_file}} not found locally.")
-  cli::cli_alert_info("Downloading from NEPEM repository ({.url {nepem_url}})...")
-
-  dl_success <- .download_url_robust(nepem_url, dest_file, min_size = 100000)
+  # Download directly from Ultralytics Hugging Face repository for YOLO26
+  if (grepl("yolo26", pt_file, ignore.case = TRUE)) {
+    hf_ultra_url <- paste0("https://huggingface.co/Ultralytics/YOLO26/resolve/main/", pt_file)
+    cli::cli_alert_info("Pre-trained weights {.val {pt_file}} not found locally.")
+    cli::cli_alert_info("Downloading from Ultralytics Hugging Face repository ({.url {hf_ultra_url}})...")
+    dl_success <- .download_url_robust(hf_ultra_url, dest_file, min_size = 100000)
+  } else {
+    nepem_base <- pliman_models_base_url()
+    nepem_url <- paste0(nepem_base, pt_file)
+    cli::cli_alert_info("Pre-trained weights {.val {pt_file}} not found locally.")
+    cli::cli_alert_info("Downloading pre-trained weights ({.url {nepem_url}})...")
+    dl_success <- .download_url_robust(nepem_url, dest_file, min_size = 100000)
+  }
 
   if (!dl_success) {
-    cli::cli_alert_warning("Download from NEPEM failed. Retrying with Ultralytics assets...")
+    cli::cli_alert_warning("Primary download failed. Retrying with Ultralytics GitHub release assets fallback...")
     ultra_tag <- if (grepl("yolo26", pt_file, ignore.case = TRUE)) {
       "v8.4.0"
     } else if (grepl("yolo11", pt_file, ignore.case = TRUE)) {
