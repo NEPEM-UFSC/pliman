@@ -1595,6 +1595,198 @@ pliman_download_model <- function(model = "u2netp",
   return(res)
 }
 
+#' Remove Installed Pre-Trained Neural Models
+#'
+#' Deletes locally downloaded neural network models (.onnx, .pt) and associated
+#' auxiliary files from the pliman models directory to free up disk space.
+#'
+#' @param model Character vector naming the model(s) or file(s) to remove (e.g., \code{"ben2"},
+#'   \code{"yolo26n"}, \code{"yolo26n.pt"}), or \code{"all"} to remove all downloaded models.
+#' @param pattern Optional regular expression pattern to match installed model filenames
+#'   (e.g., \code{"^yolo26"}, \code{"seg"}, \code{"\\.pt$"}).
+#' @param dir Directory where models are stored (default: \code{pliman_model_dir()}).
+#' @param force Logical. If \code{TRUE}, skips confirmation prompt when removing all models. Default \code{FALSE}.
+#' @param verbose Logical. If \code{TRUE} (default), displays informative messages about deleted files.
+#' @return Invisibly returns a character vector of deleted file paths.
+#' @export
+#' @examples
+#' \dontrun{
+#'   # Remove a specific model
+#'   pliman_remove_model("yolo26n")
+#'
+#'   # Remove a specific weights file
+#'   pliman_remove_model("yolo26n.pt")
+#'
+#'   # Remove multiple models
+#'   pliman_remove_model(c("u2netp", "birefnet-lite"))
+#'
+#'   # Remove all models matching a pattern
+#'   pliman_remove_model(pattern = "^yolo26")
+#'
+#'   # Remove all installed models
+#'   pliman_remove_model("all", force = TRUE)
+#' }
+pliman_remove_model <- function(model = NULL,
+                                pattern = NULL,
+                                dir = pliman_model_dir(),
+                                force = FALSE,
+                                verbose = TRUE) {
+  if ((is.null(model) || length(model) == 0L) && (is.null(pattern) || !nzchar(pattern[1]))) {
+    cli::cli_abort("Please specify either {.arg model} (e.g., {.val 'u2netp'}, {.val 'yolo26n.pt'}, or {.val 'all'}) or a {.arg pattern}.")
+  }
+
+  dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+  if (!dir.exists(dir)) {
+    if (isTRUE(verbose)) cli::cli_alert_info("Directory {.path {dir}} does not exist. Nothing to remove.")
+    return(invisible(character(0)))
+  }
+
+  # CASE 1: Remove all installed models
+  if (!is.null(model) && (identical(model, "all") || ("all" %in% model))) {
+    if (interactive() && !isTRUE(force)) {
+      ans <- utils::askYesNo(paste0("Are you sure you want to delete ALL downloaded models in '", dir, "'?"), default = FALSE)
+      if (!isTRUE(ans)) {
+        if (isTRUE(verbose)) cli::cli_alert_info("Operation cancelled.")
+        return(invisible(character(0)))
+      }
+    }
+
+    all_files <- list.files(
+      dir,
+      pattern = "\\.(onnx|pt|onnx\\.curltmp|pt\\.curltmp|txt|json)$",
+      full.names = TRUE,
+      ignore.case = TRUE
+    )
+    # Preserve internal cache files
+    all_files <- all_files[!basename(all_files) %in% c(".hf_assets_cache.rds", ".github_assets_cache.rds")]
+
+    if (length(all_files) == 0L) {
+      if (isTRUE(verbose)) cli::cli_alert_info("No model files found in {.path {dir}}.")
+      return(invisible(character(0)))
+    }
+
+    total_bytes <- sum(file.info(all_files)$size, na.rm = TRUE)
+    unlink(all_files, force = TRUE)
+    freed_mb <- round(total_bytes / (1024 * 1024), 1)
+    if (isTRUE(verbose)) {
+      cli::cli_alert_success("Removed {length(all_files)} model file(s) freeing {freed_mb} MB from {.path {dir}}.")
+    }
+    return(invisible(all_files))
+  }
+
+  # CASE 2: Remove by regex pattern
+  if (!is.null(pattern) && nzchar(pattern[1])) {
+    p_files <- list.files(
+      dir,
+      pattern = pattern[1],
+      full.names = TRUE,
+      ignore.case = TRUE
+    )
+    # Exclude internal cache files
+    p_files <- p_files[!basename(p_files) %in% c(".hf_assets_cache.rds", ".github_assets_cache.rds")]
+
+    if (length(p_files) == 0L) {
+      if (isTRUE(verbose)) cli::cli_alert_info("No model files matching pattern {.val {pattern[1]}} found in {.path {dir}}.")
+      return(invisible(character(0)))
+    }
+
+    total_bytes <- sum(file.info(p_files)$size, na.rm = TRUE)
+    unlink(p_files, force = TRUE)
+    freed_mb <- round(total_bytes / (1024 * 1024), 1)
+    if (isTRUE(verbose)) {
+      cli::cli_alert_success("Removed {length(p_files)} file(s) matching pattern {.val {pattern[1]}} freeing {freed_mb} MB.")
+      for (pf in basename(p_files)) {
+        cli::cli_alert_info(" - Removed {.file {pf}}")
+      }
+    }
+    return(invisible(p_files))
+  }
+
+  # CASE 3: Remove specific models by name
+  models_df <- tryCatch(pliman_available_models(dir = dir), error = function(e) NULL)
+  deleted_files <- character(0)
+  freed_bytes <- 0
+
+  for (m in model) {
+    resolved_m <- .resolve_model_name(m)
+    candidate_files <- character(0)
+
+    # Composite models with multiple auxiliary assets
+    if (resolved_m %in% c("sam2.1", "persam", "per-sam")) {
+      candidate_files <- c("sam2.1.encoder.onnx", "sam2.1.decoder.onnx")
+    } else if (resolved_m %in% c("grounded-sam", "grounding-dino")) {
+      candidate_files <- c("groundingdino-tiny.onnx", "vocab.txt")
+    } else if (resolved_m %in% c("clip", "clip-vit-b32", "clip-vit-base-patch32")) {
+      candidate_files <- c(
+        "clip-vit-b32-vision.onnx", "clip-vit-b32-text.onnx",
+        "clip_vocab.json", "clip_merges.txt", "vision_model_quantized.onnx"
+      )
+    } else {
+      # Specific filename or stem
+      candidate_files <- unique(c(
+        m,
+        resolved_m,
+        paste0(m, ".onnx"),
+        paste0(m, ".pt"),
+        paste0(resolved_m, ".onnx"),
+        paste0(resolved_m, ".pt")
+      ))
+
+      if (!is.null(models_df)) {
+        match_idx <- which(
+          models_df$model == resolved_m |
+          models_df$filename == resolved_m |
+          models_df$model == m |
+          models_df$filename == m
+        )
+        if (length(match_idx) > 0) {
+          candidate_files <- unique(c(candidate_files, models_df$filename[match_idx]))
+        }
+      }
+    }
+
+    # Match files present on disk
+    existing_matches <- character(0)
+    for (cf in candidate_files) {
+      target_p <- file.path(dir, cf)
+      if (file.exists(target_p)) {
+        existing_matches <- unique(c(existing_matches, target_p))
+      }
+      tmp_p <- paste0(target_p, ".curltmp")
+      if (file.exists(tmp_p)) {
+        existing_matches <- unique(c(existing_matches, tmp_p))
+      }
+    }
+
+    if (length(existing_matches) == 0L) {
+      if (isTRUE(verbose)) {
+        cli::cli_alert_warning("Model {.val {m}} is not installed in {.path {dir}}.")
+      }
+    } else {
+      f_sizes <- file.info(existing_matches)$size
+      total_m_bytes <- sum(f_sizes, na.rm = TRUE)
+      unlink(existing_matches, force = TRUE)
+      freed_bytes <- freed_bytes + total_m_bytes
+      deleted_files <- c(deleted_files, existing_matches)
+      if (isTRUE(verbose)) {
+        m_mb <- round(total_m_bytes / (1024 * 1024), 1)
+        cli::cli_alert_success("Model {.val {m}} ({m_mb} MB) removed ({paste(basename(existing_matches), collapse = ', ')}).")
+      }
+    }
+  }
+
+  if (isTRUE(verbose) && length(deleted_files) > 0 && length(model) > 1) {
+    total_freed_mb <- round(freed_bytes / (1024 * 1024), 1)
+    cli::cli_alert_info("Total disk space freed: {total_freed_mb} MB.")
+  }
+
+  invisible(deleted_files)
+}
+
+#' @rdname pliman_remove_model
+#' @export
+pliman_delete_model <- pliman_remove_model
+
 # ==============================================================================
 # SECTION 2: ENVIRONMENT CONFIGURATION & DIRECT ONNX RUNTIME DOWNLOADER
 # ==============================================================================
