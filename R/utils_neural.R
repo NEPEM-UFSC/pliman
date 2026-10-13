@@ -5734,9 +5734,25 @@ image_segment_dl <- function(img,
       if (isTRUE(verbose)) {
         .print_detection_summary(gs_res$summary, title = sum_title)
       }
-      flat_conts <- unlist(conts_all, recursive = FALSE)
-      if (is.null(flat_conts)) flat_conts <- list()
-      attr(gs_res, "contours") <- flat_conts
+      instance_conts <- vector("list", num_inst)
+      for (k in seq_len(num_inst)) {
+        ck <- conts_all[[k]]
+        if (is.list(ck) && length(ck) > 0L) {
+          pt_counts <- vapply(ck, function(m) if (is.matrix(m)) nrow(m) else 0L, integer(1))
+          instance_conts[[k]] <- ck[[which.max(pt_counts)]]
+        } else if (is.matrix(ck) && nrow(ck) >= 3L) {
+          instance_conts[[k]] <- ck
+        } else {
+          if (has_boxes) {
+            bx <- gs_res$boxes[k, ]
+            instance_conts[[k]] <- matrix(c(bx$xmin, bx$xmax, bx$xmax, bx$xmin, bx$ymin, bx$ymin, bx$ymax, bx$ymax), ncol = 2)
+          } else {
+            instance_conts[[k]] <- NULL
+          }
+        }
+      }
+      attr(gs_res, "contours") <- instance_conts
+      attr(gs_res, "instance_contours") <- instance_conts
       attr(gs_res, "centroids") <- data.frame(id = seq_len(num_inst), x = cx, y = cy)
       if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
         gs_res$boxes$cx <- round(cx, 1)

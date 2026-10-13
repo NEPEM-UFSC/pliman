@@ -126,12 +126,16 @@
           inter <- iw * ih
 
           if (inter > 0) {
-            metric_val <- if (match_metric == "IOS") {
-              inter / min(best_area, o_area)
+            ios <- inter / min(best_area, o_area)
+            iou <- inter / (best_area + o_area - inter)
+
+            matched <- if (match_metric == "IOS") {
+              (ios >= match_threshold && iou >= 0.30)
             } else {
-              inter / (best_area + o_area - inter)
+              (iou >= match_threshold)
             }
-            if (metric_val >= match_threshold) {
+
+            if (matched) {
               matched_idx <- c(matched_idx, k)
             }
           }
@@ -151,12 +155,16 @@
         merged_cnt <- NULL
         if (has_conts) {
           m_cnts <- cls_conts[matched_idx]
-          all_pts <- do.call(rbind, lapply(m_cnts, function(p) if (is.matrix(p) && nrow(p) >= 3L) p else NULL))
-          if (!is.null(all_pts) && nrow(all_pts) >= 3L) {
-            ch <- chull(all_pts)
-            merged_cnt <- all_pts[c(ch, ch[1]), , drop = FALSE]
-          } else if (length(m_cnts) > 0 && is.matrix(m_cnts[[1]])) {
+          if (isTRUE(m_df$is_full[1]) && is.matrix(m_cnts[[1]]) && nrow(m_cnts[[1]]) >= 3L) {
             merged_cnt <- m_cnts[[1]]
+          } else {
+            all_pts <- do.call(rbind, lapply(m_cnts, function(p) if (is.matrix(p) && nrow(p) >= 3L) p else NULL))
+            if (!is.null(all_pts) && nrow(all_pts) >= 3L) {
+              ch <- chull(all_pts)
+              merged_cnt <- all_pts[c(ch, ch[1]), , drop = FALSE]
+            } else if (length(m_cnts) > 0 && is.matrix(m_cnts[[1]])) {
+              merged_cnt <- m_cnts[[1]]
+            }
           }
         }
 
@@ -580,12 +588,26 @@ image_segment_sahi <- function(img,
     n_b <- nrow(df_b)
     shifted_c <- vector("list", n_b)
     for (k in seq_len(n_b)) {
+      bx1_loc <- df_b$xmin[k] - (sx1 - 1L)
+      bx2_loc <- df_b$xmax[k] - (sx1 - 1L)
+      by1_loc <- df_b$ymin[k] - (sy1 - 1L)
+      by2_loc <- df_b$ymax[k] - (sy1 - 1L)
+
+      valid_cnt <- FALSE
       if (length(conts) >= k && is.matrix(conts[[k]]) && nrow(conts[[k]]) >= 3L) {
         c_mat <- conts[[k]]
-        c_mat[, 1] <- c_mat[, 1] + sx1 - 1L
-        c_mat[, 2] <- c_mat[, 2] + sy1 - 1L
-        shifted_c[[k]] <- c_mat
-      } else {
+        c_mx <- mean(c_mat[, 1])
+        c_my <- mean(c_mat[, 2])
+        if (c_mx >= bx1_loc - 25 && c_mx <= bx2_loc + 25 &&
+            c_my >= by1_loc - 25 && c_my <= by2_loc + 25) {
+          c_mat[, 1] <- c_mat[, 1] + sx1 - 1L
+          c_mat[, 2] <- c_mat[, 2] + sy1 - 1L
+          shifted_c[[k]] <- c_mat
+          valid_cnt <- TRUE
+        }
+      }
+
+      if (!valid_cnt) {
         # Fallback to rectangular polygon from box
         bx1 <- df_b$xmin[k]; by1 <- df_b$ymin[k]
         bx2 <- df_b$xmax[k]; by2 <- df_b$ymax[k]
@@ -643,7 +665,17 @@ image_segment_sahi <- function(img,
           row_k <- f_df[k, , drop = FALSE]
           row_k$is_full <- TRUE
           all_candidates[[length(all_candidates) + 1L]] <- row_k
-          c_mat <- if (length(f_conts) >= k && is.matrix(f_conts[[k]])) {
+          valid_cnt <- FALSE
+          if (length(f_conts) >= k && is.matrix(f_conts[[k]]) && nrow(f_conts[[k]]) >= 3L) {
+            c_mat <- f_conts[[k]]
+            c_mx <- mean(c_mat[, 1])
+            c_my <- mean(c_mat[, 2])
+            if (c_mx >= f_df$xmin[k] - 25 && c_mx <= f_df$xmax[k] + 25 &&
+                c_my >= f_df$ymin[k] - 25 && c_my <= f_df$ymax[k] + 25) {
+              valid_cnt <- TRUE
+            }
+          }
+          c_mat <- if (valid_cnt) {
             f_conts[[k]]
           } else {
             matrix(c(f_df$xmin[k], f_df$xmax[k], f_df$xmax[k], f_df$xmin[k], f_df$ymin[k], f_df$ymin[k], f_df$ymax[k], f_df$ymax[k]), ncol = 2)
