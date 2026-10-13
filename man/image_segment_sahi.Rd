@@ -13,6 +13,10 @@ image_segment_sahi(
   overlap_width_ratio = 0.2,
   conf_threshold = 0.25,
   iou_threshold = 0.45,
+  match_metric = c("IOS", "IOU"),
+  postprocess_type = c("GREEDY_NMM", "NMS"),
+  match_threshold = 0.5,
+  seam_merging = TRUE,
   full_image_inference = TRUE,
   type = c("highlight", "segment", "mask"),
   col_background = "white",
@@ -42,7 +46,19 @@ image_segment_sahi(
 
 \item{conf_threshold}{Numeric scalar between 0 and 1. Minimum detection confidence. Defaults to \code{0.25}.}
 
-\item{iou_threshold}{Numeric scalar between 0 and 1. IoU threshold for cross-slice NMS. Defaults to \code{0.45}.}
+\item{iou_threshold}{Numeric scalar between 0 and 1. Threshold for cross-slice matching. Defaults to \code{0.45}.}
+
+\item{match_metric}{Character. Overlap metric: \code{"IOS"} (Intersection over Smaller area, default)
+or \code{"IOU"} (Intersection over Union). \code{"IOS"} is strongly recommended for SAHI because it
+naturally merges fragments and sub-slices with larger parent detections.}
+
+\item{postprocess_type}{Character. Post-processing merge strategy: \code{"GREEDY_NMM"} (default, Non-Maximum Merging,
+unifying overlapping pieces into single encompassing boxes) or \code{"NMS"} (standard Non-Maximum Suppression).}
+
+\item{match_threshold}{Numeric scalar between 0 and 1. Threshold for merging candidates. Defaults to \code{0.50}.}
+
+\item{seam_merging}{Logical. If \code{TRUE} (default), seamlessly detects and merges objects that have been
+sliced in half across tile cut boundaries.}
 
 \item{full_image_inference}{Logical. If \code{TRUE} (default), runs an additional detection pass on the
 resized full canvas to capture objects larger than individual slices.}
@@ -76,5 +92,6 @@ A \code{data.frame} of detections with attached global contours, counts, and sum
 \description{
 Performs high-resolution sliding-window hyper inference for instance segmentation
 using \code{\link[=image_segment_dl]{image_segment_dl()}}. Slices large canvases, predicts masks per tile,
-shifts polygon contours to global coordinates, and applies cross-slice NMS.
+shifts polygon contours to global coordinates, and applies Greedy Non-Maximum Merging (Greedy NMM)
+with IOS and slice seam unification so objects cut across slice borders are cleanly assembled into complete objects.
 }

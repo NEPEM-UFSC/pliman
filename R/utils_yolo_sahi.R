@@ -3,6 +3,240 @@
 # pliman: Plant Image Analysis in R
 # ==============================================================================
 
+#' Internal SAHI Post-Processing (Greedy NMM / NMS with IOS & Seam Merging)
+#' @noRd
+.sahi_postprocess <- function(candidates_df,
+                              contours = NULL,
+                              match_metric = c("IOS", "IOU"),
+                              match_threshold = 0.50,
+                              postprocess_type = c("GREEDY_NMM", "NMS"),
+                              seam_merging = TRUE,
+                              slice_borders_x = NULL,
+                              slice_borders_y = NULL) {
+  match_metric <- match.arg(match_metric)
+  postprocess_type <- match.arg(postprocess_type)
+
+  if (is.null(candidates_df) || nrow(candidates_df) == 0L) {
+    return(list(boxes = candidates_df, contours = contours))
+  }
+
+  has_conts <- !is.null(contours) && length(contours) == nrow(candidates_df)
+
+  # Standardize score and confidence
+  c_vals <- if (!is.null(candidates_df$conf)) {
+    candidates_df$conf
+  } else if (!is.null(candidates_df$score)) {
+    candidates_df$score
+  } else {
+    rep(1.0, nrow(candidates_df))
+  }
+  candidates_df$conf <- c_vals
+  candidates_df$score <- c_vals
+
+  if (is.null(candidates_df$is_full)) {
+    candidates_df$is_full <- FALSE
+  }
+
+  unique_classes <- unique(candidates_df$class_id)
+  final_boxes_list <- list()
+  final_conts_list <- list()
+
+  for (cls in unique_classes) {
+    cls_idx <- which(candidates_df$class_id == cls)
+    cls_df <- candidates_df[cls_idx, , drop = FALSE]
+    cls_conts <- if (has_conts) contours[cls_idx] else NULL
+
+    # ------------------------------------------------------------------
+    # Step 1: Subsume slice fragments into full-image detections
+    # When full-image inference detected a whole object, slice fragments
+    # that overlap significantly with it are absorbed into the full object
+    # (retaining the full unbroken contour and absorbing higher confidence).
+    # ------------------------------------------------------------------
+    if (any(cls_df$is_full)) {
+      full_idx <- which(cls_df$is_full)
+      slice_idx <- which(!cls_df$is_full)
+
+      if (length(slice_idx) > 0L) {
+        absorbed_slice <- logical(length(slice_idx))
+
+        for (fi in full_idx) {
+          fx1 <- cls_df$xmin[fi]; fy1 <- cls_df$ymin[fi]
+          fx2 <- cls_df$xmax[fi]; fy2 <- cls_df$ymax[fi]
+          f_area <- (fx2 - fx1 + 1) * (fy2 - fy1 + 1)
+
+          for (si_pos in seq_along(slice_idx)) {
+            if (absorbed_slice[si_pos]) next
+            si <- slice_idx[si_pos]
+
+            sx1 <- cls_df$xmin[si]; sy1 <- cls_df$ymin[si]
+            sx2 <- cls_df$xmax[si]; sy2 <- cls_df$ymax[si]
+            s_area <- (sx2 - sx1 + 1) * (sy2 - sy1 + 1)
+
+            # Bounding box intersection
+            ix1 <- max(fx1, sx1); iy1 <- max(fy1, sy1)
+            ix2 <- min(fx2, sx2); iy2 <- min(fy2, sy2)
+            iw <- max(0, ix2 - ix1 + 1)
+            ih <- max(0, iy2 - iy1 + 1)
+            inter_area <- iw * ih
+
+            if (inter_area > 0) {
+              ios <- inter_area / min(f_area, s_area)
+              iou <- inter_area / (f_area + s_area - inter_area)
+
+              if (ios >= 0.40 || iou >= 0.35) {
+                cls_df$conf[fi] <- max(cls_df$conf[fi], cls_df$conf[si])
+                cls_df$score[fi] <- cls_df$conf[fi]
+                absorbed_slice[si_pos] <- TRUE
+              }
+            }
+          }
+        }
+
+        if (any(absorbed_slice)) {
+          drop_rows <- slice_idx[absorbed_slice]
+          keep_rows <- setdiff(seq_len(nrow(cls_df)), drop_rows)
+          cls_df <- cls_df[keep_rows, , drop = FALSE]
+          if (has_conts) cls_conts <- cls_conts[keep_rows]
+        }
+      }
+    }
+
+    if (nrow(cls_df) == 0L) next
+
+    # ------------------------------------------------------------------
+    # Step 2: Greedy NMM / NMS with IOS & Slice Boundary Seam Merging
+    # ------------------------------------------------------------------
+    ord <- order(cls_df$conf, decreasing = TRUE)
+    cls_df <- cls_df[ord, , drop = FALSE]
+    if (has_conts) cls_conts <- cls_conts[ord]
+
+    active <- rep(TRUE, nrow(cls_df))
+
+    for (i in seq_len(nrow(cls_df))) {
+      if (!active[i]) next
+
+      bx1 <- cls_df$xmin[i]; by1 <- cls_df$ymin[i]
+      bx2 <- cls_df$xmax[i]; by2 <- cls_df$ymax[i]
+      b_area <- (bx2 - bx1 + 1) * (by2 - by1 + 1)
+      b_cnt <- if (has_conts) cls_conts[[i]] else NULL
+
+      others <- which(active & seq_along(active) > i)
+
+      for (j in others) {
+        ox1 <- cls_df$xmin[j]; oy1 <- cls_df$ymin[j]
+        ox2 <- cls_df$xmax[j]; oy2 <- cls_df$ymax[j]
+        o_area <- (ox2 - ox1 + 1) * (oy2 - oy1 + 1)
+
+        ix1 <- max(bx1, ox1); iy1 <- max(by1, oy1)
+        ix2 <- min(bx2, ox2); iy2 <- min(by2, oy2)
+        iw <- max(0, ix2 - ix1 + 1)
+        ih <- max(0, iy2 - iy1 + 1)
+        inter_area <- iw * ih
+
+        ios <- if (inter_area > 0) inter_area / min(b_area, o_area) else 0
+        iou <- if (inter_area > 0) inter_area / (b_area + o_area - inter_area) else 0
+
+        metric_val <- if (match_metric == "IOS") ios else iou
+        matched <- (metric_val >= match_threshold)
+
+        # Seam adjacency check: object cut in half along horizontal or vertical slice seam
+        if (!matched && isTRUE(seam_merging)) {
+          # Horizontal seam cut (halves stacked vertically across a horizontal slice boundary)
+          x_inter <- max(0, min(bx2, ox2) - max(bx1, ox1) + 1)
+          min_w <- min(bx2 - bx1 + 1, ox2 - ox1 + 1)
+          h_align <- x_inter / pmax(1, min_w)
+
+          y_gap <- max(0, max(by1, oy1) - min(by2, oy2))
+          y_inter <- max(0, min(by2, oy2) - max(by1, oy1) + 1)
+          comb_h <- max(by2, oy2) - min(by1, oy1) + 1
+          max_single_h <- max(by2 - by1 + 1, oy2 - oy1 + 1)
+
+          near_h_seam <- if (!is.null(slice_borders_y)) {
+            seam_zone <- c(min(by2, oy2), max(by1, oy1))
+            any(vapply(slice_borders_y, function(b) any(abs(b - seam_zone) <= 25), logical(1)))
+          } else {
+            TRUE
+          }
+
+          h_seam_matched <- (near_h_seam && h_align >= 0.50 && y_gap <= 25 && y_inter <= 0.65 * min(by2 - by1 + 1, oy2 - oy1 + 1) && comb_h <= 2.5 * max_single_h)
+
+          # Vertical seam cut (halves stacked horizontally across a vertical slice boundary)
+          y_inter_v <- max(0, min(by2, oy2) - max(by1, oy1) + 1)
+          min_h <- min(by2 - by1 + 1, oy2 - oy1 + 1)
+          v_align <- y_inter_v / pmax(1, min_h)
+
+          x_gap <- max(0, max(bx1, ox1) - min(bx2, ox2))
+          x_inter_v <- max(0, min(bx2, ox2) - max(bx1, ox1) + 1)
+          comb_w <- max(bx2, ox2) - min(bx1, ox1) + 1
+          max_single_w <- max(bx2 - bx1 + 1, ox2 - ox1 + 1)
+
+          near_v_seam <- if (!is.null(slice_borders_x)) {
+            seam_zone_x <- c(min(bx2, ox2), max(bx1, ox1))
+            any(vapply(slice_borders_x, function(b) any(abs(b - seam_zone_x) <= 25), logical(1)))
+          } else {
+            TRUE
+          }
+
+          v_seam_matched <- (near_v_seam && v_align >= 0.50 && x_gap <= 25 && x_inter_v <= 0.65 * min(bx2 - bx1 + 1, ox2 - ox1 + 1) && comb_w <= 2.5 * max_single_w)
+
+          matched <- (h_seam_matched || v_seam_matched)
+        }
+
+        if (matched) {
+          if (postprocess_type == "GREEDY_NMM") {
+            bx1 <- min(bx1, ox1)
+            by1 <- min(by1, oy1)
+            bx2 <- max(bx2, ox2)
+            by2 <- max(by2, oy2)
+            b_area <- (bx2 - bx1 + 1) * (by2 - by1 + 1)
+            cls_df$xmin[i] <- bx1
+            cls_df$ymin[i] <- by1
+            cls_df$xmax[i] <- bx2
+            cls_df$ymax[i] <- by2
+            cls_df$conf[i] <- max(cls_df$conf[i], cls_df$conf[j])
+            cls_df$score[i] <- cls_df$conf[i]
+
+            if (has_conts) {
+              o_cnt <- cls_conts[[j]]
+              if (is.matrix(b_cnt) && is.matrix(o_cnt) && nrow(b_cnt) >= 3L && nrow(o_cnt) >= 3L) {
+                comb_pts <- rbind(b_cnt, o_cnt)
+                ch <- chull(comb_pts)
+                b_cnt <- comb_pts[c(ch, ch[1]), , drop = FALSE]
+                cls_conts[[i]] <- b_cnt
+              } else if (!is.matrix(b_cnt) && is.matrix(o_cnt)) {
+                b_cnt <- o_cnt
+                cls_conts[[i]] <- b_cnt
+              }
+            }
+          }
+          active[j] <- FALSE
+        }
+      }
+    }
+
+    surviving_idx <- which(active)
+    if (length(surviving_idx) > 0L) {
+      final_boxes_list[[length(final_boxes_list) + 1L]] <- cls_df[surviving_idx, , drop = FALSE]
+      if (has_conts) {
+        final_conts_list <- c(final_conts_list, cls_conts[surviving_idx])
+      }
+    }
+  }
+
+  if (length(final_boxes_list) == 0L) {
+    empty_df <- candidates_df[0, , drop = FALSE]
+    empty_df$is_full <- NULL
+    return(list(boxes = empty_df, contours = list()))
+  }
+
+  out_df <- do.call(rbind, final_boxes_list)
+  rownames(out_df) <- NULL
+  out_df$is_full <- NULL
+
+  list(boxes = out_df, contours = if (has_conts) final_conts_list else NULL)
+}
+
+
 #' @title Slicing Aided Hyper Inference (SAHI) for Object Detection
 #' @name image_detect_sahi
 #' @description
@@ -11,8 +245,9 @@
 #' are dynamically sliced into overlapping tiles of size `slice_width x slice_height`.
 #'
 #' Deep learning inference is executed per slice, and all bounding boxes are transformed
-#' to global coordinates and merged using Global Cross-Slice Non-Maximum Suppression (NMS).
-#' This prevents small objects (seeds, aphids, stomata, seedlings) from vanishing when downscaled.
+#' to global coordinates and merged using Greedy Non-Maximum Merging (Greedy NMM) or standard NMS.
+#' This prevents small objects (seeds, aphids, stomata, seedlings) from vanishing when downscaled,
+#' and seamlessly unifies objects that cross tile seams.
 #'
 #' @param img An `image` object, file path, or 3D array.
 #' @param model YOLO ONNX model name or file path (e.g., `"yolo26n"`, `"yolov8s.onnx"`).
@@ -21,7 +256,15 @@
 #' @param overlap_height_ratio Numeric scalar between 0 and 0.5. Height overlap fraction. Defaults to `0.20`.
 #' @param overlap_width_ratio Numeric scalar between 0 and 0.5. Width overlap fraction. Defaults to `0.20`.
 #' @param conf_threshold Numeric scalar between 0 and 1. Minimum detection confidence. Defaults to `0.25`.
-#' @param iou_threshold Numeric scalar between 0 and 1. IoU threshold for cross-slice NMS. Defaults to `0.45`.
+#' @param iou_threshold Numeric scalar between 0 and 1. Threshold for cross-slice matching. Defaults to `0.45`.
+#' @param match_metric Character. Overlap metric: `"IOS"` (Intersection over Smaller area, default)
+#'   or `"IOU"` (Intersection over Union). `"IOS"` is strongly recommended for SAHI because it
+#'   naturally merges fragments and sub-slices with larger parent detections.
+#' @param postprocess_type Character. Post-processing merge strategy: `"GREEDY_NMM"` (default, Non-Maximum Merging,
+#'   unifying overlapping pieces into single encompassing boxes) or `"NMS"` (standard Non-Maximum Suppression).
+#' @param match_threshold Numeric scalar between 0 and 1. Threshold for merging candidates. Defaults to `0.50`.
+#' @param seam_merging Logical. If `TRUE` (default), seamlessly detects and merges objects that have been
+#'   sliced in half across tile cut boundaries.
 #' @param full_image_inference Logical. If `TRUE` (default), runs an additional detection pass on the
 #'   resized full canvas to capture objects larger than individual slices.
 #' @param rainbow Logical. If `TRUE` (default), bounding boxes are rendered in rainbow colors.
@@ -46,11 +289,24 @@ image_detect_sahi <- function(img,
                               overlap_width_ratio = 0.20,
                               conf_threshold = 0.25,
                               iou_threshold = 0.45,
+                              match_metric = c("IOS", "IOU"),
+                              postprocess_type = c("GREEDY_NMM", "NMS"),
+                              match_threshold = 0.50,
+                              seam_merging = TRUE,
                               full_image_inference = TRUE,
                               rainbow = TRUE,
                               plot = TRUE,
                               verbose = TRUE,
                               ...) {
+  match_metric <- match.arg(match_metric)
+  postprocess_type <- match.arg(postprocess_type)
+
+  if (missing(match_threshold) && !missing(iou_threshold)) {
+    match_threshold <- iou_threshold
+  } else if (is.null(match_threshold)) {
+    match_threshold <- 0.50
+  }
+
   # Ingest image
   im <- if (is.character(img) && file.exists(img[1])) {
     image_import(img[1])
@@ -76,6 +332,9 @@ image_detect_sahi <- function(img,
 
   grid <- expand.grid(x = x_starts, y = y_starts)
   n_slices <- nrow(grid)
+
+  slice_borders_x <- sort(unique(c(grid$x, grid$x + slice_w - 1L)))
+  slice_borders_y <- sort(unique(c(grid$y, grid$y + slice_h - 1L)))
 
   if (isTRUE(verbose)) {
     cli::cli_h2("SAHI (Slicing Aided Hyper Inference) - Object Detection")
@@ -126,6 +385,7 @@ image_detect_sahi <- function(img,
     det$xmax <- det$xmax + sx1 - 1L
     det$ymin <- det$ymin + sy1 - 1L
     det$ymax <- det$ymax + sy1 - 1L
+    det$is_full <- FALSE
 
     all_candidates[[length(all_candidates) + 1L]] <- det
   }
@@ -156,6 +416,7 @@ image_detect_sahi <- function(img,
         if (is.null(full_det$class_name) && !is.null(full_det$label)) full_det$class_name <- full_det$label
         if (is.null(full_det$label) && !is.null(full_det$class_name)) full_det$label <- full_det$class_name
         if (is.null(full_det$class_id)) full_det$class_id <- 0L
+        full_det$is_full <- TRUE
         all_candidates[[length(all_candidates) + 1L]] <- full_det
       }
     }
@@ -175,54 +436,19 @@ image_detect_sahi <- function(img,
 
   merged_df <- do.call(rbind, all_candidates)
 
-  # 3. Global Cross-Slice Non-Maximum Suppression (NMS)
-  keep_indices <- integer()
-  unique_classes <- unique(merged_df$class_id)
+  # 3. SAHI Post-Processing (Greedy NMM / NMS)
+  res_post <- .sahi_postprocess(
+    candidates_df = merged_df,
+    contours = NULL,
+    match_metric = match_metric,
+    match_threshold = match_threshold,
+    postprocess_type = postprocess_type,
+    seam_merging = seam_merging,
+    slice_borders_x = slice_borders_x,
+    slice_borders_y = slice_borders_y
+  )
 
-  for (cls in unique_classes) {
-    idx_cls <- which(merged_df$class_id == cls)
-    sub_df <- merged_df[idx_cls, , drop = FALSE]
-
-    # Order by confidence / score descending safely
-    c_vals <- if (!is.null(sub_df$conf)) sub_df$conf else if (!is.null(sub_df$score)) sub_df$score else rep(1.0, nrow(sub_df))
-    ord <- order(c_vals, decreasing = TRUE)
-    idx_cls <- idx_cls[ord]
-    sub_df <- sub_df[ord, , drop = FALSE]
-
-    while (nrow(sub_df) > 0L) {
-      best_idx <- idx_cls[1]
-      keep_indices <- c(keep_indices, best_idx)
-
-      if (nrow(sub_df) == 1L) break
-
-      # Compute IoU between best and rest
-      bx1 <- sub_df$xmin[1]; by1 <- sub_df$ymin[1]
-      bx2 <- sub_df$xmax[1]; by2 <- sub_df$ymax[1]
-      b_area <- (bx2 - bx1 + 1) * (by2 - by1 + 1)
-
-      rest_x1 <- sub_df$xmin[-1]; rest_y1 <- sub_df$ymin[-1]
-      rest_x2 <- sub_df$xmax[-1]; rest_y2 <- sub_df$ymax[-1]
-      rest_area <- (rest_x2 - rest_x1 + 1) * (rest_y2 - rest_y1 + 1)
-
-      ix1 <- pmax(bx1, rest_x1); iy1 <- pmax(by1, rest_y1)
-      ix2 <- pmin(bx2, rest_x2); iy2 <- pmin(by2, rest_y2)
-
-      iw <- pmax(0, ix2 - ix1 + 1)
-      ih <- pmax(0, iy2 - iy1 + 1)
-      inter_area <- iw * ih
-
-      union_area <- b_area + rest_area - inter_area
-      iou <- inter_area / pmax(1, union_area)
-
-      keep_rest <- which(iou < iou_threshold)
-      if (length(keep_rest) == 0L) break
-
-      sub_df <- sub_df[-1, , drop = FALSE][keep_rest, , drop = FALSE]
-      idx_cls <- idx_cls[-1][keep_rest]
-    }
-  }
-
-  final_df <- merged_df[sort(keep_indices), , drop = FALSE]
+  final_df <- res_post$boxes
   rownames(final_df) <- NULL
 
   # Summaries
@@ -260,7 +486,8 @@ image_detect_sahi <- function(img,
 #' @description
 #' Performs high-resolution sliding-window hyper inference for instance segmentation
 #' using [image_segment_dl()]. Slices large canvases, predicts masks per tile,
-#' shifts polygon contours to global coordinates, and applies cross-slice NMS.
+#' shifts polygon contours to global coordinates, and applies Greedy Non-Maximum Merging (Greedy NMM)
+#' with IOS and slice seam unification so objects cut across slice borders are cleanly assembled into complete objects.
 #'
 #' @inheritParams image_detect_sahi
 #' @param type Type of presentation: `"highlight"` (default, overlays translucent colored masks on original image),
@@ -281,6 +508,10 @@ image_segment_sahi <- function(img,
                                overlap_width_ratio = 0.20,
                                conf_threshold = 0.25,
                                iou_threshold = 0.45,
+                               match_metric = c("IOS", "IOU"),
+                               postprocess_type = c("GREEDY_NMM", "NMS"),
+                               match_threshold = 0.50,
+                               seam_merging = TRUE,
                                full_image_inference = TRUE,
                                type = c("highlight", "segment", "mask"),
                                col_background = "white",
@@ -294,6 +525,14 @@ image_segment_sahi <- function(img,
                                verbose = TRUE,
                                ...) {
   type <- match.arg(type)
+  match_metric <- match.arg(match_metric)
+  postprocess_type <- match.arg(postprocess_type)
+
+  if (missing(match_threshold) && !missing(iou_threshold)) {
+    match_threshold <- iou_threshold
+  } else if (is.null(match_threshold)) {
+    match_threshold <- 0.50
+  }
 
   # Ingest image
   im <- if (is.character(img) && file.exists(img[1])) {
@@ -319,6 +558,9 @@ image_segment_sahi <- function(img,
 
   grid <- expand.grid(x = x_starts, y = y_starts)
   n_slices <- nrow(grid)
+
+  slice_borders_x <- sort(unique(c(grid$x, grid$x + slice_w - 1L)))
+  slice_borders_y <- sort(unique(c(grid$y, grid$y + slice_h - 1L)))
 
   if (isTRUE(verbose)) {
     cli::cli_h2("SAHI (Slicing Aided Hyper Inference) - Instance Segmentation")
@@ -401,7 +643,9 @@ image_segment_sahi <- function(img,
     }
 
     for (k in seq_len(n_b)) {
-      all_candidates[[length(all_candidates) + 1L]] <- df_b[k, , drop = FALSE]
+      row_k <- df_b[k, , drop = FALSE]
+      row_k$is_full <- FALSE
+      all_candidates[[length(all_candidates) + 1L]] <- row_k
       all_contours[[length(all_contours) + 1L]] <- shifted_c[[k]]
     }
   }
@@ -445,7 +689,9 @@ image_segment_sahi <- function(img,
         if (is.null(f_df$label) && !is.null(f_df$class_name)) f_df$label <- f_df$class_name
         if (is.null(f_df$class_id)) f_df$class_id <- 0L
         for (k in seq_len(nrow(f_df))) {
-          all_candidates[[length(all_candidates) + 1L]] <- f_df[k, , drop = FALSE]
+          row_k <- f_df[k, , drop = FALSE]
+          row_k$is_full <- TRUE
+          all_candidates[[length(all_candidates) + 1L]] <- row_k
           c_mat <- if (length(f_conts) >= k && is.matrix(f_conts[[k]])) {
             f_conts[[k]]
           } else {
@@ -472,54 +718,20 @@ image_segment_sahi <- function(img,
 
   merged_df <- do.call(rbind, all_candidates)
 
-  # Cross-Slice NMS on merged boxes and contours
-  keep_indices <- integer()
-  unique_classes <- unique(merged_df$class_id)
+  # Cross-Slice SAHI Post-Processing (Greedy NMM / NMS)
+  res_post <- .sahi_postprocess(
+    candidates_df = merged_df,
+    contours = all_contours,
+    match_metric = match_metric,
+    match_threshold = match_threshold,
+    postprocess_type = postprocess_type,
+    seam_merging = seam_merging,
+    slice_borders_x = slice_borders_x,
+    slice_borders_y = slice_borders_y
+  )
 
-  for (cls in unique_classes) {
-    idx_cls <- which(merged_df$class_id == cls)
-    sub_df <- merged_df[idx_cls, , drop = FALSE]
-
-    c_vals <- if (!is.null(sub_df$conf)) sub_df$conf else if (!is.null(sub_df$score)) sub_df$score else rep(1.0, nrow(sub_df))
-    ord <- order(c_vals, decreasing = TRUE)
-    idx_cls <- idx_cls[ord]
-    sub_df <- sub_df[ord, , drop = FALSE]
-
-    while (nrow(sub_df) > 0L) {
-      best_idx <- idx_cls[1]
-      keep_indices <- c(keep_indices, best_idx)
-
-      if (nrow(sub_df) == 1L) break
-
-      bx1 <- sub_df$xmin[1]; by1 <- sub_df$ymin[1]
-      bx2 <- sub_df$xmax[1]; by2 <- sub_df$ymax[1]
-      b_area <- (bx2 - bx1 + 1) * (by2 - by1 + 1)
-
-      rest_x1 <- sub_df$xmin[-1]; rest_y1 <- sub_df$ymin[-1]
-      rest_x2 <- sub_df$xmax[-1]; rest_y2 <- sub_df$ymax[-1]
-      rest_area <- (rest_x2 - rest_x1 + 1) * (rest_y2 - rest_y1 + 1)
-
-      ix1 <- pmax(bx1, rest_x1); iy1 <- pmax(by1, rest_y1)
-      ix2 <- pmin(bx2, rest_x2); iy2 <- pmin(by2, rest_y2)
-
-      iw <- pmax(0, ix2 - ix1 + 1)
-      ih <- pmax(0, iy2 - iy1 + 1)
-      inter_area <- iw * ih
-
-      union_area <- b_area + rest_area - inter_area
-      iou <- inter_area / pmax(1, union_area)
-
-      keep_rest <- which(iou < iou_threshold)
-      if (length(keep_rest) == 0L) break
-
-      sub_df <- sub_df[-1, , drop = FALSE][keep_rest, , drop = FALSE]
-      idx_cls <- idx_cls[-1][keep_rest]
-    }
-  }
-
-  sorted_keep <- sort(keep_indices)
-  final_df <- merged_df[sorted_keep, , drop = FALSE]
-  final_conts <- all_contours[sorted_keep]
+  final_df <- res_post$boxes
+  final_conts <- res_post$contours
   rownames(final_df) <- NULL
 
   c_names <- if (!is.null(final_df$class_name)) final_df$class_name else if (!is.null(final_df$label)) final_df$label else rep("object", nrow(final_df))

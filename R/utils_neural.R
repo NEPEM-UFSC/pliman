@@ -1436,7 +1436,6 @@ pliman_download_model <- function(model = "u2netp",
       }
       dest_norm <- normalizePath(dest_file, winslash = "/")
       cli::cli_alert_success("Model {.file {fname}} successfully downloaded to {.path {dest_norm}}")
-      return(dest_norm)
     }
 
     # CASE 2: Local file already exists
@@ -1542,7 +1541,7 @@ pliman_download_model <- function(model = "u2netp",
       }
       dest_norm <- normalizePath(enc_file, winslash = "/")
       cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded to {.path {dest_norm}}")
-      return(dest_norm)
+      invisible(dest_norm)
     }
 
     if (actual_model %in% c("grounded-sam", "grounding-dino")) {
@@ -1562,7 +1561,7 @@ pliman_download_model <- function(model = "u2netp",
       }
       dest_norm <- normalizePath(model_file, winslash = "/")
       cli::cli_alert_success("Grounding DINO model and vocab successfully downloaded to {.path {dest_norm}}")
-      return(dest_norm)
+      invisible(dest_norm)
     }
 
     if (actual_model %in% c("clip", "clip-vit-b32", "clip-vit-base-patch32")) {
@@ -1590,7 +1589,7 @@ pliman_download_model <- function(model = "u2netp",
       }
       dest_norm <- normalizePath(vis_file, winslash = "/")
       cli::cli_alert_success("CLIP ViT-B/32 successfully downloaded to {.path {dest_norm}}")
-      return(dest_norm)
+      invisible(dest_norm)
     }
 
     if (grepl("world", actual_model)) {
@@ -1620,7 +1619,7 @@ pliman_download_model <- function(model = "u2netp",
       }
       dest_norm <- normalizePath(world_file, winslash = "/")
       cli::cli_alert_success("YOLO-World successfully downloaded to {.path {dest_norm}}")
-      return(dest_norm)
+      invisible(dest_norm)
     }
 
     filename <- if (!is.null(row$filename) && length(row$filename) > 0 && !is.na(row$filename[1]) && nzchar(row$filename[1])) {
@@ -1662,7 +1661,7 @@ pliman_download_model <- function(model = "u2netp",
 
     dest_norm <- normalizePath(dest_file, winslash = "/")
     cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded to {.path {dest_norm}}")
-    return(dest_norm)
+    invisible(dest_norm)
   }
 
   if (identical(model, "all") || ("all" %in% model)) {
