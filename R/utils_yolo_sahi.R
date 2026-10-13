@@ -10,9 +10,7 @@
                               match_metric = c("IOS", "IOU"),
                               match_threshold = 0.50,
                               postprocess_type = c("GREEDY_NMM", "NMS"),
-                              seam_merging = TRUE,
-                              slice_borders_x = NULL,
-                              slice_borders_y = NULL) {
+                              ...) {
   match_metric <- match.arg(match_metric)
   postprocess_type <- match.arg(postprocess_type)
 
@@ -104,122 +102,75 @@
     if (nrow(cls_df) == 0L) next
 
     # ------------------------------------------------------------------
-    # Step 2: Greedy NMM / NMS with IOS & Slice Boundary Seam Merging
+    # Step 2: Greedy NMM / NMS with IOS (cluster-based, no snowballing)
     # ------------------------------------------------------------------
     ord <- order(cls_df$conf, decreasing = TRUE)
     cls_df <- cls_df[ord, , drop = FALSE]
     if (has_conts) cls_conts <- cls_conts[ord]
 
-    active <- rep(TRUE, nrow(cls_df))
+    while (nrow(cls_df) > 0L) {
+      best_box <- c(cls_df$xmin[1], cls_df$ymin[1], cls_df$xmax[1], cls_df$ymax[1])
+      best_area <- (best_box[3] - best_box[1] + 1) * (best_box[4] - best_box[2] + 1)
 
-    for (i in seq_len(nrow(cls_df))) {
-      if (!active[i]) next
+      matched_idx <- 1L
 
-      bx1 <- cls_df$xmin[i]; by1 <- cls_df$ymin[i]
-      bx2 <- cls_df$xmax[i]; by2 <- cls_df$ymax[i]
-      b_area <- (bx2 - bx1 + 1) * (by2 - by1 + 1)
-      b_cnt <- if (has_conts) cls_conts[[i]] else NULL
+      if (nrow(cls_df) > 1L) {
+        for (k in 2:nrow(cls_df)) {
+          o_box <- c(cls_df$xmin[k], cls_df$ymin[k], cls_df$xmax[k], cls_df$ymax[k])
+          o_area <- (o_box[3] - o_box[1] + 1) * (o_box[4] - o_box[2] + 1)
 
-      others <- which(active & seq_along(active) > i)
+          ix1 <- max(best_box[1], o_box[1]); iy1 <- max(best_box[2], o_box[2])
+          ix2 <- min(best_box[3], o_box[3]); iy2 <- min(best_box[4], o_box[4])
+          iw <- max(0, ix2 - ix1 + 1)
+          ih <- max(0, iy2 - iy1 + 1)
+          inter <- iw * ih
 
-      for (j in others) {
-        ox1 <- cls_df$xmin[j]; oy1 <- cls_df$ymin[j]
-        ox2 <- cls_df$xmax[j]; oy2 <- cls_df$ymax[j]
-        o_area <- (ox2 - ox1 + 1) * (oy2 - oy1 + 1)
-
-        ix1 <- max(bx1, ox1); iy1 <- max(by1, oy1)
-        ix2 <- min(bx2, ox2); iy2 <- min(by2, oy2)
-        iw <- max(0, ix2 - ix1 + 1)
-        ih <- max(0, iy2 - iy1 + 1)
-        inter_area <- iw * ih
-
-        ios <- if (inter_area > 0) inter_area / min(b_area, o_area) else 0
-        iou <- if (inter_area > 0) inter_area / (b_area + o_area - inter_area) else 0
-
-        metric_val <- if (match_metric == "IOS") ios else iou
-        matched <- (metric_val >= match_threshold)
-
-        # Seam adjacency check: object cut in half along horizontal or vertical slice seam
-        if (!matched && isTRUE(seam_merging)) {
-          # Horizontal seam cut (halves stacked vertically across a horizontal slice boundary)
-          x_inter <- max(0, min(bx2, ox2) - max(bx1, ox1) + 1)
-          min_w <- min(bx2 - bx1 + 1, ox2 - ox1 + 1)
-          h_align <- x_inter / pmax(1, min_w)
-
-          y_gap <- max(0, max(by1, oy1) - min(by2, oy2))
-          y_inter <- max(0, min(by2, oy2) - max(by1, oy1) + 1)
-          comb_h <- max(by2, oy2) - min(by1, oy1) + 1
-          max_single_h <- max(by2 - by1 + 1, oy2 - oy1 + 1)
-
-          near_h_seam <- if (!is.null(slice_borders_y)) {
-            seam_zone <- c(min(by2, oy2), max(by1, oy1))
-            any(vapply(slice_borders_y, function(b) any(abs(b - seam_zone) <= 25), logical(1)))
-          } else {
-            TRUE
-          }
-
-          h_seam_matched <- (near_h_seam && h_align >= 0.50 && y_gap <= 25 && y_inter <= 0.65 * min(by2 - by1 + 1, oy2 - oy1 + 1) && comb_h <= 2.5 * max_single_h)
-
-          # Vertical seam cut (halves stacked horizontally across a vertical slice boundary)
-          y_inter_v <- max(0, min(by2, oy2) - max(by1, oy1) + 1)
-          min_h <- min(by2 - by1 + 1, oy2 - oy1 + 1)
-          v_align <- y_inter_v / pmax(1, min_h)
-
-          x_gap <- max(0, max(bx1, ox1) - min(bx2, ox2))
-          x_inter_v <- max(0, min(bx2, ox2) - max(bx1, ox1) + 1)
-          comb_w <- max(bx2, ox2) - min(bx1, ox1) + 1
-          max_single_w <- max(bx2 - bx1 + 1, ox2 - ox1 + 1)
-
-          near_v_seam <- if (!is.null(slice_borders_x)) {
-            seam_zone_x <- c(min(bx2, ox2), max(bx1, ox1))
-            any(vapply(slice_borders_x, function(b) any(abs(b - seam_zone_x) <= 25), logical(1)))
-          } else {
-            TRUE
-          }
-
-          v_seam_matched <- (near_v_seam && v_align >= 0.50 && x_gap <= 25 && x_inter_v <= 0.65 * min(bx2 - bx1 + 1, ox2 - ox1 + 1) && comb_w <= 2.5 * max_single_w)
-
-          matched <- (h_seam_matched || v_seam_matched)
-        }
-
-        if (matched) {
-          if (postprocess_type == "GREEDY_NMM") {
-            bx1 <- min(bx1, ox1)
-            by1 <- min(by1, oy1)
-            bx2 <- max(bx2, ox2)
-            by2 <- max(by2, oy2)
-            b_area <- (bx2 - bx1 + 1) * (by2 - by1 + 1)
-            cls_df$xmin[i] <- bx1
-            cls_df$ymin[i] <- by1
-            cls_df$xmax[i] <- bx2
-            cls_df$ymax[i] <- by2
-            cls_df$conf[i] <- max(cls_df$conf[i], cls_df$conf[j])
-            cls_df$score[i] <- cls_df$conf[i]
-
-            if (has_conts) {
-              o_cnt <- cls_conts[[j]]
-              if (is.matrix(b_cnt) && is.matrix(o_cnt) && nrow(b_cnt) >= 3L && nrow(o_cnt) >= 3L) {
-                comb_pts <- rbind(b_cnt, o_cnt)
-                ch <- chull(comb_pts)
-                b_cnt <- comb_pts[c(ch, ch[1]), , drop = FALSE]
-                cls_conts[[i]] <- b_cnt
-              } else if (!is.matrix(b_cnt) && is.matrix(o_cnt)) {
-                b_cnt <- o_cnt
-                cls_conts[[i]] <- b_cnt
-              }
+          if (inter > 0) {
+            metric_val <- if (match_metric == "IOS") {
+              inter / min(best_area, o_area)
+            } else {
+              inter / (best_area + o_area - inter)
+            }
+            if (metric_val >= match_threshold) {
+              matched_idx <- c(matched_idx, k)
             }
           }
-          active[j] <- FALSE
         }
       }
-    }
 
-    surviving_idx <- which(active)
-    if (length(surviving_idx) > 0L) {
-      final_boxes_list[[length(final_boxes_list) + 1L]] <- cls_df[surviving_idx, , drop = FALSE]
-      if (has_conts) {
-        final_conts_list <- c(final_conts_list, cls_conts[surviving_idx])
+      if (postprocess_type == "GREEDY_NMM") {
+        m_df <- cls_df[matched_idx, , drop = FALSE]
+        merged_row <- m_df[1, , drop = FALSE]
+        merged_row$xmin <- min(m_df$xmin)
+        merged_row$ymin <- min(m_df$ymin)
+        merged_row$xmax <- max(m_df$xmax)
+        merged_row$ymax <- max(m_df$ymax)
+        merged_row$conf <- max(m_df$conf)
+        if (!is.null(merged_row$score)) merged_row$score <- merged_row$conf
+
+        merged_cnt <- NULL
+        if (has_conts) {
+          m_cnts <- cls_conts[matched_idx]
+          all_pts <- do.call(rbind, lapply(m_cnts, function(p) if (is.matrix(p) && nrow(p) >= 3L) p else NULL))
+          if (!is.null(all_pts) && nrow(all_pts) >= 3L) {
+            ch <- chull(all_pts)
+            merged_cnt <- all_pts[c(ch, ch[1]), , drop = FALSE]
+          } else if (length(m_cnts) > 0 && is.matrix(m_cnts[[1]])) {
+            merged_cnt <- m_cnts[[1]]
+          }
+        }
+
+        final_boxes_list[[length(final_boxes_list) + 1L]] <- merged_row
+        if (has_conts) final_conts_list[[length(final_conts_list) + 1L]] <- merged_cnt
+      } else {
+        # Standard NMS: keep only highest-scoring candidate in cluster
+        final_boxes_list[[length(final_boxes_list) + 1L]] <- cls_df[1, , drop = FALSE]
+        if (has_conts) final_conts_list[[length(final_conts_list) + 1L]] <- cls_conts[[1]]
       }
+
+      # Drop all matched candidates
+      cls_df <- cls_df[-matched_idx, , drop = FALSE]
+      if (has_conts) cls_conts <- cls_conts[-matched_idx]
     }
   }
 
