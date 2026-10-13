@@ -659,12 +659,12 @@ pliman_models_base_url <- function() {
 }
 
 # Internal helper for robust downloads with SSL error recovery
-.download_url_robust <- function(url, dest_file, min_size = 1000) {
+.download_url_robust <- function(url, dest_file, min_size = 1000, quiet = TRUE) {
   dl_success <- FALSE
   if (requireNamespace("curl", quietly = TRUE)) {
     h <- curl::new_handle()
     tryCatch({
-      curl::curl_download(url, destfile = dest_file, quiet = FALSE, mode = "wb", handle = h)
+      curl::curl_download(url, destfile = dest_file, quiet = quiet, mode = "wb", handle = h)
       dl_success <- file.exists(dest_file) && file.info(dest_file)$size >= min_size
     }, error = function(e) {
       if (grepl("certificate|schannel|SEC_E|SSL", e$message, ignore.case = TRUE)) {
@@ -672,7 +672,7 @@ pliman_models_base_url <- function() {
         h_insecure <- curl::new_handle()
         curl::handle_setopt(h_insecure, ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
         tryCatch({
-          curl::curl_download(url, destfile = dest_file, quiet = FALSE, mode = "wb", handle = h_insecure)
+          curl::curl_download(url, destfile = dest_file, quiet = quiet, mode = "wb", handle = h_insecure)
           dl_success <<- file.exists(dest_file) && file.info(dest_file)$size >= min_size
         }, error = function(e2) NULL)
       }
@@ -681,7 +681,7 @@ pliman_models_base_url <- function() {
 
   if (!dl_success) {
     tryCatch({
-      utils::download.file(url, destfile = dest_file, mode = "wb", quiet = FALSE)
+      utils::download.file(url, destfile = dest_file, mode = "wb", quiet = quiet)
       dl_success <- file.exists(dest_file) && file.info(dest_file)$size >= min_size
     }, error = function(e) NULL)
   }
@@ -1368,17 +1368,19 @@ pliman_download_model <- function(model = "u2netp",
     }
 
     # CASE 2: Local file already exists
-    if (file.exists(m)) {
-      return(normalizePath(m, winslash = "/"))
-    }
-    if (file.exists(file.path(dir, m))) {
-      return(normalizePath(file.path(dir, m), winslash = "/"))
-    }
-    if (file.exists(file.path(dir, paste0(m, ".onnx")))) {
-      return(normalizePath(file.path(dir, paste0(m, ".onnx")), winslash = "/"))
-    }
-    if (file.exists(file.path(dir, paste0(m, ".pt")))) {
-      return(normalizePath(file.path(dir, paste0(m, ".pt")), winslash = "/"))
+    if (!isTRUE(force)) {
+      if (file.exists(m)) {
+        return(normalizePath(m, winslash = "/"))
+      }
+      if (file.exists(file.path(dir, m))) {
+        return(normalizePath(file.path(dir, m), winslash = "/"))
+      }
+      if (file.exists(file.path(dir, paste0(m, ".onnx")))) {
+        return(normalizePath(file.path(dir, paste0(m, ".onnx")), winslash = "/"))
+      }
+      if (file.exists(file.path(dir, paste0(m, ".pt")))) {
+        return(normalizePath(file.path(dir, paste0(m, ".pt")), winslash = "/"))
+      }
     }
 
     # CASE 3: Model lookup in catalog
@@ -1931,9 +1933,9 @@ pliman_download_onnx <- function(version = "1.20.1",
   options(timeout = max(600, old_timeout))
 
   if (requireNamespace("curl", quietly = TRUE)) {
-    curl::curl_download(url, destfile = temp_archive, quiet = FALSE, mode = "wb")
+    curl::curl_download(url, destfile = temp_archive, quiet = TRUE, mode = "wb")
   } else {
-    utils::download.file(url, destfile = temp_archive, mode = "wb", quiet = FALSE)
+    utils::download.file(url, destfile = temp_archive, mode = "wb", quiet = TRUE)
   }
 
   if (!file.exists(temp_archive) || file.info(temp_archive)$size < 100000) {
