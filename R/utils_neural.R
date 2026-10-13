@@ -665,12 +665,22 @@ pliman_models_base_url <- function() {
     h <- curl::new_handle()
     pb <- NULL
     bar_env <- environment()
+    first_tick <- TRUE
+
     if (isTRUE(progress)) {
+      old_cli_opt <- options(
+        cli.progress_handlers_only = "cli",
+        cli.progress_show_after = 0,
+        cli.progress_clear = FALSE
+      )
+      on.exit(options(old_cli_opt), add = TRUE)
+
       pb <- tryCatch(
         cli::cli_progress_bar(
           name = paste0("Downloading ", basename(dest_file)),
           total = if (!is.null(total_bytes) && !is.na(total_bytes) && total_bytes > 0) total_bytes else NA,
           type = "download",
+          clear = FALSE,
           .auto_close = FALSE,
           .envir = bar_env
         ),
@@ -681,11 +691,14 @@ pliman_models_base_url <- function() {
           tot <- down[[1]]
           now <- down[[2]]
           if (now > 0) {
+            is_first <- first_tick
+            if (is_first) first_tick <<- FALSE
             tryCatch(
               cli::cli_progress_update(
                 total = if (tot > 0) tot else NA,
                 set = now,
                 id = pb,
+                force = is_first,
                 .envir = bar_env
               ),
               error = function(e) NULL
