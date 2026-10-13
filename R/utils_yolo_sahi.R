@@ -107,7 +107,9 @@ image_detect_sahi <- function(img,
     )
 
     if (inherits(det, "try-error")) next
-    if (is.list(det) && !is.data.frame(det) && !is.null(det$boxes)) {
+    if (!is.null(attr(det, "boxes"))) {
+      det <- attr(det, "boxes")
+    } else if (is.list(det) && !is.data.frame(det) && !is.null(det$boxes)) {
       det <- det$boxes
     }
     if (!is.data.frame(det) || nrow(det) == 0L) next
@@ -143,7 +145,9 @@ image_detect_sahi <- function(img,
       silent = TRUE
     )
     if (!inherits(full_det, "try-error")) {
-      if (is.list(full_det) && !is.data.frame(full_det) && !is.null(full_det$boxes)) {
+      if (!is.null(attr(full_det, "boxes"))) {
+        full_det <- attr(full_det, "boxes")
+      } else if (is.list(full_det) && !is.data.frame(full_det) && !is.null(full_det$boxes)) {
         full_det <- full_det$boxes
       }
       if (is.data.frame(full_det) && nrow(full_det) > 0L) {
@@ -336,7 +340,8 @@ image_segment_sahi <- function(img,
       image_segment_dl(
         sub_im,
         model = model,
-        conf_threshold = conf_threshold,
+        type = "highlight",
+        box_threshold = conf_threshold,
         iou_threshold = iou_threshold,
         plot = FALSE,
         verbose = FALSE,
@@ -349,11 +354,18 @@ image_segment_sahi <- function(img,
 
     df_b <- NULL
     conts <- list()
-    if (is.list(det) && !is.data.frame(det)) {
-      if (!is.null(det$boxes)) df_b <- det$boxes
-      if (!is.null(det$contours)) conts <- det$contours
+    if (!is.null(attr(det, "boxes"))) {
+      df_b <- attr(det, "boxes")
+    } else if (is.list(det) && !is.data.frame(det) && !is.null(det$boxes)) {
+      df_b <- det$boxes
     } else if (is.data.frame(det)) {
       df_b <- det
+    }
+
+    if (!is.null(attr(det, "contours"))) {
+      conts <- attr(det, "contours")
+    } else if (is.list(det) && !is.null(det$contours)) {
+      conts <- det$contours
     }
 
     if (is.null(df_b) || !is.data.frame(df_b) || nrow(df_b) == 0L) next
@@ -400,7 +412,8 @@ image_segment_sahi <- function(img,
       image_segment_dl(
         im,
         model = model,
-        conf_threshold = conf_threshold,
+        type = "highlight",
+        box_threshold = conf_threshold,
         iou_threshold = iou_threshold,
         plot = FALSE,
         verbose = FALSE,
@@ -411,12 +424,20 @@ image_segment_sahi <- function(img,
     if (!inherits(full_det, "try-error")) {
       f_df <- NULL
       f_conts <- list()
-      if (is.list(full_det) && !is.data.frame(full_det)) {
-        if (!is.null(full_det$boxes)) f_df <- full_det$boxes
-        if (!is.null(full_det$contours)) f_conts <- full_det$contours
+      if (!is.null(attr(full_det, "boxes"))) {
+        f_df <- attr(full_det, "boxes")
+      } else if (is.list(full_det) && !is.data.frame(full_det) && !is.null(full_det$boxes)) {
+        f_df <- full_det$boxes
       } else if (is.data.frame(full_det)) {
         f_df <- full_det
       }
+
+      if (!is.null(attr(full_det, "contours"))) {
+        f_conts <- attr(full_det, "contours")
+      } else if (is.list(full_det) && !is.null(full_det$contours)) {
+        f_conts <- full_det$contours
+      }
+
       if (!is.null(f_df) && is.data.frame(f_df) && nrow(f_df) > 0L) {
         if (is.null(f_df$conf) && !is.null(f_df$score)) f_df$conf <- f_df$score
         if (is.null(f_df$score) && !is.null(f_df$conf)) f_df$score <- f_df$conf
