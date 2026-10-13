@@ -13,6 +13,10 @@ image_detect_sahi(
   overlap_width_ratio = 0.2,
   conf_threshold = 0.25,
   iou_threshold = 0.45,
+  match_metric = c("IOS", "IOU"),
+  postprocess_type = c("GREEDY_NMM", "NMS"),
+  match_threshold = 0.5,
+  seam_merging = TRUE,
   full_image_inference = TRUE,
   rainbow = TRUE,
   plot = TRUE,
@@ -35,7 +39,19 @@ image_detect_sahi(
 
 \item{conf_threshold}{Numeric scalar between 0 and 1. Minimum detection confidence. Defaults to \code{0.25}.}
 
-\item{iou_threshold}{Numeric scalar between 0 and 1. IoU threshold for cross-slice NMS. Defaults to \code{0.45}.}
+\item{iou_threshold}{Numeric scalar between 0 and 1. Threshold for cross-slice matching. Defaults to \code{0.45}.}
+
+\item{match_metric}{Character. Overlap metric: \code{"IOS"} (Intersection over Smaller area, default)
+or \code{"IOU"} (Intersection over Union). \code{"IOS"} is strongly recommended for SAHI because it
+naturally merges fragments and sub-slices with larger parent detections.}
+
+\item{postprocess_type}{Character. Post-processing merge strategy: \code{"GREEDY_NMM"} (default, Non-Maximum Merging,
+unifying overlapping pieces into single encompassing boxes) or \code{"NMS"} (standard Non-Maximum Suppression).}
+
+\item{match_threshold}{Numeric scalar between 0 and 1. Threshold for merging candidates. Defaults to \code{0.50}.}
+
+\item{seam_merging}{Logical. If \code{TRUE} (default), seamlessly detects and merges objects that have been
+sliced in half across tile cut boundaries.}
 
 \item{full_image_inference}{Logical. If \code{TRUE} (default), runs an additional detection pass on the
 resized full canvas to capture objects larger than individual slices.}
@@ -57,8 +73,9 @@ on ultra-large images, drone orthomosaics, and macro scans. Large images (e.g. 2
 are dynamically sliced into overlapping tiles of size \verb{slice_width x slice_height}.
 
 Deep learning inference is executed per slice, and all bounding boxes are transformed
-to global coordinates and merged using Global Cross-Slice Non-Maximum Suppression (NMS).
-This prevents small objects (seeds, aphids, stomata, seedlings) from vanishing when downscaled.
+to global coordinates and merged using Greedy Non-Maximum Merging (Greedy NMM) or standard NMS.
+This prevents small objects (seeds, aphids, stomata, seedlings) from vanishing when downscaled,
+and seamlessly unifies objects that cross tile seams.
 }
 \examples{
 \dontrun{
