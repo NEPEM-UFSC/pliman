@@ -429,7 +429,13 @@ pliman_model_dir <- function(dir = NULL) {
   }, error = function(e) NULL)
 }
 # Helper to map colors by object class/label or rainbow per instance (persistent by ID when available)
-.get_class_palette <- function(labels = NULL, n = length(labels), user_col = NULL, default_col = "#00CC66", rainbow = TRUE, ids = NULL) {
+.get_class_palette <- function(labels = NULL,
+                               n = length(labels),
+                               user_col = NULL,
+                               default_col = "#00CC66",
+                               rainbow = TRUE,
+                               ids = NULL,
+                               target_classes = NULL) {
   if ((is.null(labels) || length(labels) == 0L) && n <= 0L) {
     return(character(0))
   }
@@ -483,8 +489,28 @@ pliman_model_dir <- function(dir = NULL) {
   u_labels <- unique(chr_labels)
   n_cls <- length(u_labels)
 
-  if (!is.null(user_col)) {
-    if (length(user_col) == 1L) {
+  if (!is.null(user_col) && length(user_col) > 0L) {
+    if (!is.null(names(user_col)) && any(names(user_col) %in% chr_labels)) {
+      cls_map <- character(n_cls)
+      names(cls_map) <- u_labels
+      for (lbl in u_labels) {
+        cls_map[lbl] <- if (lbl %in% names(user_col)) user_col[[lbl]] else default_col
+      }
+    } else if (!is.null(target_classes) && length(target_classes) > 0L) {
+      t_classes <- as.character(target_classes)
+      t_cols <- rep_len(user_col, length(t_classes))
+      cls_map <- stats::setNames(t_cols, t_classes)
+      for (lbl in u_labels) {
+        if (!lbl %in% names(cls_map)) {
+          match_idx <- which(tolower(t_classes) == tolower(lbl))
+          if (length(match_idx) > 0L) {
+            cls_map[lbl] <- t_cols[match_idx[1]]
+          } else {
+            cls_map[lbl] <- default_col
+          }
+        }
+      }
+    } else if (length(user_col) == 1L) {
       cls_map <- stats::setNames(rep(user_col, n_cls), u_labels)
     } else {
       cls_map <- stats::setNames(rep_len(user_col, n_cls), u_labels)
@@ -4604,6 +4630,10 @@ plot_yolo_heatmap <- function(img,
 #' @param col_highlight Fill color for the semi-transparent overlay polygon when `type = "highlight"`.
 #'   Defaults to `"salmon"`. When multiple instances are detected, distinct categorical
 #'   colors are automatically generated from a rainbow palette.
+#' @param mask_color Fill color(s) for the highlight polygon overlay and bounding boxes when `type = "highlight"`.
+#'   Defaults to `NULL` (falling back to `col_highlight`). When `rainbow = FALSE`, allows passing a vector of colors
+#'   with the same length as the classes specified in `prompt` (e.g. `mask_color = c("red", "green")` for
+#'   `prompt = c("red tomato", "green tomato")`), or a named vector matching class names (e.g., `c("red tomato" = "red", "green tomato" = "green")`).
 #' @param alpha Numeric transparency value in `[0, 1]` for the highlight polygon overlay when `type = "highlight"`.
 #'   Default is `0.4` (40% opacity).
 #' @param border Color for the border stroke of the highlight polygon when `type = "highlight"`.
@@ -4754,6 +4784,7 @@ image_segment_dl <- function(img,
                              type = c("segment", "mask", "highlight"),
                              col_background = "white",
                              col_highlight = "salmon",
+                             mask_color = NULL,
                              alpha = 0.4,
                              border = NA,
                              lwd = 1,
@@ -4823,6 +4854,7 @@ image_segment_dl <- function(img,
                        type = type,
                        col_background = col_background,
                        col_highlight = col_highlight,
+                       mask_color = mask_color,
                        alpha = alpha,
                        border = border,
                        lwd = lwd,
@@ -5065,6 +5097,37 @@ image_segment_dl <- function(img,
       "Grounded-SAM Detection Summary"
     }
 
+    # Resolve target classes from prompt, labels, or classes
+    target_classes <- if (is.character(prompt) && length(prompt) > 1) {
+      trimws(prompt)
+    } else if (is.character(prompt) && length(prompt) == 1 && grepl("\\.", prompt)) {
+      trimws(strsplit(prompt, "\\s*\\.\\s*")[[1]])
+    } else if (is.character(prompt) && length(prompt) == 1 && grepl("[,;]", prompt)) {
+      trimws(strsplit(prompt, "[,;]+")[[1]])
+    } else if (is.character(prompt) && length(prompt) == 1) {
+      trimws(prompt)
+    } else if (!is.null(list(...)$labels)) {
+      list(...)$labels
+    } else if (!is.null(list(...)$classes)) {
+      list(...)$classes
+    } else {
+      NULL
+    }
+    if (!is.null(target_classes)) {
+      target_classes <- target_classes[nzchar(target_classes) & target_classes != "."]
+    }
+
+    # Resolve user highlight/mask colors (mask_color takes priority)
+    user_hl <- if (!is.null(mask_color)) {
+      mask_color
+    } else if (!missing(col_highlight)) {
+      col_highlight
+    } else if (!is.null(list(...)$col)) {
+      list(...)$col
+    } else {
+      NULL
+    }
+
     if (nrow(gs_res$boxes) == 0L && isTRUE(verbose)) {
       cli::cli_alert_warning("No objects were detected above the confidence threshold ({.code box_threshold = {box_threshold}}).")
       cli::cli_alert_info("Tip: If the model was trained for few epochs (e.g. 3), try {.code box_threshold = 0.01} or train for 30-50 epochs so the model learns confident scores.")
@@ -5075,13 +5138,13 @@ image_segment_dl <- function(img,
         plot(as_image(mat), ...)
         num_inst <- nrow(gs_res$boxes)
         if (num_inst > 0) {
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
           .plot_yolo_bboxes(
             boxes = gs_res$boxes,
@@ -5122,13 +5185,13 @@ image_segment_dl <- function(img,
         plot(out_img, ...)
         if (isTRUE(bbox) && nrow(gs_res$boxes) > 0) {
           num_inst <- nrow(gs_res$boxes)
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
           for (k in seq_len(num_inst)) {
             bx <- gs_res$boxes[k, ]
@@ -5174,13 +5237,13 @@ image_segment_dl <- function(img,
         plot(out, ...)
         if ((isTRUE(bbox) || !isTRUE(mask)) && nrow(gs_res$boxes) > 0) {
           num_inst <- nrow(gs_res$boxes)
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
           .plot_yolo_bboxes(
             boxes = gs_res$boxes,
@@ -5288,13 +5351,13 @@ image_segment_dl <- function(img,
         }
         plot(as_image(mat), ...)
         if (num_inst > 0) {
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
 
           if (isTRUE(mask) && !is.null(gs_res$labels)) {
@@ -5410,13 +5473,13 @@ image_segment_dl <- function(img,
     if (isTRUE(plot)) {
       plot(as_image(mat), ...)
       if (nrow(boxes_df) > 0) {
-        user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
         palette_colors <- .get_class_palette(
           labels = boxes_df$label,
           n = nrow(boxes_df),
           user_col = user_hl,
-          default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-          rainbow = rainbow
+          default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+          rainbow = rainbow,
+          target_classes = target_classes
         )
         .plot_yolo_bboxes(
           boxes = boxes_df,
@@ -5495,7 +5558,8 @@ image_segment_dl <- function(img,
         )
         pal <- if (length(conts) <= length(palette_pool)) palette_pool[seq_along(conts)] else grDevices::rainbow(length(conts), s = 0.85, v = 0.95)
       } else {
-        pal <- rep(col_highlight, length(conts))
+        cur_hl <- if (!is.null(mask_color)) mask_color else col_highlight
+        pal <- rep_len(cur_hl, length(conts))
       }
       for (ci in seq_along(conts)) {
         p <- conts[[ci]]
