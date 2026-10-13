@@ -695,7 +695,7 @@ pliman_models_base_url <- function() {
 
 .pliman_assets_cache <- new.env(parent = emptyenv())
 
-# Internal helper to query Hugging Face dataset repository assets with local disk & memory cache
+# Internal helper to query Hugging Face dataset & model repository assets with local disk & memory cache
 .fetch_github_release_assets <- function(refresh = FALSE, dir = pliman_model_dir()) {
   cache_file <- file.path(dir, ".hf_assets_cache.rds")
 
@@ -707,13 +707,17 @@ pliman_models_base_url <- function() {
     }
   }
 
-  # 2. Disk cache (valid for 24 hours)
+  # 2. Disk cache (valid for 24 hours, ignoring stale entries that point YOLO26 .pt to NEPEM)
   if (!isTRUE(refresh) && file.exists(cache_file)) {
     f_info <- file.info(cache_file)
     age_hours <- as.numeric(difftime(Sys.time(), f_info$mtime, units = "hours"))
     if (!is.na(age_hours) && age_hours < 24) {
       cached_data <- tryCatch(readRDS(cache_file), error = function(e) NULL)
-      if (is.data.frame(cached_data) && nrow(cached_data) > 0) {
+      has_stale_nepem_pt <- is.data.frame(cached_data) && any(
+        grepl("^yolo26.*\\.pt$", cached_data$name, ignore.case = TRUE) &
+        grepl("NEPEM-UFSC", cached_data$browser_download_url, ignore.case = TRUE)
+      )
+      if (is.data.frame(cached_data) && nrow(cached_data) > 0 && !has_stale_nepem_pt) {
         assign("assets", cached_data, envir = .pliman_assets_cache)
         assign("time", Sys.time(), envir = .pliman_assets_cache)
         return(cached_data)
@@ -721,37 +725,66 @@ pliman_models_base_url <- function() {
     }
   }
 
-  # 3. Query Hugging Face Tree API
-  api_url <- "https://huggingface.co/api/datasets/NEPEM-UFSC/dl_models/tree/main"
+  # 3. Query Hugging Face Tree APIs (NEPEM-UFSC dl_models + Ultralytics YOLO26)
+  api_nepem <- "https://huggingface.co/api/datasets/NEPEM-UFSC/dl_models/tree/main"
+  api_ultra <- "https://huggingface.co/api/models/Ultralytics/YOLO26/tree/main"
   base_url <- pliman_models_base_url()
+  ultra_base <- "https://huggingface.co/Ultralytics/YOLO26/resolve/main/"
   assets_df <- NULL
 
-  if (requireNamespace("jsonlite", quietly = TRUE)) {
-    raw_res <- tryCatch({
+  .fetch_tree <- function(endpoint) {
+    tryCatch({
       if (requireNamespace("curl", quietly = TRUE)) {
         h <- curl::new_handle("useragent" = "pliman-R-package")
-        con <- curl::curl(api_url, handle = h)
+        con <- curl::curl(endpoint, handle = h)
         on.exit(tryCatch(close(con), error = function(e) NULL), add = TRUE)
         jsonlite::fromJSON(con)
       } else {
-        jsonlite::fromJSON(api_url)
+        jsonlite::fromJSON(endpoint)
       }
     }, error = function(e) NULL)
+  }
 
-    if (is.data.frame(raw_res) && "path" %in% names(raw_res)) {
-      raw_assets <- raw_res
-      valid_rows <- grepl("\\.(onnx|pt)$", raw_assets$path, ignore.case = TRUE)
-      if (any(valid_rows)) {
-        filtered <- raw_assets[valid_rows, ]
-        assets_df <- data.frame(
-          name = filtered$path,
-          size = as.numeric(filtered$size),
-          browser_download_url = paste0(base_url, filtered$path),
-          size_mb = round(as.numeric(filtered$size) / (1024 * 1024), 1),
-          model = tools::file_path_sans_ext(filtered$path),
+  if (requireNamespace("jsonlite", quietly = TRUE)) {
+    raw_nepem <- .fetch_tree(api_nepem)
+    raw_ultra <- .fetch_tree(api_ultra)
+    df_list <- list()
+
+    if (is.data.frame(raw_nepem) && "path" %in% names(raw_nepem)) {
+      # NEPEM repo hosts ONNX models and custom non-yolo assets; all YOLO .pt come from Ultralytics
+      valid_nepem <- grepl("\\.onnx$", raw_nepem$path, ignore.case = TRUE) |
+        (grepl("\\.pt$", raw_nepem$path, ignore.case = TRUE) & !grepl("^yolo", raw_nepem$path, ignore.case = TRUE))
+      if (any(valid_nepem)) {
+        fnepem <- raw_nepem[valid_nepem, ]
+        df_list[[length(df_list) + 1]] <- data.frame(
+          name = fnepem$path,
+          size = as.numeric(fnepem$size),
+          browser_download_url = paste0(base_url, fnepem$path),
+          size_mb = round(as.numeric(fnepem$size) / (1024 * 1024), 1),
+          model = tools::file_path_sans_ext(fnepem$path),
           stringsAsFactors = FALSE
         )
       }
+    }
+
+    if (is.data.frame(raw_ultra) && "path" %in% names(raw_ultra)) {
+      valid_ultra <- grepl("\\.pt$", raw_ultra$path, ignore.case = TRUE)
+      if (any(valid_ultra)) {
+        fultra <- raw_ultra[valid_ultra, ]
+        df_list[[length(df_list) + 1]] <- data.frame(
+          name = fultra$path,
+          size = as.numeric(fultra$size),
+          browser_download_url = paste0(ultra_base, fultra$path),
+          size_mb = round(as.numeric(fultra$size) / (1024 * 1024), 1),
+          model = tools::file_path_sans_ext(fultra$path),
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+
+    if (length(df_list) > 0) {
+      combined <- do.call(rbind, df_list)
+      assets_df <- combined[!duplicated(combined$name), ]
     }
   }
 
@@ -1521,10 +1554,10 @@ pliman_download_model <- function(model = "u2netp",
       return(normalizePath(dest_file, winslash = "/"))
     }
 
-    url <- if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
-      row$url[1]
-    } else if (grepl("^yolo26.*\\.pt$", filename, ignore.case = TRUE)) {
+    url <- if (grepl("^yolo26.*\\.pt$", filename, ignore.case = TRUE)) {
       paste0("https://huggingface.co/Ultralytics/YOLO26/resolve/main/", filename)
+    } else if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
+      row$url[1]
     } else {
       paste0(base_url, filename)
     }
@@ -1533,6 +1566,13 @@ pliman_download_model <- function(model = "u2netp",
     cli::cli_alert_info("Downloading model {.val {actual_model}}{size_disp} to {.path {dir}}...")
 
     dl_success <- .download_url_robust(url, dest_file, min_size = 1000)
+
+    if (!isTRUE(dl_success) && grepl("^yolo26.*\\.pt$", filename, ignore.case = TRUE)) {
+      ultra_gh_file <- sub("^yolo26", "yolo11", filename, ignore.case = TRUE)
+      ultra_gh_url <- paste0("https://github.com/ultralytics/assets/releases/download/v8.4.0/", ultra_gh_file)
+      cli::cli_alert_warning("Download from Ultralytics Hugging Face failed. Retrying with GitHub assets fallback ({.url {ultra_gh_url}})...")
+      dl_success <- .download_url_robust(ultra_gh_url, dest_file, min_size = 1000)
+    }
 
     if (!isTRUE(dl_success) || !file.exists(dest_file) || file.info(dest_file)$size < 1000) {
       if (file.exists(dest_file)) unlink(dest_file)
