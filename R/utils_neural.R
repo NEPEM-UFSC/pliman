@@ -693,16 +693,16 @@ pliman_models_base_url <- function() {
           if (now > 0) {
             is_first <- first_tick
             if (is_first) first_tick <<- FALSE
-            tryCatch(
+            tryCatch({
               cli::cli_progress_update(
                 total = if (tot > 0) tot else NA,
                 set = now,
                 id = pb,
                 force = is_first,
                 .envir = bar_env
-              ),
-              error = function(e) NULL
-            )
+              )
+              utils::flush.console()
+            }, error = function(e) NULL)
           }
           TRUE
         })
@@ -722,15 +722,15 @@ pliman_models_base_url <- function() {
             tot <- down[[1]]
             now <- down[[2]]
             if (now > 0) {
-              tryCatch(
+              tryCatch({
                 cli::cli_progress_update(
                   total = if (tot > 0) tot else NA,
                   set = now,
                   id = pb,
                   .envir = bar_env
-                ),
-                error = function(e) NULL
-              )
+                )
+                utils::flush.console()
+              }, error = function(e) NULL)
             }
             TRUE
           })
@@ -742,7 +742,10 @@ pliman_models_base_url <- function() {
       }
     }, finally = {
       if (!is.null(pb)) {
-        tryCatch(cli::cli_progress_done(id = pb, .envir = bar_env), error = function(e) NULL)
+        tryCatch({
+          cli::cli_progress_done(id = pb, .envir = bar_env)
+          utils::flush.console()
+        }, error = function(e) NULL)
       }
     })
   }
