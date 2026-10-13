@@ -1120,7 +1120,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 25.9,
       input_size = 640,
       filename = "yolov8s-worldv2.pt",
-      url = paste0(base_url, "yolov8s-worldv2.pt")
+      url = "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s-worldv2.pt"
     ),
     list(
       name = "yolov8m-worldv2",
@@ -1385,9 +1385,13 @@ pliman_download_model <- function(model = "u2netp",
 
       downloaded_probe <- NULL
       for (cand in candidate_fnames) {
-        probe_url <- paste0(base_url, cand)
+        probe_url <- if (grepl("^yolo26.*\\.pt$", cand, ignore.case = TRUE)) {
+          paste0("https://huggingface.co/Ultralytics/YOLO26/resolve/main/", cand)
+        } else {
+          paste0(base_url, cand)
+        }
         probe_dest <- file.path(dir, cand)
-        cli::cli_alert_info("Probing Hugging Face repository asset {.val {cand}} at {.url {probe_url}}...")
+        cli::cli_alert_info("Probing repository asset {.val {cand}} at {.url {probe_url}}...")
         ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000)
         if (ok_probe && file.exists(probe_dest) && file.info(probe_dest)$size > 1000) {
           cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully!")
@@ -1519,6 +1523,8 @@ pliman_download_model <- function(model = "u2netp",
 
     url <- if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
       row$url[1]
+    } else if (grepl("^yolo26.*\\.pt$", filename, ignore.case = TRUE)) {
+      paste0("https://huggingface.co/Ultralytics/YOLO26/resolve/main/", filename)
     } else {
       paste0(base_url, filename)
     }
