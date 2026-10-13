@@ -658,30 +658,85 @@ pliman_models_base_url <- function() {
   getOption("pliman.models_base_url", "https://huggingface.co/datasets/NEPEM-UFSC/dl_models/resolve/main/")
 }
 
-# Internal helper for robust downloads with SSL error recovery
-.download_url_robust <- function(url, dest_file, min_size = 1000, quiet = TRUE) {
+# Internal helper for robust downloads with SSL error recovery and cli progress bar
+.download_url_robust <- function(url, dest_file, min_size = 1000, progress = TRUE, total_bytes = NA) {
   dl_success <- FALSE
   if (requireNamespace("curl", quietly = TRUE)) {
     h <- curl::new_handle()
+    pb <- NULL
+    bar_env <- environment()
+    if (isTRUE(progress)) {
+      pb <- tryCatch(
+        cli::cli_progress_bar(
+          name = paste0("Downloading ", basename(dest_file)),
+          total = if (!is.null(total_bytes) && !is.na(total_bytes) && total_bytes > 0) total_bytes else NA,
+          type = "download",
+          .auto_close = FALSE,
+          .envir = bar_env
+        ),
+        error = function(e) NULL
+      )
+      if (!is.null(pb)) {
+        curl::handle_setopt(h, noprogress = FALSE, xferinfofunction = function(down, up) {
+          tot <- down[[1]]
+          now <- down[[2]]
+          if (now > 0) {
+            tryCatch(
+              cli::cli_progress_update(
+                total = if (tot > 0) tot else NA,
+                set = now,
+                id = pb,
+                .envir = bar_env
+              ),
+              error = function(e) NULL
+            )
+          }
+          TRUE
+        })
+      }
+    }
+
     tryCatch({
-      curl::curl_download(url, destfile = dest_file, quiet = quiet, mode = "wb", handle = h)
+      curl::curl_download(url, destfile = dest_file, quiet = !isTRUE(progress), mode = "wb", handle = h)
       dl_success <- file.exists(dest_file) && file.info(dest_file)$size >= min_size
     }, error = function(e) {
       if (grepl("certificate|schannel|SEC_E|SSL", e$message, ignore.case = TRUE)) {
         cli::cli_alert_warning("SSL handshake failed ({e$message}). Retrying with SSL verification bypass...")
         h_insecure <- curl::new_handle()
         curl::handle_setopt(h_insecure, ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
+        if (!is.null(pb)) {
+          curl::handle_setopt(h_insecure, noprogress = FALSE, xferinfofunction = function(down, up) {
+            tot <- down[[1]]
+            now <- down[[2]]
+            if (now > 0) {
+              tryCatch(
+                cli::cli_progress_update(
+                  total = if (tot > 0) tot else NA,
+                  set = now,
+                  id = pb,
+                  .envir = bar_env
+                ),
+                error = function(e) NULL
+              )
+            }
+            TRUE
+          })
+        }
         tryCatch({
-          curl::curl_download(url, destfile = dest_file, quiet = quiet, mode = "wb", handle = h_insecure)
+          curl::curl_download(url, destfile = dest_file, quiet = !isTRUE(progress), mode = "wb", handle = h_insecure)
           dl_success <<- file.exists(dest_file) && file.info(dest_file)$size >= min_size
         }, error = function(e2) NULL)
+      }
+    }, finally = {
+      if (!is.null(pb)) {
+        tryCatch(cli::cli_progress_done(id = pb, .envir = bar_env), error = function(e) NULL)
       }
     })
   }
 
   if (!dl_success) {
     tryCatch({
-      utils::download.file(url, destfile = dest_file, mode = "wb", quiet = quiet)
+      utils::download.file(url, destfile = dest_file, mode = "wb", quiet = TRUE)
       dl_success <- file.exists(dest_file) && file.info(dest_file)$size >= min_size
     }, error = function(e) NULL)
   }
@@ -1427,7 +1482,7 @@ pliman_download_model <- function(model = "u2netp",
         }
         probe_dest <- file.path(dir, cand)
         cli::cli_alert_info("Probing repository asset {.val {cand}} at {.url {probe_url}}...")
-        ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000)
+        ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000, progress = FALSE)
         if (ok_probe && file.exists(probe_dest) && file.info(probe_dest)$size > 1000) {
           cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully!")
           downloaded_probe <- probe_dest
@@ -1528,15 +1583,16 @@ pliman_download_model <- function(model = "u2netp",
         return(normalizePath(world_file, winslash = "/"))
       }
       size_disp <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) paste0(" (", row$size_mb[1], " MB)") else ""
+      exp_bytes <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) row$size_mb[1] * 1024 * 1024 else NA
       world_url <- if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
         row$url[1]
       } else {
         paste0(base_url, world_pt_name)
       }
-      ok_world <- .download_url_robust(world_url, world_file, min_size = 15000000)
+      ok_world <- .download_url_robust(world_url, world_file, min_size = 15000000, progress = TRUE, total_bytes = exp_bytes)
       if (!ok_world) {
         ultra_url <- paste0("https://github.com/ultralytics/assets/releases/download/v8.2.0/", world_pt_name)
-        ok_world <- .download_url_robust(ultra_url, world_file, min_size = 15000000)
+        ok_world <- .download_url_robust(ultra_url, world_file, min_size = 15000000, progress = TRUE, total_bytes = exp_bytes)
       }
       if (!ok_world) {
         stop("Failed to download YOLO-World model. Please check your internet connection.")
@@ -1567,13 +1623,14 @@ pliman_download_model <- function(model = "u2netp",
     size_disp <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) paste0(" (", row$size_mb[1], " MB)") else ""
     cli::cli_alert_info("Downloading model {.val {actual_model}}{size_disp} to {.path {dir}}...")
 
-    dl_success <- .download_url_robust(url, dest_file, min_size = 1000)
+    exp_bytes <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) row$size_mb[1] * 1024 * 1024 else NA
+    dl_success <- .download_url_robust(url, dest_file, min_size = 1000, progress = TRUE, total_bytes = exp_bytes)
 
     if (!isTRUE(dl_success) && grepl("^yolo26.*\\.pt$", filename, ignore.case = TRUE)) {
       ultra_gh_file <- sub("^yolo26", "yolo11", filename, ignore.case = TRUE)
       ultra_gh_url <- paste0("https://github.com/ultralytics/assets/releases/download/v8.4.0/", ultra_gh_file)
       cli::cli_alert_warning("Download from Ultralytics Hugging Face failed. Retrying with GitHub assets fallback ({.url {ultra_gh_url}})...")
-      dl_success <- .download_url_robust(ultra_gh_url, dest_file, min_size = 1000)
+      dl_success <- .download_url_robust(ultra_gh_url, dest_file, min_size = 1000, progress = TRUE, total_bytes = exp_bytes)
     }
 
     if (!isTRUE(dl_success) || !file.exists(dest_file) || file.info(dest_file)$size < 1000) {
