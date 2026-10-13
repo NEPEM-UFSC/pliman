@@ -2579,8 +2579,9 @@ yolo_dataset_import_ndjson <- yolo_dataset_from_ndjson
     )
   }
 
-  cli::cli_alert_success("Model weights {.file {pt_file}} ready!")
-  normalizePath(dest_file, winslash = "/")
+  dest_norm <- normalizePath(dest_file, winslash = "/")
+  cli::cli_alert_success("Model weights {.file {pt_file}} successfully downloaded to {.path {dest_norm}}")
+  return(dest_norm)
 }
 
 
