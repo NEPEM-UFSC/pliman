@@ -9,7 +9,7 @@ pliman_available_models(dir = pliman_model_dir(), refresh = FALSE)
 \arguments{
 \item{dir}{Directory where models are stored (default: \code{pliman_model_dir()}).}
 
-\item{refresh}{Logical. If \code{TRUE}, forces re-fetching the asset catalog from GitHub releases (default \code{FALSE}).}
+\item{refresh}{Logical. If \code{TRUE}, forces re-fetching the asset catalog from Hugging Face (default \code{FALSE}).}
 }
 \value{
 A data frame containing model metadata and local availability.
@@ -17,7 +17,7 @@ A data frame containing model metadata and local availability.
 \description{
 Lists all supported background removal, object detection, segmentation, and classification models,
 their disk sizes, input resolutions, descriptions, local download status, and models dynamically
-discovered from GitHub release assets.
+discovered from the Hugging Face repository.
 }
 \examples{
 \dontrun{

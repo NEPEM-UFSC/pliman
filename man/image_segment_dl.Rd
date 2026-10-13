@@ -9,6 +9,7 @@ image_segment_dl(
   type = c("segment", "mask", "highlight"),
   col_background = "white",
   col_highlight = "salmon",
+  mask_color = NULL,
   alpha = 0.4,
   border = NA,
   lwd = 1,
@@ -82,6 +83,11 @@ or hexadecimal code (e.g., \code{"#FFFFFF"}).}
 \item{col_highlight}{Fill color for the semi-transparent overlay polygon when \code{type = "highlight"}.
 Defaults to \code{"salmon"}. When multiple instances are detected, distinct categorical
 colors are automatically generated from a rainbow palette.}
+
+\item{mask_color}{Fill color(s) for the highlight polygon overlay and bounding boxes when \code{type = "highlight"}.
+Defaults to \code{NULL} (falling back to \code{col_highlight}). When \code{rainbow = FALSE}, allows passing a vector of colors
+with the same length as the classes specified in \code{prompt} (e.g. \code{mask_color = c("red", "green")} for
+\code{prompt = c("red tomato", "green tomato")}), or a named vector matching class names (e.g., \code{c("red tomato" = "red", "green tomato" = "green")}).}
 
 \item{alpha}{Numeric transparency value in \verb{[0, 1]} for the highlight polygon overlay when \code{type = "highlight"}.
 Default is \code{0.4} (40\% opacity).}

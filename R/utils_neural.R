@@ -647,14 +647,15 @@ pliman_model_dir <- function(dir = NULL) {
 )
 
 #' Get Base URL for Pre-Trained Neural Models
+#' Default Base URL for Pre-Trained Neural Models
 #'
-#' Returns the base URL for downloading pre-trained ONNX models from GitHub Releases.
+#' Returns the base URL for downloading pre-trained neural models from Hugging Face.
 #' Can be customized globally via \code{options(pliman.models_base_url = "...")}.
 #'
 #' @return Character URL string ending in a slash.
 #' @export
 pliman_models_base_url <- function() {
-  getOption("pliman.models_base_url", "https://github.com/NEPEM-UFSC/models/releases/download/v1.0.0/")
+  getOption("pliman.models_base_url", "https://huggingface.co/datasets/NEPEM-UFSC/dl_models/resolve/main/")
 }
 
 # Internal helper for robust downloads with SSL error recovery
@@ -694,9 +695,9 @@ pliman_models_base_url <- function() {
 
 .pliman_assets_cache <- new.env(parent = emptyenv())
 
-# Internal helper to query GitHub release assets with local disk & memory cache
+# Internal helper to query Hugging Face dataset repository assets with local disk & memory cache
 .fetch_github_release_assets <- function(refresh = FALSE, dir = pliman_model_dir()) {
-  cache_file <- file.path(dir, ".github_assets_cache.rds")
+  cache_file <- file.path(dir, ".hf_assets_cache.rds")
 
   # 1. In-memory session cache (valid for 12 hours)
   if (!isTRUE(refresh) && exists("assets", envir = .pliman_assets_cache)) {
@@ -720,8 +721,9 @@ pliman_models_base_url <- function() {
     }
   }
 
-  # 3. Query GitHub API
-  api_url <- "https://api.github.com/repos/NEPEM-UFSC/models/releases/tags/v1.0.0"
+  # 3. Query Hugging Face Tree API
+  api_url <- "https://huggingface.co/api/datasets/NEPEM-UFSC/dl_models/tree/main"
+  base_url <- pliman_models_base_url()
   assets_df <- NULL
 
   if (requireNamespace("jsonlite", quietly = TRUE)) {
@@ -736,14 +738,19 @@ pliman_models_base_url <- function() {
       }
     }, error = function(e) NULL)
 
-    if (is.list(raw_res) && !is.null(raw_res$assets) && is.data.frame(raw_res$assets)) {
-      raw_assets <- raw_res$assets
-      valid_rows <- grepl("\\.(onnx|pt)$", raw_assets$name, ignore.case = TRUE)
+    if (is.data.frame(raw_res) && "path" %in% names(raw_res)) {
+      raw_assets <- raw_res
+      valid_rows <- grepl("\\.(onnx|pt)$", raw_assets$path, ignore.case = TRUE)
       if (any(valid_rows)) {
-        filtered <- raw_assets[valid_rows, c("name", "size", "browser_download_url")]
-        filtered$size_mb <- round(as.numeric(filtered$size) / (1024 * 1024), 1)
-        filtered$model <- tools::file_path_sans_ext(filtered$name)
-        assets_df <- filtered
+        filtered <- raw_assets[valid_rows, ]
+        assets_df <- data.frame(
+          name = filtered$path,
+          size = as.numeric(filtered$size),
+          browser_download_url = paste0(base_url, filtered$path),
+          size_mb = round(as.numeric(filtered$size) / (1024 * 1024), 1),
+          model = tools::file_path_sans_ext(filtered$path),
+          stringsAsFactors = FALSE
+        )
       }
     }
   }
@@ -775,15 +782,16 @@ pliman_models_base_url <- function() {
     stringsAsFactors = FALSE
   )
 }
+.fetch_hf_assets <- .fetch_github_release_assets
 
 #' List Available Pre-Trained Neural Models
 #'
 #' Lists all supported background removal, object detection, segmentation, and classification models,
 #' their disk sizes, input resolutions, descriptions, local download status, and models dynamically
-#' discovered from GitHub release assets.
+#' discovered from the Hugging Face repository.
 #'
 #' @param dir Directory where models are stored (default: `pliman_model_dir()`).
-#' @param refresh Logical. If `TRUE`, forces re-fetching the asset catalog from GitHub releases (default `FALSE`).
+#' @param refresh Logical. If `TRUE`, forces re-fetching the asset catalog from Hugging Face (default `FALSE`).
 #' @return A data frame containing model metadata and local availability.
 #' @export
 #' @examples
@@ -793,7 +801,7 @@ pliman_models_base_url <- function() {
 #' }
 pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
   base_url <- pliman_models_base_url()
-  hf_yolo_url <- "https://huggingface.co/zwh20081/yolo26-onnx/resolve/main/"
+  hf_yolo_url <- base_url
   models_info <- list(
     list(
       name = "u2netp",
@@ -1112,7 +1120,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 25.9,
       input_size = 640,
       filename = "yolov8s-worldv2.pt",
-      url = "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s-worldv2.pt"
+      url = paste0(base_url, "yolov8s-worldv2.pt")
     ),
     list(
       name = "yolov8m-worldv2",
@@ -1144,7 +1152,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 46.6,
       input_size = 640,
       filename = "yolo_nas_s.onnx",
-      url = "https://github.com/CVHub520/X-AnyLabeling/releases/download/v0.1.0/yolo_nas_s.onnx"
+      url = paste0(base_url, "yolo_nas_s.onnx")
     ),
     list(
       name = "yolo_nas_l",
@@ -1152,7 +1160,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 160.4,
       input_size = 640,
       filename = "yolo_nas_l.onnx",
-      url = "https://github.com/CVHub520/X-AnyLabeling/releases/download/v0.1.0/yolo_nas_l.onnx"
+      url = paste0(base_url, "yolo_nas_l.onnx")
     ),
     # YOLO26 Oriented Bounding Box (Ultralytics)
     list(
@@ -1363,7 +1371,7 @@ pliman_download_model <- function(model = "u2netp",
 
     base_url <- pliman_models_base_url()
 
-    # CASE 4: Direct probe on GitHub releases
+    # CASE 4: Direct probe on Hugging Face repository
     if (length(match_idx) == 0) {
       candidate_fnames <- unique(c(
         m,
@@ -1379,7 +1387,7 @@ pliman_download_model <- function(model = "u2netp",
       for (cand in candidate_fnames) {
         probe_url <- paste0(base_url, cand)
         probe_dest <- file.path(dir, cand)
-        cli::cli_alert_info("Probing GitHub release asset {.val {cand}} at {.url {probe_url}}...")
+        cli::cli_alert_info("Probing Hugging Face repository asset {.val {cand}} at {.url {probe_url}}...")
         ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000)
         if (ok_probe && file.exists(probe_dest) && file.info(probe_dest)$size > 1000) {
           cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully!")
@@ -1396,7 +1404,7 @@ pliman_download_model <- function(model = "u2netp",
 
       valid_options <- unique(c(models_df$model, models_df$filename))
       stop("Unknown model(s): '", m, "'.\n",
-           "Could not find model locally, in catalog, or as an asset on GitHub releases (NEPEM-UFSC/models).\n",
+           "Could not find model locally, in catalog, or as an asset on Hugging Face (NEPEM-UFSC/dl_models).\n",
            "Valid available options are: 'all', ",
            paste(paste0("'", utils::head(valid_options, 35), "'"), collapse = ", "),
            if (length(valid_options) > 35) paste0(", ... (", length(valid_options) - 35, " more)") else "")
@@ -1481,13 +1489,16 @@ pliman_download_model <- function(model = "u2netp",
         return(normalizePath(world_file, winslash = "/"))
       }
       size_disp <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) paste0(" (", row$size_mb[1], " MB)") else ""
-      cli::cli_alert_info("Downloading YOLO-World weights{size_disp} to {.path {dir}}...")
       world_url <- if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
         row$url[1]
       } else {
-        paste0("https://github.com/ultralytics/assets/releases/download/v8.2.0/", world_pt_name)
+        paste0(base_url, world_pt_name)
       }
       ok_world <- .download_url_robust(world_url, world_file, min_size = 15000000)
+      if (!ok_world) {
+        ultra_url <- paste0("https://github.com/ultralytics/assets/releases/download/v8.2.0/", world_pt_name)
+        ok_world <- .download_url_robust(ultra_url, world_file, min_size = 15000000)
+      }
       if (!ok_world) {
         stop("Failed to download YOLO-World model. Please check your internet connection.")
       }
