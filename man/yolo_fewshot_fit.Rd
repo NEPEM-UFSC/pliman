@@ -2,27 +2,10 @@
 % Please edit documentation in R/utils_yolo_autolabel.R
 \name{yolo_fewshot_fit}
 \alias{yolo_fewshot_fit}
+\alias{.point_in_polygon}
 \title{Interactive Few-Shot Exemplar Fitting for Object Detection and Segmentation}
 \usage{
-yolo_fewshot_fit(
-  img,
-  points = NULL,
-  sample = NULL,
-  label = "object",
-  task = c("segment", "detect"),
-  conf_threshold = 0.5,
-  radius = NULL,
-  min_dist = 12,
-  min_area = NULL,
-  max_area = NULL,
-  max_objects = NULL,
-  method = c("sam", "persam", "adaptive"),
-  engine = c("gpu", "cpu"),
-  device_id = -1,
-  rainbow = TRUE,
-  plot = TRUE,
-  verbose = TRUE
-)
+.point_in_polygon(px, py, pol_x, pol_y)
 }
 \arguments{
 \item{img}{An \code{image} object, file path, or matrix.}
@@ -58,11 +41,21 @@ or \code{"adaptive"} (fast color-texture morphology). Defaults to \code{"sam"}.}
 
 \item{device_id}{GPU device ID if \code{engine = "gpu"}. Defaults to \code{-1}.}
 
-\item{rainbow}{Logical. If \code{TRUE} (default), plots instances in distinct rainbow colors..}
+\item{interactive}{Logical. Whether to enable interactive review and refinement after exemplar segmentation (allows adding missed objects, removing false positives, adjusting threshold, or resampling). Defaults to \code{interactive()}.}
+
+\item{rainbow}{Logical. If \code{TRUE} (default), plots instances in distinct rainbow colors.}
+
+\item{show_class}{Logical. Whether to display class name on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges. Defaults to \code{TRUE}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels. Defaults to \code{TRUE}.}
 
 \item{plot}{Logical. Display the detection and segmentation overlay. Defaults to \code{TRUE}.}
 
 \item{verbose}{Logical. Show progress messages. Defaults to \code{TRUE}.}
+
+\item{...}{Additional arguments passed to downstream methods or aliases (e.g., \code{show_labels}, \code{show_scores}, \code{label_box}).}
 }
 \value{
 An object of class \code{yolo_fewshot_model} containing exemplar signatures,

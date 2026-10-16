@@ -216,7 +216,8 @@ numeric value is provided, this value will be used as a threshold.}
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
 size)}, applied in hierarchical order.}
 
-\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.}
+\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.
+Defaults to \code{0.10} (i.e., 10\% of the mean area).}
 
 \item{lower_size, upper_size}{Lower and upper size limits for object filtering.}
 

@@ -176,12 +176,20 @@
 #' @param filter_edge Logical. If `TRUE` (default), filters out spurious border-cut artifacts touching image edges.
 #' @param show_similarity Logical. If `TRUE`, displays a side-by-side 2-panel preview showing the detected
 #'   objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidencia") on the right. Defaults to `FALSE`.
-#' @param train_prop Proportion of images assigned to the training split (default `0.8`).
-#'   The remaining images are assigned to the validation split (`val`).
+#' @param split_ratio Numeric vector of length 3 for `c(train, val, test)` split.
+#'   Defaults to `c(0.70, 0.20, 0.10)`. If a vector of length 2 is provided,
+#'   `c(train, val)` is assumed. If a single number is given, it is treated as the training proportion.
 #' @param n_points Target number of polygon vertices per object for segmentation
 #'   (default `40`). Points are sampled evenly along the contour to keep label files
 #'   compact and clean.
 #' @param min_area Minimum object area (in pixels) to include in the dataset. Defaults to `15`.
+#' @param review Logical or integer. If `TRUE` (default), writes annotated review images to a `review/`
+#'   subfolder in `dir` for visual inspection of all images. An integer can be provided (e.g. `review = 30`)
+#'   to limit the number of review images generated.
+#' @param rainbow Logical. If `TRUE` (default), plots instances in distinct rainbow colors during interactive review.
+#' @param show_class Logical. Whether to display class name on labels/badges during interactive review. Defaults to `TRUE`.
+#' @param show_conf Logical. Whether to display confidence score on labels/badges during interactive review. Defaults to `TRUE`.
+#' @param badge Logical. Whether to draw a filled background badge behind labels during interactive review. Defaults to `TRUE`.
 #' @param engine Computing device engine: `"cpu"` (default) or `"gpu"`.
 #' @param device_id GPU device ID (default `-1`).
 #' @param overwrite Logical. If `TRUE` (default), overwrites existing dataset files in `dir`.
@@ -194,6 +202,8 @@
 #'   * `yaml_file`: Full path to the generated `data.yaml`.
 #'   * `train_images`: Vector of paths to training images.
 #'   * `val_images`: Vector of paths to validation images.
+#'   * `test_images`: Vector of paths to test images (if test split was generated).
+#'   * `review_dir`: Path to the review directory containing visual previews (if `review = TRUE`).
 #'   * `n_objects`: Total number of annotated objects across the dataset.
 #' @export
 #' @examples
@@ -238,7 +248,7 @@ yolo_dataset_export <- function(img,
                                 class_id = 0L,
                                 prompt = NULL,
                                 prompt_mode = c("each", "first"),
-                                interactive = is.null(prompt) && !is.null(model) && identical(tolower(model), "persam") && interactive(),
+                                interactive = is.null(prompt) && !is.null(model) && is.character(model) && identical(tolower(model[1]), "persam") && base::interactive(),
                                 sim_threshold = 0.50,
                                 min_dist = 20,
                                 box_threshold = 0.25,
@@ -246,17 +256,43 @@ yolo_dataset_export <- function(img,
                                 iou_threshold = 0.50,
                                 feat_res = 256,
                                 max_objects = NULL,
-                                train_prop = 0.8,
+                                split_ratio = c(0.70, 0.20, 0.10),
                                 n_points = 40L,
                                 min_area = 15,
                                 filter_edge = TRUE,
                                 show_similarity = FALSE,
                                 superres_map = FALSE,
+                                review = TRUE,
+                                rainbow = TRUE,
+                                show_class = TRUE,
+                                show_conf = TRUE,
+                                badge = TRUE,
                                 engine = c("gpu", "cpu"),
                                 device_id = -1,
                                 overwrite = TRUE,
                                 verbose = TRUE,
                                 ...) {
+  dots <- list(...)
+  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
+  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
+  if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if ("train_prop" %in% names(dots)) {
+    tp <- as.numeric(dots$train_prop[1])
+    split_ratio <- c(tp, 1.0 - tp, 0.0)
+  }
+  extra_args <- dots[setdiff(names(dots), c("train_prop", "show_labels", "show_scores", "label_box"))]
+
+  split_ratio <- as.numeric(split_ratio)
+  if (length(split_ratio) == 1L) {
+    split_ratio <- c(split_ratio, max(0, 1 - split_ratio), 0)
+  } else if (length(split_ratio) == 2L) {
+    split_ratio <- c(split_ratio, max(0, 1 - sum(split_ratio)))
+  }
+  split_ratio <- split_ratio / sum(split_ratio)
+
+  splits <- c("train", "val")
+  if (split_ratio[3] > 0) splits <- c(splits, "test")
+
   task <- match.arg(task)
   engine <- match.arg(engine)
   prompt_mode <- match.arg(prompt_mode)
@@ -291,13 +327,22 @@ yolo_dataset_export <- function(img,
   # Prepare directory structure
   train_img_dir <- file.path(dir, "images", "train")
   val_img_dir   <- file.path(dir, "images", "val")
+  test_img_dir  <- file.path(dir, "images", "test")
   train_lbl_dir <- file.path(dir, "labels", "train")
   val_lbl_dir   <- file.path(dir, "labels", "val")
+  test_lbl_dir  <- file.path(dir, "labels", "test")
 
-  for (d in c(train_img_dir, val_img_dir, train_lbl_dir, val_lbl_dir)) {
-    if (!dir.exists(d)) {
-      dir.create(d, recursive = TRUE, showWarnings = FALSE)
-    }
+  for (sp in splits) {
+    dir.create(file.path(dir, "images", sp), recursive = TRUE, showWarnings = FALSE)
+    dir.create(file.path(dir, "labels", sp), recursive = TRUE, showWarnings = FALSE)
+  }
+
+  do_review <- isTRUE(review) || (is.numeric(review) && length(review) == 1L && review[1] > 0)
+  max_review <- if (is.numeric(review) && length(review) == 1L && review[1] > 0) as.integer(review[1]) else if (isTRUE(review)) Inf else 0L
+
+  review_dir <- file.path(dir, "review")
+  if (do_review) {
+    dir.create(review_dir, recursive = TRUE, showWarnings = FALSE)
   }
 
   # Resolve images input
@@ -332,20 +377,33 @@ yolo_dataset_export <- function(img,
     cli::cli_abort("No images to export.")
   }
 
-  # Train / Val Split
+  # Train / Val / Test Split
   if (num_imgs == 1L) {
-    is_train <- c(TRUE)
+    split_assign <- c("train")
+  } else if (num_imgs == 2L) {
+    split_assign <- c("train", "val")
   } else {
-    n_train <- max(1L, round(num_imgs * train_prop))
-    if (n_train >= num_imgs && num_imgs > 1L) n_train <- num_imgs - 1L
     set.seed(42)
-    train_idx <- sample(seq_len(num_imgs), size = n_train)
-    is_train <- seq_len(num_imgs) %in% train_idx
+    shuffled_idx <- sample(seq_len(num_imgs))
+    n_tr  <- max(1L, round(num_imgs * split_ratio[1]))
+    n_val <- max(1L, round(num_imgs * split_ratio[2]))
+
+    split_assign <- character(num_imgs)
+    split_assign[shuffled_idx[seq_len(min(num_imgs, n_tr))]] <- "train"
+    val_indices <- shuffled_idx[(n_tr + 1L):min(num_imgs, n_tr + n_val)]
+    split_assign[val_indices] <- "val"
+    if (num_imgs > (n_tr + n_val) && split_ratio[3] > 0) {
+      test_indices <- shuffled_idx[(n_tr + n_val + 1L):num_imgs]
+      split_assign[test_indices] <- "test"
+    } else {
+      split_assign[split_assign == ""] <- "val"
+    }
   }
 
   total_objects_annotated <- 0L
   train_images_saved <- character()
   val_images_saved   <- character()
+  test_images_saved  <- character()
 
   if (isTRUE(verbose)) {
     mode_str <- if (is_persam) {
@@ -360,12 +418,18 @@ yolo_dataset_export <- function(img,
       "Classical Image Analysis (analyze_objects)"
     }
 
+    split_counts_str <- paste0(
+      sum(split_assign == "train"), " train / ",
+      sum(split_assign == "val"), " val",
+      if (any(split_assign == "test")) paste0(" / ", sum(split_assign == "test"), " test") else ""
+    )
+
     cli::cli_h2("YOLO Dataset Generation & Auto-Annotation")
     cli::cli_ul(c(
       "Annotation engine: {.val {mode_str}}",
       "Task: {.val {toupper(task)}}",
       "Classes: {.val {class_names}}",
-      "Images to process: {num_imgs} ({sum(is_train)} train / {sum(!is_train)} val)",
+      "Images to process: {num_imgs} ({split_counts_str})",
       "Target dataset directory: {.path {dir}}"
     ))
   }
@@ -380,10 +444,10 @@ yolo_dataset_export <- function(img,
   for (i in seq_len(num_imgs)) {
     curr_img <- img_list[[i]]
     base_name <- img_names[i]
-    split_name <- if (is_train[i]) "train" else "val"
+    split_name <- split_assign[i]
 
-    dest_img_dir <- if (is_train[i]) train_img_dir else val_img_dir
-    dest_lbl_dir <- if (is_train[i]) train_lbl_dir else val_lbl_dir
+    dest_img_dir <- file.path(dir, "images", split_name)
+    dest_lbl_dir <- file.path(dir, "labels", split_name)
 
     dest_img_path <- file.path(dest_img_dir, paste0(base_name, ".jpg"))
     dest_lbl_path <- file.path(dest_lbl_dir, paste0(base_name, ".txt"))
@@ -405,137 +469,184 @@ yolo_dataset_export <- function(img,
         curr_min_dist <- min_dist
 
         while (!accepted) {
+          # Prompt for exemplars if not cached or prompt_mode == "each"
           if (is.null(cached_pts) || (identical(prompt_mode, "each") && !accepted)) {
-            plot(curr_img)
-            title(main = sprintf("Image [%d/%d]: Click on exemplar '%s' (Right-click/Esc to detect)",
-                                 i, num_imgs, class_names[1]),
-                  col.main = "#0066cc", font.main = 2)
-            pts <- tryCatch(graphics::locator(n = 512, type = "p", col = "#00F0FF", pch = 19), error = function(e) NULL)
-            if (is.null(pts) || length(pts$x) == 0L) {
-              cli::cli_alert_warning("No point clicked on image {.val {base_name}} (<Esc> pressed).")
-              cat("\n")
-              cli::cli_rule(left = "Options for unannotated image")
-              cli::cli_bullets(c(
-                "*" = "{.bold [s] / skip}: Skip this image and proceed to the next",
-                "*" = "{.bold [a] / abort}: Abort process and save dataset with annotations created so far",
-                "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image"
-              ))
-              ans_esc <- tolower(trimws(readline("Select action [s = skip / a = abort / r = retry, default: s]: ")))
-
-              if (ans_esc == "a" || ans_esc == "abort" || ans_esc == "abortar" || ans_esc == "q" || ans_esc == "quit") {
-                cli::cli_alert_info("Interactive labeling aborted by user. Finalizing and saving dataset...")
-                stop_early <- TRUE
-                break
-              } else if (ans_esc == "r" || ans_esc == "retry" || ans_esc == "tentar") {
-                cached_pts <- NULL
-                next
+            if (isTRUE(verbose)) {
+              if (i == 1L || is.null(cached_pts)) {
+                cli::cli_alert_info("Image {i}/{num_imgs} ({base_name}): Click on 2 to 5 exemplar instances of {.val {class_names[1]}} in the plot window.")
+                cli::cli_alert_info("Press <Esc> or right-click when finished.")
               } else {
-                cli::cli_alert_info("Image {.val {base_name}} skipped.")
-                break
+                cli::cli_alert_info("Image {i}/{num_imgs} ({base_name}): Click on exemplar instances of {.val {class_names[1]}}, or press <Esc> to use cached exemplars.")
               }
             }
-            graphics::points(pts$x, pts$y, pch = 3, col = "#FF0055", lwd = 2, cex = 1.4)
-            cached_pts <- cbind(pts$x, pts$y)
-          }
 
-          ex_coords <- cached_pts
+            plot(curr_img)
+            title(main = sprintf("Image [%d/%d]: Click on 2 to 5 exemplars of '%s' (Esc when done)",
+                                 i, num_imgs, class_names[1]),
+                  col.main = "#0066cc", font.main = 2)
 
-          if (isTRUE(verbose)) {
-            cli::cli_alert_info("Computing PerSAM similarity map and instance segmentations (sim_threshold = {curr_sim_thresh}, min_dist = {curr_min_dist})...")
-          }
+            pts <- tryCatch(graphics::locator(n = 64, type = "p", col = "#FFFF00", pch = 19, cex = 1.3), error = function(e) NULL)
 
-          p_res <- .run_persam(
-            mat = image_data(curr_img),
-            exemplar_points = ex_coords,
-            sim_threshold = curr_sim_thresh,
-            min_dist = curr_min_dist,
-            iou_threshold = iou_threshold,
-            max_objects = max_objects,
-            feat_res = feat_res,
-            superres_map = superres_map,
-            engine = engine,
-            device_id = device_id,
-            verbose = FALSE,
-            mask = (task == "segment")
-          )
-
-          bx_df <- p_res$boxes
-          conts_list <- p_res$contours
-
-          # Filter edge artifacts
-          if (isTRUE(filter_edge) && !is.null(bx_df) && nrow(bx_df) > 0L) {
-            bw_px <- bx_df$xmax - bx_df$xmin
-            bh_px <- bx_df$ymax - bx_df$ymin
-            aspect <- pmax(bw_px, bh_px) / pmax(1.0, pmin(bw_px, bh_px))
-            is_border <- (bx_df$xmin <= 4 | bx_df$xmax >= (img_w - 4) | bx_df$ymin <= 4 | bx_df$ymax >= (img_h - 4))
-            keep <- !(is_border & (aspect > 3.5 | bw_px < 15 | bh_px < 15))
-            bx_df <- bx_df[keep, , drop = FALSE]
-            if (length(conts_list) > 0L) {
-              conts_list <- conts_list[keep[seq_along(conts_list)]]
+            if (is.null(pts) || length(pts$x) == 0L) {
+              if (i == 1L && is.null(cached_pts)) {
+                cli::cli_alert_warning("No point clicked on image {.val {base_name}} (<Esc> pressed).")
+                cli::cli_bullets(c(
+                  "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image",
+                  "*" = "{.bold [s] / stop}: Abort dataset export"
+                ))
+                ans_esc <- tolower(trimws(readline("Select action [r = retry / s = stop, default: r]: ")))
+                if (ans_esc %in% c("s", "stop", "abort", "a", "q", "quit")) {
+                  cli::cli_alert_info("Dataset export cancelled by user.")
+                  stop_early <- TRUE
+                  break
+                } else {
+                  next
+                }
+              } else {
+                cli::cli_alert_warning("No point clicked on image {.val {base_name}} (<Esc> pressed).")
+                cli::cli_bullets(c(
+                  "*" = "{.bold [s] / stop}: Finalize and save dataset with completed images so far",
+                  "*" = "{.bold [c] / continue}: Continue with previously cached exemplar points",
+                  "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image"
+                ))
+                ans_esc <- tolower(trimws(readline("Select action [s = stop / c = continue / r = retry, default: s]: ")))
+                if (ans_esc %in% c("s", "stop", "abort", "a", "q", "quit", "")) {
+                  cli::cli_alert_info("Finalizing and saving dataset with completed images...")
+                  stop_early <- TRUE
+                  break
+                } else if (ans_esc %in% c("r", "retry", "t")) {
+                  next
+                } else {
+                  if (is.null(cached_pts)) next
+                }
+              }
+            } else {
+              graphics::points(pts$x, pts$y, col = "#000000", pch = 1, cex = 1.3, lwd = 1.5)
+              cached_pts <- cbind(x = pts$x, y = pts$y)
             }
           }
 
-          n_found <- if (!is.null(bx_df)) nrow(bx_df) else 0L
+          if (isTRUE(stop_early)) break
 
-          .draw_persam_feedback(
-            img = curr_img,
-            boxes = bx_df,
-            contours = conts_list,
-            similarity_map = p_res$similarity_map,
+          if (isTRUE(verbose)) {
+            cli::cli_progress_step(
+              msg = "Running SAM 2.1 inference on {.val {base_name}} [{toupper(engine)}]... (aguarde alguns segundos)",
+              msg_done = "SAM 2.1 inference complete on {.val {base_name}}"
+            )
+          }
+
+          c_num_arr <- image_data(curr_img, type = "numeric")
+
+          p_res <- tryCatch({
+            .run_persam(
+              mat = c_num_arr,
+              exemplar_points = cached_pts,
+              sim_threshold = curr_sim_thresh,
+              min_dist = curr_min_dist,
+              iou_threshold = iou_threshold,
+              max_objects = max_objects,
+              feat_res = feat_res,
+              superres_map = superres_map,
+              engine = engine,
+              device_id = device_id,
+              verbose = FALSE,
+              mask = (task == "segment")
+            )
+          }, error = function(e) {
+            cli::cli_alert_warning("Exemplar matching error on image {i}: {e$message}")
+            NULL
+          })
+
+          r_boxes <- data.frame()
+          r_polys <- list()
+
+          if (!is.null(p_res) && !is.null(p_res$boxes) && nrow(p_res$boxes) > 0L) {
+            r_boxes <- data.frame(
+              xmin = as.numeric(p_res$boxes$xmin),
+              ymin = as.numeric(p_res$boxes$ymin),
+              xmax = as.numeric(p_res$boxes$xmax),
+              ymax = as.numeric(p_res$boxes$ymax),
+              conf = round(as.numeric(p_res$boxes$score), 3),
+              class_id = class_id[1],
+              class_name = class_names[1],
+              stringsAsFactors = FALSE
+            )
+
+            # Filter edge artifacts
+            if (isTRUE(filter_edge) && nrow(r_boxes) > 0L) {
+              bw_px <- r_boxes$xmax - r_boxes$xmin
+              bh_px <- r_boxes$ymax - r_boxes$ymin
+              aspect <- pmax(bw_px, bh_px) / pmax(1.0, pmin(bw_px, bh_px))
+              is_border <- (r_boxes$xmin <= 4 | r_boxes$xmax >= (img_w - 4) | r_boxes$ymin <= 4 | r_boxes$ymax >= (img_h - 4))
+              keep <- !(is_border & (aspect > 3.5 | bw_px < 15 | bh_px < 15))
+              r_boxes <- r_boxes[keep, , drop = FALSE]
+              if (!is.null(p_res$contours) && length(p_res$contours) > 0L) {
+                p_res$contours <- p_res$contours[keep[seq_along(p_res$contours)]]
+              }
+            }
+
+            if (!is.null(p_res$contours)) {
+              for (ci in seq_along(p_res$contours)) {
+                cnt <- p_res$contours[[ci]]
+                if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+                  gx <- cnt[, 1] / img_w; gy <- cnt[, 2] / img_h
+                  if (length(gx) > 32L) {
+                    idx <- round(seq(1, length(gx), length.out = 32))
+                    gx <- gx[idx]; gy <- gy[idx]
+                  }
+                  r_polys[[ci]] <- as.vector(rbind(gx, gy))
+                }
+              }
+            }
+          }
+
+          # Interactive Review Step (exact same as yolo_fewshot_fit!)
+          rev <- .interactive_fewshot_review_step(
+            curr_im = curr_img,
+            r_boxes = r_boxes,
+            r_polys = r_polys,
+            curr_points = cached_pts,
+            c_num_arr = c_num_arr,
+            cw = img_w,
+            ch = img_h,
+            pre_proto = NULL,
             task = task,
-            class_name = class_names[1],
-            show_similarity = show_similarity,
-            sim_threshold = curr_sim_thresh,
+            label = class_names[1],
+            conf_threshold = curr_sim_thresh,
+            radius = NULL,
+            min_dist = curr_min_dist,
+            max_objects = max_objects,
+            method = "sam",
+            engine = engine,
+            device_id = device_id,
+            rainbow = rainbow,
+            show_class = show_class,
+            show_conf = show_conf,
+            badge = badge,
+            img_name = base_name,
             img_idx = i,
             total_imgs = num_imgs
           )
 
-          cli::cli_alert_success("PerSAM detected {.bold {n_found}} object(s) with similarity >= {curr_sim_thresh}.")
-
-          cat("\n")
-          cli::cli_rule(left = "Interactive Labeling Options")
-          cli::cli_bullets(c(
-            "*" = "{.bold [Enter] / y}: Accept detections and save label",
-            "*" = "{.bold r}: Retry / re-click exemplars for this image",
-            "*" = "{.bold t <val>}: Adjust similarity threshold (e.g. {.code t 0.75} or {.code t 0.60})",
-            "*" = "{.bold d <val>}: Adjust minimum distance between objects (e.g. {.code d 30} or {.code d 40})",
-            "*" = "{.bold s}: Skip this image",
-            "*" = "{.bold q}: Quit interactive labeling and save current dataset"
-          ))
-
-          ans <- tolower(trimws(readline("Select action [Enter to accept]: ")))
-
-          if (ans == "" || ans == "y" || ans == "yes") {
+          if (identical(rev$action, "resample")) {
+            cached_pts <- NULL
+            next
+          } else if (identical(rev$action, "stop")) {
+            bx_df <- rev$boxes
+            conts_list <- rev$polygons
+            accepted <- TRUE
+            stop_early <- TRUE
+            break
+          } else {
+            # Accepted and continue
+            bx_df <- rev$boxes
+            conts_list <- rev$polygons
+            cached_pts <- rev$points
+            curr_sim_thresh <- if (!is.null(rev$conf)) rev$conf else curr_sim_thresh
             accepted <- TRUE
             if (identical(prompt_mode, "each")) {
               cached_pts <- NULL
             }
-          } else if (ans == "r" || ans == "retry") {
-            cached_pts <- NULL
-          } else if (startsWith(ans, "t")) {
-            new_val <- as.numeric(sub("^t\\s*", "", ans))
-            if (!is.na(new_val) && new_val > 0 && new_val < 1) {
-              curr_sim_thresh <- new_val
-              cli::cli_alert_info("Updated threshold to {curr_sim_thresh}. Re-evaluating...")
-            } else {
-              cli::cli_alert_warning("Invalid threshold value. Must be between 0 and 1 (e.g. 't 0.55').")
-            }
-          } else if (startsWith(ans, "d")) {
-            new_d <- as.numeric(sub("^d\\s*", "", ans))
-            if (!is.na(new_d) && new_d > 0) {
-              curr_min_dist <- new_d
-              cli::cli_alert_info("Updated min_dist to {curr_min_dist}px. Re-evaluating...")
-            } else {
-              cli::cli_alert_warning("Invalid min_dist value. Must be positive (e.g. 'd 30').")
-            }
-          } else if (ans == "s" || ans == "skip") {
-            cli::cli_alert_info("Skipped image {base_name}.")
-            if (identical(prompt_mode, "each")) cached_pts <- NULL
-            break
-          } else if (ans == "q" || ans == "quit") {
-            cli::cli_alert_info("Quitting interactive labeling. Saving dataset with existing annotations...")
-            stop_early <- TRUE
-            break
           }
         }
 
@@ -666,7 +777,11 @@ yolo_dataset_export <- function(img,
     # --------------------------------------------------------------------------
     } else {
       if (identical(annotations, "auto")) {
-        res_obj <- analyze_objects(curr_img, plot = FALSE, ...)
+        res_obj <- if (length(extra_args) > 0L) {
+          do.call(analyze_objects, c(list(img = curr_img, plot = FALSE), extra_args))
+        } else {
+          analyze_objects(curr_img, plot = FALSE)
+        }
         if (!is.null(res_obj[["contours"]])) {
           conts_list <- res_obj[["contours"]]
         }
@@ -707,7 +822,9 @@ yolo_dataset_export <- function(img,
 
         for (k in seq_along(cx)) {
           if ((bw[k] * img_w * bh[k] * img_h) < min_area) next
-          cid <- if (!is.null(bx_df$label) && length(bx_df$label) >= k) {
+          cid <- if (!is.null(bx_df$class_id) && length(bx_df$class_id) >= k) {
+            as.integer(bx_df$class_id[k])
+          } else if (!is.null(bx_df$label) && length(bx_df$label) >= k) {
             lbl <- tolower(trimws(bx_df$label[k]))
             m_idx <- match(lbl, tolower(trimws(class_names)))
             if (!is.na(m_idx)) m_idx - 1L else class_id[1]
@@ -741,7 +858,24 @@ yolo_dataset_export <- function(img,
       if (length(conts_list) > 0L) {
         for (k in seq_along(conts_list)) {
           c_mat <- conts_list[[k]]
-          if (is.null(c_mat) || nrow(c_mat) < 4L) next
+          if (is.null(c_mat)) next
+
+          if (is.vector(c_mat) && length(c_mat) >= 6L && !is.matrix(c_mat)) {
+            cid <- if (!is.null(bx_df$class_id) && length(bx_df$class_id) >= k) {
+              as.integer(bx_df$class_id[k])
+            } else if (!is.null(bx_df$label) && length(bx_df$label) >= k) {
+              lbl <- tolower(trimws(bx_df$label[k]))
+              m_idx <- match(lbl, tolower(trimws(class_names)))
+              if (!is.na(m_idx)) m_idx - 1L else class_id[1]
+            } else if (length(class_id) == length(conts_list)) {
+              class_id[k]
+            } else {
+              class_id[1]
+            }
+            line_entry <- paste(c(cid, sprintf("%.6f", c_mat)), collapse = " ")
+            txt_lines <- c(txt_lines, line_entry)
+            next
+          }
           c_mat <- as.matrix(c_mat)
 
           x_vals <- c_mat[, 1]; y_vals <- c_mat[, 2]
@@ -793,13 +927,15 @@ yolo_dataset_export <- function(img,
       }
     }
 
-    # Save Image to train/val
+    # Save Image to split folder
     image_export(curr_img, name = paste0(base_name, ".jpg"), subfolder = dest_img_dir)
 
-    if (is_train[i]) {
+    if (split_name == "train") {
       train_images_saved <- c(train_images_saved, dest_img_path)
-    } else {
+    } else if (split_name == "val") {
       val_images_saved <- c(val_images_saved, dest_img_path)
+    } else {
+      test_images_saved <- c(test_images_saved, dest_img_path)
     }
 
     # Write text labels
@@ -809,11 +945,141 @@ yolo_dataset_export <- function(img,
     if (isTRUE(verbose)) {
       cli::cli_alert_info("Annotated {length(txt_lines)} object(s) in {.file {base_name}.jpg} [{split_name}].")
     }
+
+    # Optional review image rendering
+    if (do_review && i <= max_review) {
+      tryCatch({
+        rev_out <- file.path(review_dir, paste0("review_", base_name, ".jpg"))
+        out_w <- 1200L
+        out_h <- max(100L, as.integer(round(1200 * img_h / img_w)))
+        dev_opened <- FALSE
+        tryCatch({
+          grDevices::jpeg(rev_out, width = out_w, height = out_h, quality = 92, res = 120)
+          dev_opened <- TRUE
+        }, error = function(e) {
+          tryCatch({
+            alt_out <- file.path(review_dir, paste0("review_", i, "_", base_name, ".jpg"))
+            grDevices::jpeg(alt_out, width = out_w, height = out_h, quality = 92, res = 120)
+            dev_opened <<- TRUE
+          }, error = function(e2) {
+            tryCatch({
+              grDevices::png(rev_out, width = out_w, height = out_h, res = 120)
+              dev_opened <<- TRUE
+            }, error = function(e3) NULL)
+          })
+        })
+
+        if (dev_opened) {
+          plot(curr_img)
+          n_objs <- length(txt_lines)
+          if (isTRUE(rainbow) && n_objs > 0L) {
+            rev_border <- grDevices::rainbow(n_objs, s = 0.85, v = 0.95)
+            rev_poly <- grDevices::adjustcolor(rev_border, alpha.f = 0.40)
+          } else {
+            rev_border <- rep("#00FFCC", max(1L, n_objs))
+            rev_poly <- rep("#00FFCC55", max(1L, n_objs))
+          }
+
+          if (n_objs > 0L) {
+            parsed_objs <- lapply(txt_lines, function(ln) {
+              vals <- as.numeric(strsplit(trimws(ln), "\\s+")[[1]])
+              if (length(vals) < 5L) return(NULL)
+              cls_id <- as.integer(vals[1])
+              coords <- vals[-1]
+              if (length(coords) == 4L) {
+                cx <- coords[1] * img_w
+                cy <- coords[2] * img_h
+                bw <- coords[3] * img_w
+                bh <- coords[4] * img_h
+                list(
+                  type = "box",
+                  cls_id = cls_id,
+                  xmin = max(0, cx - bw / 2),
+                  xmax = min(img_w, cx + bw / 2),
+                  ymin = max(0, cy - bh / 2),
+                  ymax = min(img_h, cy + bh / 2)
+                )
+              } else if (length(coords) >= 6L && length(coords) %% 2 == 0) {
+                px <- coords[seq(1, length(coords), by = 2L)] * img_w
+                py <- coords[seq(2, length(coords), by = 2L)] * img_h
+                list(
+                  type = "poly",
+                  cls_id = cls_id,
+                  px = px,
+                  py = py,
+                  xmin = max(0, min(px)),
+                  xmax = min(img_w, max(px)),
+                  ymin = max(0, min(py)),
+                  ymax = min(img_h, max(py))
+                )
+              } else {
+                NULL
+              }
+            })
+            parsed_objs <- parsed_objs[!sapply(parsed_objs, is.null)]
+
+            # Draw contours / boxes
+            for (r in seq_along(parsed_objs)) {
+              obj <- parsed_objs[[r]]
+              col_b <- rev_border[((r - 1L) %% length(rev_border)) + 1L]
+              col_p <- rev_poly[((r - 1L) %% length(rev_poly)) + 1L]
+              if (identical(obj$type, "poly")) {
+                graphics::polygon(obj$px, obj$py, col = col_p, border = col_b, lwd = 1.5)
+              } else {
+                graphics::rect(obj$xmin, obj$ymin, obj$xmax, obj$ymax, border = col_b, lwd = 2)
+              }
+            }
+
+            # Draw labels / badges
+            if (isTRUE(show_class) || isTRUE(show_conf)) {
+              for (r in seq_along(parsed_objs)) {
+                obj <- parsed_objs[[r]]
+                col_b <- rev_border[((r - 1L) %% length(rev_border)) + 1L]
+                lbl_parts <- character(0)
+                if (isTRUE(show_class)) {
+                  cur_lbl <- if (length(class_names) > obj$cls_id) class_names[obj$cls_id + 1L] else as.character(obj$cls_id)
+                  if (nzchar(cur_lbl)) lbl_parts <- c(lbl_parts, cur_lbl)
+                }
+                if (isTRUE(show_conf)) {
+                  if (!is.null(bx_df) && "conf" %in% names(bx_df) && length(bx_df$conf) >= r && !is.na(bx_df$conf[r])) {
+                    lbl_parts <- c(lbl_parts, sprintf("%.2f", bx_df$conf[r]))
+                  }
+                }
+                tag <- paste(lbl_parts, collapse = " ")
+                if (nzchar(tag)) {
+                  tw <- graphics::strwidth(tag, cex = 0.8)
+                  th <- graphics::strheight(tag, cex = 0.8)
+                  y_top <- max(th + 6, obj$ymin)
+                  if (isTRUE(badge)) {
+                    bg_tag <- grDevices::adjustcolor(col_b, alpha.f = 0.90)
+                    graphics::rect(obj$xmin, y_top - th - 6, obj$xmin + tw + 6, y_top, col = bg_tag, border = NA)
+                    graphics::text(obj$xmin + 3, y_top - 3, labels = tag, col = "#FFFFFF", cex = 0.8, font = 2, adj = c(0, 1))
+                  } else {
+                    graphics::text(obj$xmin + 3, y_top - 3, labels = tag, col = col_b, cex = 0.8, font = 2, adj = c(0, 1))
+                  }
+                }
+              }
+            }
+          }
+
+          graphics::title(
+            sprintf("%s: %d %s", paste0(base_name, ".jpg"), length(txt_lines), if (identical(task, "segment")) "segmented" else "detected"),
+            col.main = if (isTRUE(rainbow)) "#222222" else "#00FFCC",
+            cex.main = 1.0
+          )
+          grDevices::dev.off()
+        }
+      }, error = function(e) {
+        if (grDevices::dev.cur() > 1L) {
+          tryCatch(grDevices::dev.off(), error = function(e2) NULL)
+        }
+      })
+    }
   }
 
   # Ensure val split has at least 1 image (required by YOLO validator)
-  if (length(val_images_saved) == 0L && length(train_images_saved) > 0L) {
-    src_img <- train_images_saved[1]
+  if (length(val_images_saved) == 0L && length(train_images_saved) > 1L) {
+    src_img <- train_images_saved[length(train_images_saved)]
     src_lbl <- file.path(train_lbl_dir, paste0(tools::file_path_sans_ext(basename(src_img)), ".txt"))
     val_img <- file.path(val_img_dir, basename(src_img))
     val_lbl <- file.path(val_lbl_dir, basename(src_lbl))
@@ -827,10 +1093,12 @@ yolo_dataset_export <- function(img,
   yaml_content <- c(
     paste0("path: ", normalizePath(dir, winslash = "/")),
     "train: images/train",
-    "val: images/val",
-    "",
-    "names:"
+    "val: images/val"
   )
+  if (length(test_images_saved) > 0L) {
+    yaml_content <- c(yaml_content, "test: images/test")
+  }
+  yaml_content <- c(yaml_content, "", "names:")
   for (idx in seq_along(class_names)) {
     yaml_content <- c(yaml_content, paste0("  ", idx - 1L, ": ", class_names[idx]))
   }
@@ -838,9 +1106,13 @@ yolo_dataset_export <- function(img,
   writeLines(yaml_content, yaml_path)
 
   if (isTRUE(verbose)) {
+    tot_saved <- length(train_images_saved) + length(val_images_saved) + length(test_images_saved)
     cli::cli_alert_success(
-      "YOLO dataset successfully generated in {.path {dir}} ({total_objects_annotated} objects across {length(train_images_saved) + length(val_images_saved)} images)."
+      "YOLO dataset successfully generated in {.path {dir}} ({total_objects_annotated} objects across {tot_saved} images)."
     )
+    if (do_review) {
+      cli::cli_alert_info("Review previews written to: {.path {review_dir}}")
+    }
   }
 
   out <- list(
@@ -848,6 +1120,8 @@ yolo_dataset_export <- function(img,
     yaml_file = yaml_path,
     train_images = train_images_saved,
     val_images = val_images_saved,
+    test_images = test_images_saved,
+    review_dir = if (do_review) review_dir else NULL,
     n_objects = total_objects_annotated
   )
   class(out) <- "yolo_dataset"
@@ -864,10 +1138,18 @@ yolo_dataset_export <- function(img,
 #'
 #' @param dir Character or `yolo_dataset` object. Path to the dataset directory (or list from [yolo_dataset_export()] / [yolo_dataset_split()]).
 #' @param split Character. The subset to preview: `"train"` (default), `"val"`, or `"test"`.
+#' @param bbox Logical. Whether to draw bounding boxes and annotations. Defaults to `TRUE`.
+#' @param polygon Logical. For segmentation datasets, whether to draw polygons. Defaults to `TRUE`.
+#' @param n Integer. Number of sample images to preview. Defaults to `4L`. Supported aliases: `n_images`, `num_images`.
+#' @param which Optional integer vector of image indices (e.g. `1:4`) or character vector of
+#'   image names or stems (e.g. `c("img_3_aug1", "img_553_aug2")`) to plot specific images.
+#' @param images Alias for `which`.
+#' @param only_augmented Logical. If `TRUE`, only previews augmented images (containing `_aug`).
+#'   Defaults to `TRUE` if `dir` is an augmented dataset (`yolo_dataset_aug`), and `FALSE` otherwise.
 #' @param pattern Optional regex pattern to filter specific image names (e.g. `"toras5\\.png"`). Defaults to `NULL`.
-#' @param n Integer. Number of sample images to preview. Defaults to `4L`.
-#' @param random Logical. If `TRUE` (default), samples random images from the split. If `FALSE`, picks the first `n` images.
+#' @param random Logical. If `TRUE` (default when `which` is `NULL`), samples random images from the split. If `FALSE`, picks the first `n` images.
 #' @param seed Optional integer seed for reproducible random selection.
+#' @param mfrow Numeric vector of length 2 giving `c(rows, cols)` for the multi-panel layout.
 #' @param rainbow Logical. If `TRUE` (default), assigns distinct rainbow colors to each object within the image (matching review previews). If `FALSE`, colors are assigned by class.
 #' @param col Border color for bounding boxes/polygons. If provided, overrides `rainbow` and default class palette.
 #' @param lwd Numeric. Line width for borders. Defaults to `1.5`.
@@ -876,6 +1158,7 @@ yolo_dataset_export <- function(img,
 #' @param label_bg Logical. If `TRUE`, draws a subtle background badge behind each label. If `FALSE` (default), draws clean, discreet text matching review previews without blocking objects.
 #' @param cex Numeric. Text size for class name labels. Defaults to `0.6`.
 #' @param title Logical or character. If `TRUE` (default), displays panel titles with filename and object count.
+#' @param ... Additional arguments.
 #'
 #' @return An invisible list of the sampled image file paths.
 #' @export
@@ -887,9 +1170,14 @@ yolo_dataset_export <- function(img,
 #' }
 yolo_dataset_preview <- function(dir = "yolo_dataset",
                                  split = c("train", "val", "test"),
-                                 pattern = NULL,
+                                 bbox = TRUE,
+                                 polygon = TRUE,
                                  n = 4L,
-                                 random = TRUE,
+                                 which = NULL,
+                                 images = NULL,
+                                 only_augmented = NULL,
+                                 pattern = NULL,
+                                 random = is.null(which) && is.null(images),
                                  seed = NULL,
                                  mfrow = NULL,
                                  rainbow = TRUE,
@@ -899,12 +1187,24 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
                                  show_labels = TRUE,
                                  label_bg = FALSE,
                                  cex = 0.6,
-                                 title = TRUE) {
+                                 title = TRUE,
+                                 ...) {
+  dots <- list(...)
+  if (!is.null(dots$n_images)) n <- dots$n_images
+  if (!is.null(dots$num_images)) n <- dots$num_images
+  if (!is.null(dots$n_samples)) n <- dots$n_samples
+  if (!is.null(dots$show_bbox)) bbox <- dots$show_bbox
+  if (!is.null(dots$show_boxes)) bbox <- dots$show_boxes
+  if (!is.null(dots$img) && is.null(which) && is.null(images)) which <- dots$img
+  if (!is.null(images) && is.null(which)) which <- images
+
   split <- match.arg(split)
 
   if (is.null(dir)) {
     cli::cli_abort("The {.arg dir} argument cannot be NULL. Provide a directory path or a {.code yolo_dataset} object.")
   }
+
+  dir_obj <- dir
 
   if (is.list(dir)) {
     if (!is.null(dir$dir) && is.character(dir$dir) && nzchar(dir$dir[1])) {
@@ -994,10 +1294,10 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
 
   if (!is.null(yaml_img_dir)) {
     img_dir <- yaml_img_dir
-    cand_lbl1 <- sub("/images$", "/labels", img_dir)
-    cand_lbl2 <- sub("/images/", "/labels/", img_dir)
+    cand_lbl1 <- sub("([/\\\\])images([/\\\\]|$)", "\\1labels\\2", img_dir)
+    cand_lbl2 <- sub("([/\\\\])images([/\\\\])", "\\1labels\\2", img_dir)
     for (c_lbl in c(cand_lbl1, cand_lbl2)) {
-      if (dir.exists(c_lbl)) {
+      if (c_lbl != img_dir && dir.exists(c_lbl)) {
         lbl_dir <- c_lbl
         break
       }
@@ -1048,9 +1348,24 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
 
   default_palette <- c("#00FF66", "#00F0FF", "#FF0055", "#FFD700", "#9D00FF", "#FF8800", "#00B4D8", "#E63946")
 
-  img_files <- list.files(img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", ignore.case = TRUE, full.names = TRUE)
+  img_files <- list.files(img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", ignore.case = TRUE, full.names = TRUE)
   if (length(img_files) == 0L) {
     cli::cli_abort("No images found in {.path {img_dir}}.")
+  }
+
+  is_aug_context <- inherits(dir_obj, "yolo_dataset_aug") ||
+                    (is.list(dir_obj) && isTRUE(dir_obj$is_augmented)) ||
+                    (is.character(raw_dir) && grepl("_aug", raw_dir[1]))
+
+  if (is.null(only_augmented)) {
+    only_augmented <- is_aug_context && is.null(which) && is.null(pattern)
+  }
+
+  if (isTRUE(only_augmented)) {
+    aug_matches <- grepl("_aug[0-9]+", basename(img_files))
+    if (any(aug_matches)) {
+      img_files <- img_files[aug_matches]
+    }
   }
 
   if (!is.null(pattern) && is.character(pattern) && nzchar(pattern[1])) {
@@ -1066,12 +1381,47 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
     cli::cli_alert_warning("Found {length(dup_names)} image stem collision(s) in split {.val {split}} (e.g. {.val {head(dup_names, 3)}}). Multiple images with different extensions share the same base name, causing them to compete for the same {.file .txt} label file!")
   }
 
-  n_samples <- min(as.integer(n), length(img_files))
-  if (isTRUE(random)) {
-    if (!is.null(seed)) set.seed(seed)
-    sample_files <- sample(img_files, size = n_samples)
+  if (!is.null(which)) {
+    if (is.numeric(which)) {
+      w_idx <- as.integer(which)
+      valid_idx <- w_idx[w_idx >= 1L & w_idx <= length(img_files)]
+      if (length(valid_idx) == 0L) {
+        cli::cli_abort("Specified index {.val {which}} is out of bounds. Available images: 1 to {length(img_files)}.")
+      }
+      sample_files <- img_files[valid_idx]
+    } else if (is.character(which)) {
+      matched_idx <- integer(0)
+      for (w in which) {
+        w_clean <- trimws(w)
+        # 1. exact basename
+        m <- which(tolower(basename(img_files)) == tolower(w_clean))
+        # 2. stem match
+        if (length(m) == 0L) {
+          m <- which(tolower(all_stems) == tolower(tools::file_path_sans_ext(w_clean)))
+        }
+        # 3. partial pattern
+        if (length(m) == 0L) {
+          m <- grep(w_clean, basename(img_files), ignore.case = TRUE)
+        }
+        matched_idx <- c(matched_idx, m)
+      }
+      matched_idx <- unique(matched_idx)
+      if (length(matched_idx) == 0L) {
+        cli::cli_abort("No images matching {.val {which}} found in split {.val {split}}.")
+      }
+      sample_files <- img_files[matched_idx]
+    } else {
+      cli::cli_abort("{.arg which} must be an integer index vector or character vector of image names.")
+    }
+    n_samples <- length(sample_files)
   } else {
-    sample_files <- img_files[seq_len(n_samples)]
+    n_samples <- min(as.integer(n), length(img_files))
+    if (isTRUE(random)) {
+      if (!is.null(seed)) set.seed(seed)
+      sample_files <- sample(img_files, size = n_samples)
+    } else {
+      sample_files <- img_files[seq_len(n_samples)]
+    }
   }
 
   if (n_samples > 1L) {
@@ -1087,6 +1437,26 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
   for (img_path in sample_files) {
     base_name <- tools::file_path_sans_ext(basename(img_path))
     lbl_path  <- file.path(lbl_dir, paste0(base_name, ".txt"))
+    if (!file.exists(lbl_path)) {
+      alt_lbl <- sub("([/\\\\])images([/\\\\])", "\\1labels\\2", img_path)
+      alt_lbl <- paste0(tools::file_path_sans_ext(alt_lbl), ".txt")
+      if (file.exists(alt_lbl)) {
+        lbl_path <- alt_lbl
+      } else {
+        for (cand_parent in c(dir, dirname(img_dir), dirname(dirname(img_dir)))) {
+          alt_lbl2 <- file.path(cand_parent, "labels", split, paste0(base_name, ".txt"))
+          if (file.exists(alt_lbl2)) {
+            lbl_path <- alt_lbl2
+            break
+          }
+          alt_lbl3 <- file.path(cand_parent, "labels", paste0(base_name, ".txt"))
+          if (file.exists(alt_lbl3)) {
+            lbl_path <- alt_lbl3
+            break
+          }
+        }
+      }
+    }
 
     same_stem_imgs <- img_files[all_stems == base_name]
     if (length(same_stem_imgs) > 1L) {
@@ -1153,9 +1523,12 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
           xmax <- cx + bw / 2
           ymin <- cy - bh / 2
           ymax <- cy + bh / 2
-          graphics::rect(xmin, ymin, xmax, ymax, border = draw_col, lwd = lwd)
 
-          if (isTRUE(show_labels)) {
+          if (isTRUE(bbox)) {
+            graphics::rect(xmin, ymin, xmax, ymax, border = draw_col, lwd = lwd)
+          }
+
+          if (isTRUE(show_labels) && isTRUE(bbox)) {
             if (isTRUE(label_bg)) {
               th <- graphics::strheight(lbl_text, cex = cex) * 1.2
               tw <- graphics::strwidth(lbl_text, cex = cex) * 1.2
@@ -1170,10 +1543,19 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
           # Segmentation polygon format: x1 y1 x2 y2 ...
           xs <- coords[seq(1, length(coords), by = 2L)] * img_w
           ys <- coords[seq(2, length(coords), by = 2L)] * img_h
-          poly_fill <- if (!is.null(fill)) fill else if (isTRUE(rainbow)) grDevices::adjustcolor(draw_col, alpha.f = 0.35) else NULL
-          graphics::polygon(xs, ys, border = draw_col, col = poly_fill, lwd = lwd)
 
-          if (isTRUE(show_labels)) {
+          if (isTRUE(polygon)) {
+            poly_fill <- if (!is.null(fill)) fill else if (isTRUE(rainbow)) grDevices::adjustcolor(draw_col, alpha.f = 0.35) else NULL
+            graphics::polygon(xs, ys, border = draw_col, col = poly_fill, lwd = lwd)
+          }
+
+          if (isTRUE(bbox)) {
+            min_x <- min(xs); max_x <- max(xs)
+            min_y <- min(ys); max_y <- max(ys)
+            graphics::rect(min_x, min_y, max_x, max_y, border = draw_col, lwd = lwd, lty = if (isTRUE(polygon)) 2 else 1)
+          }
+
+          if (isTRUE(show_labels) && (isTRUE(bbox) || isTRUE(polygon))) {
             min_x <- min(xs); min_y <- min(ys)
             if (isTRUE(label_bg)) {
               th <- graphics::strheight(lbl_text, cex = cex) * 1.2
@@ -1193,21 +1575,119 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
   invisible(sample_files)
 }
 
+#' @title Plot and Preview YOLO Dataset Annotations and Bounding Boxes
+#' @name plot.yolo_dataset
+#' @aliases plot.yolo_dataset_aug
+#' @description
+#' Visualizes sample images and their corresponding YOLO bounding boxes or
+#' segmentation masks from a YOLO dataset or augmented dataset. Allows inspecting
+#' bounding box transformations (rotations, flips) and image augmentations.
+#'
+#' @param x A `yolo_dataset` or `yolo_dataset_aug` object (or dataset directory path).
+#' @param bbox Logical. Whether to draw bounding boxes and annotations. Defaults to `TRUE`.
+#' @param n Integer. Number of images to plot. Defaults to `4L`. Supported aliases: `n_images`, `num_images`.
+#' @param which Optional integer vector of image indices (e.g. `1:4`) or character vector of
+#'   image names/stems (e.g. `c("img_3_aug1", "img_553_aug2")`) to plot specific images.
+#' @param images Alias for `which`.
+#' @param split Character. Dataset split to preview (`"train"`, `"val"`, or `"test"`). Defaults to `"train"`.
+#' @param only_augmented Logical. If `TRUE`, only previews augmented images (containing `_aug`).
+#'   Defaults to `TRUE` if `x` is an augmented dataset (`yolo_dataset_aug`), and `FALSE` otherwise.
+#' @param pattern Optional regex pattern to filter image filenames.
+#' @param random Logical. Whether to sample images randomly. Defaults to `TRUE` when `which` is `NULL`.
+#' @param seed Optional integer seed for reproducible random selection.
+#' @param mfrow Numeric vector of length 2 giving `c(rows, cols)` for the multi-panel layout.
+#' @param rainbow Logical. If `TRUE`, assigns distinct rainbow colors to each object. Defaults to `TRUE`.
+#' @param col Custom border color for bounding boxes/polygons.
+#' @param lwd Numeric. Line width for bounding boxes. Defaults to `1.5`.
+#' @param fill Fill color for segmentation polygons. Defaults to semi-transparent color.
+#' @param show_labels Logical. Whether to display class label names. Defaults to `TRUE`.
+#' @param label_bg Logical. Whether to draw a background badge behind label text. Defaults to `FALSE`.
+#' @param cex Numeric. Text scale for labels. Defaults to `0.6`.
+#' @param title Logical or character. Title for each panel. Defaults to `TRUE`.
+#' @param ... Additional arguments passed to [yolo_dataset_preview()].
+#' @return An invisible list of the sampled image file paths.
+#' @method plot yolo_dataset
 #' @export
-plot.yolo_dataset <- function(x, ...) {
-  yolo_dataset_preview(x, ...)
+plot.yolo_dataset <- function(x,
+                              bbox = TRUE,
+                              n = 4L,
+                              which = NULL,
+                              images = NULL,
+                              split = c("train", "val", "test"),
+                              only_augmented = NULL,
+                              pattern = NULL,
+                              random = is.null(which) && is.null(images),
+                              seed = NULL,
+                              mfrow = NULL,
+                              rainbow = TRUE,
+                              col = NULL,
+                              lwd = 1.5,
+                              fill = NULL,
+                              show_labels = TRUE,
+                              label_bg = FALSE,
+                              cex = 0.6,
+                              title = TRUE,
+                              ...) {
+  yolo_dataset_preview(
+    dir = x,
+    split = split,
+    bbox = bbox,
+    n = n,
+    which = which,
+    images = images,
+    only_augmented = only_augmented,
+    pattern = pattern,
+    random = random,
+    seed = seed,
+    mfrow = mfrow,
+    rainbow = rainbow,
+    col = col,
+    lwd = lwd,
+    fill = fill,
+    show_labels = show_labels,
+    label_bg = label_bg,
+    cex = cex,
+    title = title,
+    ...
+  )
+}
+
+#' @method plot yolo_dataset_aug
+#' @export
+plot.yolo_dataset_aug <- function(x, ...) {
+  plot.yolo_dataset(x, ...)
+}
+
+#' @method print yolo_dataset_aug
+#' @export
+print.yolo_dataset_aug <- function(x, ...) {
+  print.yolo_dataset(x, ...)
 }
 
 #' @export
 print.yolo_dataset <- function(x, ...) {
-  cli::cli_h3("YOLO Dataset (pliman)")
-  cli::cli_bullets(c(
+  if (inherits(x, "yolo_dataset_aug") || isTRUE(x$is_augmented)) {
+    cli::cli_h3("YOLO Augmented Dataset (pliman)")
+  } else {
+    cli::cli_h3("YOLO Dataset (pliman)")
+  }
+  bullets <- c(
     "*" = "Directory: {.path {x$dir}}",
     "*" = "YAML config: {.path {x$yaml_file}}",
     "*" = "Train images: {length(x$train_images)}",
-    "*" = "Validation images: {length(x$val_images)}",
-    "*" = "Total objects: {x$n_objects}"
-  ))
+    "*" = "Validation images: {length(x$val_images)}"
+  )
+  if (length(x$test_images) > 0L) {
+    bullets <- c(bullets, "*" = "Test images: {length(x$test_images)}")
+  }
+  bullets <- c(bullets, "*" = "Total objects: {x$n_objects}")
+  if (!is.null(x$total_augmented)) {
+    bullets <- c(bullets, "*" = "Augmented variants: {x$total_augmented}")
+  }
+  if (!is.null(x$review_dir) && dir.exists(x$review_dir)) {
+    bullets <- c(bullets, "*" = "Review previews: {.path {x$review_dir}}")
+  }
+  cli::cli_bullets(bullets)
   cli::cli_alert_info("Use {.code plot(x)} or {.code yolo_dataset_preview(x)} to preview annotated images.")
   invisible(x)
 }

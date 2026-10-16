@@ -7,8 +7,9 @@
 image_detect_dl(
   img,
   model = "yolo26n",
-  conf_threshold = 0.25,
-  iou_threshold = 0.45,
+  conf_threshold = 0.4,
+  iou_threshold = 0.4,
+  classes = NULL,
   labels = NULL,
   col = NULL,
   rainbow = TRUE,
@@ -38,9 +39,11 @@ image_detect_dl(
 \item{model}{Model name or path to a custom ONNX file. Defaults to \code{"yolo26n"}.
 Options include \code{"yolo26n"}, \code{"yolo26s"}, \code{"yolo26m"}, \code{"yolo26l"}, \code{"yolo26x"}.}
 
-\item{conf_threshold}{Minimum confidence score for candidate boxes (default 0.25).}
+\item{conf_threshold}{Minimum confidence score for candidate boxes (default 0.40).}
 
-\item{iou_threshold}{IoU threshold for Non-Maximum Suppression (default 0.45).}
+\item{iou_threshold}{IoU threshold for Non-Maximum Suppression (default 0.40).}
+
+\item{classes}{Optional character or numeric vector of target classes to keep (e.g., \code{"ship"} or \code{c("ship", "large vehicle")}). All other detected classes are filtered out. Defaults to \code{NULL} (keep all).}
 
 \item{labels}{Optional character vector of class names (defaults to standard 80 COCO classes).}
 

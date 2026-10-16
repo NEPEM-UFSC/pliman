@@ -37,6 +37,7 @@ analyze_objects_minimal(
   tolerance = NULL,
   extension = NULL,
   lower_noise = 0.1,
+  upper_noise = NULL,
   lower_size = NULL,
   upper_size = NULL,
   topn_lower = NULL,
@@ -127,7 +128,11 @@ Used to automatically set up \code{tolerance} and \code{extension} parameters.}
 
 \item{extension}{Neighborhood radius for watershed segmentation.}
 
-\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.}
+\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.
+Defaults to \code{0.10} (i.e., 10\% of the mean area).}
+
+\item{upper_noise}{Objects with area greater than \code{upper_noise} * mean area are removed.
+Defaults to \code{NULL} (no upper noise filter).}
 
 \item{lower_size, upper_size}{Lower and upper size limits for object filtering.}
 

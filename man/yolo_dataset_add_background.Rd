@@ -55,7 +55,7 @@ To obtain an \code{.ndjson} file to use here:
 # Using a local NDJSON downloaded from Ultralytics Hub:
 yolo_dataset_add_background(
   dir = "yolo_toras",
-  source = "D:/Downloads/pliman_dl/african-wildlife.ndjson",
+  source = "african-wildlife.ndjson",
   n = 20
 )
 }

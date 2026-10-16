@@ -16,8 +16,12 @@ yolo_dataset_autolabel(
   device_id = -1,
   review = TRUE,
   rainbow = TRUE,
+  show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
+  show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
+  badge = if (!is.null(model$badge)) model$badge else TRUE,
   seed = 42,
-  verbose = TRUE
+  verbose = TRUE,
+  ...
 )
 }
 \arguments{
@@ -37,13 +41,23 @@ yolo_dataset_autolabel(
 
 \item{device_id}{GPU device ID if \code{engine = "gpu"}. Defaults to \code{-1}.}
 
-\item{review}{Logical. If \code{TRUE} (default), writes annotated review images to \verb{review/} subfolder.}
+\item{review}{Logical or integer. If \code{TRUE} (default), writes annotated review images to \verb{review/}
+subfolder for visual inspection of all images. An integer can be provided (e.g. \code{review = 30})
+to limit the number of review images generated.}
 
 \item{rainbow}{Logical. If \code{TRUE}, review previews are rendered with distinct rainbow colors per instance. Defaults to \code{FALSE}.}
+
+\item{show_class}{Logical. Whether to display class name on labels/badges in review images. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges in review images. Defaults to \code{TRUE}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels in review images. Defaults to \code{TRUE}.}
 
 \item{seed}{Random seed for reproducible splitting. Defaults to \code{42}.}
 
 \item{verbose}{Logical. Show progress messages. Defaults to \code{TRUE}.}
+
+\item{...}{Additional arguments passed to methods or aliases (e.g. \code{show_labels}, \code{show_scores}, \code{label_box}).}
 }
 \value{
 A \code{yolo_dataset} S3 object pointing to the created dataset.

@@ -13,7 +13,11 @@ yolo_fewshot_predict(
   engine = "gpu",
   device_id = -1,
   plot = FALSE,
-  rainbow = TRUE
+  rainbow = TRUE,
+  show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
+  show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
+  badge = if (!is.null(model$badge)) model$badge else TRUE,
+  ...
 )
 }
 \arguments{
@@ -34,6 +38,14 @@ yolo_fewshot_predict(
 \item{plot}{Logical. Display detection results. Defaults to \code{FALSE}.}
 
 \item{rainbow}{Logical. If \code{TRUE}, plots instances in distinct rainbow colors. Defaults to \code{FALSE}.}
+
+\item{show_class}{Logical. Whether to display class name on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges. Defaults to \code{TRUE}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels. Defaults to \code{TRUE}.}
+
+\item{...}{Additional arguments passed to plotting methods or aliases (e.g. \code{show_labels}, \code{show_scores}, \code{label_box}).}
 }
 \value{
 A \code{list} containing \code{boxes} (bounding boxes data.frame) and \code{polygons} (list of normalized coordinates).

@@ -17,6 +17,7 @@ video_detect_dl(
   save_video = !is.null(output),
   return_data = TRUE,
   track = FALSE,
+  min_frames = 10L,
   trail = TRUE,
   cex = 1,
   pad = 1,
@@ -27,8 +28,10 @@ video_detect_dl(
   show_id = FALSE,
   text_size = 1,
   count_line = NULL,
+  count_line_orientation = c("vertical", "horizontal"),
   count_line_label = NULL,
   roi = NULL,
+  roi_orientation = c("vertical", "horizontal"),
   roi_mode = c("crop", "filter"),
   roi_label = "ROI / MONITORED ZONE",
   hide_outside_roi = TRUE,
@@ -76,6 +79,7 @@ video_detect(
   save_video = !is.null(output),
   return_data = TRUE,
   track = FALSE,
+  min_frames = 10L,
   trail = TRUE,
   cex = 1,
   pad = 1,
@@ -86,8 +90,10 @@ video_detect(
   show_id = FALSE,
   text_size = 1,
   count_line = NULL,
+  count_line_orientation = c("vertical", "horizontal"),
   count_line_label = NULL,
   roi = NULL,
+  roi_orientation = c("vertical", "horizontal"),
   roi_mode = c("crop", "filter"),
   roi_label = "ROI / MONITORED ZONE",
   hide_outside_roi = TRUE,
@@ -154,6 +160,8 @@ fast real-time streaming and recording. Defaults to \code{TRUE}.}
 
 \item{track}{Logical. Whether to enable multi-object tracking and assign persistent IDs (\verb{#1}, \verb{#2}, etc.) across frames. Defaults to \code{FALSE}.}
 
+\item{min_frames}{Minimum number of frames an object must persist across the video to be retained in tracking statistics. Defaults to \code{10L}, discarding fleeting, transient noise artifacts (e.g. spurious false positives appearing in 10 or fewer frames). Set to \code{0} or \code{NULL} to retain all detections.}
+
 \item{trail}{Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when \code{track = TRUE}. Defaults to \code{TRUE}. Set to \code{FALSE} to maintain persistent IDs while hiding the trail.}
 
 \item{cex}{Size factor for label text (default \code{1.0}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
@@ -175,11 +183,22 @@ If \code{FALSE}, only the text is drawn directly.}
 
 \item{text_size}{Numeric font scale for bounding box text labels and badges (alias for \code{cex}, default \code{1.0}).}
 
-\item{count_line}{Optional counting tripwire line specified as \code{c(x1, y1, x2, y2)} in normalized coordinates (\code{0} to \code{1}). Objects crossing this virtual line are counted.}
+\item{count_line}{Optional virtual counting tripwire line. Can be specified as a single numeric
+value between \code{0} and \code{1} (indicating relative position along the axis, e.g. \code{0.5} for center)
+combined with \code{count_line_orientation}, or legacy 4-element coordinates \code{c(x1, y1, x2, y2)}.
+Objects crossing this virtual line are counted.}
+
+\item{count_line_orientation}{Orientation of the counting line when \code{count_line} is a single scalar:
+either \code{"vertical"} (default) or \code{"horizontal"}. Can also be passed as \code{count_line_dir}.}
 
 \item{count_line_label}{Optional label displayed along the counting line (default \code{NULL}, no text).}
 
-\item{roi}{Optional Region of Interest coordinates \code{c(xmin, ymin, xmax, ymax)} in normalized coordinates (\code{0} to \code{1}).}
+\item{roi}{Optional Region of Interest coordinates. Can be specified as a numeric vector of
+length 2 \code{c(min, max)} in relative coordinates (\code{0} to \code{1}) combined with \code{roi_orientation}
+(e.g., \verb{roi = c(0.2, 0.8), roi_orientation = "vertical"}), or legacy 4-element coordinates \code{c(xmin, ymin, xmax, ymax)}.}
+
+\item{roi_orientation}{Orientation of the ROI band when \code{roi} has length 2:
+either \code{"vertical"} (default) or \code{"horizontal"}. Can also be passed as \code{roi_dir}.}
 
 \item{roi_mode}{Either \code{"crop"} (infer only inside ROI) or \code{"filter"} (detect everywhere, retain only detections inside ROI).}
 

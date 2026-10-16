@@ -1108,11 +1108,18 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
       BYTE* pData = nullptr;
       DWORD maxLen = 0, curLen = 0;
       if (SUCCEEDED(pBuffer->Lock(&pData, &maxLen, &curLen)) && pData) {
-        if (curLen >= (DWORD)(abs_stride * height)) {
+        int actual_stride = abs_stride;
+        if (height > 0 && curLen >= (DWORD)(width * 4 * height)) {
+          int buf_stride = (int)(curLen / height);
+          if (buf_stride >= (int)(width * 4)) {
+            actual_stride = buf_stride;
+          }
+        }
+        if (curLen >= (DWORD)(actual_stride * height)) {
           #pragma omp parallel for schedule(static) if(height > 100)
           for (int y = 0; y < (int)height; ++y) {
             int src_y = is_bottom_up ? ((int)height - 1 - y) : y;
-            const unsigned char* src_row = pData + (size_t)src_y * abs_stride;
+            const unsigned char* src_row = pData + (size_t)src_y * actual_stride;
             unsigned char* dst_row = rgb_buffer.data() + (size_t)y * width * 3;
             for (int x = 0; x < (int)width; ++x) {
               dst_row[x * 3 + 0] = src_row[x * 4 + 2]; // R

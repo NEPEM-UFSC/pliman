@@ -148,6 +148,9 @@ get_cached_indexes_df <- function() {
 #' @param tolerance Minimum height for watershed segmentation.
 #' @param extension Neighborhood radius for watershed segmentation.
 #' @param lower_noise Objects with area less than `lower_noise` * mean area are removed.
+#'   Defaults to `0.10` (i.e., 10% of the mean area).
+#' @param upper_noise Objects with area greater than `upper_noise` * mean area are removed.
+#'   Defaults to `NULL` (no upper noise filter).
 #' @param lower_size,upper_size Lower and upper size limits for object filtering.
 #' @param topn_lower,topn_upper Select top `n` objects based on area.
 #' @param lower_eccent,upper_eccent,lower_circ,upper_circ Eccentricity and circularity limits.
@@ -277,6 +280,7 @@ analyze_objects <- function(img,
                             tolerance = NULL,
                             extension = NULL,
                             lower_noise = 0.10,
+                            upper_noise = NULL,
                             rel_size = NULL,
                             lower_size = NULL,
                             upper_size = NULL,
@@ -397,6 +401,7 @@ analyze_objects <- function(img,
                          col_background = NULL,
                          col_foreground = NULL,
                          lower_noise = 0.1,
+                         upper_noise = NULL,
                          lower_size = NULL,
                          upper_size = NULL,
                          topn_lower = NULL,
@@ -824,6 +829,7 @@ analyze_objects <- function(img,
         shape <- shape[which(shape$area > mean(shape$area, na.rm = TRUE) * lower_noise), , drop = FALSE]
       }
       if (!is.null(upper_size) && nrow(shape) > 0) shape <- shape[which(shape$area < upper_size), , drop = FALSE]
+      if (!is.null(upper_noise) && nrow(shape) > 0) shape <- shape[which(shape$area < mean(shape$area, na.rm = TRUE) * upper_noise), , drop = FALSE]
       if (!is.null(topn_lower) && nrow(shape) > 0) shape <- shape[order(shape$area), , drop = FALSE][1:min(nrow(shape), topn_lower), , drop = FALSE]
       if (!is.null(topn_upper) && nrow(shape) > 0) shape <- shape[order(shape$area, decreasing = TRUE), , drop = FALSE][1:min(nrow(shape), topn_upper), , drop = FALSE]
       if (!is.null(lower_eccent) && nrow(shape) > 0) shape <- shape[which(shape$eccentricity > lower_eccent), , drop = FALSE]
@@ -1103,7 +1109,7 @@ analyze_objects <- function(img,
       show_contour = show_contour, show_bbox = show_bbox, contour_col = contour_col, contour_size = contour_size, show_lw = show_lw,
       show_background = show_background, show_segmentation = show_segmentation, marker = marker, marker_col = marker_col, marker_size = marker_size, save_image = save_image,
       prefix = prefix, dir_original = dir_original, dir_processed = dir_processed, verbose = verbose, col_background = col_background,
-      col_foreground = col_foreground, lower_noise = lower_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
+      col_foreground = col_foreground, lower_noise = lower_noise, upper_noise = upper_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
       lower_eccent = lower_eccent, upper_eccent = upper_eccent, lower_circ = lower_circ, upper_circ = upper_circ,
       ab_angles = ab_angles, ab_angles_percentiles = ab_angles_percentiles, width_at = width_at, width_at_percentiles = width_at_percentiles,
       return_mask = return_mask, pcv = pcv, pcv_niter = pcv_niter, object_index = object_index, max_pixels = max_pixels, return_exact = return_exact, area_mode = area_mode,
@@ -1145,7 +1151,7 @@ analyze_objects <- function(img,
       show_contour = show_contour, show_bbox = show_bbox, contour_col = contour_col, contour_size = contour_size, show_lw = show_lw,
       show_background = show_background, show_segmentation = show_segmentation, marker = marker, marker_col = marker_col, marker_size = marker_size, save_image = save_image,
       prefix = prefix, dir_original = dir_original, dir_processed = dir_processed, verbose = verbose, col_background = col_background,
-      col_foreground = col_foreground, lower_noise = lower_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
+      col_foreground = col_foreground, lower_noise = lower_noise, upper_noise = upper_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
       lower_eccent = lower_eccent, upper_eccent = upper_eccent, lower_circ = lower_circ, upper_circ = upper_circ,
       ab_angles = ab_angles, ab_angles_percentiles = ab_angles_percentiles, width_at = width_at, width_at_percentiles = width_at_percentiles,
       return_mask = return_mask, pcv = pcv, pcv_niter = pcv_niter, object_index = object_index, max_pixels = max_pixels, return_exact = return_exact, area_mode = area_mode,

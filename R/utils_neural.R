@@ -142,6 +142,95 @@ pliman_model_dir <- function(dir = NULL) {
   return(default_dir)
 }
 
+# Internal helper to find an installed or local model file before hitting the network
+.find_local_model <- function(m, dir = pliman_model_dir(), verbose = FALSE) {
+  if (is.null(m) || !is.character(m) || length(m) == 0L || !nzchar(m[1])) return(NULL)
+  m_str <- m[1]
+  if (grepl("^https?://", m_str)) return(NULL)
+  dir <- pliman_model_dir(dir)
+
+  # 1. Exact path or relative path exists on disk
+  if (file.exists(m_str) && !dir.exists(m_str)) {
+    finfo <- file.info(m_str)
+    if (!is.na(finfo$size) && finfo$size > 1000) {
+      return(normalizePath(m_str, winslash = "/"))
+    }
+  }
+
+  # 2. Exact match inside dir
+  in_dir <- file.path(dir, m_str)
+  if (file.exists(in_dir) && !dir.exists(in_dir)) {
+    finfo <- file.info(in_dir)
+    if (!is.na(finfo$size) && finfo$size > 1000) {
+      return(normalizePath(in_dir, winslash = "/"))
+    }
+  }
+
+  # 3. Direct extension append (.onnx or .pt)
+  for (ext in c(".onnx", ".pt")) {
+    cand <- file.path(dir, paste0(m_str, ext))
+    if (file.exists(cand) && !dir.exists(cand)) {
+      finfo <- file.info(cand)
+      if (!is.na(finfo$size) && finfo$size > 1000) {
+        return(normalizePath(cand, winslash = "/"))
+      }
+    }
+  }
+
+  if (!dir.exists(dir)) return(NULL)
+  local_files <- list.files(dir, pattern = "\\.(onnx|pt)$", ignore.case = TRUE, full.names = FALSE)
+  if (length(local_files) == 0L) return(NULL)
+
+  m_clean <- sub("\\.(onnx|pt)$", "", basename(m_str), ignore.case = TRUE)
+  files_clean <- sub("\\.(onnx|pt)$", "", local_files, ignore.case = TRUE)
+
+  # Helper to choose best candidate (prefer non-int8 unless requested, prefer .onnx)
+  .pick_best <- function(cands) {
+    if (!grepl("_int8", m_clean, ignore.case = TRUE) && any(!grepl("_int8", cands))) {
+      cands <- cands[!grepl("_int8", cands)]
+    }
+    ord <- order(grepl("\\.onnx$", cands, ignore.case = TRUE), decreasing = TRUE)
+    best_file <- cands[ord[1]]
+    normalizePath(file.path(dir, best_file), winslash = "/")
+  }
+
+  # 4. Case-insensitive exact match
+  idx <- which(tolower(local_files) == tolower(m_str) | tolower(files_clean) == tolower(m_clean))
+  if (length(idx) > 0L) {
+    return(.pick_best(local_files[idx]))
+  }
+
+  # 5. Singular / Plural variations (e.g. capsula <-> capsulas)
+  cand_stems <- unique(c(
+    sub("^([a-zA-Z0-9]+)_", "\\1s_", m_clean),
+    sub("^([a-zA-Z0-9]+)s_", "\\1_", m_clean),
+    paste0(m_clean, "s"),
+    sub("s$", "", m_clean)
+  ))
+  cand_stems <- cand_stems[cand_stems != m_clean]
+  for (cs in cand_stems) {
+    idx <- which(tolower(files_clean) == tolower(cs))
+    if (length(idx) > 0L) {
+      return(.pick_best(local_files[idx]))
+    }
+  }
+
+  # 6. Prefix / substring match (e.g. 'capsulas' or 'capsula' -> 'capsulas_det.onnx')
+  idx_prefix <- which(startsWith(tolower(files_clean), tolower(m_clean)) | startsWith(tolower(files_clean), tolower(sub("s$", "", m_clean))))
+  if (length(idx_prefix) > 0L) {
+    return(.pick_best(local_files[idx_prefix]))
+  }
+
+  # 7. Fuzzy Levenshtein match (max distance 2 or relative <= 0.35)
+  dists <- as.vector(utils::adist(tolower(m_clean), tolower(files_clean)))
+  min_d <- min(dists)
+  if (min_d <= 2L && (min_d / max(1L, nchar(m_clean))) <= 0.35) {
+    return(.pick_best(local_files[which(dists == min_d)]))
+  }
+
+  return(NULL)
+}
+
 # Internal helper to resolve user-friendly model aliases
 .resolve_model_name <- function(model) {
   aliases <- c(
@@ -1361,6 +1450,32 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
     }
   }
 
+  # Include custom local models present in dir
+  if (dir.exists(dir)) {
+    local_files <- list.files(dir, pattern = "\\.(onnx|pt)$", ignore.case = TRUE, full.names = FALSE)
+    known_filenames <- tolower(vapply(models_info, function(m) m$filename, character(1)))
+    custom_files <- local_files[!tolower(local_files) %in% known_filenames &
+                                !grepl("(curltmp|download|cache)", local_files, ignore.case = TRUE)]
+    for (cf in custom_files) {
+      cf_path <- file.path(dir, cf)
+      f_size <- tryCatch(round(file.info(cf_path)$size / (1024^2), 1), error = function(e) 0)
+      c_model <- sub("\\.(onnx|pt)$", "", cf, ignore.case = TRUE)
+      c_task <- if (grepl("[-_]cls", cf, ignore.case = TRUE)) "Classification"
+                else if (grepl("[-_]seg", cf, ignore.case = TRUE)) "Instance Segmentation"
+                else if (grepl("[-_]obb", cf, ignore.case = TRUE)) "Oriented Bounding Box"
+                else if (grepl("[-_]pose", cf, ignore.case = TRUE)) "Pose Estimation"
+                else "Object Detection / Segmentation"
+      models_info[[length(models_info) + 1]] <- list(
+        name = c_model,
+        description = paste0("Local custom model (", c_task, ")"),
+        size_mb = f_size,
+        input_size = "dynamic",
+        filename = cf,
+        url = ""
+      )
+    }
+  }
+
   res <- do.call(rbind, lapply(models_info, function(m) {
     file_path <- file.path(dir, m$filename)
     downloaded <- file.exists(file_path) && file.info(file_path)$size > 1000
@@ -1438,19 +1553,17 @@ pliman_download_model <- function(model = "u2netp",
       cli::cli_alert_success("Model {.file {fname}} successfully downloaded to {.path {dest_norm}}")
     }
 
-    # CASE 2: Local file already exists
+    # CASE 2: Local file already exists (exact, alias, plural/singular, or fuzzy)
     if (!isTRUE(force)) {
-      if (file.exists(m)) {
-        return(normalizePath(m, winslash = "/"))
+      local_path <- .find_local_model(m, dir = dir)
+      if (is.null(local_path)) {
+        resolved_alias <- .resolve_model_name(m)
+        if (resolved_alias != m) {
+          local_path <- .find_local_model(resolved_alias, dir = dir)
+        }
       }
-      if (file.exists(file.path(dir, m))) {
-        return(normalizePath(file.path(dir, m), winslash = "/"))
-      }
-      if (file.exists(file.path(dir, paste0(m, ".onnx")))) {
-        return(normalizePath(file.path(dir, paste0(m, ".onnx")), winslash = "/"))
-      }
-      if (file.exists(file.path(dir, paste0(m, ".pt")))) {
-        return(normalizePath(file.path(dir, paste0(m, ".pt")), winslash = "/"))
+      if (!is.null(local_path)) {
+        return(local_path)
       }
     }
 
@@ -3260,7 +3373,8 @@ image_remove_bg_dl <- function(img,
     x1 <- bx$xmin; y1 <- bx$ymin; x2 <- bx$xmax; y2 <- bx$ymax
 
     # Draw box outline (rotated polygon for OBB, rectangle for standard)
-    if (all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(bx))) {
+    is_obb <- all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(bx))
+    if (is_obb) {
       graphics::polygon(x = c(bx$x1, bx$x2, bx$x3, bx$x4), y = c(bx$y1, bx$y2, bx$y3, bx$y4), border = k_col, lwd = lwd)
     } else {
       graphics::rect(xleft = x1, ybottom = y1, xright = x2, ytop = y2, border = k_col, lwd = lwd)
@@ -3313,34 +3427,86 @@ image_remove_bg_dl <- function(img,
     badge_w <- tw + 5 * pad_x
     badge_h <- th + 2 * pad_y
 
-    outside <- (y1 - badge_h) >= min(u[3], u[4])
-    by0 <- if (outside) y1 - badge_h else y1
-    by1 <- if (outside) y1 else y1 + badge_h
-    bx0 <- x1
-    bx1 <- x1 + badge_w
-
-    # Ensure badge does not overflow right canvas boundary
-    x_max_plot <- max(u[1], u[2])
-    if (bx1 > x_max_plot) {
-      shift <- bx1 - x_max_plot
-      bx0 <- max(min(u[1], u[2]), bx0 - shift)
-      bx1 <- bx0 + badge_w
-    }
-
     # Text contrast color (black on bright badges, white on dark badges)
     rgb_vals <- tryCatch(grDevices::col2rgb(k_col)[, 1] / 255.0, error = function(e) c(0, 1, 0))
     lum <- 0.299 * rgb_vals[1] + 0.587 * rgb_vals[2] + 0.114 * rgb_vals[3]
     txt_col <- if (lum > 0.55) "#111111" else "#ffffff"
 
-    if (isTRUE(badge)) {
-      # YOLO rounded badge tag
-      r_val <- min(badge_h * 0.28, max(0, 3 * pad_mult_y))
-      pts <- .rounded_rect_pts(bx0, by0, bx1, by1, r = r_val)
-      graphics::polygon(pts[, 1], pts[, 2], col = k_col, border = NA)
-      graphics::text(bx0 + pad_x, (by0 + by1) / 2, labels = lbl_txt, col = txt_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+    if (is_obb) {
+      p1 <- c(bx$x1, bx$y1)
+      p2 <- c(bx$x2, bx$y2)
+      p3 <- c(bx$x3, bx$y3)
+      p4 <- c(bx$x4, bx$y4)
+      cx <- (p1[1] + p2[1] + p3[1] + p4[1]) / 4
+      cy <- (p1[2] + p2[2] + p3[2] + p4[2]) / 4
+
+      # Find top edge (edge with lowest average y in canvas space)
+      edges <- list(list(p1, p2), list(p2, p3), list(p3, p4), list(p4, p1))
+      avg_ys <- vapply(edges, function(e) (e[[1]][2] + e[[2]][2]) / 2, numeric(1))
+      top_e <- edges[[which.min(avg_ys)]]
+
+      p_start <- top_e[[1]]
+      p_end <- top_e[[2]]
+      dx <- p_end[1] - p_start[1]
+      dy <- p_end[2] - p_start[2]
+      if (dx < 0) {
+        dx <- -dx; dy <- -dy
+        tmp <- p_start; p_start <- p_end; p_end <- tmp
+      }
+
+      e_len <- sqrt(dx^2 + dy^2)
+      ux <- if (e_len > 0) dx / e_len else 1.0
+      uy <- if (e_len > 0) dy / e_len else 0.0
+
+      # Normal pointing outside box (away from center)
+      vx <- -uy; vy <- ux
+      mid_pt <- (p_start + p_end) / 2
+      to_c <- c(cx - mid_pt[1], cy - mid_pt[2])
+      if ((vx * to_c[1] + vy * to_c[2]) > 0) {
+        vx <- -vx; vy <- -vy
+      }
+
+      ang_deg <- atan2(dy, dx) * 180 / pi
+      srt_val <- -ang_deg
+
+      b0 <- p_start + 1.5 * c(vx, vy)
+      b1 <- b0 + badge_w * c(ux, uy)
+      b2 <- b1 + badge_h * c(vx, vy)
+      b3 <- b0 + badge_h * c(vx, vy)
+
+      if (isTRUE(badge)) {
+        graphics::polygon(c(b0[1], b1[1], b2[1], b3[1]), c(b0[2], b1[2], b2[2], b3[2]), col = k_col, border = NA)
+        t_center <- (b0 + b1 + b2 + b3) / 4
+        graphics::text(t_center[1], t_center[2], labels = lbl_txt, col = txt_col, font = 2, srt = srt_val, adj = c(0.5, 0.5), cex = cex_val)
+      } else {
+        t_pos <- p_start + (badge_h / 2) * c(vx, vy) + pad_x * c(ux, uy)
+        graphics::text(t_pos[1], t_pos[2], labels = lbl_txt, col = k_col, font = 2, srt = srt_val, adj = c(0, 0.5), cex = cex_val)
+      }
     } else {
-      # Draw text directly without badge background
-      graphics::text(bx0, (by0 + by1) / 2, labels = lbl_txt, col = k_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+      outside <- (y1 - badge_h) >= min(u[3], u[4])
+      by0 <- if (outside) y1 - badge_h else y1
+      by1 <- if (outside) y1 else y1 + badge_h
+      bx0 <- x1
+      bx1 <- x1 + badge_w
+
+      # Ensure badge does not overflow right canvas boundary
+      x_max_plot <- max(u[1], u[2])
+      if (bx1 > x_max_plot) {
+        shift <- bx1 - x_max_plot
+        bx0 <- max(min(u[1], u[2]), bx0 - shift)
+        bx1 <- bx0 + badge_w
+      }
+
+      if (isTRUE(badge)) {
+        # YOLO rounded badge tag
+        r_val <- min(badge_h * 0.28, max(0, 3 * pad_mult_y))
+        pts <- .rounded_rect_pts(bx0, by0, bx1, by1, r = r_val)
+        graphics::polygon(pts[, 1], pts[, 2], col = k_col, border = NA)
+        graphics::text(bx0 + pad_x, (by0 + by1) / 2, labels = lbl_txt, col = txt_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+      } else {
+        # Draw text directly without badge background
+        graphics::text(bx0, (by0 + by1) / 2, labels = lbl_txt, col = k_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+      }
     }
   }
 }
@@ -4252,12 +4418,13 @@ image_remove_bg_dl <- function(img,
 
   if (file.exists(model)) {
     model_file <- normalizePath(model, winslash = "/")
-  } else if (file.exists(file.path(dir, model))) {
-    model_file <- normalizePath(file.path(dir, model), winslash = "/")
-  } else if (file.exists(file.path(dir, paste0(model, ".onnx")))) {
-    model_file <- normalizePath(file.path(dir, paste0(model, ".onnx")), winslash = "/")
   } else {
-    model_file <- pliman_download_model(model = model, dir = dir)
+    local_hit <- .find_local_model(model, dir = dir)
+    if (!is.null(local_hit)) {
+      model_file <- local_hit
+    } else {
+      model_file <- pliman_download_model(model = model, dir = dir)
+    }
   }
 
   # Detect model type from name
@@ -5251,7 +5418,12 @@ image_segment_dl <- function(img,
 
   is_url <- is.character(model) && grepl("^https?://", model[1])
   if (!is_url && is.character(model)) {
-    model <- .resolve_model_name(model[1])
+    local_m <- .find_local_model(model[1], dir = dir)
+    if (!is.null(local_m)) {
+      model <- basename(local_m)
+    } else {
+      model <- .resolve_model_name(model[1])
+    }
   }
 
   if (!is_url && grepl("[-_]cls", tolower(model))) {
@@ -5313,7 +5485,8 @@ image_segment_dl <- function(img,
   is_custom_yolo <- !is_known_non_yolo && (
     grepl("yolo", model, ignore.case = TRUE) ||
     grepl("[-_]seg", model, ignore.case = TRUE) ||
-    grepl("[-_]det", model, ignore.case = TRUE)
+    grepl("[-_]det", model, ignore.case = TRUE) ||
+    grepl("\\.(onnx|pt)$", model, ignore.case = TRUE)
   )
   use_yolo_seg <- !use_persam && !use_grounded_sam && !is_known_non_yolo && (
     model %in% c("yolo26n-seg", "yolo26s-seg", "yolo26m-seg", "yolo26l-seg", "yolo26x-seg",
@@ -6306,6 +6479,7 @@ image_features_dl <- function(img,
 #' @param show_id Logical. Whether to display object IDs (`#1`, `#2`, ...) in labels (default `FALSE`).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
+#' @param classes Optional character or numeric vector of target classes to keep (e.g., `"ship"` or `c("ship", "large vehicle")`). All other detected classes are filtered out. Defaults to `NULL` (keep all).
 #' @param return_features Logical. If `TRUE`, extracts deep feature representations for detected
 #'   bounding boxes and the global image. Attaches `"features"` (an \eqn{N \times D} matrix of per-object
 #'   deep embeddings, 512-D for CLIP or 384-D for DINOv2) and `"feature_map"` (dense spatial 3-component PCA false-color `Image`)
@@ -6337,6 +6511,7 @@ image_detect_dl <- function(img,
                             model = "yolo26n",
                             conf_threshold = 0.4,
                             iou_threshold = 0.4,
+                            classes = NULL,
                             labels = NULL,
                             col = NULL,
                             rainbow = TRUE,
@@ -6379,7 +6554,7 @@ image_detect_dl <- function(img,
   if (is.list(img) && !inherits(img, c("Image", "image"))) {
     res <- lapply(img, function(x) {
       image_detect_dl(x, model = model, conf_threshold = conf_threshold, iou_threshold = iou_threshold,
-                      labels = labels, col = col, rainbow = rainbow, lwd = lwd,
+                      classes = classes, labels = labels, col = col, rainbow = rainbow, lwd = lwd,
                       cex = cex, pad = pad, show_text = show_text, show_conf = show_conf,
                       show_class = show_class, show_id = show_id, badge = badge,
                       return_features = return_features, feature_model = feature_model, plot_features = plot_features,
@@ -6403,7 +6578,12 @@ image_detect_dl <- function(img,
   model_str <- if (is_url) {
     model[1]
   } else if (is.character(model)) {
-    .resolve_model_name(model[1])
+    local_m <- .find_local_model(model[1], dir = dir)
+    if (!is.null(local_m)) {
+      basename(local_m)
+    } else {
+      .resolve_model_name(model[1])
+    }
   } else {
     "yolo26n"
   }
@@ -6467,6 +6647,24 @@ image_detect_dl <- function(img,
     return_features = return_features,
     dir = dir
   )
+
+  if (!is.null(classes) && !is.null(res$boxes) && nrow(res$boxes) > 0) {
+    c_match <- tolower(as.character(classes))
+    idx_keep <- tolower(res$boxes$label) %in% c_match
+    if (is.numeric(classes)) {
+      idx_keep <- idx_keep | res$boxes$class_id %in% classes
+    }
+    res$boxes <- res$boxes[idx_keep, , drop = FALSE]
+    num_inst <- nrow(res$boxes)
+    if (num_inst > 0) {
+      counts <- table(factor(res$boxes$label, levels = unique(res$boxes$label)))
+      res$counts <- data.frame(class = names(counts), count = as.integer(counts), stringsAsFactors = FALSE)
+      res$summary <- .format_detection_summary(res$boxes$label)
+    } else {
+      res$counts <- data.frame(class = character(0), count = integer(0), stringsAsFactors = FALSE)
+      res$summary <- "0 objects"
+    }
+  }
 
   if (isTRUE(verbose)) {
     sum_txt <- if (!is.null(res$summary) && nzchar(res$summary) && res$summary != "0 objects") {
@@ -6599,6 +6797,62 @@ list_cameras <- function(details = FALSE) {
     cli::cli_alert_info("Camera listing is currently supported on Windows native drivers.")
     invisible(data.frame(id = integer(0), name = character(0)))
   }
+}
+
+.resolve_count_line <- function(count_line, width, height, orientation = "vertical") {
+  if (is.null(count_line)) return(NULL)
+  count_line <- as.numeric(count_line)
+  if (length(count_line) == 1L) {
+    orientation <- match.arg(tolower(orientation), c("vertical", "horizontal"))
+    if (orientation == "vertical") {
+      px <- if (count_line <= 1.0) round(count_line * width) else round(count_line)
+      c(as.numeric(px), 0.0, as.numeric(px), as.numeric(height))
+    } else {
+      py <- if (count_line <= 1.0) round(count_line * height) else round(count_line)
+      c(0.0, as.numeric(py), as.numeric(width), as.numeric(py))
+    }
+  } else if (length(count_line) >= 4L) {
+    lx1 <- if (count_line[1] <= 1.0) round(count_line[1] * width) else round(count_line[1])
+    ly1 <- if (count_line[2] <= 1.0) round(count_line[2] * height) else round(count_line[2])
+    lx2 <- if (count_line[3] <= 1.0) round(count_line[3] * width) else round(count_line[3])
+    ly2 <- if (count_line[4] <= 1.0) round(count_line[4] * height) else round(count_line[4])
+    c(as.numeric(lx1), as.numeric(ly1), as.numeric(lx2), as.numeric(ly2))
+  } else {
+    cli::cli_abort("{.arg count_line} must be a single numeric value (0 to 1) or a vector of 4 coordinates c(x1, y1, x2, y2).")
+  }
+}
+
+.resolve_roi <- function(roi, width, height, orientation = "vertical") {
+  if (is.null(roi)) return(NULL)
+  roi <- as.numeric(roi)
+  if (length(roi) == 2L) {
+    orientation <- match.arg(tolower(orientation), c("vertical", "horizontal"))
+    r_min <- min(roi)
+    r_max <- max(roi)
+    if (orientation == "vertical") {
+      rx1 <- if (r_min <= 1.0) round(r_min * width) else round(r_min)
+      ry1 <- 0L
+      rx2 <- if (r_max <= 1.0) round(r_max * width) else round(r_max)
+      ry2 <- as.integer(height)
+    } else {
+      rx1 <- 0L
+      ry1 <- if (r_min <= 1.0) round(r_min * height) else round(r_min)
+      rx2 <- as.integer(width)
+      ry2 <- if (r_max <= 1.0) round(r_max * height) else round(r_max)
+    }
+  } else if (length(roi) >= 4L) {
+    rx1 <- if (roi[1] <= 1.0) round(roi[1] * width) else round(roi[1])
+    ry1 <- if (roi[2] <= 1.0) round(roi[2] * height) else round(roi[2])
+    rx2 <- if (roi[3] <= 1.0) round(roi[3] * width) else round(roi[3])
+    ry2 <- if (roi[4] <= 1.0) round(roi[4] * height) else round(roi[4])
+  } else {
+    cli::cli_abort("{.arg roi} must be a numeric vector of length 2 c(min, max) or length 4 c(xmin, ymin, xmax, ymax).")
+  }
+  rx1 <- max(0L, min(width - 2L, as.integer(rx1)))
+  ry1 <- max(0L, min(height - 2L, as.integer(ry1)))
+  rx2 <- max(rx1 + 2L, min(width, as.integer(rx2)))
+  ry2 <- max(ry1 + 2L, min(height, as.integer(ry2)))
+  c(rx1, ry1, rx2, ry2)
 }
 
 #' Real-Time Video Object Detection with YOLO (ONNX Runtime)
@@ -6905,61 +7159,7 @@ list_cameras <- function(details = FALSE) {
 #'     return_data = TRUE
 #'   )
 #' }
-.resolve_count_line <- function(count_line, width, height, orientation = "vertical") {
-  if (is.null(count_line)) return(NULL)
-  count_line <- as.numeric(count_line)
-  if (length(count_line) == 1L) {
-    orientation <- match.arg(tolower(orientation), c("vertical", "horizontal"))
-    if (orientation == "vertical") {
-      px <- if (count_line <= 1.0) round(count_line * width) else round(count_line)
-      c(as.numeric(px), 0.0, as.numeric(px), as.numeric(height))
-    } else {
-      py <- if (count_line <= 1.0) round(count_line * height) else round(count_line)
-      c(0.0, as.numeric(py), as.numeric(width), as.numeric(py))
-    }
-  } else if (length(count_line) >= 4L) {
-    lx1 <- if (count_line[1] <= 1.0) round(count_line[1] * width) else round(count_line[1])
-    ly1 <- if (count_line[2] <= 1.0) round(count_line[2] * height) else round(count_line[2])
-    lx2 <- if (count_line[3] <= 1.0) round(count_line[3] * width) else round(count_line[3])
-    ly2 <- if (count_line[4] <= 1.0) round(count_line[4] * height) else round(count_line[4])
-    c(as.numeric(lx1), as.numeric(ly1), as.numeric(lx2), as.numeric(ly2))
-  } else {
-    cli::cli_abort("{.arg count_line} must be a single numeric value (0 to 1) or a vector of 4 coordinates c(x1, y1, x2, y2).")
-  }
-}
-
-.resolve_roi <- function(roi, width, height, orientation = "vertical") {
-  if (is.null(roi)) return(NULL)
-  roi <- as.numeric(roi)
-  if (length(roi) == 2L) {
-    orientation <- match.arg(tolower(orientation), c("vertical", "horizontal"))
-    r_min <- min(roi)
-    r_max <- max(roi)
-    if (orientation == "vertical") {
-      rx1 <- if (r_min <= 1.0) round(r_min * width) else round(r_min)
-      ry1 <- 0L
-      rx2 <- if (r_max <= 1.0) round(r_max * width) else round(r_max)
-      ry2 <- as.integer(height)
-    } else {
-      rx1 <- 0L
-      ry1 <- if (r_min <= 1.0) round(r_min * height) else round(r_min)
-      rx2 <- as.integer(width)
-      ry2 <- if (r_max <= 1.0) round(r_max * height) else round(r_max)
-    }
-  } else if (length(roi) >= 4L) {
-    rx1 <- if (roi[1] <= 1.0) round(roi[1] * width) else round(roi[1])
-    ry1 <- if (roi[2] <= 1.0) round(roi[2] * height) else round(roi[2])
-    rx2 <- if (roi[3] <= 1.0) round(roi[3] * width) else round(roi[3])
-    ry2 <- if (roi[4] <= 1.0) round(roi[4] * height) else round(roi[4])
-  } else {
-    cli::cli_abort("{.arg roi} must be a numeric vector of length 2 c(min, max) or length 4 c(xmin, ymin, xmax, ymax).")
-  }
-  rx1 <- max(0L, min(width - 2L, as.integer(rx1)))
-  ry1 <- max(0L, min(height - 2L, as.integer(ry1)))
-  rx2 <- max(rx1 + 2L, min(width, as.integer(rx2)))
-  ry2 <- max(ry1 + 2L, min(height, as.integer(ry2)))
-  c(rx1, ry1, rx2, ry2)
-}
+#' @export
 
 video_detect_dl <- function(video = 0,
                             model = "yolo26n",
@@ -7181,12 +7381,9 @@ video_detect_dl <- function(video = 0,
 
   if (detect) {
     # Model resolution: custom ONNX file or pre-trained download
-    if (file.exists(model[1])) {
-      model_file <- normalizePath(model[1], winslash = "/")
-    } else if (file.exists(file.path(dir, model[1]))) {
-      model_file <- normalizePath(file.path(dir, model[1]), winslash = "/")
-    } else if (file.exists(file.path(dir, paste0(model[1], ".onnx")))) {
-      model_file <- normalizePath(file.path(dir, paste0(model[1], ".onnx")), winslash = "/")
+    local_hit <- .find_local_model(model[1], dir = dir)
+    if (!is.null(local_hit)) {
+      model_file <- local_hit
     } else {
       model_file <- pliman_download_model(model = model[1], dir = dir)
     }
@@ -9138,7 +9335,16 @@ image_pose_dl <- function(img,
     stop("img must be a 2D matrix, 3D array, or an 'image' object.")
   }
 
-  model_str <- if (is.character(model)) .resolve_model_name(model[1]) else "yolo26n-pose"
+  model_str <- if (is.character(model)) {
+    local_m <- .find_local_model(model[1], dir = dir)
+    if (!is.null(local_m)) {
+      basename(local_m)
+    } else {
+      .resolve_model_name(model[1])
+    }
+  } else {
+    "yolo26n-pose"
+  }
 
   if (isTRUE(verbose)) {
     pb <- cli::cli_process_start(
@@ -9396,7 +9602,12 @@ image_classify_dl <- function(img,
     model_str <- if (is_url) {
       model[1]
     } else if (is.character(model)) {
-      .resolve_model_name(model[1])
+      local_m <- .find_local_model(model[1], dir = dir)
+      if (!is.null(local_m)) {
+        basename(local_m)
+      } else {
+        .resolve_model_name(model[1])
+      }
     } else {
       "yolo26n-cls"
     }
@@ -9404,7 +9615,12 @@ image_classify_dl <- function(img,
     if (file.exists(model_str)) {
       model_file <- normalizePath(model_str, winslash = "/")
     } else {
-      model_file <- pliman_download_model(model = model_str, dir = dir)
+      local_hit <- .find_local_model(model_str, dir = dir)
+      if (!is.null(local_hit)) {
+        model_file <- local_hit
+      } else {
+        model_file <- pliman_download_model(model = model_str, dir = dir)
+      }
     }
 
     # Dynamically detect model input size (default 224 for YOLO-Cls, 640 for detection)

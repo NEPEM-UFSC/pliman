@@ -330,6 +330,146 @@ gaussian_blur_cpp <- function(img_sexp, sigma) {
     .Call(`_pliman_gaussian_blur_cpp`, img_sexp, sigma)
 }
 
+image_brightness_cpp <- function(img_sexp, factor, offset) {
+    .Call(`_pliman_image_brightness_cpp`, img_sexp, factor, offset)
+}
+
+image_noise_cpp <- function(img_sexp, type, mean, sd, p, seed) {
+    .Call(`_pliman_image_noise_cpp`, img_sexp, type, mean, sd, p, seed)
+}
+
+#' @title Forward 3D Gaussian Splatting Rasterizer
+#' @name cpp_gs_render
+#' @description
+#' High-speed tile-based forward rasterization with EWA covariance projection,
+#' Spherical Harmonics color evaluation, depth sorting, and alpha-blending with early stopping.
+#' @param camera List containing camera extrinsics (R, t) and intrinsics (fx, fy, cx, cy, width, height).
+#' @param gaussians List containing 3D Gaussian parameters (positions, scales_log, quaternions, opacities_logit, sh_coeffs).
+#' @param sh_degree Integer. Maximum Spherical Harmonics degree (0, 1, or 2). Defaults to 0.
+#' @param bg_r Double. Red background color (0 to 1). Defaults to 0.0.
+#' @param bg_g Double. Green background color (0 to 1). Defaults to 0.0.
+#' @param bg_b Double. Blue background color (0 to 1). Defaults to 0.0.
+#' @param return_depth Logical. If TRUE, returns the 2D depth buffer. Defaults to TRUE.
+#' @return A List containing rendered RGB image, alpha transmittance map, and splat cache.
+#' @export
+cpp_gs_render <- function(camera, gaussians, sh_degree = 0L, bg_r = 0.0, bg_g = 0.0, bg_b = 0.0, return_depth = TRUE) {
+    .Call(`_pliman_cpp_gs_render`, camera, gaussians, sh_degree, bg_r, bg_g, bg_b, return_depth)
+}
+
+#' @title Propagate 2D SAM Masks to 3D Gaussian Splats
+#' @name cpp_gs_segment_sam
+#' @description
+#' Projects 2D instance segmentation masks (e.g. from SAM 2.1 or SAM 3.1)
+#' onto 3D Gaussians via transmittance-weighted ray-splat correspondence.
+#' @param camera List camera specification.
+#' @param gaussians List of 3D Gaussians.
+#' @param mask 2D IntegerMatrix of binary mask (0 = background, 1 = target leaf/organ).
+#' @param class_id Integer. Semantic class ID to assign.
+#' @param score_threshold Double. Minimum confidence score to update. Defaults to 0.3.
+#' @return A List with updated semantic IDs, scores, and per-splat weights.
+#' @export
+cpp_gs_segment_sam <- function(camera, gaussians, mask, class_id = 1L, score_threshold = 0.3) {
+    .Call(`_pliman_cpp_gs_segment_sam`, camera, gaussians, mask, class_id, score_threshold)
+}
+
+#' @title 3D Plant Biometrics from Gaussian Splats
+#' @name cpp_gs_measure
+#' @description
+#' Computes real 3D phenotypic metrics (surface area, volume, leaf angles, dimensions)
+#' from 3D Gaussian Splats, with optional filtering by semantic class (e.g. leaf only).
+#' @param positions N x 3 NumericMatrix of Gaussian positions.
+#' @param scales_log N x 3 NumericMatrix of log-scales.
+#' @param quaternions N x 4 NumericMatrix of rotation quaternions.
+#' @param semantic_ids IntegerVector of semantic class IDs.
+#' @param target_class Integer. Target class ID to measure (-1 = measure all). Defaults to -1.
+#' @return A List containing 3D surface area, bounding dimensions, and insertion angles.
+#' @export
+cpp_gs_measure <- function(positions, scales_log, quaternions, semantic_ids, target_class = -1L) {
+    .Call(`_pliman_cpp_gs_measure`, positions, scales_log, quaternions, semantic_ids, target_class)
+}
+
+#' @title Adaptive Densification and Pruning for 3D Gaussian Splats
+#' @name cpp_gs_densify
+#' @description
+#' Implements split, clone, and prune operations based on view-space positional
+#' gradients and scale thresholds to densify under-reconstructed geometry and prune artifacts.
+#' @param gaussians List of 3D Gaussians.
+#' @param grad_2d_norm NumericVector of accumulated 2D view-space positional gradient norms.
+#' @param grad_threshold Double. Gradient threshold to trigger densification. Defaults to 0.0002.
+#' @param scale_threshold Double. Scale threshold distinguishing split from clone. Defaults to 0.01.
+#' @param min_opacity Double. Minimum opacity threshold for pruning. Defaults to 0.05.
+#' @param max_scale Double. Maximum world scale for pruning. Defaults to 0.5.
+#' @return An updated List of 3D Gaussians.
+#' @export
+cpp_gs_densify <- function(gaussians, grad_2d_norm, grad_threshold = 0.0002, scale_threshold = 0.01, min_opacity = 0.05, max_scale = 0.5, max_gaussians = 200000L) {
+    .Call(`_pliman_cpp_gs_densify`, gaussians, grad_2d_norm, grad_threshold, scale_threshold, min_opacity, max_scale, max_gaussians)
+}
+
+#' @title High-Speed Binary and ASCII PLY Point Cloud Parser
+#' @name cpp_gs_read_ply
+#' @description
+#' Reads 3D point coordinates (X, Y, Z) and RGB vertex colors from PLY files
+#' exported by Agisoft Metashape, COLMAP, CloudCompare, or LiDAR scanners.
+#' @param file_path String path to the .ply file.
+#' @return A List containing 'positions' (N x 3 NumericMatrix), 'colors' (N x 3 NumericMatrix), and 'num_vertices'.
+#' @export
+cpp_gs_read_ply <- function(file_path) {
+    .Call(`_pliman_cpp_gs_read_ply`, file_path)
+}
+
+#' @title Differentiable 3D Gaussian Splatting Training Step
+#' @name cpp_gs_train_step
+#' @description
+#' Executes forward rasterization, photometric loss calculation (L1),
+#' analytical gradient backpropagation, and Adam parameter updates.
+#' @param camera List of camera parameters.
+#' @param gaussians List of current 3D Gaussian parameters.
+#' @param target_img NumericVector representing the W x H x 3 target image.
+#' @param adam_m List of first Adam momentum moments (pos, scale, opac, sh).
+#' @param adam_v List of second Adam momentum moments (pos, scale, opac, sh).
+#' @param iter Integer. Current iteration number.
+#' @param lr_pos Double. Learning rate for 3D positions. Defaults to 0.00016.
+#' @param lr_scale Double. Learning rate for log-scales. Defaults to 0.005.
+#' @param lr_opac Double. Learning rate for opacity logit. Defaults to 0.05.
+#' @param lr_sh Double. Learning rate for colors / spherical harmonics. Defaults to 0.0025.
+#' @return A List with updated gaussians, adam_m, adam_v, loss, and grad_2d_norm.
+#' @export
+cpp_gs_train_step <- function(camera, gaussians, target_img, adam_m, adam_v, iter = 1L, lr_pos = 0.00016, lr_scale = 0.005, lr_opac = 0.05, lr_sh = 0.0025) {
+    .Call(`_pliman_cpp_gs_train_step`, camera, gaussians, target_img, adam_m, adam_v, iter, lr_pos, lr_scale, lr_opac, lr_sh)
+}
+
+#' @title Statistical and Radius Outlier Removal (SOR / ROR) for 3D Point Clouds
+#' @name cpp_gs_filter_outliers
+#' @description
+#' High-speed native C++ Spatial Kd-Tree implementation of Statistical Outlier Removal (SOR)
+#' and Radius Outlier Removal (ROR). Filters out sparse, floating airborne noise and background
+#' artifacts from 3D point clouds without any external library dependencies.
+#' @param points N x 3 NumericMatrix of 3D coordinates.
+#' @param k Integer. Number of nearest neighbors to evaluate (default 20).
+#' @param std_ratio Double. Standard deviation multiplier threshold (default 1.0).
+#' @param radius Double. Optional radius for spherical density filtering (0 = disabled).
+#' @param min_neighbors Integer. Minimum neighbors inside radius (0 = disabled).
+#' @return A List containing 'keep' (LogicalVector), 'mean_dists' (NumericVector),
+#'   'cutoff' (double), 'global_mean' (double), 'global_sd' (double), 'num_kept' (int), and 'num_removed' (int).
+#' @export
+cpp_gs_filter_outliers <- function(points, k = 20L, std_ratio = 1.0, radius = 0.0, min_neighbors = 0L) {
+    .Call(`_pliman_cpp_gs_filter_outliers`, points, k, std_ratio, radius, min_neighbors)
+}
+
+#' @title Fast 3D k-Nearest Neighbors Query
+#' @name cpp_gs_knn
+#' @description
+#' High-speed native Kd-Tree k-nearest neighbors search in 3D Euclidean space.
+#' Completely replaces external packages like RANN with 100% native C++ code.
+#' @param points N x 3 NumericMatrix of reference point coordinates.
+#' @param queries M x 3 NumericMatrix of query coordinates (or NULL to query 'points' against itself).
+#' @param k Integer. Number of nearest neighbors.
+#' @return A List containing 'indices' (M x k IntegerMatrix, 1-based) and 'dists' (M x k NumericMatrix).
+#' @export
+cpp_gs_knn <- function(points, queries = NULL, k = 10L) {
+    .Call(`_pliman_cpp_gs_knn`, points, queries, k)
+}
+
 haralick_features_cpp <- function(labels, ref_sexp, nc = 32L) {
     .Call(`_pliman_haralick_features_cpp`, labels, ref_sexp, nc)
 }
