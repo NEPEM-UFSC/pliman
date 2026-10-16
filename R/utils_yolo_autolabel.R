@@ -41,9 +41,13 @@
 #' @param engine Execution engine for SAM: `"cpu"` or `"gpu"`. Defaults to `"cpu"`.
 #' @param device_id GPU device ID if `engine = "gpu"`. Defaults to `-1`.
 #' @param interactive Logical. Whether to enable interactive review and refinement after exemplar segmentation (allows adding missed objects, removing false positives, adjusting threshold, or resampling). Defaults to `interactive()`.
-#' @param rainbow Logical. If `TRUE` (default), plots instances in distinct rainbow colors..
+#' @param rainbow Logical. If `TRUE` (default), plots instances in distinct rainbow colors.
+#' @param show_class Logical. Whether to display class name on labels/badges. Defaults to `TRUE`.
+#' @param show_conf Logical. Whether to display confidence score on labels/badges. Defaults to `TRUE`.
+#' @param badge Logical. Whether to draw a filled background badge behind labels. Defaults to `TRUE`.
 #' @param plot Logical. Display the detection and segmentation overlay. Defaults to `TRUE`.
 #' @param verbose Logical. Show progress messages. Defaults to `TRUE`.
+#' @param ... Additional arguments passed to downstream methods or aliases (e.g., `show_labels`, `show_scores`, `label_box`).
 #'
 #' @return An object of class `yolo_fewshot_model` containing exemplar signatures,
 #'   detected instances on the reference image, and parameters for batch propagation.
@@ -87,6 +91,9 @@
                                         label = "object",
                                         conf_threshold = 0.5,
                                         rainbow = TRUE,
+                                        show_class = TRUE,
+                                        show_conf = TRUE,
+                                        badge = TRUE,
                                         img_name = "",
                                         img_idx = 1L,
                                         total_imgs = 1L) {
@@ -126,19 +133,40 @@
       bx <- boxes[b, ]
       cb <- cols_border[((b - 1L) %% length(cols_border)) + 1L]
       graphics::rect(bx$xmin, bx$ymin, bx$xmax, bx$ymax, border = cb, lwd = 2)
-      score_txt <- if (!is.null(bx$conf) && !is.na(bx$conf)) sprintf("%.2f", bx$conf) else ""
-      lbl_txt <- if (!is.null(bx$class_name) && nzchar(bx$class_name)) bx$class_name else label
-      tag <- if (nzchar(score_txt)) paste0(lbl_txt, " ", score_txt) else lbl_txt
-      tw <- graphics::strwidth(tag, cex = 0.7)
-      th <- graphics::strheight(tag, cex = 0.7)
-      y_top <- max(th + 6, bx$ymin)
-      bg_tag <- grDevices::adjustcolor(cb, alpha.f = 0.90)
-      graphics::rect(bx$xmin, y_top - th - 6, bx$xmin + tw + 6, y_top, col = bg_tag, border = NA)
-      graphics::text(bx$xmin + 3, y_top - 3, labels = tag, col = "#FFFFFF", cex = 0.7, font = 2, adj = c(0, 1))
     }
   }
 
-  # 3. Draw exemplar points as small yellow dots
+  # 3. Draw labels and badges (for detect, or for segment when boxes are available)
+  if (n_b > 0L && (isTRUE(show_class) || isTRUE(show_conf))) {
+    for (b in seq_len(n_b)) {
+      bx <- boxes[b, ]
+      cb <- cols_border[((b - 1L) %% length(cols_border)) + 1L]
+      lbl_parts <- character(0)
+      if (isTRUE(show_class)) {
+        lbl_txt <- if (!is.null(bx$class_name) && nzchar(bx$class_name)) bx$class_name else label
+        if (nzchar(lbl_txt)) lbl_parts <- c(lbl_parts, lbl_txt)
+      }
+      if (isTRUE(show_conf) && !is.null(bx$conf) && !is.na(bx$conf)) {
+        lbl_parts <- c(lbl_parts, sprintf("%.2f", bx$conf))
+      }
+      tag <- paste(lbl_parts, collapse = " ")
+
+      if (nzchar(tag)) {
+        tw <- graphics::strwidth(tag, cex = 0.7)
+        th <- graphics::strheight(tag, cex = 0.7)
+        y_top <- max(th + 6, bx$ymin)
+        if (isTRUE(badge)) {
+          bg_tag <- grDevices::adjustcolor(cb, alpha.f = 0.90)
+          graphics::rect(bx$xmin, y_top - th - 6, bx$xmin + tw + 6, y_top, col = bg_tag, border = NA)
+          graphics::text(bx$xmin + 3, y_top - 3, labels = tag, col = "#FFFFFF", cex = 0.7, font = 2, adj = c(0, 1))
+        } else {
+          graphics::text(bx$xmin + 3, y_top - 3, labels = tag, col = cb, cex = 0.7, font = 2, adj = c(0, 1))
+        }
+      }
+    }
+  }
+
+  # 4. Draw exemplar points as small yellow dots
   if (!is.null(exemplar_points) && length(exemplar_points) > 0L) {
     if (is.matrix(exemplar_points) || is.data.frame(exemplar_points)) {
       graphics::points(exemplar_points[, 1], exemplar_points[, 2], col = "#FFFF00", pch = 19, cex = 1.3)
@@ -170,6 +198,9 @@
                                              engine = "gpu",
                                              device_id = -1,
                                              rainbow = TRUE,
+                                             show_class = TRUE,
+                                             show_conf = TRUE,
+                                             badge = TRUE,
                                              img_name = "",
                                              img_idx = 1L,
                                              total_imgs = 1L) {
@@ -182,6 +213,9 @@
     label = label,
     conf_threshold = conf_threshold,
     rainbow = rainbow,
+    show_class = show_class,
+    show_conf = show_conf,
+    badge = badge,
     img_name = img_name,
     img_idx = img_idx,
     total_imgs = total_imgs
@@ -320,6 +354,9 @@
             label = label,
             conf_threshold = curr_conf,
             rainbow = rainbow,
+            show_class = show_class,
+            show_conf = show_conf,
+            badge = badge,
             img_name = img_name,
             img_idx = img_idx,
             total_imgs = total_imgs
@@ -419,6 +456,9 @@
             label = label,
             conf_threshold = curr_conf,
             rainbow = rainbow,
+            show_class = show_class,
+            show_conf = show_conf,
+            badge = badge,
             img_name = img_name,
             img_idx = img_idx,
             total_imgs = total_imgs
@@ -517,6 +557,9 @@
           label = label,
           conf_threshold = curr_conf,
           rainbow = rainbow,
+          show_class = show_class,
+          show_conf = show_conf,
+          badge = badge,
           img_name = img_name,
           img_idx = img_idx,
           total_imgs = total_imgs
@@ -546,9 +589,18 @@ yolo_fewshot_fit <- function(img,
                              engine = c("gpu", "cpu"),
                              device_id = -1,
                              rainbow = TRUE,
+                             show_class = TRUE,
+                             show_conf = TRUE,
+                             badge = TRUE,
                              interactive = base::interactive(),
                              plot = TRUE,
-                             verbose = TRUE) {
+                             verbose = TRUE,
+                             ...) {
+  dots <- list(...)
+  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
+  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
+  if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+
   task <- match.arg(task)
   method <- match.arg(method)
   engine <- match.arg(engine)
@@ -591,6 +643,9 @@ yolo_fewshot_fit <- function(img,
         engine = engine,
         device_id = device_id,
         rainbow = rainbow,
+        show_class = show_class,
+        show_conf = show_conf,
+        badge = badge,
         interactive = interactive,
         plot = FALSE,
         verbose = verbose
@@ -628,6 +683,10 @@ yolo_fewshot_fit <- function(img,
         conf_threshold = conf_threshold,
         method = method,
         engine = engine,
+        rainbow = rainbow,
+        show_class = show_class,
+        show_conf = show_conf,
+        badge = badge,
         detected_boxes = comb_ref_boxes,
         detected_polygons = comb_ref_polys,
         reference_image = models[[1]]$reference_image,
@@ -641,7 +700,7 @@ yolo_fewshot_fit <- function(img,
     }
 
     if (isTRUE(plot)) {
-      plot(comb_obj, rainbow = rainbow)
+      plot(comb_obj, rainbow = rainbow, show_class = show_class, show_conf = show_conf, badge = badge)
     }
 
     return(invisible(comb_obj))
@@ -685,10 +744,24 @@ yolo_fewshot_fit <- function(img,
     all_ref_paths <- character()
     all_ref_imgs <- list()
     all_ref_points <- list()
+    all_exemplar_colors <- list()
+    all_radii <- numeric()
     stop_early <- FALSE
 
     for (s in seq_along(img_list)) {
       curr_target <- img_list[[s]]
+      ref_id <- if (is.character(curr_target)) as.character(curr_target[1]) else paste0("img_", s)
+      ref_norm <- if (is.character(curr_target)) {
+        if (file.exists(curr_target[1])) {
+          normalizePath(curr_target[1], winslash = "/", mustWork = FALSE)
+        } else {
+          m_fls <- list.files(".", pattern = paste0("^", basename(curr_target[1]), "\\."), full.names = TRUE)
+          if (length(m_fls) > 0L) normalizePath(m_fls[1], winslash = "/", mustWork = FALSE) else ref_id
+        }
+      } else {
+        ref_id
+      }
+
       curr_im <- if (inherits(curr_target, c("image", "Image"))) {
         curr_target
       } else if (is.character(curr_target)) {
@@ -696,6 +769,10 @@ yolo_fewshot_fit <- function(img,
       } else {
         as_image(curr_target)
       }
+
+      canon_id <- if (ref_norm != ref_id && file.exists(ref_norm)) ref_norm else ref_id
+      all_ref_paths <- c(all_ref_paths, canon_id)
+      all_ref_imgs[[canon_id]] <- curr_im
 
       c_dims <- dim(curr_im)
       cw <- c_dims[1]; ch <- c_dims[2]
@@ -707,209 +784,374 @@ yolo_fewshot_fit <- function(img,
         curr_points <- points
       }
 
-      if (is.null(curr_points)) {
-        repeat {
-          if (isTRUE(verbose)) {
-            if (s == 1L || length(all_prototypes_sem) == 0L) {
-              cli::cli_alert_info("Image {s}/{length(img_list)} ({basename(as.character(curr_target[1]))}): Click on 2 to 5 exemplar instances of {.val {label}} in the plot window.")
-              cli::cli_alert_info("Press <Esc> or right-click when finished.")
-            } else {
-              cli::cli_alert_info("Image {s}/{length(img_list)} ({basename(as.character(curr_target[1]))}): Click on exemplar instances of {.val {label}}, or press <Esc> to finish or continue.")
-            }
-          }
-          plot(curr_im)
-          pts <- tryCatch(graphics::locator(n = 64, type = "p", col = "#FFFF00", pch = 19, cex = 1.3), error = function(e) NULL)
+      img_proto_sem <- list()
+      img_proto_hr0 <- list()
+      img_areas <- numeric()
+      img_min_areas <- numeric()
+      img_max_areas <- numeric()
 
-          if (is.null(pts) || length(pts$x) == 0L) {
-            if (s == 1L && length(all_prototypes_sem) == 0L) {
-              if (!interactive()) {
-                cli::cli_abort("No exemplar points selected on first reference image.")
-              }
-              cli::cli_alert_warning("No point clicked on first image ({basename(as.character(curr_target[1]))}) (<Esc> pressed).")
-              cli::cli_bullets(c(
-                "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image",
-                "*" = "{.bold [s] / stop}: Abort model fitting"
-              ))
-              ans <- tolower(trimws(readline("Select action [r = retry / s = stop, default: r]: ")))
-              if (ans %in% c("s", "stop", "abort", "a", "q", "quit", "p", "parar")) {
-                cli::cli_abort("Model fitting cancelled by user.")
+      repeat {
+        if (is.null(curr_points)) {
+          repeat {
+            if (isTRUE(verbose)) {
+              if (s == 1L || length(all_prototypes_sem) == 0L) {
+                cli::cli_alert_info("Image {s}/{length(img_list)} ({basename(as.character(curr_target[1]))}): Click on 2 to 5 exemplar instances of {.val {label}} in the plot window.")
+                cli::cli_alert_info("Press <Esc> or right-click when finished.")
               } else {
-                next
+                cli::cli_alert_info("Image {s}/{length(img_list)} ({basename(as.character(curr_target[1]))}): Click on exemplar instances of {.val {label}}, or press <Esc> to finish or continue.")
               }
-            } else {
-              if (interactive()) {
-                cli::cli_alert_warning("No point clicked on image {s}/{length(img_list)} ({basename(as.character(curr_target[1]))}) (<Esc> pressed).")
+            }
+            plot(curr_im)
+            pts <- tryCatch(graphics::locator(n = 64, type = "p", col = "#FFFF00", pch = 19, cex = 1.3), error = function(e) NULL)
+
+            if (is.null(pts) || length(pts$x) == 0L) {
+              if (s == 1L && length(all_prototypes_sem) == 0L) {
+                if (!interactive()) {
+                  cli::cli_abort("No exemplar points selected on first reference image.")
+                }
+                cli::cli_alert_warning("No point clicked on first image ({basename(as.character(curr_target[1]))}) (<Esc> pressed).")
                 cli::cli_bullets(c(
-                  "*" = "{.bold [s] / stop}: Finalize model now with the {length(all_ref_paths)} reference image(s) completed so far",
-                  "*" = "{.bold [c] / continue}: Continue to remaining images (auto-detect on this image)",
-                  "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image"
+                  "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image",
+                  "*" = "{.bold [s] / stop}: Abort model fitting"
                 ))
-                ans <- tolower(trimws(readline("Select action [s = stop / c = continue / r = retry, default: s]: ")))
-                if (ans %in% c("s", "stop", "abort", "a", "q", "quit", "p", "parar", "")) {
-                  cli::cli_alert_info("Finalizing model with the {length(all_ref_paths)} reference image(s) completed so far...")
-                  stop_early <- TRUE
-                  break
-                } else if (ans %in% c("r", "retry", "tentar", "t")) {
+                ans <- tolower(trimws(readline("Select action [r = retry / s = stop, default: r]: ")))
+                if (ans %in% c("s", "stop", "abort", "a", "q", "quit", "p", "parar")) {
+                  cli::cli_abort("Model fitting cancelled by user.")
+                } else {
                   next
+                }
+              } else {
+                if (interactive()) {
+                  cli::cli_alert_warning("No point clicked on image {s}/{length(img_list)} ({basename(as.character(curr_target[1]))}) (<Esc> pressed).")
+                  cli::cli_bullets(c(
+                    "*" = "{.bold [s] / stop}: Finalize model now with the {length(all_ref_paths)} reference image(s) completed so far",
+                    "*" = "{.bold [c] / continue}: Continue to remaining images (auto-detect on this image)",
+                    "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image"
+                  ))
+                  ans <- tolower(trimws(readline("Select action [s = stop / c = continue / r = retry, default: s]: ")))
+                  if (ans %in% c("s", "stop", "abort", "a", "q", "quit", "p", "parar", "")) {
+                    cli::cli_alert_info("Finalizing model with the {length(all_ref_paths)} reference image(s) completed so far...")
+                    stop_early <- TRUE
+                    break
+                  } else if (ans %in% c("r", "retry", "tentar", "t")) {
+                    next
+                  } else {
+                    curr_points <- NULL
+                    break
+                  }
                 } else {
                   curr_points <- NULL
                   break
                 }
-              } else {
-                curr_points <- NULL
-                break
               }
+            } else {
+              curr_points <- cbind(x = pts$x, y = pts$y)
+              break
             }
-          } else {
-            curr_points <- cbind(x = pts$x, y = pts$y)
+          }
+
+          if (isTRUE(stop_early)) {
             break
           }
+        } else if (is.vector(curr_points) && length(curr_points) >= 2L && length(curr_points) %% 2 == 0L) {
+          half <- length(curr_points) / 2
+          curr_points <- cbind(x = curr_points[seq_len(half)], y = curr_points[(half + 1L):length(curr_points)])
+        } else if (is.data.frame(curr_points)) {
+          curr_points <- as.matrix(curr_points[, 1:2])
         }
 
-        if (isTRUE(stop_early)) {
-          break
-        }
-      } else if (is.vector(curr_points) && length(curr_points) >= 2L && length(curr_points) %% 2 == 0L) {
-        half <- length(curr_points) / 2
-        curr_points <- cbind(x = curr_points[seq_len(half)], y = curr_points[(half + 1L):length(curr_points)])
-      } else if (is.data.frame(curr_points)) {
-        curr_points <- as.matrix(curr_points[, 1:2])
-      }
-
-      c_num_arr <- image_data(curr_im, type = "numeric")
-      pre_proto <- if (is.null(curr_points) && length(all_prototypes_sem) > 0L) {
-        list(
-          semantic = all_prototypes_sem,
-          hr0 = all_prototypes_hr0,
-          avg_area = if (length(all_areas) > 0) mean(all_areas) else 100.0,
-          min_area = if (length(all_min_areas) > 0) min(all_min_areas) else 10.0,
-          max_area = if (length(all_max_areas) > 0) max(all_max_areas) else 500.0
-        )
-      } else {
-        NULL
-      }
-
-      if (isTRUE(verbose)) {
-        im_name_lbl <- basename(as.character(curr_target[1]))
-        if (!is.null(curr_points) && nrow(curr_points) > 0L) {
-          cli::cli_alert_success("Collected {nrow(curr_points)} exemplar point{?s} on {.file {im_name_lbl}}.")
+        c_num_arr <- image_data(curr_im, type = "numeric")
+        pre_proto <- if (is.null(curr_points) && length(all_prototypes_sem) > 0L) {
+          list(
+            semantic = all_prototypes_sem,
+            hr0 = all_prototypes_hr0,
+            avg_area = if (length(all_areas) > 0) mean(all_areas) else 100.0,
+            min_area = if (length(all_min_areas) > 0) min(all_min_areas) else 10.0,
+            max_area = if (length(all_max_areas) > 0) max(all_max_areas) else 500.0
+          )
         } else {
-          cli::cli_alert_info("Auto-detecting on {.file {im_name_lbl}} using {length(all_prototypes_sem)} learned prototype{?s}.")
+          NULL
         }
-        cli::cli_progress_step(
-          msg = "Running SAM 2.1 inference on {.file {im_name_lbl}} [{toupper(engine)}]... (aguarde alguns segundos)",
-          msg_done = "SAM 2.1 inference complete on {.file {im_name_lbl}}"
-        )
-      }
 
-      p_res <- tryCatch({
-        .run_persam(
-          mat = c_num_arr,
-          exemplar_points = curr_points,
-          precomputed_prototypes = pre_proto,
-          sim_threshold = conf_threshold,
-          min_dist = min_dist,
-          max_objects = max_objects,
-          feat_res = 256L,
-          engine = engine,
-          device_id = device_id,
-          fill_hull = TRUE,
-          verbose = FALSE
-        )
-      }, error = function(e) {
-        if (isTRUE(verbose)) {
-          cli::cli_alert_warning("Exemplar matching error on image {s}: {e$message}")
-        }
-        NULL
-      })
+        r_boxes <- data.frame()
+        r_polys <- list()
 
-      if (!is.null(p_res) && !is.null(p_res$prototypes)) {
-        all_prototypes_sem <- c(all_prototypes_sem, p_res$prototypes$semantic)
-        all_prototypes_hr0 <- c(all_prototypes_hr0, p_res$prototypes$hr0)
-        if (!is.null(p_res$prototypes$avg_area)) {
-          all_areas <- c(all_areas, as.numeric(p_res$prototypes$avg_area))
-        }
-        if (!is.null(p_res$prototypes$min_area)) {
-          all_min_areas <- c(all_min_areas, as.numeric(p_res$prototypes$min_area))
-        }
-        if (!is.null(p_res$prototypes$max_area)) {
-          all_max_areas <- c(all_max_areas, as.numeric(p_res$prototypes$max_area))
-        }
-      }
-
-      ref_id <- if (is.character(curr_target)) normalizePath(curr_target[1], winslash = "/", mustWork = FALSE) else paste0("ref_", s)
-      all_ref_paths <- c(all_ref_paths, ref_id)
-      all_ref_imgs[[ref_id]] <- curr_im
-      if (!is.null(curr_points)) {
-        all_ref_points[[ref_id]] <- curr_points
-      }
-
-      r_boxes <- data.frame()
-      r_polys <- list()
-
-      if (!is.null(p_res) && nrow(p_res$boxes) > 0L) {
-        r_boxes <- data.frame(
-          xmin = as.numeric(p_res$boxes$xmin),
-          ymin = as.numeric(p_res$boxes$ymin),
-          xmax = as.numeric(p_res$boxes$xmax),
-          ymax = as.numeric(p_res$boxes$ymax),
-          conf = round(as.numeric(p_res$boxes$score), 3),
-          class_id = 0L,
-          class_name = label,
-          stringsAsFactors = FALSE
-        )
-        for (ci in seq_along(p_res$contours)) {
-          cnt <- p_res$contours[[ci]]
-          if (is.matrix(cnt) && nrow(cnt) >= 3L) {
-            gx <- cnt[, 1] / cw; gy <- cnt[, 2] / ch
-            if (length(gx) > 32L) {
-              idx <- round(seq(1, length(gx), length.out = 32))
-              gx <- gx[idx]; gy <- gy[idx]
+        if (identical(method, "adaptive")) {
+          norm_arr <- image_data(curr_im, type = "normalized")
+          if (isTRUE(verbose)) {
+            im_name_lbl <- basename(as.character(curr_target[1]))
+            if (!is.null(curr_points) && nrow(curr_points) > 0L) {
+              cli::cli_alert_success("Collected {nrow(curr_points)} exemplar point{?s} on {.file {im_name_lbl}}.")
+            } else {
+              cli::cli_alert_info("Auto-detecting on {.file {im_name_lbl}} using learned adaptive color model.")
             }
-            r_polys[[ci]] <- as.vector(rbind(gx, gy))
+          }
+
+          # Extract exemplar colors and calibrate scale from curr_points
+          if (!is.null(curr_points) && nrow(curr_points) > 0L) {
+            angles <- seq(0, 2 * pi, length.out = 16)[-16]
+            max_search <- min(140L, as.integer(round(min(cw, ch) * 0.20)))
+            for (k in seq_len(nrow(curr_points))) {
+              px <- as.integer(round(curr_points[k, 1]))
+              py <- as.integer(round(curr_points[k, 2]))
+              if (px < 1L || px > cw || py < 1L || py > ch) next
+              c_rgb <- norm_arr[px, py, ]
+              r_search <- 5:max_search
+              diffs <- numeric(length(r_search))
+              for (ri in seq_along(r_search)) {
+                r_rad <- r_search[ri]
+                xs <- pmax(1L, pmin(cw, as.integer(round(px + r_rad * cos(angles)))))
+                ys <- pmax(1L, pmin(ch, as.integer(round(py + r_rad * sin(angles)))))
+                d_rgb <- sqrt((norm_arr[cbind(xs, ys, 1)] - c_rgb[1])^2 +
+                              (norm_arr[cbind(xs, ys, 2)] - c_rgb[2])^2 +
+                              (norm_arr[cbind(xs, ys, 3)] - c_rgb[3])^2)
+                diffs[ri] <- mean(d_rgb)
+              }
+              grad <- c(0, diff(diffs))
+              start_idx <- min(8L, length(grad))
+              edge_r <- r_search[which.max(grad[start_idx:length(grad)]) + (start_idx - 1L)]
+              all_radii <- c(all_radii, edge_r)
+
+              rk <- max(3L, as.integer(round(edge_r * 0.35)))
+              sub_r <- norm_arr[max(1L, px - rk):min(cw, px + rk), max(1L, py - rk):min(ch, py + rk), 1]
+              sub_g <- norm_arr[max(1L, px - rk):min(cw, px + rk), max(1L, py - rk):min(ch, py + rk), 2]
+              sub_b <- norm_arr[max(1L, px - rk):min(cw, px + rk), max(1L, py - rk):min(ch, py + rk), 3]
+              all_exemplar_colors[[length(all_exemplar_colors) + 1L]] <- c(mean(sub_r), mean(sub_g), mean(sub_b))
+            }
+          }
+
+          cur_col_mat <- if (length(all_exemplar_colors) > 0L) do.call(rbind, all_exemplar_colors) else matrix(c(0.5, 0.5, 0.5), nrow = 1)
+          cur_target_rgb <- colMeans(cur_col_mat)
+          cur_rgb_sd <- if (nrow(cur_col_mat) > 1L) pmax(apply(cur_col_mat, 2, stats::sd), 0.05) else c(0.15, 0.15, 0.15)
+          cur_median_rad <- if (length(all_radii) > 0L) median(all_radii) else 20.0
+
+          # Fast Adaptive Gaussian Mahalanobis similarity map
+          dr <- (norm_arr[, , 1] - cur_target_rgb[1]) / cur_rgb_sd[1]
+          dg <- (norm_arr[, , 2] - cur_target_rgb[2]) / cur_rgb_sd[2]
+          db <- (norm_arr[, , 3] - cur_target_rgb[3]) / cur_rgb_sd[3]
+          dist_sq <- (dr^2 + dg^2 + db^2) / 3.0
+          sim_raw <- exp(-0.5 * dist_sq)
+
+          blur_sigma <- max(2, as.integer(round(cur_median_rad * 0.12)))
+          sim_im <- as_image(matrix(sim_raw, cw, ch), colormode = "Grayscale")
+          sim_blur <- image_blur(sim_im, sigma = blur_sigma)
+          sim_mat <- image_data(sim_blur, type = "normalized")
+
+          adapt_t <- if (conf_threshold > 0.4) 0.25 else conf_threshold
+          bin_mask <- sim_mat >= adapt_t
+          lbl <- bwlabel_cpp(bin_mask)
+          counts <- table(lbl[lbl > 0])
+          min_a <- if (!is.null(min_area) && min_area > 0) min_area else max(10, round(pi * (cur_median_rad * 0.4)^2))
+          max_a <- if (!is.null(max_area) && max_area > 0) max_area else round(pi * (cur_median_rad * 2.5)^2)
+          valid <- as.integer(names(counts[counts >= min_a & counts <= max_a]))
+
+          cand_b <- list()
+          cand_c <- numeric()
+          conts_all <- if (length(valid) > 0L) extract_contours_cpp(lbl) else list()
+          cand_p <- list()
+
+          for (obj in valid) {
+            coords <- which(lbl == obj, arr.ind = TRUE)
+            bx1 <- min(coords[, 1]); bx2 <- max(coords[, 1])
+            by1 <- min(coords[, 2]); by2 <- max(coords[, 2])
+            bw <- bx2 - bx1 + 1L; bh <- by2 - by1 + 1L
+            ar <- bw / pmax(1L, bh)
+            if (ar < 0.38 || ar > 2.60) next
+
+            if (bw >= 12L && bh >= 12L) {
+              sub_p <- norm_arr[bx1:bx2, by1:by2, 1]
+              nr <- nrow(sub_p); nc <- ncol(sub_p)
+              mr <- max(2L, as.integer(round(nr * 0.15))); mc <- max(2L, as.integer(round(nc * 0.15)))
+              c_sub <- sub_p[mr:(nr - mr), mc:(nc - mc)]
+              b_sub <- c(sub_p[1:mr, ], sub_p[(nr - mr + 1L):nr, ],
+                         sub_p[, 1:mc], sub_p[, (nc - mc + 1L):nc])
+              if (mean(c_sub) - mean(b_sub) < 0.035) next
+            }
+
+            obj_conf <- mean(sim_mat[coords])
+            if (obj_conf < adapt_t) next
+
+            poly_norm <- NULL
+            if (length(conts_all) >= obj && is.matrix(conts_all[[obj]]) && nrow(conts_all[[obj]]) >= 3L) {
+              poly_pts <- conts_all[[obj]]
+              gx <- poly_pts[, 1] / cw; gy <- poly_pts[, 2] / ch
+              if (length(gx) > 32L) {
+                idx <- round(seq(1, length(gx), length.out = 32))
+                gx <- gx[idx]; gy <- gy[idx]
+              }
+              poly_norm <- as.vector(rbind(gx, gy))
+            }
+
+            cand_b[[length(cand_b) + 1L]] <- c(bx1, by1, bx2, by2)
+            cand_c <- c(cand_c, obj_conf)
+            cand_p[[length(cand_p) + 1L]] <- poly_norm
+          }
+
+          if (length(cand_b) > 0L) {
+            box_mat <- do.call(rbind, cand_b)
+            if (nrow(box_mat) > 1L) {
+              keep_idx <- .nms_boxes(box_mat, cand_c, iou_thresh = 0.35)
+              box_mat <- box_mat[keep_idx, , drop = FALSE]
+              cand_c <- cand_c[keep_idx]
+              cand_p <- cand_p[keep_idx]
+            }
+            r_boxes <- data.frame(
+              xmin = as.numeric(box_mat[, 1]),
+              ymin = as.numeric(box_mat[, 2]),
+              xmax = as.numeric(box_mat[, 3]),
+              ymax = as.numeric(box_mat[, 4]),
+              conf = round(cand_c, 3),
+              class_id = 0L,
+              class_name = label,
+              stringsAsFactors = FALSE
+            )
+            r_polys <- cand_p
+          }
+        } else {
+          # SAM 2.1 / PerSAM branch
+          if (isTRUE(verbose)) {
+            im_name_lbl <- basename(as.character(curr_target[1]))
+            if (!is.null(curr_points) && nrow(curr_points) > 0L) {
+              cli::cli_alert_success("Collected {nrow(curr_points)} exemplar point{?s} on {.file {im_name_lbl}}.")
+            } else {
+              cli::cli_alert_info("Auto-detecting on {.file {im_name_lbl}} using {length(all_prototypes_sem)} learned prototype{?s}.")
+            }
+            cli::cli_progress_step(
+              msg = "Running SAM 2.1 inference on {.file {im_name_lbl}} [{toupper(engine)}]... (aguarde alguns segundos)",
+              msg_done = "SAM 2.1 inference complete on {.file {im_name_lbl}}"
+            )
+          }
+
+          p_res <- tryCatch({
+            .run_persam(
+              mat = c_num_arr,
+              exemplar_points = curr_points,
+              precomputed_prototypes = pre_proto,
+              sim_threshold = conf_threshold,
+              min_dist = min_dist,
+              max_objects = max_objects,
+              feat_res = 256L,
+              engine = engine,
+              device_id = device_id,
+              fill_hull = TRUE,
+              verbose = FALSE
+            )
+          }, error = function(e) {
+            if (isTRUE(verbose)) {
+              cli::cli_alert_warning("Exemplar matching error on image {s}: {e$message}")
+            }
+            NULL
+          })
+
+          if (!is.null(p_res) && !is.null(p_res$prototypes)) {
+            img_proto_sem <- p_res$prototypes$semantic
+            img_proto_hr0 <- p_res$prototypes$hr0
+            if (!is.null(p_res$prototypes$avg_area)) {
+              img_areas <- as.numeric(p_res$prototypes$avg_area)
+            }
+            if (!is.null(p_res$prototypes$min_area)) {
+              img_min_areas <- as.numeric(p_res$prototypes$min_area)
+            }
+            if (!is.null(p_res$prototypes$max_area)) {
+              img_max_areas <- as.numeric(p_res$prototypes$max_area)
+            }
+          }
+
+          if (!is.null(p_res) && nrow(p_res$boxes) > 0L) {
+            r_boxes <- data.frame(
+              xmin = as.numeric(p_res$boxes$xmin),
+              ymin = as.numeric(p_res$boxes$ymin),
+              xmax = as.numeric(p_res$boxes$xmax),
+              ymax = as.numeric(p_res$boxes$ymax),
+              conf = round(as.numeric(p_res$boxes$score), 3),
+              class_id = 0L,
+              class_name = label,
+              stringsAsFactors = FALSE
+            )
+            for (ci in seq_along(p_res$contours)) {
+              cnt <- p_res$contours[[ci]]
+              if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+                gx <- cnt[, 1] / cw; gy <- cnt[, 2] / ch
+                if (length(gx) > 32L) {
+                  idx <- round(seq(1, length(gx), length.out = 32))
+                  gx <- gx[idx]; gy <- gy[idx]
+                }
+                r_polys[[ci]] <- as.vector(rbind(gx, gy))
+              }
+            }
           }
         }
-      }
 
-      if (isTRUE(interactive)) {
-        rev <- .interactive_fewshot_review_step(
-          curr_im = curr_im,
-          r_boxes = r_boxes,
-          r_polys = r_polys,
-          curr_points = curr_points,
-          c_num_arr = c_num_arr,
-          cw = cw,
-          ch = ch,
-          pre_proto = pre_proto,
-          task = task,
-          label = label,
-          conf_threshold = conf_threshold,
-          radius = radius,
-          min_dist = min_dist,
-          max_objects = max_objects,
-          method = "sam",
-          engine = engine,
-          device_id = device_id,
-          rainbow = rainbow,
-          img_name = basename(as.character(curr_target[1])),
-          img_idx = s,
-          total_imgs = length(img_list)
-        )
+        if (isTRUE(interactive)) {
+          rev <- .interactive_fewshot_review_step(
+            curr_im = curr_im,
+            r_boxes = r_boxes,
+            r_polys = r_polys,
+            curr_points = curr_points,
+            c_num_arr = c_num_arr,
+            cw = cw,
+            ch = ch,
+            pre_proto = pre_proto,
+            task = task,
+            label = label,
+            conf_threshold = conf_threshold,
+            radius = radius,
+            min_dist = min_dist,
+            max_objects = max_objects,
+            method = method,
+            engine = engine,
+            device_id = device_id,
+            rainbow = rainbow,
+            show_class = show_class,
+            show_conf = show_conf,
+            badge = badge,
+            img_name = basename(as.character(curr_target[1])),
+            img_idx = s,
+            total_imgs = length(img_list)
+          )
 
-        r_boxes <- rev$boxes
-        r_polys <- rev$polygons
-        curr_points <- rev$points
+          if (identical(rev$action, "resample")) {
+            curr_points <- NULL
+            next
+          }
 
-        if (identical(rev$action, "stop")) {
-          all_ref_boxes[[ref_id]] <- r_boxes
-          all_ref_polys[[ref_id]] <- r_polys
-          if (!is.null(curr_points)) all_ref_points[[ref_id]] <- curr_points
-          break
+          r_boxes <- rev$boxes
+          r_polys <- rev$polygons
+          curr_points <- rev$points
+          if (!is.null(rev$conf)) conf_threshold <- rev$conf
+
+          if (identical(rev$action, "stop")) {
+            stop_early <- TRUE
+          }
         }
+        break
       }
 
-      all_ref_boxes[[ref_id]] <- r_boxes
-      all_ref_polys[[ref_id]] <- r_polys
+      if (isTRUE(stop_early) && (is.null(r_boxes) || nrow(r_boxes) == 0L) && length(all_ref_boxes) > 0L) {
+        break
+      }
+
+      # Commit learned prototypes from this image
+      if (length(img_proto_sem) > 0L) {
+        all_prototypes_sem <- c(all_prototypes_sem, img_proto_sem)
+        all_prototypes_hr0 <- c(all_prototypes_hr0, img_proto_hr0)
+        all_areas <- c(all_areas, img_areas)
+        all_min_areas <- c(all_min_areas, img_min_areas)
+        all_max_areas <- c(all_max_areas, img_max_areas)
+      }
+
+      all_ref_boxes[[canon_id]] <- r_boxes
+      if (ref_id != canon_id) all_ref_boxes[[ref_id]] <- r_boxes
+      all_ref_polys[[canon_id]] <- r_polys
+      if (ref_id != canon_id) all_ref_polys[[ref_id]] <- r_polys
+      if (!is.null(curr_points)) {
+        all_ref_points[[canon_id]] <- curr_points
+        if (ref_id != canon_id) all_ref_points[[ref_id]] <- curr_points
+      }
+
+      if (isTRUE(stop_early)) {
+        break
+      }
     }
 
     if (length(all_ref_paths) == 0L) {
@@ -936,14 +1178,18 @@ yolo_fewshot_fit <- function(img,
     primary_boxes <- all_ref_boxes[[primary_id]]
     primary_polys <- all_ref_polys[[primary_id]]
 
+    final_target_rgb <- if (length(all_exemplar_colors) > 0L) colMeans(do.call(rbind, all_exemplar_colors)) else c(0.5, 0.5, 0.5)
+    final_rgb_sd <- if (length(all_exemplar_colors) > 1L) pmax(apply(do.call(rbind, all_exemplar_colors), 2, stats::sd), 0.05) else c(0.15, 0.15, 0.15)
+    final_median_rad <- if (length(all_radii) > 0L) median(all_radii) else 20.0
+
     model_obj <- structure(
       list(
         label = label,
         task = task,
-        target_rgb = c(0.5, 0.5, 0.5),
-        rgb_sd = c(0.2, 0.2, 0.2),
-        median_radius = 20,
-        median_area = 1200,
+        target_rgb = final_target_rgb,
+        rgb_sd = final_rgb_sd,
+        median_radius = final_median_rad,
+        median_area = pi * final_median_rad^2,
         conf_threshold = conf_threshold,
         min_area = if (!is.null(min_area)) min_area else 0,
         max_area = max_area,
@@ -954,26 +1200,33 @@ yolo_fewshot_fit <- function(img,
         detected_labels = NULL,
         detected_mask = NULL,
         similarity_map = NULL,
-        prototypes = merged_prototypes,
+        prototypes = if (identical(method, "sam")) merged_prototypes else NULL,
         reference_image_path = primary_id,
         reference_image_paths = all_ref_paths,
         reference_boxes_map = all_ref_boxes,
         reference_polys_map = all_ref_polys,
         reference_image = primary_im,
         reference_images = all_ref_imgs,
-        method = "sam",
-        engine = engine
+        method = method,
+        engine = engine,
+        rainbow = rainbow,
+        show_class = show_class,
+        show_conf = show_conf,
+        badge = badge
       ),
       class = "yolo_fewshot_model"
     )
 
     if (isTRUE(verbose)) {
-      total_det <- sum(vapply(all_ref_boxes, nrow, integer(1)))
-      cli::cli_alert_success("Model fitted across {length(all_ref_paths)} images! Learned {length(all_prototypes_sem)} prototypes ({total_det} reference instances segmented).")
+      unique_ref_keys <- intersect(all_ref_paths, names(all_ref_boxes))
+      if (length(unique_ref_keys) == 0L) unique_ref_keys <- names(all_ref_imgs)
+      total_det <- sum(vapply(unique_ref_keys, function(k) nrow(all_ref_boxes[[k]]), integer(1)))
+      proto_info <- if (identical(method, "sam")) paste0("Learned ", length(all_prototypes_sem), " prototypes (") else "Adaptive color model ("
+      cli::cli_alert_success("Model fitted across {length(unique_ref_keys)} image{?s}! {proto_info}{total_det} reference instances segmented).")
     }
 
     if (isTRUE(plot) && !is.null(primary_im)) {
-      plot(model_obj, rainbow = rainbow)
+      plot(model_obj, rainbow = rainbow, show_class = show_class, show_conf = show_conf, badge = badge)
     }
 
     return(invisible(model_obj))
@@ -1273,6 +1526,9 @@ yolo_fewshot_fit <- function(img,
       engine = engine,
       device_id = device_id,
       rainbow = rainbow,
+      show_class = show_class,
+      show_conf = show_conf,
+      badge = badge,
       img_name = if (is.character(img_single)) basename(img_single[1]) else "reference",
       img_idx = 1L,
       total_imgs = 1L
@@ -1319,7 +1575,11 @@ yolo_fewshot_fit <- function(img,
       reference_image = im,
       reference_images = if (!is.null(ref_path)) stats::setNames(list(im), ref_path) else list(im),
       method = used_method,
-      engine = engine
+      engine = engine,
+      rainbow = rainbow,
+      show_class = show_class,
+      show_conf = show_conf,
+      badge = badge
     ),
     class = "yolo_fewshot_model"
   )
@@ -1330,7 +1590,7 @@ yolo_fewshot_fit <- function(img,
   }
 
   if (isTRUE(plot) && !isTRUE(interactive)) {
-    plot(model_obj, rainbow = rainbow)
+    plot(model_obj, rainbow = rainbow, show_class = show_class, show_conf = show_conf, badge = badge)
   }
 
   invisible(model_obj)
@@ -1445,18 +1705,30 @@ c.yolo_fewshot_model <- function(...) {
 #' @param device_id GPU device ID if `engine = "gpu"`. Defaults to `-1`.
 #' @param plot Logical. Display detection results. Defaults to `FALSE`.
 #' @param rainbow Logical. If `TRUE`, plots instances in distinct rainbow colors. Defaults to `FALSE`.
+#' @param show_class Logical. Whether to display class name on labels/badges. Defaults to `TRUE`.
+#' @param show_conf Logical. Whether to display confidence score on labels/badges. Defaults to `TRUE`.
+#' @param badge Logical. Whether to draw a filled background badge behind labels. Defaults to `TRUE`.
+#' @param ... Additional arguments passed to plotting methods or aliases (e.g. `show_labels`, `show_scores`, `label_box`).
 #'
 #' @return A `list` containing `boxes` (bounding boxes data.frame) and `polygons` (list of normalized coordinates).
 #' @export
 yolo_fewshot_predict <- function(model,
-                                img,
-                                task = model$task,
-                                conf_threshold = NULL,
-                                max_objects = NULL,
-                                engine = "gpu",
-                                device_id = -1,
-                                plot = FALSE,
-                                rainbow = TRUE) {
+                                 img,
+                                 task = model$task,
+                                 conf_threshold = NULL,
+                                 max_objects = NULL,
+                                 engine = "gpu",
+                                 device_id = -1,
+                                 plot = FALSE,
+                                 rainbow = TRUE,
+                                 show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
+                                 show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
+                                 badge = if (!is.null(model$badge)) model$badge else TRUE,
+                                 ...) {
+  dots <- list(...)
+  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
+  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
+  if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
   if (is.list(model) && !inherits(model, "yolo_fewshot_model")) {
     if (all(vapply(model, function(m) inherits(m, "yolo_fewshot_model"), logical(1)))) {
       model <- do.call(c, model)
@@ -1553,9 +1825,27 @@ yolo_fewshot_predict <- function(model,
   ref_match_id <- NULL
   if (is.character(img)) {
     norm_in <- normalizePath(img[1], winslash = "/", mustWork = FALSE)
-    if (!is.null(model$reference_image_paths) && norm_in %in% model$reference_image_paths) {
-      is_ref <- TRUE
-      ref_match_id <- norm_in
+    raw_in <- as.character(img[1])
+    raw_sans <- tools::file_path_sans_ext(basename(raw_in))
+    ref_paths <- model$reference_image_paths
+    if (!is.null(ref_paths) && length(ref_paths) > 0L) {
+      ref_sans <- tools::file_path_sans_ext(basename(ref_paths))
+      if (raw_in %in% names(model$reference_boxes_map)) {
+        is_ref <- TRUE
+        ref_match_id <- raw_in
+      } else if (norm_in %in% names(model$reference_boxes_map)) {
+        is_ref <- TRUE
+        ref_match_id <- norm_in
+      } else if (raw_sans %in% ref_sans) {
+        is_ref <- TRUE
+        ref_match_id <- ref_paths[which(raw_sans == ref_sans)[1]]
+      } else if (norm_in %in% ref_paths) {
+        is_ref <- TRUE
+        ref_match_id <- norm_in
+      } else if (raw_in %in% ref_paths) {
+        is_ref <- TRUE
+        ref_match_id <- raw_in
+      }
     } else if (!is.null(model$reference_image_path) && identical(norm_in, model$reference_image_path)) {
       is_ref <- TRUE
       ref_match_id <- norm_in
@@ -1796,8 +2086,34 @@ yolo_fewshot_predict <- function(model,
     } else if (nrow(df_b) > 0L) {
       for (r in seq_len(nrow(df_b))) {
         graphics::rect(df_b$xmin[r], df_b$ymin[r], df_b$xmax[r], df_b$ymax[r], border = c_border[r], lwd = 2)
-        graphics::text(df_b$xmin[r], df_b$ymin[r] - 5, labels = sprintf("%s %.2f", df_b$class_name[r], df_b$conf[r]),
-                       col = c_border[r], cex = 0.8, pos = 4)
+      }
+    }
+
+    if (nrow(df_b) > 0L && (isTRUE(show_class) || isTRUE(show_conf))) {
+      for (r in seq_len(nrow(df_b))) {
+        cb <- c_border[((r - 1L) %% length(c_border)) + 1L]
+        lbl_parts <- character(0)
+        if (isTRUE(show_class)) {
+          cur_lbl <- if ("class_name" %in% names(df_b) && nzchar(df_b$class_name[r])) df_b$class_name[r] else model$label[1]
+          if (nzchar(cur_lbl)) lbl_parts <- c(lbl_parts, cur_lbl)
+        }
+        if (isTRUE(show_conf) && !is.null(df_b$conf) && length(df_b$conf) >= r && !is.na(df_b$conf[r])) {
+          lbl_parts <- c(lbl_parts, sprintf("%.2f", df_b$conf[r]))
+        }
+        tag <- paste(lbl_parts, collapse = " ")
+
+        if (nzchar(tag)) {
+          tw <- graphics::strwidth(tag, cex = 0.8)
+          th <- graphics::strheight(tag, cex = 0.8)
+          y_top <- max(th + 6, df_b$ymin[r])
+          if (isTRUE(badge)) {
+            bg_tag <- grDevices::adjustcolor(cb, alpha.f = 0.90)
+            graphics::rect(df_b$xmin[r], y_top - th - 6, df_b$xmin[r] + tw + 6, y_top, col = bg_tag, border = NA)
+            graphics::text(df_b$xmin[r] + 3, y_top - 3, labels = tag, col = "#FFFFFF", cex = 0.8, font = 2, adj = c(0, 1))
+          } else {
+            graphics::text(df_b$xmin[r] + 3, y_top - 3, labels = tag, col = cb, cex = 0.8, font = 2, adj = c(0, 1))
+          }
+        }
       }
     }
   }
@@ -1854,10 +2170,16 @@ yolo_fewshot_predict <- function(model,
 #' @param split_ratio Numeric vector of length 3 for `c(train, val, test)` split. Defaults to `c(0.70, 0.20, 0.10)`.
 #' @param engine Execution engine override: `"cpu"` or `"gpu"`. If `NULL`, uses `model$engine`.
 #' @param device_id GPU device ID if `engine = "gpu"`. Defaults to `-1`.
-#' @param review Logical. If `TRUE` (default), writes annotated review images to `review/` subfolder.
+#' @param review Logical or integer. If `TRUE` (default), writes annotated review images to `review/`
+#'   subfolder for visual inspection of all images. An integer can be provided (e.g. `review = 30`)
+#'   to limit the number of review images generated.
 #' @param rainbow Logical. If `TRUE`, review previews are rendered with distinct rainbow colors per instance. Defaults to `FALSE`.
+#' @param show_class Logical. Whether to display class name on labels/badges in review images. Defaults to `TRUE`.
+#' @param show_conf Logical. Whether to display confidence score on labels/badges in review images. Defaults to `TRUE`.
+#' @param badge Logical. Whether to draw a filled background badge behind labels in review images. Defaults to `TRUE`.
 #' @param seed Random seed for reproducible splitting. Defaults to `42`.
 #' @param verbose Logical. Show progress messages. Defaults to `TRUE`.
+#' @param ... Additional arguments passed to methods or aliases (e.g. `show_labels`, `show_scores`, `label_box`).
 #'
 #' @return A `yolo_dataset` S3 object pointing to the created dataset.
 #' @export
@@ -1872,8 +2194,17 @@ yolo_dataset_autolabel <- function(input_dir,
                                    device_id = -1,
                                    review = TRUE,
                                    rainbow = TRUE,
+                                   show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
+                                   show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
+                                   badge = if (!is.null(model$badge)) model$badge else TRUE,
                                    seed = 42,
-                                   verbose = TRUE) {
+                                   verbose = TRUE,
+                                   ...) {
+  dots <- list(...)
+  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
+  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
+  if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+
   task <- match.arg(task, c("segment", "detect"))
   if (is.list(model) && !inherits(model, "yolo_fewshot_model")) {
     if (all(vapply(model, function(m) inherits(m, "yolo_fewshot_model"), logical(1)))) {
@@ -1912,8 +2243,11 @@ yolo_dataset_autolabel <- function(input_dir,
     dir.create(file.path(output_dir, "labels", sp), recursive = TRUE, showWarnings = FALSE)
   }
 
+  do_review <- isTRUE(review) || (is.numeric(review) && length(review) == 1L && review[1] > 0)
+  max_review <- if (is.numeric(review) && length(review) == 1L && review[1] > 0) as.integer(review[1]) else if (isTRUE(review)) Inf else 0L
+
   review_dir <- file.path(output_dir, "review")
-  if (isTRUE(review)) dir.create(review_dir, recursive = TRUE, showWarnings = FALSE)
+  if (do_review) dir.create(review_dir, recursive = TRUE, showWarnings = FALSE)
 
   # Stratify images
   n_total <- length(fls)
@@ -1937,7 +2271,8 @@ yolo_dataset_autolabel <- function(input_dir,
   if (isTRUE(verbose)) {
     cli::cli_h2("Automated YOLO Dataset Labeling (pliman)")
     cls_disp <- paste(classes, collapse = ", ")
-    cli::cli_alert_info("Class{?es}: {.val {cls_disp}} | Task: {.val {task}} | Conf: {.val {conf_t}} | Images: {.val {n_total}} | Engine: {.val {used_eng}}")
+    cls_label <- if (length(classes) > 1L) "Classes" else "Class"
+    cli::cli_alert_info("{cls_label}: {.val {cls_disp}} | Task: {.val {task}} | Conf: {.val {conf_t}} | Images: {.val {n_total}} | Engine: {.val {used_eng}}")
     cli_pb <- cli::cli_progress_bar(
       format = "{cli::pb_spin} Auto-labeling [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}",
       total = n_total,
@@ -2042,7 +2377,7 @@ yolo_dataset_autolabel <- function(input_dir,
     writeLines(lines, dest_lbl)
 
     # Optional review image rendering (wrapped in tryCatch to prevent file locks or device errors from crashing autolabel)
-    if (isTRUE(review) && i <= 30L) {
+    if (do_review && i <= max_review) {
       tryCatch({
         rev_out <- file.path(review_dir, paste0("review_", fn_dest))
         out_w <- 1200L
@@ -2080,28 +2415,37 @@ yolo_dataset_autolabel <- function(input_dir,
               } else {
                 graphics::rect(df_b$xmin[r], df_b$ymin[r], df_b$xmax[r], df_b$ymax[r], border = rev_border[r], lwd = 2)
               }
-              cur_lbl <- if ("class_name" %in% names(df_b) && nzchar(df_b$class_name[r])) df_b$class_name[r] else classes[1]
-              lbl_text <- if (!is.null(df_b$conf) && !is.na(df_b$conf[r])) {
-                sprintf("%s (%.2f)", cur_lbl, df_b$conf[r])
-              } else {
-                cur_lbl
-              }
-              graphics::text(df_b$xmin[r], df_b$ymin[r] - 4,
-                             labels = lbl_text,
-                             col = rev_border[r], cex = 0.8, pos = 4)
             }
           } else if (n_b > 0L) {
             for (r in seq_len(n_b)) {
               graphics::rect(df_b$xmin[r], df_b$ymin[r], df_b$xmax[r], df_b$ymax[r], border = rev_border[r], lwd = 2)
-              cur_lbl <- if ("class_name" %in% names(df_b) && nzchar(df_b$class_name[r])) df_b$class_name[r] else classes[1]
-              lbl_text <- if (!is.null(df_b$conf) && !is.na(df_b$conf[r])) {
-                sprintf("%s (%.2f)", cur_lbl, df_b$conf[r])
-              } else {
-                cur_lbl
+            }
+          }
+
+          if (n_b > 0L && (isTRUE(show_class) || isTRUE(show_conf))) {
+            for (r in seq_len(n_b)) {
+              lbl_parts <- character(0)
+              if (isTRUE(show_class)) {
+                cur_lbl <- if ("class_name" %in% names(df_b) && nzchar(df_b$class_name[r])) df_b$class_name[r] else classes[1]
+                if (nzchar(cur_lbl)) lbl_parts <- c(lbl_parts, cur_lbl)
               }
-              graphics::text(df_b$xmin[r], df_b$ymin[r] - 4,
-                             labels = lbl_text,
-                             col = rev_border[r], cex = 0.8, pos = 4)
+              if (isTRUE(show_conf) && !is.null(df_b$conf) && !is.na(df_b$conf[r])) {
+                lbl_parts <- c(lbl_parts, sprintf("%.2f", df_b$conf[r]))
+              }
+              tag <- paste(lbl_parts, collapse = " ")
+
+              if (nzchar(tag)) {
+                tw <- graphics::strwidth(tag, cex = 0.8)
+                th <- graphics::strheight(tag, cex = 0.8)
+                y_top <- max(th + 6, df_b$ymin[r])
+                if (isTRUE(badge)) {
+                  bg_tag <- grDevices::adjustcolor(rev_border[r], alpha.f = 0.90)
+                  graphics::rect(df_b$xmin[r], y_top - th - 6, df_b$xmin[r] + tw + 6, y_top, col = bg_tag, border = NA)
+                  graphics::text(df_b$xmin[r] + 3, y_top - 3, labels = tag, col = "#FFFFFF", cex = 0.8, font = 2, adj = c(0, 1))
+                } else {
+                  graphics::text(df_b$xmin[r] + 3, y_top - 3, labels = tag, col = rev_border[r], cex = 0.8, font = 2, adj = c(0, 1))
+                }
+              }
             }
           }
           graphics::title(sprintf("%s: %d %s", fn_dest, n_b, if (task == "segment") "segmented" else "detected"),
@@ -2141,7 +2485,7 @@ yolo_dataset_autolabel <- function(input_dir,
   if (isTRUE(verbose)) {
     cli::cli_alert_success("Dataset auto-labeled successfully!")
     cli::cli_alert_info("Total instances generated: {.val {total_objects}}")
-    if (isTRUE(review)) {
+    if (do_review) {
       cli::cli_alert_info("Review previews written to: {.path {review_dir}}")
     }
   }
@@ -2162,6 +2506,9 @@ yolo_dataset_autolabel <- function(input_dir,
 #' @param show_boxes Logical. Show bounding boxes. Defaults to \code{TRUE} for detection tasks.
 #' @param show_polygons Logical. Show segmentation polygons. Defaults to \code{TRUE} for segmentation tasks.
 #' @param show_points Logical. Show clicked exemplar points. Defaults to \code{TRUE}.
+#' @param show_class Logical. Whether to display class name on labels/badges. Defaults to \code{TRUE}.
+#' @param show_conf Logical. Whether to display confidence score on labels/badges. Defaults to \code{TRUE}.
+#' @param badge Logical. Whether to draw a filled background badge behind labels. Defaults to \code{TRUE}.
 #' @param col_border Border color when \code{rainbow = FALSE}. Defaults to \code{"#00FFCC"}.
 #' @param col_poly Fill color for polygons when \code{rainbow = FALSE}. Defaults to \code{"#00FFCC55"}.
 #' @param col_point Point color for exemplars. Defaults to \code{"#FFFF00"}.
@@ -2178,6 +2525,9 @@ plot.yolo_fewshot_model <- function(x,
                                     show_boxes = NULL,
                                     show_polygons = NULL,
                                     show_points = TRUE,
+                                    show_class = if (!is.null(x$show_class)) x$show_class else TRUE,
+                                    show_conf = if (!is.null(x$show_conf)) x$show_conf else TRUE,
+                                    badge = if (!is.null(x$badge)) x$badge else TRUE,
                                     col_border = "#00FFCC",
                                     col_poly = "#00FFCC55",
                                     col_point = "#FFFF00",
@@ -2185,6 +2535,11 @@ plot.yolo_fewshot_model <- function(x,
                                     mfrow = NULL,
                                     which = NULL,
                                     ...) {
+  dots <- list(...)
+  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
+  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
+  if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+
   if (inherits(x, "yolo_fewshot_multimodel") && !is.null(x$models)) {
     im_ref <- if (!is.null(x$reference_image)) x$reference_image else x$models[[1]]$reference_image
     if (!is.null(im_ref)) {
@@ -2194,6 +2549,9 @@ plot.yolo_fewshot_model <- function(x,
         task = task,
         plot = TRUE,
         rainbow = rainbow,
+        show_class = show_class,
+        show_conf = show_conf,
+        badge = badge,
         conf_threshold = x$conf_threshold,
         engine = x$engine
       )
@@ -2206,6 +2564,19 @@ plot.yolo_fewshot_model <- function(x,
     list(x$reference_image)
   } else {
     cli::cli_abort("No reference images found in the model to plot.")
+  }
+
+  if (!is.null(names(imgs))) {
+    # If duplicate entries exist (e.g. raw stem and full path), deduplicate by stem
+    stems <- tolower(tools::file_path_sans_ext(basename(names(imgs))))
+    if (anyDuplicated(stems)) {
+      has_ext <- grepl("\\.[a-zA-Z0-9]+$", names(imgs))
+      ord <- order(!has_ext)
+      stems_ord <- stems[ord]
+      keep_ord <- !duplicated(stems_ord)
+      keep_idx <- ord[keep_ord]
+      imgs <- imgs[sort(keep_idx)]
+    }
   }
 
   if (!is.null(which)) {
@@ -2239,6 +2610,10 @@ plot.yolo_fewshot_model <- function(x,
 
     df_b <- if (!is.null(k_id) && !is.null(x$reference_boxes_map[[k_id]])) {
       x$reference_boxes_map[[k_id]]
+    } else if (!is.null(k_id) && !is.null(x$reference_boxes_map[[basename(k_id)]])) {
+      x$reference_boxes_map[[basename(k_id)]]
+    } else if (!is.null(k_id) && !is.null(x$reference_boxes_map[[tools::file_path_sans_ext(basename(k_id))]])) {
+      x$reference_boxes_map[[tools::file_path_sans_ext(basename(k_id))]]
     } else if (k == 1L && !is.null(x$detected_boxes)) {
       x$detected_boxes
     } else {
@@ -2247,6 +2622,10 @@ plot.yolo_fewshot_model <- function(x,
 
     polys <- if (!is.null(k_id) && !is.null(x$reference_polys_map[[k_id]])) {
       x$reference_polys_map[[k_id]]
+    } else if (!is.null(k_id) && !is.null(x$reference_polys_map[[basename(k_id)]])) {
+      x$reference_polys_map[[basename(k_id)]]
+    } else if (!is.null(k_id) && !is.null(x$reference_polys_map[[tools::file_path_sans_ext(basename(k_id))]])) {
+      x$reference_polys_map[[tools::file_path_sans_ext(basename(k_id))]]
     } else if (k == 1L && !is.null(x$detected_polygons)) {
       x$detected_polygons
     } else {
@@ -2255,6 +2634,10 @@ plot.yolo_fewshot_model <- function(x,
 
     pts_k <- if (!is.null(k_id) && !is.null(x$exemplar_points_map[[k_id]])) {
       x$exemplar_points_map[[k_id]]
+    } else if (!is.null(k_id) && !is.null(x$exemplar_points_map[[basename(k_id)]])) {
+      x$exemplar_points_map[[basename(k_id)]]
+    } else if (!is.null(k_id) && !is.null(x$exemplar_points_map[[tools::file_path_sans_ext(basename(k_id))]])) {
+      x$exemplar_points_map[[tools::file_path_sans_ext(basename(k_id))]]
     } else if (k == 1L && !is.null(x$exemplar_points)) {
       x$exemplar_points
     } else {
@@ -2305,10 +2688,40 @@ plot.yolo_fewshot_model <- function(x,
       for (r in seq_len(nrow(df_b))) {
         cb <- cols_border[((r - 1L) %% length(cols_border)) + 1L]
         graphics::rect(df_b$xmin[r], df_b$ymin[r], df_b$xmax[r], df_b$ymax[r], border = cb, lwd = lwd)
-        if (!is.null(df_b$conf[r])) {
-          graphics::text(df_b$xmin[r], df_b$ymin[r] - 4,
-                         labels = sprintf("%s (%.2f)", x$label, df_b$conf[r]),
-                         col = cb, cex = 0.8, pos = 4)
+      }
+    }
+
+    # Draw labels and badges
+    if (nrow(df_b) > 0L && (isTRUE(show_class) || isTRUE(show_conf))) {
+      for (r in seq_len(nrow(df_b))) {
+        cb <- cols_border[((r - 1L) %% length(cols_border)) + 1L]
+        lbl_parts <- character(0)
+        if (isTRUE(show_class)) {
+          cname <- if (!is.null(df_b$class_name) && length(df_b$class_name) >= r && nzchar(df_b$class_name[r])) {
+            df_b$class_name[r]
+          } else if (!is.null(df_b$label) && length(df_b$label) >= r && nzchar(df_b$label[r])) {
+            df_b$label[r]
+          } else {
+            x$label[1]
+          }
+          if (nzchar(cname)) lbl_parts <- c(lbl_parts, cname)
+        }
+        if (isTRUE(show_conf) && !is.null(df_b$conf) && length(df_b$conf) >= r && !is.na(df_b$conf[r])) {
+          lbl_parts <- c(lbl_parts, sprintf("%.2f", df_b$conf[r]))
+        }
+        tag <- paste(lbl_parts, collapse = " ")
+
+        if (nzchar(tag)) {
+          tw <- graphics::strwidth(tag, cex = 0.8)
+          th <- graphics::strheight(tag, cex = 0.8)
+          y_top <- max(th + 6, df_b$ymin[r])
+          if (isTRUE(badge)) {
+            bg_tag <- grDevices::adjustcolor(cb, alpha.f = 0.90)
+            graphics::rect(df_b$xmin[r], y_top - th - 6, df_b$xmin[r] + tw + 6, y_top, col = bg_tag, border = NA)
+            graphics::text(df_b$xmin[r] + 3, y_top - 3, labels = tag, col = "#FFFFFF", cex = 0.8, font = 2, adj = c(0, 1))
+          } else {
+            graphics::text(df_b$xmin[r] + 3, y_top - 3, labels = tag, col = cb, cex = 0.8, font = 2, adj = c(0, 1))
+          }
         }
       }
     }
@@ -2320,7 +2733,7 @@ plot.yolo_fewshot_model <- function(x,
     }
 
     if (n_imgs > 1L) {
-      fn_label <- if (!is.null(k_id) && file.exists(k_id)) basename(k_id) else sprintf("Reference %d", k)
+      fn_label <- if (!is.null(k_id) && nzchar(k_id)) basename(k_id) else sprintf("Reference %d", k)
       graphics::title(sprintf("%s: %d %s", fn_label, n_det_k, if (task == "segment") "segmented" else "detected"),
                       col.main = if (isTRUE(rainbow)) "#222222" else col_border,
                       cex.main = 1.0)
@@ -2339,11 +2752,20 @@ plot.yolo_fewshot_model <- function(x,
 #' @export
 print.yolo_fewshot_model <- function(x, ...) {
   cli::cli_h2("pliman Few-Shot Exemplar Model")
-  cls_txt <- if (!is.null(x$classes)) paste(x$classes, collapse = ", ") else paste(x$label, collapse = ", ")
-  cli::cli_text("Target Class{?es}  : {.val {cls_txt}}")
-  n_refs <- if (!is.null(x$reference_images)) length(x$reference_images) else 1L
+  cls_val <- if (!is.null(x$classes)) x$classes else x$label
+  cls_len <- length(cls_val)
+  cls_lbl <- if (cls_len > 1L) "Target Classes   " else "Target Class     "
+  cls_txt <- paste(cls_val, collapse = ", ")
+  cli::cli_text("{cls_lbl}: {.val {cls_txt}}")
+  n_refs <- if (!is.null(x$reference_image_paths)) length(unique(x$reference_image_paths)) else if (!is.null(x$reference_images)) length(x$reference_images) else 1L
   cli::cli_text("Reference Images : {.val {n_refs}}")
-  n_det <- if (!is.null(x$reference_boxes_map)) sum(vapply(x$reference_boxes_map, nrow, integer(1))) else if (!is.null(x$detected_boxes)) nrow(x$detected_boxes) else 0L
+  n_det <- if (!is.null(x$detected_boxes)) nrow(x$detected_boxes) else 0L
+  if (!is.null(x$reference_boxes_map) && length(x$reference_boxes_map) > 0L) {
+    ref_keys <- if (!is.null(x$reference_image_paths)) intersect(x$reference_image_paths, names(x$reference_boxes_map)) else names(x$reference_boxes_map)
+    if (length(ref_keys) > 0L) {
+      n_det <- sum(vapply(ref_keys, function(k) nrow(x$reference_boxes_map[[k]]), integer(1)))
+    }
+  }
   cli::cli_text("Detected on Refs : {.val {n_det}} instances")
   cli::cli_text("Confidence Thresh: {.val {x$conf_threshold}}")
   cli::cli_text("Task             : {.val {x$task}}")

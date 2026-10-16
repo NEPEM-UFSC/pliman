@@ -7,9 +7,14 @@
 yolo_dataset_preview(
   dir = "yolo_dataset",
   split = c("train", "val", "test"),
-  pattern = NULL,
+  bbox = TRUE,
+  polygon = TRUE,
   n = 4L,
-  random = TRUE,
+  which = NULL,
+  images = NULL,
+  only_augmented = NULL,
+  pattern = NULL,
+  random = is.null(which) && is.null(images),
   seed = NULL,
   mfrow = NULL,
   rainbow = TRUE,
@@ -19,7 +24,8 @@ yolo_dataset_preview(
   show_labels = TRUE,
   label_bg = FALSE,
   cex = 0.6,
-  title = TRUE
+  title = TRUE,
+  ...
 )
 }
 \arguments{
@@ -27,13 +33,27 @@ yolo_dataset_preview(
 
 \item{split}{Character. The subset to preview: \code{"train"} (default), \code{"val"}, or \code{"test"}.}
 
+\item{bbox}{Logical. Whether to draw bounding boxes and annotations. Defaults to \code{TRUE}.}
+
+\item{polygon}{Logical. For segmentation datasets, whether to draw polygons. Defaults to \code{TRUE}.}
+
+\item{n}{Integer. Number of sample images to preview. Defaults to \code{4L}. Supported aliases: \code{n_images}, \code{num_images}.}
+
+\item{which}{Optional integer vector of image indices (e.g. \code{1:4}) or character vector of
+image names or stems (e.g. \code{c("img_3_aug1", "img_553_aug2")}) to plot specific images.}
+
+\item{images}{Alias for \code{which}.}
+
+\item{only_augmented}{Logical. If \code{TRUE}, only previews augmented images (containing \verb{_aug}).
+Defaults to \code{TRUE} if \code{dir} is an augmented dataset (\code{yolo_dataset_aug}), and \code{FALSE} otherwise.}
+
 \item{pattern}{Optional regex pattern to filter specific image names (e.g. \code{"toras5\\\\.png"}). Defaults to \code{NULL}.}
 
-\item{n}{Integer. Number of sample images to preview. Defaults to \code{4L}.}
-
-\item{random}{Logical. If \code{TRUE} (default), samples random images from the split. If \code{FALSE}, picks the first \code{n} images.}
+\item{random}{Logical. If \code{TRUE} (default when \code{which} is \code{NULL}), samples random images from the split. If \code{FALSE}, picks the first \code{n} images.}
 
 \item{seed}{Optional integer seed for reproducible random selection.}
+
+\item{mfrow}{Numeric vector of length 2 giving \code{c(rows, cols)} for the multi-panel layout.}
 
 \item{rainbow}{Logical. If \code{TRUE} (default), assigns distinct rainbow colors to each object within the image (matching review previews). If \code{FALSE}, colors are assigned by class.}
 
@@ -50,6 +70,8 @@ yolo_dataset_preview(
 \item{cex}{Numeric. Text size for class name labels. Defaults to \code{0.6}.}
 
 \item{title}{Logical or character. If \code{TRUE} (default), displays panel titles with filename and object count.}
+
+\item{...}{Additional arguments.}
 }
 \value{
 An invisible list of the sampled image file paths.

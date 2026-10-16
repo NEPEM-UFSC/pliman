@@ -14,8 +14,8 @@ yolo_dataset_export(
   class_id = 0L,
   prompt = NULL,
   prompt_mode = c("each", "first"),
-  interactive = is.null(prompt) && !is.null(model) && identical(tolower(model), "persam")
-    && interactive(),
+  interactive = is.null(prompt) && !is.null(model) && is.character(model) &&
+    identical(tolower(model[1]), "persam") && base::interactive(),
   sim_threshold = 0.5,
   min_dist = 20,
   box_threshold = 0.25,
@@ -23,12 +23,17 @@ yolo_dataset_export(
   iou_threshold = 0.5,
   feat_res = 256,
   max_objects = NULL,
-  train_prop = 0.8,
+  split_ratio = c(0.7, 0.2, 0.1),
   n_points = 40L,
   min_area = 15,
   filter_edge = TRUE,
   show_similarity = FALSE,
   superres_map = FALSE,
+  review = TRUE,
+  rainbow = TRUE,
+  show_class = TRUE,
+  show_conf = TRUE,
+  badge = TRUE,
   engine = c("gpu", "cpu"),
   device_id = -1,
   overwrite = TRUE,
@@ -98,8 +103,9 @@ Defaults to \code{TRUE} if \code{model = "persam"}, \code{prompt = NULL}, and R 
 
 \item{max_objects}{Maximum number of objects detected per image. Defaults to \code{300}.}
 
-\item{train_prop}{Proportion of images assigned to the training split (default \code{0.8}).
-The remaining images are assigned to the validation split (\code{val}).}
+\item{split_ratio}{Numeric vector of length 3 for \code{c(train, val, test)} split.
+Defaults to \code{c(0.70, 0.20, 0.10)}. If a vector of length 2 is provided,
+\code{c(train, val)} is assumed. If a single number is given, it is treated as the training proportion.}
 
 \item{n_points}{Target number of polygon vertices per object for segmentation
 (default \code{40}). Points are sampled evenly along the contour to keep label files
@@ -114,6 +120,18 @@ objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidenci
 
 \item{superres_map}{Logical. If \code{TRUE}, applies Real-ESRGAN 4x super-resolution on the PerSAM similarity map
 with bilateral semantic background gating. Default is \code{FALSE}.}
+
+\item{review}{Logical or integer. If \code{TRUE} (default), writes annotated review images to a \verb{review/}
+subfolder in \code{dir} for visual inspection of all images. An integer can be provided (e.g. \code{review = 30})
+to limit the number of review images generated.}
+
+\item{rainbow}{Logical. If \code{TRUE} (default), plots instances in distinct rainbow colors during interactive review.}
+
+\item{show_class}{Logical. Whether to display class name on labels/badges during interactive review. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges during interactive review. Defaults to \code{TRUE}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels during interactive review. Defaults to \code{TRUE}.}
 
 \item{engine}{Computing device engine: \code{"cpu"} (default) or \code{"gpu"}.}
 
@@ -133,6 +151,8 @@ An invisible list containing:
 \item \code{yaml_file}: Full path to the generated \code{data.yaml}.
 \item \code{train_images}: Vector of paths to training images.
 \item \code{val_images}: Vector of paths to validation images.
+\item \code{test_images}: Vector of paths to test images (if test split was generated).
+\item \code{review_dir}: Path to the review directory containing visual previews (if \code{review = TRUE}).
 \item \code{n_objects}: Total number of annotated objects across the dataset.
 }
 }

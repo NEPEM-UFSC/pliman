@@ -47,6 +47,7 @@ analyze_objects_minimal <- function(img,
                                     tolerance = NULL,
                                     extension = NULL,
                                     lower_noise = 0.10,
+                                    upper_noise = NULL,
                                     lower_size = NULL,
                                     upper_size = NULL,
                                     topn_lower = NULL,
@@ -101,7 +102,7 @@ analyze_objects_minimal <- function(img,
     function(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
              show_original,  marker, marker_col, marker_size,
              save_image, max_pixels = 4e6, prefix, dir_original, dir_processed, verbose,
-             col_background, col_foreground, lower_noise){
+             col_background, col_foreground, lower_noise, upper_noise){
       if(is.character(img)){
         all_files <- sapply(list.files(diretorio_original), file_name)
         check_names_dir(img, all_files, diretorio_original)
@@ -296,6 +297,9 @@ analyze_objects_minimal <- function(img,
       if(!is.null(upper_size)){
         shape <- shape[shape$area < upper_size, ]
       }
+      if(!is.null(upper_noise) && nrow(shape) > 0){
+        shape <- shape[shape$area < mean(shape$area, na.rm = TRUE) * upper_noise, ]
+      }
       if(!is.null(topn_lower)){
         shape <- shape[order(shape$area),][1:topn_lower,]
       }
@@ -474,7 +478,7 @@ analyze_objects_minimal <- function(img,
     help_count(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
                show_original,  marker, marker_col, marker_size,
                save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
-               col_background, col_foreground, lower_noise)
+               col_background, col_foreground, lower_noise, upper_noise)
   } else{
     if (pattern %in% as.character(0:9)) {
       old_pattern <- pattern
@@ -530,7 +534,7 @@ analyze_objects_minimal <- function(img,
           fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension, plot,
           show_original, marker, marker_col, marker_size,
           save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
-          col_background, col_foreground, lower_noise
+          col_background, col_foreground, lower_noise, upper_noise
         )
       }
 
@@ -565,7 +569,7 @@ analyze_objects_minimal <- function(img,
           fill_hull, threshold, opening, closing, filter, erode, dilate,
           tolerance, extension,  plot, show_original,  marker, marker_col, marker_size,
           save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
-          col_background, col_foreground, lower_noise
+          col_background, col_foreground, lower_noise, upper_noise
         )
       }
       cli::cli_progress_done()

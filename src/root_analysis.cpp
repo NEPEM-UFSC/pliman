@@ -1951,7 +1951,6 @@ Rcpp::List analyze_root_system_cpp(Rcpp::NumericMatrix binary_mat,
     // Evaluates every terminal tip T in the tree.
     // The true primary root maximizes:
     //   Score = (Depth)^2.5 * (MeanDiameter)^3 * (Verticality)^2 * Centrality * Straightness
-    int best_tip = -1;
     double best_path_score = -1.0;
     std::vector<int> best_path_edges;
 
@@ -2026,7 +2025,6 @@ Rcpp::List analyze_root_system_cpp(Rcpp::NumericMatrix binary_mat,
 
       if (score > best_path_score) {
         best_path_score = score;
-        best_tip = (int)i;
         best_path_edges = cur_path;
       }
     }

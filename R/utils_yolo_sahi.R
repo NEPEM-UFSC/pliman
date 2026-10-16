@@ -10,6 +10,7 @@
                               match_metric = c("IOS", "IOU"),
                               match_threshold = 0.50,
                               postprocess_type = c("GREEDY_NMM", "NMS"),
+                              agnostic_nms = FALSE,
                               ...) {
   match_metric <- match.arg(match_metric)
   postprocess_type <- match.arg(postprocess_type)
@@ -35,12 +36,16 @@
     candidates_df$is_full <- FALSE
   }
 
-  unique_classes <- unique(candidates_df$class_id)
+  class_groups <- if (isTRUE(agnostic_nms)) {
+    list(all = seq_len(nrow(candidates_df)))
+  } else {
+    split(seq_len(nrow(candidates_df)), candidates_df$class_id)
+  }
+
   final_boxes_list <- list()
   final_conts_list <- list()
 
-  for (cls in unique_classes) {
-    cls_idx <- which(candidates_df$class_id == cls)
+  for (cls_idx in class_groups) {
     cls_df <- candidates_df[cls_idx, , drop = FALSE]
     cls_conts <- if (has_conts) contours[cls_idx] else NULL
 
@@ -226,6 +231,13 @@
 #'   sliced in half across tile cut boundaries.
 #' @param full_image_inference Logical. If `TRUE` (default), runs an additional detection pass on the
 #'   resized full canvas to capture objects larger than individual slices.
+#' @param cex Numeric character expansion for labels and badges. Defaults to `1.0`.
+#' @param pad Numeric padding factor for badges. Defaults to `1.0`.
+#' @param show_text Logical. Display text labels on bounding boxes. Defaults to `TRUE`.
+#' @param show_conf Logical. Display confidence score on labels/badges. Defaults to `TRUE`.
+#' @param show_class Logical. Display class name on labels/badges. Defaults to `TRUE`.
+#' @param show_id Logical. Display instance ID number. Defaults to `FALSE`.
+#' @param badge Logical. Display rounded badge background behind text labels. Defaults to `TRUE`.
 #' @param rainbow Logical. If `TRUE` (default), bounding boxes are rendered in rainbow colors.
 #' @param plot Logical. Display global detections overlaid on the full image. Defaults to `TRUE`.
 #' @param verbose Logical. Show progress bar and tile metrics. Defaults to `TRUE`.
@@ -251,8 +263,16 @@ image_detect_sahi <- function(img,
                               match_metric = c("IOS", "IOU"),
                               postprocess_type = c("GREEDY_NMM", "NMS"),
                               match_threshold = 0.50,
-                              seam_merging = TRUE,
+                              classes = NULL,
+                              agnostic_nms = FALSE,
                               full_image_inference = TRUE,
+                              cex = 1.0,
+                              pad = 1.0,
+                              show_text = TRUE,
+                              show_conf = TRUE,
+                              show_class = TRUE,
+                              show_id = FALSE,
+                              badge = TRUE,
                               rainbow = TRUE,
                               plot = TRUE,
                               verbose = TRUE,
@@ -395,6 +415,29 @@ image_detect_sahi <- function(img,
 
   merged_df <- do.call(rbind, all_candidates)
 
+  # Filter by target classes if specified
+  if (!is.null(classes) && nrow(merged_df) > 0L) {
+    c_match <- tolower(as.character(classes))
+    idx_keep <- tolower(merged_df$class_name) %in% c_match |
+                tolower(merged_df$label) %in% c_match
+    if (is.numeric(classes)) {
+      idx_keep <- idx_keep | merged_df$class_id %in% classes
+    }
+    merged_df <- merged_df[idx_keep, , drop = FALSE]
+  }
+
+  if (nrow(merged_df) == 0L) {
+    if (isTRUE(verbose)) cli::cli_alert_warning("No objects matched the requested class(es).")
+    empty_df <- data.frame(
+      xmin = numeric(), ymin = numeric(), xmax = numeric(), ymax = numeric(),
+      conf = numeric(), class_id = integer(), class_name = character(),
+      score = numeric(), label = character()
+    )
+    attr(empty_df, "image") <- im
+    attr(empty_df, "counts") <- setNames(integer(0), character(0))
+    return(empty_df)
+  }
+
   # 3. SAHI Post-Processing (Greedy NMM / NMS)
   res_post <- .sahi_postprocess(
     candidates_df = merged_df,
@@ -402,6 +445,7 @@ image_detect_sahi <- function(img,
     match_metric = match_metric,
     match_threshold = match_threshold,
     postprocess_type = postprocess_type,
+    agnostic_nms = agnostic_nms,
     seam_merging = seam_merging,
     slice_borders_x = slice_borders_x,
     slice_borders_y = slice_borders_y
@@ -425,15 +469,25 @@ image_detect_sahi <- function(img,
   if (isTRUE(plot)) {
     plot(im)
     if (nrow(final_df) > 0L) {
+      if (is.null(final_df$id)) final_df$id <- seq_len(nrow(final_df))
+      if (is.null(final_df$label)) final_df$label <- c_names
+      if (is.null(final_df$score)) final_df$score <- if (!is.null(final_df$conf)) final_df$conf else 1.0
+
       n_b <- nrow(final_df)
-      c_border <- if (isTRUE(rainbow)) grDevices::rainbow(n_b, s = 0.85, v = 0.95) else rep("#00FFCC", n_b)
-      c_confs <- if (!is.null(final_df$conf)) final_df$conf else if (!is.null(final_df$score)) final_df$score else rep(1.0, n_b)
-      for (r in seq_len(n_b)) {
-        graphics::rect(final_df$xmin[r], final_df$ymin[r], final_df$xmax[r], final_df$ymax[r], border = c_border[r], lwd = 2)
-        graphics::text(final_df$xmin[r], final_df$ymin[r] - 4,
-                       labels = sprintf("%s %.2f", c_names[r], c_confs[r]),
-                       col = c_border[r], cex = 0.75, pos = 4)
-      }
+      palette_cols <- if (isTRUE(rainbow)) grDevices::rainbow(n_b, s = 0.85, v = 0.95) else rep("#00FFCC", n_b)
+
+      .plot_yolo_bboxes(
+        boxes = final_df,
+        palette_colors = palette_cols,
+        lwd = 2,
+        cex = cex,
+        pad = pad,
+        show_text = show_text,
+        show_conf = show_conf,
+        show_class = show_class,
+        show_id = show_id,
+        badge = badge
+      )
     }
   }
 
@@ -456,7 +510,17 @@ image_detect_sahi <- function(img,
 #' @param alpha Numeric transparency factor (0 = fully transparent, 1 = fully opaque) for highlight fill. Defaults to `0.40`.
 #' @param border Color for instance polygon borders. Defaults to `NA` (no border).
 #' @param lwd Numeric border line width. Defaults to `1`.
-#' @param show_id Logical. Display instance index number at centroid. Defaults to `TRUE`.
+#' @param classes Optional character or integer vector of class names or IDs to keep (e.g., `"car"` or `c("car", "truck")`).
+#'   Detections belonging to other classes are discarded before post-processing. Defaults to `NULL` (all classes kept).
+#' @param bbox Logical. If `TRUE`, draws bounding boxes and class badges around segmented instances. Defaults to `FALSE`.
+#' @param mask Logical. If `TRUE` (default), draws instance segmentation masks.
+#' @param cex Numeric character expansion for labels and badges. Defaults to `1.0`.
+#' @param pad Numeric padding factor for badges. Defaults to `1.0`.
+#' @param show_text Logical. Display text labels on bounding boxes. Defaults to `TRUE`.
+#' @param show_conf Logical. Display confidence score on labels/badges. Defaults to `TRUE`.
+#' @param show_class Logical. Display class name on labels/badges. Defaults to `TRUE`.
+#' @param show_id Logical. Display instance ID number. Defaults to `FALSE`.
+#' @param badge Logical. Display rounded badge background behind text labels. Defaults to `TRUE`.
 #' @return A `data.frame` of detections with attached global contours, counts, and summaries.
 #' @export
 image_segment_sahi <- function(img,
@@ -470,6 +534,8 @@ image_segment_sahi <- function(img,
                                match_metric = c("IOS", "IOU"),
                                postprocess_type = c("GREEDY_NMM", "NMS"),
                                match_threshold = 0.50,
+                               classes = NULL,
+                               agnostic_nms = FALSE,
                                seam_merging = TRUE,
                                full_image_inference = TRUE,
                                type = c("highlight", "segment", "mask"),
@@ -478,7 +544,15 @@ image_segment_sahi <- function(img,
                                alpha = 0.40,
                                border = NA,
                                lwd = 1,
-                               show_id = TRUE,
+                               bbox = FALSE,
+                               mask = TRUE,
+                               cex = 1.0,
+                               pad = 1.0,
+                               show_text = TRUE,
+                               show_conf = TRUE,
+                               show_class = TRUE,
+                               show_id = FALSE,
+                               badge = TRUE,
                                rainbow = TRUE,
                                plot = TRUE,
                                verbose = TRUE,
@@ -701,6 +775,31 @@ image_segment_sahi <- function(img,
 
   merged_df <- do.call(rbind, all_candidates)
 
+  # Filter by target classes if specified
+  if (!is.null(classes) && nrow(merged_df) > 0L) {
+    c_match <- tolower(as.character(classes))
+    idx_keep <- tolower(merged_df$class_name) %in% c_match |
+                tolower(merged_df$label) %in% c_match
+    if (is.numeric(classes)) {
+      idx_keep <- idx_keep | merged_df$class_id %in% classes
+    }
+    merged_df <- merged_df[idx_keep, , drop = FALSE]
+    all_contours <- all_contours[idx_keep]
+  }
+
+  if (nrow(merged_df) == 0L) {
+    if (isTRUE(verbose)) cli::cli_alert_warning("No objects matched the requested class(es).")
+    empty_df <- data.frame(
+      xmin = numeric(), ymin = numeric(), xmax = numeric(), ymax = numeric(),
+      conf = numeric(), class_id = integer(), class_name = character(),
+      score = numeric(), label = character()
+    )
+    attr(empty_df, "image") <- im
+    attr(empty_df, "counts") <- setNames(integer(0), character(0))
+    attr(empty_df, "contours") <- list()
+    return(empty_df)
+  }
+
   # Cross-Slice SAHI Post-Processing (Greedy NMM / NMS)
   res_post <- .sahi_postprocess(
     candidates_df = merged_df,
@@ -708,6 +807,7 @@ image_segment_sahi <- function(img,
     match_metric = match_metric,
     match_threshold = match_threshold,
     postprocess_type = postprocess_type,
+    agnostic_nms = agnostic_nms,
     seam_merging = seam_merging,
     slice_borders_x = slice_borders_x,
     slice_borders_y = slice_borders_y
@@ -720,6 +820,12 @@ image_segment_sahi <- function(img,
   c_names <- if (!is.null(final_df$class_name)) final_df$class_name else if (!is.null(final_df$label)) final_df$label else rep("object", nrow(final_df))
   tbl <- table(c_names)
   counts <- setNames(as.integer(tbl), names(tbl))
+
+  if (is.null(final_df$id)) final_df$id <- seq_len(nrow(final_df))
+  if (is.null(final_df$label)) final_df$label <- c_names
+  if (is.null(final_df$score)) {
+    final_df$score <- if (!is.null(final_df$conf)) final_df$conf else rep(1.0, nrow(final_df))
+  }
 
   attr(final_df, "image") <- im
   attr(final_df, "counts") <- counts
@@ -737,41 +843,61 @@ image_segment_sahi <- function(img,
       rep(col_highlight, max(1L, n_inst))
     }
 
+    plot(im)
+
     if (type == "highlight") {
-      plot(im)
-      for (k in seq_len(n_inst)) {
-        cnt <- final_conts[[k]]
-        if (is.matrix(cnt) && nrow(cnt) >= 3L) {
-          c_fill <- grDevices::adjustcolor(palette_cols[k], alpha.f = alpha)
-          c_line <- if (!is.na(border)) border else palette_cols[k]
-          graphics::polygon(cnt[, 1], cnt[, 2], col = c_fill, border = c_line, lwd = lwd)
-          if (isTRUE(show_id)) {
-            cx <- mean(cnt[, 1]); cy <- mean(cnt[, 2])
-            graphics::text(cx, cy, labels = k, col = "white", cex = 0.85, font = 2)
-            graphics::text(cx, cy, labels = k, col = "black", cex = 0.75, font = 1)
+      if (isTRUE(mask)) {
+        for (k in seq_len(n_inst)) {
+          cnt <- final_conts[[k]]
+          if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+            c_fill <- grDevices::adjustcolor(palette_cols[k], alpha.f = alpha)
+            c_line <- if (!is.na(border)) border else palette_cols[k]
+            graphics::polygon(cnt[, 1], cnt[, 2], col = c_fill, border = c_line, lwd = lwd)
           }
         }
       }
     } else if (type == "segment") {
-      plot(im)
-      for (k in seq_len(n_inst)) {
-        cnt <- final_conts[[k]]
-        if (is.matrix(cnt) && nrow(cnt) >= 3L) {
-          c_line <- palette_cols[k]
-          c_fill <- grDevices::adjustcolor(c_line, alpha.f = alpha)
-          graphics::polygon(cnt[, 1], cnt[, 2], col = c_fill, border = c_line, lwd = max(1.5, lwd))
-          if (isTRUE(show_id)) {
-            cx <- mean(cnt[, 1]); cy <- mean(cnt[, 2])
-            graphics::text(cx, cy, labels = sprintf("%s %d", c_names[k], k), col = c_line, cex = 0.75, pos = 4)
+      if (isTRUE(mask)) {
+        for (k in seq_len(n_inst)) {
+          cnt <- final_conts[[k]]
+          if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+            c_line <- palette_cols[k]
+            c_fill <- grDevices::adjustcolor(c_line, alpha.f = alpha)
+            graphics::polygon(cnt[, 1], cnt[, 2], col = c_fill, border = c_line, lwd = max(1.5, lwd))
           }
         }
       }
     } else if (type == "mask") {
-      plot(im)
+      if (isTRUE(mask)) {
+        for (k in seq_len(n_inst)) {
+          cnt <- final_conts[[k]]
+          if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+            graphics::polygon(cnt[, 1], cnt[, 2], col = "white", border = "white", lwd = 1)
+          }
+        }
+      }
+    }
+
+    if (isTRUE(bbox) || !isTRUE(mask)) {
+      .plot_yolo_bboxes(
+        boxes = final_df,
+        palette_colors = palette_cols,
+        lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+        cex = cex,
+        pad = pad,
+        show_text = show_text,
+        show_conf = show_conf,
+        show_class = show_class,
+        show_id = show_id,
+        badge = badge
+      )
+    } else if (isTRUE(show_id)) {
       for (k in seq_len(n_inst)) {
         cnt <- final_conts[[k]]
         if (is.matrix(cnt) && nrow(cnt) >= 3L) {
-          graphics::polygon(cnt[, 1], cnt[, 2], col = "white", border = "white", lwd = 1)
+          cx <- mean(cnt[, 1]); cy <- mean(cnt[, 2])
+          graphics::points(cx, cy, pch = 21, bg = "black", col = "white", cex = 2.2)
+          graphics::text(cx, cy, labels = as.character(k), col = "white", font = 2, cex = 0.9)
         }
       }
     }

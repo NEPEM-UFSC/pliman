@@ -2429,6 +2429,214 @@ image_contrast <- function(img,
   }
 }
 
+#' @export
+image_blurr <- image_blur
+
+#' @title Adjust Image Brightness
+#' @name image_brightness
+#' @description
+#' `image_brightness()` scales and shifts pixel intensities of an image, clamping
+#' the resulting values to `[0, 1]`.
+#'
+#' @param img An `Image` object, a list of `Image` objects, or a numeric matrix/array.
+#' @param factor Multiplicative scaling factor for brightness (default: `1.0`).
+#'   Values `> 1.0` brighten the image, while values `< 1.0` darken it.
+#' @param offset Additive brightness adjustment in `[-1, 1]` (default: `0.0`).
+#' @param parallel Logical. Process in parallel for lists of images? Defaults to `FALSE`.
+#' @param workers Number of workers for parallel execution.
+#' @param verbose Logical. Show progress? Defaults to `TRUE`.
+#' @param plot Logical. Plot the transformed image? Defaults to `FALSE`.
+#'
+#' @return An `Image` object or a list of `Image` objects.
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#' # 20% brighter
+#' image_brightness(img, factor = 1.2, plot = TRUE)
+#' # 30% darker
+#' image_brightness(img, factor = 0.7, plot = TRUE)
+#' }
+image_brightness <- function(img,
+                             factor = 1.0,
+                             offset = 0.0,
+                             parallel = FALSE,
+                             workers = NULL,
+                             verbose = TRUE,
+                             plot = FALSE) {
+  .one <- function(im) {
+    arr <- image_data(im, type = "normalized")
+    cm <- attr(im, "colormode") %||% "Color"
+    res_arr <- image_brightness_cpp(arr, factor = as.numeric(factor[1]), offset = as.numeric(offset[1]))
+    as_image(res_arr, colormode = cm)
+  }
+
+  if (is.list(img) && !is_image(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+    if (!all(sapply(img, is_image))) {
+      cli::cli_abort("All elements in the list must be of class {.cls image} or {.cls Image}.")
+    }
+
+    if (verbose) {
+      cli::cli_rule(
+        left = cli::col_blue("Brightness adjustment"),
+        right = cli::col_blue("Processing {length(img)} images")
+      )
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Running brightness adjustment in parallel...",
+          msg_done   = "Brightness adjustment complete.",
+          msg_failed = "Brightness adjustment failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) pliman::image_brightness(im, factor = factor, offset = offset, verbose = FALSE, plot = FALSE)
+      )[.progress]
+    } else {
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Brightness adjustment complete.",
+          msg_failed = "Brightness adjustment failed."
+        )
+      }
+      res <- lapply(img, .one)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+    return(res)
+  } else {
+    out <- .one(img)
+    if (isTRUE(plot)) {
+      plot(out)
+    }
+    return(out)
+  }
+}
+
+#' @title Add Noise to Images
+#' @name image_noise
+#' @description
+#' `image_noise()` injects artificial noise (Gaussian, Salt & Pepper, or Speckle)
+#' into an image, with automatic clamping to `[0, 1]`.
+#'
+#' @param img An `Image` object, a list of `Image` objects, or a numeric matrix/array.
+#' @param type Noise type: `"gaussian"` (default), `"salt_pepper"` (or `"snp"`), or `"speckle"`.
+#' @param mean Numeric. Mean of Gaussian/speckle noise distribution (default: `0.0`).
+#' @param sd Numeric. Standard deviation of Gaussian/speckle noise (default: `0.02`).
+#' @param p Numeric. Proportion of corrupted pixels for Salt & Pepper noise (default: `0.02`).
+#' @param seed Optional integer seed for reproducibility.
+#' @param parallel Logical. Process in parallel for lists of images? Defaults to `FALSE`.
+#' @param workers Number of workers for parallel execution.
+#' @param verbose Logical. Show progress? Defaults to `TRUE`.
+#' @param plot Logical. Plot the transformed image? Defaults to `FALSE`.
+#'
+#' @return An `Image` object or a list of `Image` objects.
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#' # Add subtle Gaussian noise
+#' image_noise(img, sd = 0.03, plot = TRUE)
+#' # Salt and pepper noise
+#' image_noise(img, type = "salt_pepper", p = 0.05, plot = TRUE)
+#' }
+image_noise <- function(img,
+                        type = c("gaussian", "salt_pepper", "speckle"),
+                        mean = 0.0,
+                        sd = 0.02,
+                        p = 0.02,
+                        seed = NULL,
+                        parallel = FALSE,
+                        workers = NULL,
+                        verbose = TRUE,
+                        plot = FALSE) {
+  type <- match.arg(type)
+  type_int <- if (type == "gaussian") 1L else if (type == "salt_pepper") 2L else 3L
+  i_seed <- if (!is.null(seed)) as.integer(seed[1]) else 0L
+
+  .one <- function(im) {
+    arr <- image_data(im, type = "normalized")
+    cm <- attr(im, "colormode") %||% "Color"
+    res_arr <- image_noise_cpp(arr, type = type_int, mean = as.numeric(mean[1]),
+                               sd = as.numeric(sd[1]), p = as.numeric(p[1]), seed = i_seed)
+    as_image(res_arr, colormode = cm)
+  }
+
+  if (is.list(img) && !is_image(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+    if (!all(sapply(img, is_image))) {
+      cli::cli_abort("All elements in the list must be of class {.cls image} or {.cls Image}.")
+    }
+
+    if (verbose) {
+      cli::cli_rule(
+        left = cli::col_blue("Noise injection"),
+        right = cli::col_blue("Processing {length(img)} images")
+      )
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Running noise injection in parallel...",
+          msg_done   = "Noise injection complete.",
+          msg_failed = "Noise injection failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) pliman::image_noise(im, type = type, mean = mean, sd = sd, p = p,
+                                              seed = seed, verbose = FALSE, plot = FALSE)
+      )[.progress]
+    } else {
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Noise injection complete.",
+          msg_failed = "Noise injection failed."
+        )
+      }
+      res <- lapply(img, .one)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+    return(res)
+  } else {
+    out <- .one(img)
+    if (isTRUE(plot)) {
+      plot(out)
+    }
+    return(out)
+  }
+}
+
 #' Create an `image` object of a given color
 #'
 #' image_create() can be used to create an `image` object with a desired color and size.

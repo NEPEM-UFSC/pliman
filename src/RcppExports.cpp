@@ -1020,6 +1020,158 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// image_brightness_cpp
+SEXP image_brightness_cpp(SEXP img_sexp, double factor, double offset);
+RcppExport SEXP _pliman_image_brightness_cpp(SEXP img_sexpSEXP, SEXP factorSEXP, SEXP offsetSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img_sexp(img_sexpSEXP);
+    Rcpp::traits::input_parameter< double >::type factor(factorSEXP);
+    Rcpp::traits::input_parameter< double >::type offset(offsetSEXP);
+    rcpp_result_gen = Rcpp::wrap(image_brightness_cpp(img_sexp, factor, offset));
+    return rcpp_result_gen;
+END_RCPP
+}
+// image_noise_cpp
+SEXP image_noise_cpp(SEXP img_sexp, int type, double mean, double sd, double p, int seed);
+RcppExport SEXP _pliman_image_noise_cpp(SEXP img_sexpSEXP, SEXP typeSEXP, SEXP meanSEXP, SEXP sdSEXP, SEXP pSEXP, SEXP seedSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img_sexp(img_sexpSEXP);
+    Rcpp::traits::input_parameter< int >::type type(typeSEXP);
+    Rcpp::traits::input_parameter< double >::type mean(meanSEXP);
+    Rcpp::traits::input_parameter< double >::type sd(sdSEXP);
+    Rcpp::traits::input_parameter< double >::type p(pSEXP);
+    Rcpp::traits::input_parameter< int >::type seed(seedSEXP);
+    rcpp_result_gen = Rcpp::wrap(image_noise_cpp(img_sexp, type, mean, sd, p, seed));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_render
+List cpp_gs_render(List camera, List gaussians, int sh_degree, double bg_r, double bg_g, double bg_b, bool return_depth);
+RcppExport SEXP _pliman_cpp_gs_render(SEXP cameraSEXP, SEXP gaussiansSEXP, SEXP sh_degreeSEXP, SEXP bg_rSEXP, SEXP bg_gSEXP, SEXP bg_bSEXP, SEXP return_depthSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type camera(cameraSEXP);
+    Rcpp::traits::input_parameter< List >::type gaussians(gaussiansSEXP);
+    Rcpp::traits::input_parameter< int >::type sh_degree(sh_degreeSEXP);
+    Rcpp::traits::input_parameter< double >::type bg_r(bg_rSEXP);
+    Rcpp::traits::input_parameter< double >::type bg_g(bg_gSEXP);
+    Rcpp::traits::input_parameter< double >::type bg_b(bg_bSEXP);
+    Rcpp::traits::input_parameter< bool >::type return_depth(return_depthSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_render(camera, gaussians, sh_degree, bg_r, bg_g, bg_b, return_depth));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_segment_sam
+List cpp_gs_segment_sam(List camera, List gaussians, IntegerMatrix mask, int class_id, double score_threshold);
+RcppExport SEXP _pliman_cpp_gs_segment_sam(SEXP cameraSEXP, SEXP gaussiansSEXP, SEXP maskSEXP, SEXP class_idSEXP, SEXP score_thresholdSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type camera(cameraSEXP);
+    Rcpp::traits::input_parameter< List >::type gaussians(gaussiansSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type mask(maskSEXP);
+    Rcpp::traits::input_parameter< int >::type class_id(class_idSEXP);
+    Rcpp::traits::input_parameter< double >::type score_threshold(score_thresholdSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_segment_sam(camera, gaussians, mask, class_id, score_threshold));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_measure
+List cpp_gs_measure(NumericMatrix positions, NumericMatrix scales_log, NumericMatrix quaternions, IntegerVector semantic_ids, int target_class);
+RcppExport SEXP _pliman_cpp_gs_measure(SEXP positionsSEXP, SEXP scales_logSEXP, SEXP quaternionsSEXP, SEXP semantic_idsSEXP, SEXP target_classSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type positions(positionsSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type scales_log(scales_logSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type quaternions(quaternionsSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type semantic_ids(semantic_idsSEXP);
+    Rcpp::traits::input_parameter< int >::type target_class(target_classSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_measure(positions, scales_log, quaternions, semantic_ids, target_class));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_densify
+List cpp_gs_densify(List gaussians, NumericVector grad_2d_norm, double grad_threshold, double scale_threshold, double min_opacity, double max_scale, int max_gaussians);
+RcppExport SEXP _pliman_cpp_gs_densify(SEXP gaussiansSEXP, SEXP grad_2d_normSEXP, SEXP grad_thresholdSEXP, SEXP scale_thresholdSEXP, SEXP min_opacitySEXP, SEXP max_scaleSEXP, SEXP max_gaussiansSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type gaussians(gaussiansSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type grad_2d_norm(grad_2d_normSEXP);
+    Rcpp::traits::input_parameter< double >::type grad_threshold(grad_thresholdSEXP);
+    Rcpp::traits::input_parameter< double >::type scale_threshold(scale_thresholdSEXP);
+    Rcpp::traits::input_parameter< double >::type min_opacity(min_opacitySEXP);
+    Rcpp::traits::input_parameter< double >::type max_scale(max_scaleSEXP);
+    Rcpp::traits::input_parameter< int >::type max_gaussians(max_gaussiansSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_densify(gaussians, grad_2d_norm, grad_threshold, scale_threshold, min_opacity, max_scale, max_gaussians));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_read_ply
+List cpp_gs_read_ply(std::string file_path);
+RcppExport SEXP _pliman_cpp_gs_read_ply(SEXP file_pathSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type file_path(file_pathSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_read_ply(file_path));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_train_step
+List cpp_gs_train_step(List camera, List gaussians, NumericVector target_img, List adam_m, List adam_v, int iter, double lr_pos, double lr_scale, double lr_opac, double lr_sh);
+RcppExport SEXP _pliman_cpp_gs_train_step(SEXP cameraSEXP, SEXP gaussiansSEXP, SEXP target_imgSEXP, SEXP adam_mSEXP, SEXP adam_vSEXP, SEXP iterSEXP, SEXP lr_posSEXP, SEXP lr_scaleSEXP, SEXP lr_opacSEXP, SEXP lr_shSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type camera(cameraSEXP);
+    Rcpp::traits::input_parameter< List >::type gaussians(gaussiansSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type target_img(target_imgSEXP);
+    Rcpp::traits::input_parameter< List >::type adam_m(adam_mSEXP);
+    Rcpp::traits::input_parameter< List >::type adam_v(adam_vSEXP);
+    Rcpp::traits::input_parameter< int >::type iter(iterSEXP);
+    Rcpp::traits::input_parameter< double >::type lr_pos(lr_posSEXP);
+    Rcpp::traits::input_parameter< double >::type lr_scale(lr_scaleSEXP);
+    Rcpp::traits::input_parameter< double >::type lr_opac(lr_opacSEXP);
+    Rcpp::traits::input_parameter< double >::type lr_sh(lr_shSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_train_step(camera, gaussians, target_img, adam_m, adam_v, iter, lr_pos, lr_scale, lr_opac, lr_sh));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_filter_outliers
+List cpp_gs_filter_outliers(NumericMatrix points, int k, double std_ratio, double radius, int min_neighbors);
+RcppExport SEXP _pliman_cpp_gs_filter_outliers(SEXP pointsSEXP, SEXP kSEXP, SEXP std_ratioSEXP, SEXP radiusSEXP, SEXP min_neighborsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type points(pointsSEXP);
+    Rcpp::traits::input_parameter< int >::type k(kSEXP);
+    Rcpp::traits::input_parameter< double >::type std_ratio(std_ratioSEXP);
+    Rcpp::traits::input_parameter< double >::type radius(radiusSEXP);
+    Rcpp::traits::input_parameter< int >::type min_neighbors(min_neighborsSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_filter_outliers(points, k, std_ratio, radius, min_neighbors));
+    return rcpp_result_gen;
+END_RCPP
+}
+// cpp_gs_knn
+List cpp_gs_knn(NumericMatrix points, Nullable<NumericMatrix> queries, int k);
+RcppExport SEXP _pliman_cpp_gs_knn(SEXP pointsSEXP, SEXP queriesSEXP, SEXP kSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type points(pointsSEXP);
+    Rcpp::traits::input_parameter< Nullable<NumericMatrix> >::type queries(queriesSEXP);
+    Rcpp::traits::input_parameter< int >::type k(kSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_knn(points, queries, k));
+    return rcpp_result_gen;
+END_RCPP
+}
 // haralick_features_cpp
 NumericMatrix haralick_features_cpp(IntegerMatrix labels, SEXP ref_sexp, int nc);
 RcppExport SEXP _pliman_haralick_features_cpp(SEXP labelsSEXP, SEXP ref_sexpSEXP, SEXP ncSEXP) {
@@ -2179,6 +2331,16 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_get_free_ram_cpp", (DL_FUNC) &_pliman_get_free_ram_cpp, 0},
     {"_pliman_cpp_extract_raster", (DL_FUNC) &_pliman_cpp_extract_raster, 11},
     {"_pliman_gaussian_blur_cpp", (DL_FUNC) &_pliman_gaussian_blur_cpp, 2},
+    {"_pliman_image_brightness_cpp", (DL_FUNC) &_pliman_image_brightness_cpp, 3},
+    {"_pliman_image_noise_cpp", (DL_FUNC) &_pliman_image_noise_cpp, 6},
+    {"_pliman_cpp_gs_render", (DL_FUNC) &_pliman_cpp_gs_render, 7},
+    {"_pliman_cpp_gs_segment_sam", (DL_FUNC) &_pliman_cpp_gs_segment_sam, 5},
+    {"_pliman_cpp_gs_measure", (DL_FUNC) &_pliman_cpp_gs_measure, 5},
+    {"_pliman_cpp_gs_densify", (DL_FUNC) &_pliman_cpp_gs_densify, 7},
+    {"_pliman_cpp_gs_read_ply", (DL_FUNC) &_pliman_cpp_gs_read_ply, 1},
+    {"_pliman_cpp_gs_train_step", (DL_FUNC) &_pliman_cpp_gs_train_step, 10},
+    {"_pliman_cpp_gs_filter_outliers", (DL_FUNC) &_pliman_cpp_gs_filter_outliers, 5},
+    {"_pliman_cpp_gs_knn", (DL_FUNC) &_pliman_cpp_gs_knn, 3},
     {"_pliman_haralick_features_cpp", (DL_FUNC) &_pliman_haralick_features_cpp, 3},
     {"_pliman_help_get_rgb", (DL_FUNC) &_pliman_help_get_rgb, 4},
     {"_pliman_help_get_renir", (DL_FUNC) &_pliman_help_get_renir, 3},

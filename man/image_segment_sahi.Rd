@@ -16,6 +16,8 @@ image_segment_sahi(
   match_metric = c("IOS", "IOU"),
   postprocess_type = c("GREEDY_NMM", "NMS"),
   match_threshold = 0.5,
+  classes = NULL,
+  agnostic_nms = FALSE,
   seam_merging = TRUE,
   full_image_inference = TRUE,
   type = c("highlight", "segment", "mask"),
@@ -24,7 +26,15 @@ image_segment_sahi(
   alpha = 0.4,
   border = NA,
   lwd = 1,
-  show_id = TRUE,
+  bbox = FALSE,
+  mask = TRUE,
+  cex = 1,
+  pad = 1,
+  show_text = TRUE,
+  show_conf = TRUE,
+  show_class = TRUE,
+  show_id = FALSE,
+  badge = TRUE,
   rainbow = TRUE,
   plot = TRUE,
   verbose = TRUE,
@@ -57,6 +67,9 @@ unifying overlapping pieces into single encompassing boxes) or \code{"NMS"} (sta
 
 \item{match_threshold}{Numeric scalar between 0 and 1. Threshold for merging candidates. Defaults to \code{0.50}.}
 
+\item{classes}{Optional character or integer vector of class names or IDs to keep (e.g., \code{"car"} or \code{c("car", "truck")}).
+Detections belonging to other classes are discarded before post-processing. Defaults to \code{NULL} (all classes kept).}
+
 \item{seam_merging}{Logical. If \code{TRUE} (default), seamlessly detects and merges objects that have been
 sliced in half across tile cut boundaries.}
 
@@ -76,7 +89,23 @@ resized full canvas to capture objects larger than individual slices.}
 
 \item{lwd}{Numeric border line width. Defaults to \code{1}.}
 
-\item{show_id}{Logical. Display instance index number at centroid. Defaults to \code{TRUE}.}
+\item{bbox}{Logical. If \code{TRUE}, draws bounding boxes and class badges around segmented instances. Defaults to \code{FALSE}.}
+
+\item{mask}{Logical. If \code{TRUE} (default), draws instance segmentation masks.}
+
+\item{cex}{Numeric character expansion for labels and badges. Defaults to \code{1.0}.}
+
+\item{pad}{Numeric padding factor for badges. Defaults to \code{1.0}.}
+
+\item{show_text}{Logical. Display text labels on bounding boxes. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Display confidence score on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_class}{Logical. Display class name on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_id}{Logical. Display instance ID number. Defaults to \code{FALSE}.}
+
+\item{badge}{Logical. Display rounded badge background behind text labels. Defaults to \code{TRUE}.}
 
 \item{rainbow}{Logical. If \code{TRUE} (default), bounding boxes are rendered in rainbow colors.}
 

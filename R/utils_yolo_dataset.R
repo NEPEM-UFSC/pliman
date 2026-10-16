@@ -792,7 +792,7 @@ yolo_dataset_combine <- yolo_dataset_merge
 #' @aliases yolo_dataset_aug
 #' @description
 #' `yolo_dataset_augment()` applies robust offline geometric and photometric augmentations
-#' (horizontal/vertical flips, 90/180/270 rotations, brightness, contrast, and noise)
+#' (horizontal/vertical flips, 90/180/270 rotations, brightness, contrast, noise, and blur)
 #' to a YOLO dataset. Crucially, all bounding boxes and segmentation polygon vertices
 #' are dynamically recomputed with mathematical precision to match the transformed images.
 #'
@@ -800,37 +800,47 @@ yolo_dataset_combine <- yolo_dataset_merge
 #' and `test/` pristine for unbiased evaluation.
 #'
 #' @details
-#' \strong{How `copies` and transformations work (Stochastic Sampling vs. Cartesian Grid):}
+#' \strong{How `copies`, `total_imgs`, and transformations work:}
 #'
-#' The parameters (\code{rotate}, \code{flip_h}, \code{flip_v}, \code{brightness},
-#' \code{contrast}, \code{noise}) define the \emph{pool of eligible transformations}.
-#'
-#' Rather than generating a full Cartesian grid product of all possible combinations
-#' (which would produce 30–60 copies per image and quickly exhaust disk space), the
-#' function samples a unique combination of transformations for each copy requested:
 #' \itemize{
-#'   \item \code{copies = 1L} (default): Generates \strong{exactly 1 new augmented variant per original training image} (resulting in \code{original + 1 = 2x} training size).
-#'   \item \code{copies = 3L}: Generates \strong{3 distinct augmented variants per original training image} (resulting in \code{original + 3 = 4x} training size).
-#'   \item \code{copies = 5L}: Generates \strong{5 distinct augmented variants per original training image} (resulting in \code{original + 5 = 6x} training size).
+#'   \item \code{total_imgs}: When specified, sets the \strong{exact total number of training images}
+#'     desired after augmentation. For example, if you currently have 500 original training images
+#'     and specify \code{total_imgs = 1250}, the function generates exactly 750 new augmented variants
+#'     (distributed evenly across training images and classes). Overrides \code{copies}.
+#'   \item \code{copies = 1L} (default when \code{total_imgs = NULL}): Generates \strong{1 new augmented variant per original training image} (doubling training size).
+#'   \item \code{copies = 3L}: Generates \strong{3 distinct augmented variants per original training image} (quadrupling training size).
 #' }
 #'
-#' For each copy, one angle is randomly sampled from \code{rotate}, flipping is evaluated
-#' probabilistically, and photometric adjustments are applied randomly within valid bounds.
+#' The parameters (\code{rotate}, \code{flip_h}, \code{flip_v}, \code{brightness},
+#' \code{contrast}, \code{noise}, \code{blur}) define the \emph{pool of eligible transformations}.
+#' Rather than generating a full Cartesian grid product of all possible combinations, the
+#' function samples a unique combination of transformations for each copy requested.
 #'
 #' Already augmented images (named with suffix \code{_aug[0-9]+}) are automatically skipped,
 #' preventing recursive dataset explosion if the function is executed multiple times.
 #'
 #' @param data A `yolo_dataset` object, `yolo_dataset_cls` object, or directory path.
 #' @param out_dir Output directory. If `NULL` (default), augments the dataset in-place.
-#' @param copies Integer. The number of augmented variants generated per original training image (default: `1L`). For instance, if you have 20 original images, `copies = 1L` adds 20 augmented images (total 40), while `copies = 3L` adds 60 augmented images (total 80).
+#' @param total_imgs Integer. The total number of training images desired after data augmentation.
+#'   For example, if you have 500 images and request `total_imgs = 1250`, exactly 750 new augmented
+#'   variants will be generated and distributed across images. If `NULL` (default), `copies` is used.
+#' @param copies Integer. The number of augmented variants generated per original training image (default: `1L`).
+#'   Ignored if `total_imgs` is specified.
 #' @param flip_h Logical. Allow horizontal flipping with probability 0.5 (default: `TRUE`).
 #' @param flip_v Logical. Allow vertical flipping with probability 0.5 (default: `FALSE`).
-#' @param rotate Integer vector of allowable rotation angles in degrees (default: `c(0, 90, 180, 270)`). For each augmented copy, one angle is sampled randomly from this vector.
-#' @param brightness Logical. Allow random brightness jitter in `[0.82, 1.18]` (default: `TRUE`).
-#' @param contrast Logical. Allow random contrast scaling in `[0.85, 1.20]` (default: `TRUE`).
-#' @param noise Logical. Allow subtle additive Gaussian noise (default: `FALSE`).
+#' @param rotate Integer vector of allowable rotation angles in degrees (default: `c(0, 90, 180, 270)`).
+#'   For each augmented copy, one angle is sampled randomly from this vector.
+#' @param brightness Logical. Allow random brightness jitter (default: `TRUE`).
+#' @param brightness_range Numeric vector of length 2 giving `c(min, max)` brightness scaling factors (default: `c(0.85, 1.15)`).
+#' @param contrast Logical. Allow random contrast scaling (default: `TRUE`).
+#' @param contrast_range Numeric vector of length 2 giving `c(min, max)` contrast scaling factors (default: `c(0.85, 1.15)`).
+#' @param noise Logical. Allow additive Gaussian noise (default: `TRUE`).
+#' @param noise_sd Numeric vector of length 2 giving `c(min, max)` standard deviation of Gaussian noise (default: `c(0.005, 0.025)`).
+#' @param blur Logical. Allow Gaussian blurring (default: `TRUE`).
+#' @param blur_sigma Numeric vector of length 2 giving `c(min, max)` Gaussian blur sigma (default: `c(1, 3)`).
 #' @param seed Optional integer seed for reproducibility (default: 42).
 #' @param verbose Logical. Whether to show progress. Defaults to `TRUE`.
+#' @param ... Additional arguments (supports alias `blurr = TRUE`, `blurr_sigma`, `noise_range`).
 #'
 #' @return A `yolo_dataset` object pointing to the augmented dataset directory.
 #' @export
@@ -841,23 +851,45 @@ yolo_dataset_combine <- yolo_dataset_merge
 #' # 1. Default: 1 augmented copy per image (doubles training size)
 #' ds_aug1 <- yolo_dataset_augment("dataset_cafe")
 #'
-#' # 2. Generate 3 distinct augmented variants per image (quadruples training size)
-#' ds_aug3 <- yolo_dataset_augment("dataset_cafe", copies = 3)
+#' # 2. Set an exact target total number of images (e.g. exactly 1250 training images)
+#' ds_aug1250 <- yolo_dataset_augment("dataset_cafe", total_imgs = 1250)
 #'
-#' # 3. Allow vertical flips and 4 augmented variants per image
-#' ds_aug4 <- yolo_dataset_augment("dataset_cafe", copies = 4, flip_v = TRUE)
+#' # 3. Custom blur and noise ranges for high-resolution images
+#' ds_aug_hr <- yolo_dataset_augment("dataset_cafe",
+#'                                   blur_sigma = c(2, 5),
+#'                                   noise_sd = c(0.01, 0.03))
 #' }
 yolo_dataset_augment <- function(data,
                                  out_dir = NULL,
+                                 total_imgs = NULL,
                                  copies = 1L,
                                  flip_h = TRUE,
                                  flip_v = FALSE,
                                  rotate = c(0, 90, 180, 270),
                                  brightness = TRUE,
+                                 brightness_range = c(0.85, 1.15),
                                  contrast = TRUE,
-                                 noise = FALSE,
+                                 contrast_range = c(0.85, 1.15),
+                                 noise = TRUE,
+                                 noise_sd = c(0.005, 0.025),
+                                 blur = TRUE,
+                                 blur_sigma = c(1, 3),
                                  seed = 42,
-                                 verbose = TRUE) {
+                                 verbose = TRUE,
+                                 ...) {
+  dots <- list(...)
+  if ("blurr" %in% names(dots)) blur <- isTRUE(dots$blurr)
+  if ("blurr_sigma" %in% names(dots)) blur_sigma <- dots$blurr_sigma
+  if ("noise_range" %in% names(dots)) noise_sd <- dots$noise_range
+
+  .wrap_aug <- function(tdir, tsk, cls, n_created = 0L) {
+    w <- .yolo_wrap_dataset(tdir, task = tsk, classes = cls)
+    class(w) <- unique(c("yolo_dataset_aug", class(w)))
+    w$is_augmented <- TRUE
+    w$total_augmented <- as.integer(n_created)
+    w
+  }
+
   dir_path <- .yolo_get_dir(data)
   task <- .yolo_detect_task(dir_path)
   classes <- .yolo_get_classes(dir_path)
@@ -865,9 +897,17 @@ yolo_dataset_augment <- function(data,
   target_dir <- if (!is.null(out_dir)) normalizePath(out_dir[1], winslash = "/", mustWork = FALSE) else dir_path
   if (!is.null(out_dir) && target_dir != dir_path) {
     if (!dir.exists(target_dir)) dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
-    # Clone dataset structure and files
     for (item in list.files(dir_path, full.names = TRUE)) {
       file.copy(item, target_dir, recursive = TRUE, overwrite = TRUE)
+    }
+    yaml_f <- file.path(target_dir, "data.yaml")
+    if (file.exists(yaml_f)) {
+      y_lines <- readLines(yaml_f, warn = FALSE)
+      path_idx <- grep("^path:", y_lines)
+      if (length(path_idx) > 0L) {
+        y_lines[path_idx[1]] <- paste0("path: ", target_dir)
+        writeLines(y_lines, yaml_f)
+      }
     }
   }
 
@@ -882,56 +922,153 @@ yolo_dataset_augment <- function(data,
     class_subdirs <- list.dirs(tr_dir, recursive = FALSE, full.names = FALSE)
     class_subdirs <- class_subdirs[nzchar(class_subdirs) & !startsWith(class_subdirs, ".")]
 
+    cls_img_map <- list()
+    for (cls in class_subdirs) {
+      c_dir <- file.path(tr_dir, cls)
+      fls <- list.files(c_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", full.names = TRUE, ignore.case = TRUE)
+      fls <- fls[!grepl("_aug\\d+", basename(fls))]
+      cls_img_map[[cls]] <- fls
+    }
+
+    n_orig <- sum(vapply(cls_img_map, length, integer(1)))
+    if (n_orig == 0L) {
+      if (isTRUE(verbose)) cli::cli_alert_warning("No original training images found in {.path {tr_dir}}.")
+      return(.wrap_aug(target_dir, "classify", classes, 0L))
+    }
+
+    if (!is.null(total_imgs)) {
+      target_tot <- as.integer(total_imgs[1])
+      if (target_tot <= n_orig) {
+        if (isTRUE(verbose)) {
+          cli::cli_alert_info("Training split already contains {n_orig} images (>= total_imgs = {target_tot}). No augmented images generated.")
+        }
+        return(.wrap_aug(target_dir, "classify", classes, 0L))
+      }
+      target_new <- target_tot - n_orig
+      class_targets <- vapply(class_subdirs, function(cls) {
+        length(cls_img_map[[cls]]) / n_orig * target_new
+      }, numeric(1))
+      class_new <- floor(class_targets)
+      rem_cls <- target_new - sum(class_new)
+      if (rem_cls > 0L) {
+        ord_rem <- order(class_targets - class_new, decreasing = TRUE)
+        class_new[ord_rem[seq_len(rem_cls)]] <- class_new[ord_rem[seq_len(rem_cls)]] + 1L
+      }
+    }
+
     total_created <- 0L
     for (cls in class_subdirs) {
       c_dir <- file.path(tr_dir, cls)
-      fls <- list.files(c_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", full.names = TRUE, ignore.case = TRUE)
-      # Skip already augmented files to avoid exponential blowup
-      fls <- fls[!grepl("_aug\\d+", basename(fls))]
+      fls <- cls_img_map[[cls]]
+      n_c <- length(fls)
+      if (n_c == 0L) next
 
-      for (f in fls) {
+      if (!is.null(total_imgs)) {
+        c_target <- class_new[[cls]]
+        c_base <- c_target %/% n_c
+        c_rem <- c_target %% n_c
+        img_copies <- rep(c_base, n_c)
+        if (c_rem > 0L) {
+          extra_idx <- sample(seq_len(n_c), c_rem)
+          img_copies[extra_idx] <- img_copies[extra_idx] + 1L
+        }
+      } else {
+        img_copies <- rep(copies, n_c)
+      }
+
+      for (i in seq_along(fls)) {
+        n_cp <- img_copies[i]
+        if (n_cp == 0L) next
+
+        f <- fls[i]
         im <- try(image_import(f), silent = TRUE)
         if (inherits(im, "try-error") || !is_image(im)) next
 
         ext <- tools::file_ext(f)
         stem <- sub("\\.[a-zA-Z0-9]+$", "", basename(f))
+        orig_arr <- image_data(im, type = "normalized")
+        if (length(dim(orig_arr)) == 2L) {
+          dim(orig_arr) <- c(dim(orig_arr)[1], dim(orig_arr)[2], 1L)
+        }
 
-        for (cp in seq_len(copies)) {
-          im_aug <- im
-          do_fh <- isTRUE(flip_h) && (runif(1) > 0.5)
+        for (cp in seq_len(n_cp)) {
+          arr <- orig_arr
+          do_fh <- isTRUE(flip_h) && (runif(1) > 0.45)
           do_fv <- isTRUE(flip_v) && (runif(1) > 0.5)
           ang <- if (length(rotate) > 0L) sample(rotate, 1) else 0
 
-          # Ensure at least one transformation is performed
-          if (!do_fh && !do_fv && ang == 0) {
-            choice <- sample(c("flip_h", "rot", "photo"), 1)
-            if (choice == "flip_h" && isTRUE(flip_h)) do_fh <- TRUE
-            else if (choice == "rot" && length(setdiff(rotate, 0)) > 0L) ang <- sample(setdiff(rotate, 0), 1)
-            else brightness <- TRUE
+          do_bright <- isTRUE(brightness) && (runif(1) > 0.35)
+          do_contrast <- isTRUE(contrast) && (runif(1) > 0.4)
+          do_noise <- isTRUE(noise) && (runif(1) > 0.45)
+          do_blur <- isTRUE(blur) && (runif(1) > 0.45)
+
+          # Ensure at least one eligible transformation is performed
+          if (!do_fh && !do_fv && ang == 0 && !do_bright && !do_contrast && !do_noise && !do_blur) {
+            eligible_ops <- c()
+            if (isTRUE(flip_h)) eligible_ops <- c(eligible_ops, "flip_h")
+            if (isTRUE(flip_v)) eligible_ops <- c(eligible_ops, "flip_v")
+            if (length(setdiff(rotate, 0)) > 0L) eligible_ops <- c(eligible_ops, "rot")
+            if (isTRUE(brightness)) eligible_ops <- c(eligible_ops, "bright")
+            if (isTRUE(contrast)) eligible_ops <- c(eligible_ops, "contrast")
+            if (isTRUE(noise)) eligible_ops <- c(eligible_ops, "noise")
+            if (isTRUE(blur)) eligible_ops <- c(eligible_ops, "blur")
+
+            if (length(eligible_ops) > 0L) {
+              forced <- sample(eligible_ops, 1)
+              if (forced == "flip_h") do_fh <- TRUE
+              else if (forced == "flip_v") do_fv <- TRUE
+              else if (forced == "rot") ang <- sample(setdiff(rotate, 0), 1)
+              else if (forced == "bright") do_bright <- TRUE
+              else if (forced == "contrast") do_contrast <- TRUE
+              else if (forced == "noise") do_noise <- TRUE
+              else if (forced == "blur") do_blur <- TRUE
+            }
           }
 
-          # Geometric transform via fast C++ kernels
-          if (do_fh) im_aug <- image_hreflect(im_aug, verbose = FALSE)
-          if (do_fv) im_aug <- image_vreflect(im_aug, verbose = FALSE)
-          if (ang != 0) im_aug <- image_rotate(im_aug, angle = ang, verbose = FALSE)
-
-          arr <- image_data(im_aug, type = "normalized")
-
-          # Photometric transform
-          if (isTRUE(brightness) && (runif(1) > 0.3 || (!do_fh && !do_fv && ang == 0))) {
-            arr <- arr * runif(1, 0.85, 1.15)
+          # Geometric transform via fast array operations
+          if (do_fh) arr <- arr[rev(seq_len(dim(arr)[1])), , , drop = FALSE]
+          if (do_fv) arr <- arr[, rev(seq_len(dim(arr)[2])), , drop = FALSE]
+          if (ang == 90) {
+            arr <- aperm(arr, c(2, 1, 3))
+            arr <- arr[rev(seq_len(dim(arr)[1])), , , drop = FALSE]
+          } else if (ang == 180) {
+            arr <- arr[rev(seq_len(dim(arr)[1])), rev(seq_len(dim(arr)[2])), , drop = FALSE]
+          } else if (ang == 270) {
+            arr <- aperm(arr, c(2, 1, 3))
+            arr <- arr[, rev(seq_len(dim(arr)[2])), , drop = FALSE]
           }
-          if (isTRUE(contrast) && runif(1) > 0.4) {
+
+          # Photometric & Blur transforms
+          if (do_blur) {
+            b_sig <- runif(1, min(blur_sigma), max(blur_sigma))
+            arr <- gaussian_blur_cpp(arr, sigma = b_sig)
+          }
+          if (do_bright) {
+            b_fac <- runif(1, min(brightness_range), max(brightness_range))
+            arr <- image_brightness_cpp(arr, factor = b_fac, offset = 0.0)
+          }
+          if (do_contrast) {
+            c_fac <- runif(1, min(contrast_range), max(contrast_range))
             m_val <- mean(arr)
-            arr <- m_val + runif(1, 0.85, 1.15) * (arr - m_val)
+            arr <- m_val + c_fac * (arr - m_val)
           }
-          if (isTRUE(noise) && runif(1) > 0.5) {
-            arr <- arr + array(rnorm(length(arr), 0, 0.015), dim = dim(arr))
+          if (do_noise) {
+            sd_val <- runif(1, min(noise_sd), max(noise_sd))
+            seed_val <- as.integer(sample.int(1000000L, 1L))
+            arr <- image_noise_cpp(arr, type = 1L, mean = 0.0, sd = sd_val, p = 0.0, seed = seed_val)
           }
-          arr[arr > 1] <- 1
-          arr[arr < 0] <- 0
 
-          new_fn <- paste0(stem, "_aug", cp, ".", ext)
+          applied_ops <- c()
+          if (do_fh) applied_ops <- c(applied_ops, "fliph")
+          if (do_fv) applied_ops <- c(applied_ops, "flipv")
+          if (ang != 0) applied_ops <- c(applied_ops, paste0("rot", ang))
+          if (do_bright) applied_ops <- c(applied_ops, "bright")
+          if (do_contrast) applied_ops <- c(applied_ops, "contrast")
+          if (do_noise) applied_ops <- c(applied_ops, "noise")
+          if (do_blur) applied_ops <- c(applied_ops, "blur")
+          ops_tag <- if (length(applied_ops) > 0L) paste0("_", paste(applied_ops, collapse = "_")) else ""
+
+          new_fn <- paste0(stem, "_aug", cp, ops_tag, ".", ext)
           image_export(as_image(arr, colormode = "Color"), file.path(c_dir, new_fn), verbose = FALSE)
           total_created <- total_created + 1L
         }
@@ -939,9 +1076,16 @@ yolo_dataset_augment <- function(data,
     }
 
     if (isTRUE(verbose)) {
+      tot_tr <- length(list.files(tr_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", recursive = TRUE, ignore.case = TRUE))
       cli::cli_alert_success("Generated {total_created} augmented images across training classes.")
+      cli::cli_bullets(c(
+        "*" = "Original training images: {n_orig}",
+        "*" = "Augmented variants created: {total_created}",
+        "*" = "Total training images now: {tot_tr}{if (!is.null(total_imgs)) paste0(' (target total_imgs: ', total_imgs, ')') else ''}",
+        "v" = "Validation and test splits remained pristine (unaugmented)."
+      ))
     }
-    return(.yolo_wrap_dataset(target_dir, task = "classify", classes = classes))
+    return(.wrap_aug(target_dir, "classify", classes, total_created))
   }
 
   # CASE B: DETECTION / SEGMENTATION AUGMENTATION
@@ -952,12 +1096,42 @@ yolo_dataset_augment <- function(data,
     cli::cli_abort("Missing {.path images/train/} or {.path labels/train/} directory.")
   }
 
-  img_files <- list.files(tr_img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", full.names = TRUE, ignore.case = TRUE)
+  img_files <- list.files(tr_img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", full.names = TRUE, ignore.case = TRUE)
   img_files <- img_files[!grepl("_aug\\d+", basename(img_files))]
+  n_orig <- length(img_files)
+
+  if (n_orig == 0L) {
+    if (isTRUE(verbose)) cli::cli_alert_warning("No original training images found in {.path {tr_img_dir}}.")
+    return(.wrap_aug(target_dir, task, classes, 0L))
+  }
+
+  if (!is.null(total_imgs)) {
+    target_tot <- as.integer(total_imgs[1])
+    if (target_tot <= n_orig) {
+      if (isTRUE(verbose)) {
+        cli::cli_alert_info("Training split already contains {n_orig} images (>= total_imgs = {target_tot}). No augmented images generated.")
+      }
+      return(.wrap_aug(target_dir, task, classes, 0L))
+    }
+    target_new <- target_tot - n_orig
+    base_copies <- target_new %/% n_orig
+    rem <- target_new %% n_orig
+    img_copies <- rep(base_copies, n_orig)
+    if (rem > 0L) {
+      extra_idx <- sample(seq_len(n_orig), rem)
+      img_copies[extra_idx] <- img_copies[extra_idx] + 1L
+    }
+  } else {
+    img_copies <- rep(copies, n_orig)
+  }
 
   total_created <- 0L
 
-  for (im_f in img_files) {
+  for (i in seq_along(img_files)) {
+    n_cp <- img_copies[i]
+    if (n_cp == 0L) next
+
+    im_f <- img_files[i]
     im <- try(image_import(im_f), silent = TRUE)
     if (inherits(im, "try-error") || !is_image(im)) next
 
@@ -967,18 +1141,43 @@ yolo_dataset_augment <- function(data,
     raw_lines <- if (file.exists(lbl_f)) readLines(lbl_f, warn = FALSE) else character(0)
     raw_lines <- raw_lines[nzchar(trimws(raw_lines))]
 
-    for (cp in seq_len(copies)) {
-      arr <- image_data(im, type = "normalized")
-      do_fh <- isTRUE(flip_h) && (runif(1) > 0.4)
+    orig_arr <- image_data(im, type = "normalized")
+    if (length(dim(orig_arr)) == 2L) {
+      dim(orig_arr) <- c(dim(orig_arr)[1], dim(orig_arr)[2], 1L)
+    }
+
+    for (cp in seq_len(n_cp)) {
+      arr <- orig_arr
+      do_fh <- isTRUE(flip_h) && (runif(1) > 0.45)
       do_fv <- isTRUE(flip_v) && (runif(1) > 0.5)
       ang <- if (length(rotate) > 0L) sample(rotate, 1) else 0
 
-      # Ensure at least one transformation
-      if (!do_fh && !do_fv && ang == 0) {
-        choice <- sample(c("flip_h", "rot", "photo"), 1)
-        if (choice == "flip_h" && isTRUE(flip_h)) do_fh <- TRUE
-        else if (choice == "rot" && length(setdiff(rotate, 0)) > 0L) ang <- sample(setdiff(rotate, 0), 1)
-        else brightness <- TRUE
+      do_bright <- isTRUE(brightness) && (runif(1) > 0.35)
+      do_contrast <- isTRUE(contrast) && (runif(1) > 0.4)
+      do_noise <- isTRUE(noise) && (runif(1) > 0.45)
+      do_blur <- isTRUE(blur) && (runif(1) > 0.45)
+
+      # Ensure at least one transformation is performed
+      if (!do_fh && !do_fv && ang == 0 && !do_bright && !do_contrast && !do_noise && !do_blur) {
+        eligible_ops <- c()
+        if (isTRUE(flip_h)) eligible_ops <- c(eligible_ops, "flip_h")
+        if (isTRUE(flip_v)) eligible_ops <- c(eligible_ops, "flip_v")
+        if (length(setdiff(rotate, 0)) > 0L) eligible_ops <- c(eligible_ops, "rot")
+        if (isTRUE(brightness)) eligible_ops <- c(eligible_ops, "bright")
+        if (isTRUE(contrast)) eligible_ops <- c(eligible_ops, "contrast")
+        if (isTRUE(noise)) eligible_ops <- c(eligible_ops, "noise")
+        if (isTRUE(blur)) eligible_ops <- c(eligible_ops, "blur")
+
+        if (length(eligible_ops) > 0L) {
+          forced <- sample(eligible_ops, 1)
+          if (forced == "flip_h") do_fh <- TRUE
+          else if (forced == "flip_v") do_fv <- TRUE
+          else if (forced == "rot") ang <- sample(setdiff(rotate, 0), 1)
+          else if (forced == "bright") do_bright <- TRUE
+          else if (forced == "contrast") do_contrast <- TRUE
+          else if (forced == "noise") do_noise <- TRUE
+          else if (forced == "blur") do_blur <- TRUE
+        }
       }
 
       # Transform image array
@@ -1022,6 +1221,11 @@ yolo_dataset_augment <- function(data,
             w <- old_h
             h <- old_w
           }
+          # Safety boundary clamping
+          xc <- min(1.0, max(0.0, xc))
+          yc <- min(1.0, max(0.0, yc))
+          w <- min(1.0, max(0.0, w))
+          h <- min(1.0, max(0.0, h))
           aug_lines <- c(aug_lines, sprintf("%d %.6f %.6f %.6f %.6f", cid, xc, yc, w, h))
         } else {
           # Polygon: class x1 y1 x2 y2 ...
@@ -1045,24 +1249,46 @@ yolo_dataset_augment <- function(data,
             ys <- 1.0 - old_xs
           }
 
+          xs <- pmin(1.0, pmax(0.0, xs))
+          ys <- pmin(1.0, pmax(0.0, ys))
+
           interleaved <- as.vector(rbind(xs, ys))
           aug_lines <- c(aug_lines, paste(c(cid, sprintf("%.6f", interleaved)), collapse = " "))
         }
       }
 
-      # Photometric transforms
-      if (isTRUE(brightness) && (runif(1) > 0.3 || (!do_fh && !do_fv && ang == 0))) arr <- arr * runif(1, 0.82, 1.18)
-      if (isTRUE(contrast) && runif(1) > 0.4) {
-        m_val <- mean(arr)
-        arr <- m_val + runif(1, 0.85, 1.20) * (arr - m_val)
+      # Photometric & Blur transforms
+      if (do_blur) {
+        b_sig <- runif(1, min(blur_sigma), max(blur_sigma))
+        arr <- gaussian_blur_cpp(arr, sigma = b_sig)
       }
-      if (isTRUE(noise) && runif(1) > 0.5) arr <- arr + array(rnorm(length(arr), 0, 0.015), dim = dim(arr))
+      if (do_bright) {
+        b_fac <- runif(1, min(brightness_range), max(brightness_range))
+        arr <- image_brightness_cpp(arr, factor = b_fac, offset = 0.0)
+      }
+      if (do_contrast) {
+        c_fac <- runif(1, min(contrast_range), max(contrast_range))
+        m_val <- mean(arr)
+        arr <- m_val + c_fac * (arr - m_val)
+      }
+      if (do_noise) {
+        sd_val <- runif(1, min(noise_sd), max(noise_sd))
+        seed_val <- as.integer(sample.int(1000000L, 1L))
+        arr <- image_noise_cpp(arr, type = 1L, mean = 0.0, sd = sd_val, p = 0.0, seed = seed_val)
+      }
 
-      arr[arr > 1] <- 1
-      arr[arr < 0] <- 0
+      applied_ops <- c()
+      if (do_fh) applied_ops <- c(applied_ops, "fliph")
+      if (do_fv) applied_ops <- c(applied_ops, "flipv")
+      if (ang != 0) applied_ops <- c(applied_ops, paste0("rot", ang))
+      if (do_bright) applied_ops <- c(applied_ops, "bright")
+      if (do_contrast) applied_ops <- c(applied_ops, "contrast")
+      if (do_noise) applied_ops <- c(applied_ops, "noise")
+      if (do_blur) applied_ops <- c(applied_ops, "blur")
+      ops_tag <- if (length(applied_ops) > 0L) paste0("_", paste(applied_ops, collapse = "_")) else ""
 
-      new_fn <- paste0(stem, "_aug", cp, ".", ext)
-      new_txt <- paste0(stem, "_aug", cp, ".txt")
+      new_fn <- paste0(stem, "_aug", cp, ops_tag, ".", ext)
+      new_txt <- paste0(stem, "_aug", cp, ops_tag, ".txt")
 
       image_export(as_image(arr, colormode = "Color"), file.path(tr_img_dir, new_fn), verbose = FALSE)
       writeLines(aug_lines, file.path(tr_lbl_dir, new_txt))
@@ -1076,19 +1302,18 @@ yolo_dataset_augment <- function(data,
   unlink(file.path(target_dir, "labels", "test.cache"), force = TRUE)
 
   if (isTRUE(verbose)) {
-    n_orig <- length(img_files)
-    tot_tr <- length(list.files(tr_img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", ignore.case = TRUE))
-    cli::cli_alert_success("Generated {total_created} augmented image and label pairs ({copies} variant{?s} per original image).")
+    tot_tr <- length(list.files(tr_img_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", ignore.case = TRUE))
+    cli::cli_alert_success("Generated {total_created} augmented image and label pairs.")
     cli::cli_bullets(c(
       "*" = "Original training images: {n_orig}",
-      "*" = "Augmented variants created: {total_created} ({copies} per image)",
-      "*" = "Total training images now: {tot_tr}",
+      "*" = "Augmented variants created: {total_created}",
+      "*" = "Total training images now: {tot_tr}{if (!is.null(total_imgs)) paste0(' (target total_imgs: ', total_imgs, ')') else ''}",
       "v" = "Validation and test splits remained pristine (unaugmented).",
       "v" = "Stale YOLO dataset caches cleared."
     ))
   }
 
-  .yolo_wrap_dataset(target_dir, task = task, classes = classes)
+  .wrap_aug(target_dir, task, classes, total_created)
 }
 
 #' @export

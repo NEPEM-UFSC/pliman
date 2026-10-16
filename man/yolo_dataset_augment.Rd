@@ -8,15 +8,22 @@
 yolo_dataset_augment(
   data,
   out_dir = NULL,
+  total_imgs = NULL,
   copies = 1L,
   flip_h = TRUE,
   flip_v = FALSE,
   rotate = c(0, 90, 180, 270),
   brightness = TRUE,
+  brightness_range = c(0.85, 1.15),
   contrast = TRUE,
-  noise = FALSE,
+  contrast_range = c(0.85, 1.15),
+  noise = TRUE,
+  noise_sd = c(0.005, 0.025),
+  blur = TRUE,
+  blur_sigma = c(1, 3),
   seed = 42,
-  verbose = TRUE
+  verbose = TRUE,
+  ...
 )
 }
 \arguments{
@@ -24,30 +31,48 @@ yolo_dataset_augment(
 
 \item{out_dir}{Output directory. If \code{NULL} (default), augments the dataset in-place.}
 
-\item{copies}{Integer. The number of augmented variants generated per original training image (default: \code{1L}). For instance, if you have 20 original images, \code{copies = 1L} adds 20 augmented images (total 40), while \code{copies = 3L} adds 60 augmented images (total 80).}
+\item{total_imgs}{Integer. The total number of training images desired after data augmentation.
+For example, if you have 500 images and request \code{total_imgs = 1250}, exactly 750 new augmented
+variants will be generated and distributed across images. If \code{NULL} (default), \code{copies} is used.}
+
+\item{copies}{Integer. The number of augmented variants generated per original training image (default: \code{1L}).
+Ignored if \code{total_imgs} is specified.}
 
 \item{flip_h}{Logical. Allow horizontal flipping with probability 0.5 (default: \code{TRUE}).}
 
 \item{flip_v}{Logical. Allow vertical flipping with probability 0.5 (default: \code{FALSE}).}
 
-\item{rotate}{Integer vector of allowable rotation angles in degrees (default: \code{c(0, 90, 180, 270)}). For each augmented copy, one angle is sampled randomly from this vector.}
+\item{rotate}{Integer vector of allowable rotation angles in degrees (default: \code{c(0, 90, 180, 270)}).
+For each augmented copy, one angle is sampled randomly from this vector.}
 
-\item{brightness}{Logical. Allow random brightness jitter in \verb{[0.82, 1.18]} (default: \code{TRUE}).}
+\item{brightness}{Logical. Allow random brightness jitter (default: \code{TRUE}).}
 
-\item{contrast}{Logical. Allow random contrast scaling in \verb{[0.85, 1.20]} (default: \code{TRUE}).}
+\item{brightness_range}{Numeric vector of length 2 giving \code{c(min, max)} brightness scaling factors (default: \code{c(0.85, 1.15)}).}
 
-\item{noise}{Logical. Allow subtle additive Gaussian noise (default: \code{FALSE}).}
+\item{contrast}{Logical. Allow random contrast scaling (default: \code{TRUE}).}
+
+\item{contrast_range}{Numeric vector of length 2 giving \code{c(min, max)} contrast scaling factors (default: \code{c(0.85, 1.15)}).}
+
+\item{noise}{Logical. Allow additive Gaussian noise (default: \code{TRUE}).}
+
+\item{noise_sd}{Numeric vector of length 2 giving \code{c(min, max)} standard deviation of Gaussian noise (default: \code{c(0.005, 0.025)}).}
+
+\item{blur}{Logical. Allow Gaussian blurring (default: \code{TRUE}).}
+
+\item{blur_sigma}{Numeric vector of length 2 giving \code{c(min, max)} Gaussian blur sigma (default: \code{c(1, 3)}).}
 
 \item{seed}{Optional integer seed for reproducibility (default: 42).}
 
 \item{verbose}{Logical. Whether to show progress. Defaults to \code{TRUE}.}
+
+\item{...}{Additional arguments (supports alias \code{blurr = TRUE}, \code{blurr_sigma}, \code{noise_range}).}
 }
 \value{
 A \code{yolo_dataset} object pointing to the augmented dataset directory.
 }
 \description{
 \code{yolo_dataset_augment()} applies robust offline geometric and photometric augmentations
-(horizontal/vertical flips, 90/180/270 rotations, brightness, contrast, and noise)
+(horizontal/vertical flips, 90/180/270 rotations, brightness, contrast, noise, and blur)
 to a YOLO dataset. Crucially, all bounding boxes and segmentation polygon vertices
 are dynamically recomputed with mathematical precision to match the transformed images.
 
@@ -55,22 +80,21 @@ Augmentations are exclusively applied to the \verb{train/} split, strictly keepi
 and \verb{test/} pristine for unbiased evaluation.
 }
 \details{
-\strong{How \code{copies} and transformations work (Stochastic Sampling vs. Cartesian Grid):}
+\strong{How \code{copies}, \code{total_imgs}, and transformations work:}
 
-The parameters (\code{rotate}, \code{flip_h}, \code{flip_v}, \code{brightness},
-\code{contrast}, \code{noise}) define the \emph{pool of eligible transformations}.
-
-Rather than generating a full Cartesian grid product of all possible combinations
-(which would produce 30–60 copies per image and quickly exhaust disk space), the
-function samples a unique combination of transformations for each copy requested:
 \itemize{
-\item \code{copies = 1L} (default): Generates \strong{exactly 1 new augmented variant per original training image} (resulting in \code{original + 1 = 2x} training size).
-\item \code{copies = 3L}: Generates \strong{3 distinct augmented variants per original training image} (resulting in \code{original + 3 = 4x} training size).
-\item \code{copies = 5L}: Generates \strong{5 distinct augmented variants per original training image} (resulting in \code{original + 5 = 6x} training size).
+\item \code{total_imgs}: When specified, sets the \strong{exact total number of training images}
+desired after augmentation. For example, if you currently have 500 original training images
+and specify \code{total_imgs = 1250}, the function generates exactly 750 new augmented variants
+(distributed evenly across training images and classes). Overrides \code{copies}.
+\item \code{copies = 1L} (default when \code{total_imgs = NULL}): Generates \strong{1 new augmented variant per original training image} (doubling training size).
+\item \code{copies = 3L}: Generates \strong{3 distinct augmented variants per original training image} (quadrupling training size).
 }
 
-For each copy, one angle is randomly sampled from \code{rotate}, flipping is evaluated
-probabilistically, and photometric adjustments are applied randomly within valid bounds.
+The parameters (\code{rotate}, \code{flip_h}, \code{flip_v}, \code{brightness},
+\code{contrast}, \code{noise}, \code{blur}) define the \emph{pool of eligible transformations}.
+Rather than generating a full Cartesian grid product of all possible combinations, the
+function samples a unique combination of transformations for each copy requested.
 
 Already augmented images (named with suffix \code{_aug[0-9]+}) are automatically skipped,
 preventing recursive dataset explosion if the function is executed multiple times.
@@ -82,10 +106,12 @@ library(pliman)
 # 1. Default: 1 augmented copy per image (doubles training size)
 ds_aug1 <- yolo_dataset_augment("dataset_cafe")
 
-# 2. Generate 3 distinct augmented variants per image (quadruples training size)
-ds_aug3 <- yolo_dataset_augment("dataset_cafe", copies = 3)
+# 2. Set an exact target total number of images (e.g. exactly 1250 training images)
+ds_aug1250 <- yolo_dataset_augment("dataset_cafe", total_imgs = 1250)
 
-# 3. Allow vertical flips and 4 augmented variants per image
-ds_aug4 <- yolo_dataset_augment("dataset_cafe", copies = 4, flip_v = TRUE)
+# 3. Custom blur and noise ranges for high-resolution images
+ds_aug_hr <- yolo_dataset_augment("dataset_cafe",
+                                  blur_sigma = c(2, 5),
+                                  noise_sd = c(0.01, 0.03))
 }
 }

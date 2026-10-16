@@ -11,6 +11,9 @@
   show_boxes = NULL,
   show_polygons = NULL,
   show_points = TRUE,
+  show_class = if (!is.null(x$show_class)) x$show_class else TRUE,
+  show_conf = if (!is.null(x$show_conf)) x$show_conf else TRUE,
+  badge = if (!is.null(x$badge)) x$badge else TRUE,
   col_border = "#00FFCC",
   col_poly = "#00FFCC55",
   col_point = "#FFFF00",
@@ -32,6 +35,12 @@
 \item{show_polygons}{Logical. Show segmentation polygons. Defaults to \code{TRUE} for segmentation tasks.}
 
 \item{show_points}{Logical. Show clicked exemplar points. Defaults to \code{TRUE}.}
+
+\item{show_class}{Logical. Whether to display class name on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges. Defaults to \code{TRUE}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels. Defaults to \code{TRUE}.}
 
 \item{col_border}{Border color when \code{rainbow = FALSE}. Defaults to \code{"#00FFCC"}.}
 
