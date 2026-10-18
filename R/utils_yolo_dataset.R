@@ -828,18 +828,42 @@ yolo_dataset_combine <- yolo_dataset_merge
 #'   Ignored if `total_imgs` is specified.
 #' @param flip_h Logical. Allow horizontal flipping with probability 0.5 (default: `TRUE`).
 #' @param flip_v Logical. Allow vertical flipping with probability 0.5 (default: `FALSE`).
-#' @param rotate Integer vector of allowable rotation angles in degrees (default: `c(0, 90, 180, 270)`).
-#'   For each augmented copy, one angle is sampled randomly from this vector.
+#' @param rotate Vector or logical. Rotation augmentation in degrees. Can be:
+#'   * A single numeric angle (e.g., `rotate = 45` or `rotate = 90` to strictly rotate by that angle),
+#'   * A continuous range `c(min, max)` of angles (default: `c(-45, 45)`),
+#'   * A vector of discrete angles to sample from (e.g. `c(0, 90, 180, 270)`),
+#'   * `TRUE` (samples uniformly from `rotate_range`), or `FALSE`/`0` (no rotation).
+#' @param rotate_range Numeric vector of length 2 giving `c(min, max)` rotation angles in degrees
+#'   when `rotate = TRUE` (default: `c(-45, 45)`).
+#' @param perspective Logical. Whether to apply 3D camera perspective warp augmentation (default: `TRUE`).
+#'   When `TRUE`, simulates realistic pitch, yaw, and roll camera tilts.
+#' @param perspective_x Numeric vector of length 2 giving `c(min, max)` pitch tilt range around X in degrees (default: `c(20, 40)`).
+#'   If given as a positive range (e.g. `c(20, 40)`), samples random positive or negative tilts between 20 and 40 degrees.
+#' @param perspective_y Numeric vector of length 2 giving `c(min, max)` yaw tilt range around Y in degrees (default: `c(20, 40)`).
+#'   If given as a positive range (e.g. `c(20, 40)`), samples random positive or negative tilts between 20 and 40 degrees.
+#' @param perspective_z Numeric vector of length 2 giving `c(min, max)` roll angle range around Z in degrees (default: `c(20, 40)`).
+#'   If given as a positive range (e.g. `c(20, 40)`), samples random positive or negative rolls between 20 and 40 degrees.
+#' @param perspective_scale Numeric vector of length 2 giving `c(min, max)` zoom scale range (default: `c(0.95, 1.05)`).
+#' @param bg_col Background fill color for exposed canvas (default: `"white"`).
 #' @param brightness Logical. Allow random brightness jitter (default: `TRUE`).
-#' @param brightness_range Numeric vector of length 2 giving `c(min, max)` brightness scaling factors (default: `c(0.85, 1.15)`).
-#' @param contrast Logical. Allow random contrast scaling (default: `TRUE`).
-#' @param contrast_range Numeric vector of length 2 giving `c(min, max)` contrast scaling factors (default: `c(0.85, 1.15)`).
+#' @param brightness_range Numeric vector of length 2 giving `c(min, max)` brightness scaling factors (default: `c(0.6, 1.2)`).
+#' @param contrast Logical. Allow random contrast adjustment via adaptive histogram equalization ([image_contrast()]). Defaults to `TRUE`.
+#' @param contrast_range Numeric vector of length 2 giving `c(min, max)` clip limit for [image_contrast()] (default: `c(1, 3)`).
 #' @param noise Logical. Allow additive Gaussian noise (default: `TRUE`).
-#' @param noise_sd Numeric vector of length 2 giving `c(min, max)` standard deviation of Gaussian noise (default: `c(0.005, 0.025)`).
+#' @param noise_sd Numeric vector of length 2 giving `c(min, max)` standard deviation of Gaussian noise (default: `c(0.05, 0.1)`).
 #' @param blur Logical. Allow Gaussian blurring (default: `TRUE`).
-#' @param blur_sigma Numeric vector of length 2 giving `c(min, max)` Gaussian blur sigma (default: `c(1, 3)`).
+#' @param blur_sigma Numeric vector of length 2 giving `c(min, max)` Gaussian blur sigma (default: `c(2, 4)`).
+#' @param cutout Logical. Whether to apply Cutout / Random Erasing augmentation to simulate occlusions (default: `TRUE`).
+#' @param cutout_target Target location for cutout rectangles. Either `"object"` (default, occludes parts of annotated objects) or `"image"` (places cutout rectangles randomly across the entire image canvas).
+#' @param cutout_pos Positioning strategy when `cutout_target = "object"`. Either `"corner"` (default, randomly anchors the cutout at one of the four bounding box corners, simulating realistic partial occlusion of objects) or `"random"` (places cutout anywhere within the bounding box).
+#' @param cutout_n Number of cutout rectangles to generate per image/object. Can be an integer or integer range `c(min, max)` (default: `c(3, 5)`).
+#' @param cutout_size Numeric vector of length 2 giving `c(min, max)` relative dimensions of the cutout rectangle. When `cutout_target = "object"`, it is relative to object bounding box dimensions (default: `c(0.4, 0.6)`). When `cutout_target = "image"`, it is relative to image dimensions.
+#' @param cutout_fill Fill color or pattern for cutout rectangles. Can be `"mean"` (channel-wise mean image color, default), `"black"`, `"white"`, `"noise"` (random uniform noise), or any valid R color name.
+#' @param quality Integer between 1 and 100. JPEG compression quality for exported augmented images (default: `90`). Quality 85-90 preserves pristine pixel fidelity while encoding several times faster than 95+.
+#' @param max_ops Maximum number of transformations/alterations applied to each augmented image copy (default: `c(1, 3)`). Can be an integer (e.g., `2` or `3`, meaning between 1 and `max_ops` operations are randomly selected), a range `c(min, max)` (e.g. `c(1, 3)`), or `NULL` (no limit, independent probabilities for all enabled operations).
 #' @param seed Optional integer seed for reproducibility (default: 42).
-#' @param verbose Logical. Whether to show progress. Defaults to `TRUE`.
+#' @param verbose Logical. Whether to print informative messages. Defaults to `TRUE`.
+#' @param progress Logical. Whether to display a CLI progress bar during data augmentation. Defaults to `TRUE`.
 #' @param ... Additional arguments (supports alias `blurr = TRUE`, `blurr_sigma`, `noise_range`).
 #'
 #' @return A `yolo_dataset` object pointing to the augmented dataset directory.
@@ -854,10 +878,11 @@ yolo_dataset_combine <- yolo_dataset_merge
 #' # 2. Set an exact target total number of images (e.g. exactly 1250 training images)
 #' ds_aug1250 <- yolo_dataset_augment("dataset_cafe", total_imgs = 1250)
 #'
-#' # 3. Custom blur and noise ranges for high-resolution images
-#' ds_aug_hr <- yolo_dataset_augment("dataset_cafe",
-#'                                   blur_sigma = c(2, 5),
-#'                                   noise_sd = c(0.01, 0.03))
+#' # 3. Cutout augmentation focused on objects
+#' ds_cutout <- yolo_dataset_augment("dataset_cafe",
+#'                                   cutout = TRUE,
+#'                                   cutout_target = "object",
+#'                                   cutout_size = c(0.4, 0.6))
 #' }
 yolo_dataset_augment <- function(data,
                                  out_dir = NULL,
@@ -865,22 +890,46 @@ yolo_dataset_augment <- function(data,
                                  copies = 1L,
                                  flip_h = TRUE,
                                  flip_v = FALSE,
-                                 rotate = c(0, 90, 180, 270),
+                                 rotate = c(-45, 45),
+                                 rotate_range = c(-45, 45),
+                                 perspective = TRUE,
+                                 perspective_x = c(20, 40),
+                                 perspective_y = c(20, 40),
+                                 perspective_z = c(20, 40),
+                                 perspective_scale = c(0.95, 1.05),
+                                 bg_col = "white",
                                  brightness = TRUE,
-                                 brightness_range = c(0.85, 1.15),
+                                 brightness_range = c(0.6, 1.2),
                                  contrast = TRUE,
-                                 contrast_range = c(0.85, 1.15),
+                                 contrast_range = c(1, 3),
                                  noise = TRUE,
-                                 noise_sd = c(0.005, 0.025),
+                                 noise_sd = c(0.05, 0.1),
                                  blur = TRUE,
-                                 blur_sigma = c(1, 3),
+                                 blur_sigma = c(2, 4),
+                                 cutout = TRUE,
+                                 cutout_target = c("object", "image"),
+                                 cutout_pos = c("corner", "random"),
+                                 cutout_n = c(3, 5),
+                                 cutout_size = c(0.4, 0.6),
+                                 cutout_fill = "mean",
+                                 quality = 90,
+                                 max_ops = c(1, 3),
                                  seed = 42,
                                  verbose = TRUE,
+                                 progress = TRUE,
                                  ...) {
+  cutout_target <- match.arg(cutout_target)
+  cutout_pos <- match.arg(cutout_pos)
   dots <- list(...)
+  if ("jpeg_quality" %in% names(dots)) quality <- as.integer(dots$jpeg_quality)
+  quality <- max(1L, min(100L, as.integer(quality)))
+  if ("cutout_position" %in% names(dots)) cutout_pos <- dots$cutout_position
   if ("blurr" %in% names(dots)) blur <- isTRUE(dots$blurr)
   if ("blurr_sigma" %in% names(dots)) blur_sigma <- dots$blurr_sigma
   if ("noise_range" %in% names(dots)) noise_sd <- dots$noise_range
+  if ("contrast_clip_limit" %in% names(dots)) contrast_range <- dots$contrast_clip_limit
+  if ("max_alterations" %in% names(dots)) max_ops <- dots$max_alterations
+  if ("max_transforms" %in% names(dots)) max_ops <- dots$max_transforms
 
   .wrap_aug <- function(tdir, tsk, cls, n_created = 0L) {
     w <- .yolo_wrap_dataset(tdir, task = tsk, classes = cls)
@@ -888,6 +937,451 @@ yolo_dataset_augment <- function(data,
     w$is_augmented <- TRUE
     w$total_augmented <- as.integer(n_created)
     w
+  }
+
+  .sample_one <- function(x) {
+    if (length(x) == 0L) return(0)
+    if (length(x) == 1L) return(x[1])
+    sample(x, 1)
+  }
+
+  .get_rotate_sampler <- function(rot, r_range = c(-45, 45)) {
+    if (is.null(rot) || isFALSE(rot)) {
+      return(function() 0)
+    }
+    if (isTRUE(rot)) {
+      return(function() round(runif(1, min(r_range), max(r_range))))
+    }
+    if (is.numeric(rot)) {
+      if (length(rot) == 1L) {
+        val <- as.numeric(rot)
+        return(function() val)
+      }
+      if (length(rot) == 2L && !all(rot %in% c(0, 90, 180, 270))) {
+        return(function() round(runif(1, min(rot), max(rot))))
+      }
+      return(function() .sample_one(rot))
+    }
+    function() 0
+  }
+
+  .sample_perspective_val <- function(p) {
+    if (is.null(p)) return(0.0)
+    p <- as.numeric(p)
+    if (length(p) == 0L || all(is.na(p))) return(0.0)
+    if (length(p) == 1L) {
+      if (p == 0) return(0.0)
+      if (p > 0) return(sample(c(-1, 1), 1L) * p)
+      return(p)
+    }
+    p_min <- min(p, na.rm = TRUE)
+    p_max <- max(p, na.rm = TRUE)
+    if (p_min == 0 && p_max == 0) return(0.0)
+    if (p_min >= 0) {
+      mag <- if (p_min == p_max) p_min else runif(1, p_min, p_max)
+      return(sample(c(-1, 1), 1L) * mag)
+    }
+    runif(1, p_min, p_max)
+  }
+
+  .get_perspective_sampler <- function(persp, px, py, pz, pscale) {
+    if (is.null(persp) || isFALSE(persp)) {
+      return(NULL)
+    }
+    function() {
+      list(
+        px = .sample_perspective_val(px),
+        py = .sample_perspective_val(py),
+        pz = .sample_perspective_val(pz),
+        pscale = if (length(pscale) == 1L) as.numeric(pscale) else runif(1, min(pscale), max(pscale))
+      )
+    }
+  }
+
+  .yolo_flip_annotations <- function(raw_lines, do_h = FALSE, do_v = FALSE) {
+    if (length(raw_lines) == 0L || (!do_h && !do_v)) return(raw_lines)
+    out_lines <- character(0)
+    for (ln in raw_lines) {
+      vals <- as.numeric(strsplit(trimws(ln), "\\s+")[[1]])
+      if (length(vals) < 5L) next
+      cid <- as.integer(vals[1])
+      if (length(vals) == 5L) {
+        xc <- vals[2]; yc <- vals[3]; w <- vals[4]; h <- vals[5]
+        if (do_h) xc <- 1.0 - xc
+        if (do_v) yc <- 1.0 - yc
+        out_lines <- c(out_lines, sprintf("%d %.6f %.6f %.6f %.6f", cid, xc, yc, w, h))
+      } else {
+        coords <- vals[-1]
+        xs <- coords[seq(1, length(coords), by = 2)]
+        ys <- coords[seq(2, length(coords), by = 2)]
+        if (do_h) xs <- 1.0 - xs
+        if (do_v) ys <- 1.0 - ys
+        coord_pairs <- sprintf("%.6f %.6f", xs, ys)
+        out_lines <- c(out_lines, paste(c(cid, coord_pairs), collapse = " "))
+      }
+    }
+    out_lines
+  }
+
+  .build_rot_matrix <- function(W_in, H_in, W_out, H_out, ang) {
+    rad <- -ang * pi / 180.0
+    cosA <- cos(rad); sinA <- sin(rad)
+    cx_src <- (W_in - 1) * 0.5
+    cy_src <- (H_in - 1) * 0.5
+    cx_dst <- (W_out - 1) * 0.5
+    cy_dst <- (H_out - 1) * 0.5
+
+    Tin <- matrix(c(1, 0, -cx_src, 0, 1, -cy_src, 0, 0, 1), 3, 3, byrow = TRUE)
+    Rmat <- matrix(c(cosA, sinA, 0, -sinA, cosA, 0, 0, 0, 1), 3, 3, byrow = TRUE)
+    Tout <- matrix(c(1, 0, cx_dst, 0, 1, cy_dst, 0, 0, 1), 3, 3, byrow = TRUE)
+    Tout %*% Rmat %*% Tin
+  }
+
+  .angles_ellipse <- seq(0, 2 * pi, length.out = 33L)[-33L]
+  .cos_ellipse <- cos(.angles_ellipse)
+  .sin_ellipse <- sin(.angles_ellipse)
+
+  .yolo_transform_annotations <- function(raw_lines, W_src, H_src, W_dst, H_dst, M) {
+    if (length(raw_lines) == 0L) return(character(0))
+    aug_lines <- character(0)
+
+    for (ln in raw_lines) {
+      vals <- as.numeric(strsplit(trimws(ln), "\\s+")[[1]])
+      if (length(vals) < 5L) next
+      cid <- as.integer(vals[1])
+
+      if (length(vals) == 5L) {
+        # Box: xc, yc, w, h
+        # Inscribed ellipse projection (tight bounding box avoiding corner inflation)
+        xc <- vals[2]; yc <- vals[3]; w <- vals[4]; h <- vals[5]
+        cx <- xc * W_src
+        cy <- yc * H_src
+        rx <- (w * W_src) * 0.5
+        ry <- (h * H_src) * 0.5
+
+        pts <- rbind(
+          cx + rx * .cos_ellipse,
+          cy + ry * .sin_ellipse,
+          1.0
+        )
+
+        trans <- M %*% pts
+        tw <- trans[3, ]
+        tw[abs(tw) < 1e-9] <- 1e-9
+        valid <- tw > 0.01
+        if (!any(valid)) next
+        tx <- trans[1, valid] / tw[valid]
+        ty <- trans[2, valid] / tw[valid]
+
+        new_xmin <- min(tx)
+        new_xmax <- max(tx)
+        new_ymin <- min(ty)
+        new_ymax <- max(ty)
+
+        c_xmin <- max(0.0, min(as.numeric(W_dst), new_xmin))
+        c_xmax <- max(0.0, min(as.numeric(W_dst), new_xmax))
+        c_ymin <- max(0.0, min(as.numeric(H_dst), new_ymin))
+        c_ymax <- max(0.0, min(as.numeric(H_dst), new_ymax))
+
+        if ((c_xmax - c_xmin) >= 2.0 && (c_ymax - c_ymin) >= 2.0) {
+          n_xc <- (c_xmin + c_xmax) / (2.0 * W_dst)
+          n_yc <- (c_ymin + c_ymax) / (2.0 * H_dst)
+          n_w  <- (c_xmax - c_xmin) / W_dst
+          n_h  <- (c_ymax - c_ymin) / H_dst
+
+          n_xc <- max(0.0, min(1.0, n_xc))
+          n_yc <- max(0.0, min(1.0, n_yc))
+          n_w  <- max(0.0, min(1.0, n_w))
+          n_h  <- max(0.0, min(1.0, n_h))
+
+          aug_lines <- c(aug_lines, sprintf("%d %.6f %.6f %.6f %.6f", cid, n_xc, n_yc, n_w, n_h))
+        }
+      } else {
+        # Polygon: class x1 y1 x2 y2 ...
+        coords <- vals[-1]
+        xs <- coords[seq(1, length(coords), by = 2)] * W_src
+        ys <- coords[seq(2, length(coords), by = 2)] * H_src
+        n_pts <- length(xs)
+
+        pts <- rbind(xs, ys, rep(1, n_pts))
+        trans <- M %*% pts
+        tw <- trans[3, ]
+        tw[abs(tw) < 1e-9] <- 1e-9
+        tx <- trans[1, ] / tw
+        ty <- trans[2, ] / tw
+
+        norm_x <- pmax(0.0, pmin(1.0, tx / W_dst))
+        norm_y <- pmax(0.0, pmin(1.0, ty / H_dst))
+
+        interleaved <- as.vector(rbind(norm_x, norm_y))
+        aug_lines <- c(aug_lines, paste(c(cid, sprintf("%.6f", interleaved)), collapse = " "))
+      }
+    }
+
+    aug_lines
+  }
+
+  .apply_cutout <- function(arr,
+                            raw_lines = character(0),
+                            target = "object",
+                            n_cutouts = c(1, 3),
+                            size_range = c(0.15, 0.40),
+                            fill = "black",
+                            pos = "corner") {
+    W <- dim(arr)[1]
+    H <- dim(arr)[2]
+    n_channels <- if (length(dim(arr)) >= 3L) dim(arr)[3] else 1L
+
+    fill_is_noise <- identical(fill, "noise")
+    fill_val <- if (fill_is_noise) {
+      NULL
+    } else if (identical(fill, "mean")) {
+      if (n_channels == 3L) {
+        c(mean(arr[, , 1]), mean(arr[, , 2]), mean(arr[, , 3]))
+      } else {
+        mean(arr)
+      }
+    } else {
+      tryCatch({
+        rgb_vec <- grDevices::col2rgb(fill)[, 1] / 255.0
+        if (n_channels == 3L) rgb_vec else mean(rgb_vec)
+      }, error = function(e) {
+        if (n_channels == 3L) c(0, 0, 0) else 0
+      })
+    }
+
+    fill_patch <- function(arr_in, x1, y1, x2, y2) {
+      x1 <- max(1L, min(W, as.integer(round(x1))))
+      x2 <- max(1L, min(W, as.integer(round(x2))))
+      y1 <- max(1L, min(H, as.integer(round(y1))))
+      y2 <- max(1L, min(H, as.integer(round(y2))))
+      if (x2 < x1 || y2 < y1) return(arr_in)
+
+      pw <- (x2 - x1 + 1L)
+      ph <- (y2 - y1 + 1L)
+
+      if (fill_is_noise) {
+        if (n_channels == 3L) {
+          arr_in[x1:x2, y1:y2, 1] <- runif(pw * ph)
+          arr_in[x1:x2, y1:y2, 2] <- runif(pw * ph)
+          arr_in[x1:x2, y1:y2, 3] <- runif(pw * ph)
+        } else {
+          arr_in[x1:x2, y1:y2, 1] <- runif(pw * ph)
+        }
+      } else {
+        if (n_channels == 3L) {
+          arr_in[x1:x2, y1:y2, 1] <- fill_val[1]
+          arr_in[x1:x2, y1:y2, 2] <- fill_val[2]
+          arr_in[x1:x2, y1:y2, 3] <- fill_val[3]
+        } else {
+          arr_in[x1:x2, y1:y2, 1] <- fill_val[1]
+        }
+      }
+      arr_in
+    }
+
+    parsed_boxes <- list()
+    if (length(raw_lines) > 0L) {
+      for (ln in raw_lines) {
+        vals <- suppressWarnings(as.numeric(strsplit(trimws(ln), "\\s+")[[1]]))
+        if (length(vals) < 5L || any(is.na(vals))) next
+        if (length(vals) == 5L) {
+          xc <- vals[2]; yc <- vals[3]; bw <- vals[4]; bh <- vals[5]
+          parsed_boxes[[length(parsed_boxes) + 1L]] <- c(
+            (xc - bw * 0.5) * W,
+            (xc + bw * 0.5) * W,
+            (yc - bh * 0.5) * H,
+            (yc + bh * 0.5) * H
+          )
+        } else if (length(vals) >= 6L) {
+          coords <- vals[-1]
+          px <- coords[seq(1, length(coords), by = 2L)] * W
+          py <- coords[seq(2, length(coords), by = 2L)] * H
+          parsed_boxes[[length(parsed_boxes) + 1L]] <- c(
+            min(px), max(px), min(py), max(py)
+          )
+        }
+      }
+    }
+
+    n_k <- if (length(n_cutouts) == 1L) {
+      as.integer(n_cutouts)
+    } else {
+      sample(as.integer(n_cutouts[1]):as.integer(n_cutouts[length(n_cutouts)]), 1L)
+    }
+    n_k <- max(1L, n_k)
+
+    s_min <- min(size_range)
+    s_max <- max(size_range)
+
+    if (target == "object" && length(parsed_boxes) > 0L) {
+      chosen_indices <- sample(seq_along(parsed_boxes), size = min(n_k, length(parsed_boxes)), replace = (n_k > length(parsed_boxes)))
+      for (b_idx in chosen_indices) {
+        b <- parsed_boxes[[b_idx]]
+        bx1 <- b[1]; bx2 <- b[2]; by1 <- b[3]; by2 <- b[4]
+        bw <- max(4.0, bx2 - bx1)
+        bh <- max(4.0, by2 - by1)
+
+        s_fx <- if (s_min == s_max) s_min else runif(1, s_min, s_max)
+        s_fy <- if (s_min == s_max) s_min else runif(1, s_min, s_max)
+        cw <- max(2.0, min(bw * 0.85, bw * s_fx))
+        ch <- max(2.0, min(bh * 0.85, bh * s_fy))
+
+        if (identical(pos, "corner")) {
+          corner <- sample(1L:4L, 1L)
+          if (corner == 1L) {
+            # Top-Left corner
+            rx1 <- bx1; rx2 <- bx1 + cw
+            ry1 <- by1; ry2 <- by1 + ch
+          } else if (corner == 2L) {
+            # Top-Right corner
+            rx1 <- bx2 - cw; rx2 <- bx2
+            ry1 <- by1; ry2 <- by1 + ch
+          } else if (corner == 3L) {
+            # Bottom-Left corner
+            rx1 <- bx1; rx2 <- bx1 + cw
+            ry1 <- by2 - ch; ry2 <- by2
+          } else {
+            # Bottom-Right corner
+            rx1 <- bx2 - cw; rx2 <- bx2
+            ry1 <- by2 - ch; ry2 <- by2
+          }
+        } else {
+          rx1 <- runif(1, min = bx1, max = max(bx1, bx2 - cw))
+          ry1 <- runif(1, min = by1, max = max(by1, by2 - ch))
+          rx2 <- rx1 + cw
+          ry2 <- ry1 + ch
+        }
+
+        arr <- fill_patch(arr, rx1, ry1, rx2, ry2)
+      }
+    } else {
+      for (k in seq_len(n_k)) {
+        s_f <- if (s_min == s_max) s_min else runif(1, s_min, s_max)
+        cw <- max(4.0, W * s_f)
+        ch <- max(4.0, H * s_f)
+
+        rx1 <- runif(1, min = 1, max = max(1, W - cw))
+        ry1 <- runif(1, min = 1, max = max(1, H - ch))
+        rx2 <- rx1 + cw
+        ry2 <- ry1 + ch
+
+        arr <- fill_patch(arr, rx1, ry1, rx2, ry2)
+      }
+    }
+
+    arr
+  }
+
+  sample_rot <- .get_rotate_sampler(rotate, rotate_range)
+  persp_sampler <- .get_perspective_sampler(perspective, perspective_x, perspective_y, perspective_z, perspective_scale)
+  is_fixed_rot <- is.numeric(rotate) && length(rotate) == 1L && rotate[1] != 0
+
+  .sample_chosen_ops <- function() {
+    eligible_ops <- character(0)
+    if (isTRUE(flip_h)) eligible_ops <- c(eligible_ops, "flip_h")
+    if (isTRUE(flip_v)) eligible_ops <- c(eligible_ops, "flip_v")
+    if (!isFALSE(rotate) && !identical(rotate, 0)) eligible_ops <- c(eligible_ops, "rot")
+    if (!is.null(persp_sampler)) eligible_ops <- c(eligible_ops, "persp")
+    if (isTRUE(brightness)) eligible_ops <- c(eligible_ops, "bright")
+    if (isTRUE(contrast)) eligible_ops <- c(eligible_ops, "contrast")
+    if (isTRUE(noise)) eligible_ops <- c(eligible_ops, "noise")
+    if (isTRUE(blur)) eligible_ops <- c(eligible_ops, "blur")
+    if (isTRUE(cutout)) eligible_ops <- c(eligible_ops, "cutout")
+
+    if (length(eligible_ops) == 0L) {
+      return(list(
+        do_fh = FALSE, do_fv = FALSE, do_rot = FALSE, ang = 0,
+        do_persp = FALSE, persp_pars = NULL,
+        do_bright = FALSE, do_contrast = FALSE, do_noise = FALSE,
+        do_blur = FALSE, do_cutout = FALSE
+      ))
+    }
+
+    if (!is.null(max_ops)) {
+      k_min <- if (length(max_ops) >= 2L) max(1L, as.integer(min(max_ops))) else 1L
+      k_max <- as.integer(max(max_ops))
+      k_max <- max(k_min, k_max)
+      k_min <- min(k_min, length(eligible_ops))
+      k_max <- min(k_max, length(eligible_ops))
+      n_ops <- if (k_min == k_max) k_min else sample(k_min:k_max, 1L)
+      chosen <- sample(eligible_ops, size = n_ops, replace = FALSE)
+
+      do_fh <- "flip_h" %in% chosen
+      do_fv <- "flip_v" %in% chosen
+      do_rot <- "rot" %in% chosen
+      do_persp <- "persp" %in% chosen
+      do_bright <- "bright" %in% chosen
+      do_contrast <- "contrast" %in% chosen
+      do_noise <- "noise" %in% chosen
+      do_blur <- "blur" %in% chosen
+      do_cutout <- "cutout" %in% chosen
+
+      ang <- 0
+      if (do_rot) {
+        ang <- sample_rot()
+        if (ang == 0) {
+          if (is.numeric(rotate) && any(rotate != 0)) {
+            non_zeros <- rotate[rotate != 0]
+            ang <- .sample_one(non_zeros)
+          } else {
+            ang <- round(runif(1, min(rotate_range), max(rotate_range)))
+            if (ang == 0) ang <- 90
+          }
+        }
+      }
+
+      persp_pars <- NULL
+      if (do_persp && !is.null(persp_sampler)) {
+        persp_pars <- persp_sampler()
+        if (persp_pars$px == 0 && persp_pars$py == 0 && persp_pars$pz == 0) {
+          val <- .sample_perspective_val(perspective_x)
+          if (val == 0) val <- .sample_perspective_val(perspective_y)
+          if (val == 0) val <- sample(c(-10, 10), 1L)
+          persp_pars$px <- val
+        }
+      }
+    } else {
+      do_fh <- isTRUE(flip_h) && (runif(1) > 0.45)
+      do_fv <- isTRUE(flip_v) && (runif(1) > 0.5)
+      ang <- sample_rot()
+      do_rot <- (ang != 0) && (is_fixed_rot || runif(1) > 0.35)
+      persp_pars <- if (!is.null(persp_sampler)) persp_sampler() else NULL
+      do_persp <- !is.null(persp_pars) && (runif(1) > 0.4)
+      do_bright <- isTRUE(brightness) && (runif(1) > 0.35)
+      do_contrast <- isTRUE(contrast) && (runif(1) > 0.4)
+      do_noise <- isTRUE(noise) && (runif(1) > 0.45)
+      do_blur <- isTRUE(blur) && (runif(1) > 0.45)
+      do_cutout <- isTRUE(cutout) && (runif(1) > 0.4)
+
+      # Ensure at least one eligible transformation is performed
+      if (!do_fh && !do_fv && (!do_rot || ang == 0) && !do_persp && !do_bright && !do_contrast && !do_noise && !do_blur && !do_cutout) {
+        forced <- .sample_one(eligible_ops)
+        if (forced == "flip_h") do_fh <- TRUE
+        else if (forced == "flip_v") do_fv <- TRUE
+        else if (forced == "rot") {
+          ang <- sample_rot()
+          if (ang == 0) ang <- 90
+          do_rot <- TRUE
+        }
+        else if (forced == "persp") {
+          do_persp <- TRUE
+          persp_pars <- if (!is.null(persp_sampler)) persp_sampler() else NULL
+        }
+        else if (forced == "bright") do_bright <- TRUE
+        else if (forced == "contrast") do_contrast <- TRUE
+        else if (forced == "noise") do_noise <- TRUE
+        else if (forced == "blur") do_blur <- TRUE
+        else if (forced == "cutout") do_cutout <- TRUE
+      }
+    }
+
+    list(
+      do_fh = do_fh, do_fv = do_fv, do_rot = do_rot, ang = ang,
+      do_persp = do_persp, persp_pars = persp_pars,
+      do_bright = do_bright, do_contrast = do_contrast, do_noise = do_noise,
+      do_blur = do_blur, do_cutout = do_cutout
+    )
   }
 
   dir_path <- .yolo_get_dir(data)
@@ -956,6 +1450,17 @@ yolo_dataset_augment <- function(data,
       }
     }
 
+    total_to_create <- if (!is.null(total_imgs)) sum(unlist(class_new)) else n_orig * copies
+    show_pb <- isTRUE(verbose) && isTRUE(progress)
+    if (show_pb) {
+      pb <- cli::cli_progress_bar(
+        name = "Augmenting dataset",
+        total = total_to_create,
+        format = "{cli::pb_spin} Augmenting dataset [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}",
+        clear = FALSE
+      )
+    }
+
     total_created <- 0L
     for (cls in class_subdirs) {
       c_dir <- file.path(tr_dir, cls)
@@ -986,94 +1491,103 @@ yolo_dataset_augment <- function(data,
 
         ext <- tools::file_ext(f)
         stem <- sub("\\.[a-zA-Z0-9]+$", "", basename(f))
-        orig_arr <- image_data(im, type = "normalized")
-        if (length(dim(orig_arr)) == 2L) {
-          dim(orig_arr) <- c(dim(orig_arr)[1], dim(orig_arr)[2], 1L)
-        }
 
         for (cp in seq_len(n_cp)) {
-          arr <- orig_arr
-          do_fh <- isTRUE(flip_h) && (runif(1) > 0.45)
-          do_fv <- isTRUE(flip_v) && (runif(1) > 0.5)
-          ang <- if (length(rotate) > 0L) sample(rotate, 1) else 0
+          cur_im <- im
+          ops <- .sample_chosen_ops()
+          do_fh <- ops$do_fh
+          do_fv <- ops$do_fv
+          do_rot <- ops$do_rot
+          ang <- ops$ang
+          do_persp <- ops$do_persp
+          persp_pars <- ops$persp_pars
+          do_bright <- ops$do_bright
+          do_contrast <- ops$do_contrast
+          do_noise <- ops$do_noise
+          do_blur <- ops$do_blur
+          do_cutout <- ops$do_cutout
 
-          do_bright <- isTRUE(brightness) && (runif(1) > 0.35)
-          do_contrast <- isTRUE(contrast) && (runif(1) > 0.4)
-          do_noise <- isTRUE(noise) && (runif(1) > 0.45)
-          do_blur <- isTRUE(blur) && (runif(1) > 0.45)
-
-          # Ensure at least one eligible transformation is performed
-          if (!do_fh && !do_fv && ang == 0 && !do_bright && !do_contrast && !do_noise && !do_blur) {
-            eligible_ops <- c()
-            if (isTRUE(flip_h)) eligible_ops <- c(eligible_ops, "flip_h")
-            if (isTRUE(flip_v)) eligible_ops <- c(eligible_ops, "flip_v")
-            if (length(setdiff(rotate, 0)) > 0L) eligible_ops <- c(eligible_ops, "rot")
-            if (isTRUE(brightness)) eligible_ops <- c(eligible_ops, "bright")
-            if (isTRUE(contrast)) eligible_ops <- c(eligible_ops, "contrast")
-            if (isTRUE(noise)) eligible_ops <- c(eligible_ops, "noise")
-            if (isTRUE(blur)) eligible_ops <- c(eligible_ops, "blur")
-
-            if (length(eligible_ops) > 0L) {
-              forced <- sample(eligible_ops, 1)
-              if (forced == "flip_h") do_fh <- TRUE
-              else if (forced == "flip_v") do_fv <- TRUE
-              else if (forced == "rot") ang <- sample(setdiff(rotate, 0), 1)
-              else if (forced == "bright") do_bright <- TRUE
-              else if (forced == "contrast") do_contrast <- TRUE
-              else if (forced == "noise") do_noise <- TRUE
-              else if (forced == "blur") do_blur <- TRUE
-            }
+          if (do_fh) {
+            d <- dim(cur_im); attrs <- attributes(cur_im)
+            cur_im <- cur_im[rev(seq_len(d[1])), , , drop = FALSE]
+            attributes(cur_im) <- attrs
+          }
+          if (do_fv) {
+            d <- dim(cur_im); attrs <- attributes(cur_im)
+            cur_im <- cur_im[, rev(seq_len(d[2])), , drop = FALSE]
+            attributes(cur_im) <- attrs
+          }
+          if (do_persp) {
+            cur_im <- image_perspective(cur_im, x = persp_pars$px, y = persp_pars$py, z = persp_pars$pz,
+                                        scale = persp_pars$pscale, bg_col = bg_col, keep_size = TRUE, plot = FALSE)
+          }
+          if (do_rot && ang != 0) {
+            cur_im <- image_rotate(cur_im, angle = ang, bg_col = bg_col, plot = FALSE)
           }
 
-          # Geometric transform via fast array operations
-          if (do_fh) arr <- arr[rev(seq_len(dim(arr)[1])), , , drop = FALSE]
-          if (do_fv) arr <- arr[, rev(seq_len(dim(arr)[2])), , drop = FALSE]
-          if (ang == 90) {
-            arr <- aperm(arr, c(2, 1, 3))
-            arr <- arr[rev(seq_len(dim(arr)[1])), , , drop = FALSE]
-          } else if (ang == 180) {
-            arr <- arr[rev(seq_len(dim(arr)[1])), rev(seq_len(dim(arr)[2])), , drop = FALSE]
-          } else if (ang == 270) {
-            arr <- aperm(arr, c(2, 1, 3))
-            arr <- arr[, rev(seq_len(dim(arr)[2])), , drop = FALSE]
-          }
-
-          # Photometric & Blur transforms
-          if (do_blur) {
-            b_sig <- runif(1, min(blur_sigma), max(blur_sigma))
-            arr <- gaussian_blur_cpp(arr, sigma = b_sig)
-          }
-          if (do_bright) {
-            b_fac <- runif(1, min(brightness_range), max(brightness_range))
-            arr <- image_brightness_cpp(arr, factor = b_fac, offset = 0.0)
-          }
           if (do_contrast) {
-            c_fac <- runif(1, min(contrast_range), max(contrast_range))
-            m_val <- mean(arr)
-            arr <- m_val + c_fac * (arr - m_val)
+            c_lim <- if (length(contrast_range) == 1L) {
+              as.numeric(contrast_range)
+            } else if (min(contrast_range) < 1.0 && max(contrast_range) <= 1.5) {
+              runif(1, 1.5, 3.5)
+            } else {
+              runif(1, min(contrast_range), max(contrast_range))
+            }
+            cur_im <- image_contrast(cur_im, clip_limit = c_lim, verbose = FALSE, plot = FALSE)
           }
-          if (do_noise) {
-            sd_val <- runif(1, min(noise_sd), max(noise_sd))
-            seed_val <- as.integer(sample.int(1000000L, 1L))
-            arr <- image_noise_cpp(arr, type = 1L, mean = 0.0, sd = sd_val, p = 0.0, seed = seed_val)
+
+          has_photo <- (do_blur || do_bright || do_noise || do_cutout)
+          if (has_photo) {
+            u <- unclass(cur_im)
+            arr <- if (is.raw(u)) as.numeric(u) / 255.0 else as.numeric(u)
+            dim(arr) <- dim(u)
+            if (length(dim(arr)) == 2L) dim(arr) <- c(dim(arr)[1], dim(arr)[2], 1L)
+
+            # Photometric & Blur transforms
+            if (do_blur) {
+              b_sig <- runif(1, min(blur_sigma), max(blur_sigma))
+              arr <- gaussian_blur_cpp(arr, sigma = b_sig)
+            }
+            if (do_bright) {
+              b_fac <- runif(1, min(brightness_range), max(brightness_range))
+              arr <- image_brightness_cpp(arr, factor = b_fac, offset = 0.0)
+            }
+            if (do_noise) {
+              sd_val <- runif(1, min(noise_sd), max(noise_sd))
+              seed_val <- as.integer(sample.int(1000000L, 1L))
+              arr <- image_noise_cpp(arr, type = 1L, mean = 0.0, sd = sd_val, p = 0.0, seed = seed_val)
+            }
+            if (do_cutout) {
+              arr <- .apply_cutout(arr, raw_lines = character(0), target = "image",
+                                   n_cutouts = cutout_n, size_range = cutout_size, fill = cutout_fill,
+                                   pos = cutout_pos)
+            }
+            img_to_write <- arr
+          } else {
+            img_to_write <- unclass(cur_im)
           }
 
           applied_ops <- c()
           if (do_fh) applied_ops <- c(applied_ops, "fliph")
           if (do_fv) applied_ops <- c(applied_ops, "flipv")
-          if (ang != 0) applied_ops <- c(applied_ops, paste0("rot", ang))
+          if (do_persp) applied_ops <- c(applied_ops, sprintf("persp_x%d_y%d", round(persp_pars$px), round(persp_pars$py)))
+          if (do_rot && ang != 0) applied_ops <- c(applied_ops, paste0("rot", round(ang)))
           if (do_bright) applied_ops <- c(applied_ops, "bright")
           if (do_contrast) applied_ops <- c(applied_ops, "contrast")
           if (do_noise) applied_ops <- c(applied_ops, "noise")
           if (do_blur) applied_ops <- c(applied_ops, "blur")
+          if (do_cutout) applied_ops <- c(applied_ops, "cutout")
           ops_tag <- if (length(applied_ops) > 0L) paste0("_", paste(applied_ops, collapse = "_")) else ""
 
           new_fn <- paste0(stem, "_aug", cp, ops_tag, ".", ext)
-          image_export(as_image(arr, colormode = "Color"), file.path(c_dir, new_fn), verbose = FALSE)
+          write_image_cpp(img_to_write, file.path(c_dir, new_fn), quality = quality)
           total_created <- total_created + 1L
+          if (show_pb) cli::cli_progress_update(id = pb)
         }
       }
     }
+
+    if (show_pb) cli::cli_progress_done(id = pb)
 
     if (isTRUE(verbose)) {
       tot_tr <- length(list.files(tr_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", recursive = TRUE, ignore.case = TRUE))
@@ -1125,6 +1639,21 @@ yolo_dataset_augment <- function(data,
     img_copies <- rep(copies, n_orig)
   }
 
+  total_to_create <- sum(img_copies)
+  if (total_to_create == 0L) {
+    return(.wrap_aug(target_dir, task, classes, 0L))
+  }
+
+  show_pb <- isTRUE(verbose) && isTRUE(progress)
+  if (show_pb) {
+    pb <- cli::cli_progress_bar(
+      name = "Augmenting dataset",
+      total = total_to_create,
+      format = "{cli::pb_spin} Augmenting dataset [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}",
+      clear = FALSE
+    )
+  }
+
   total_created <- 0L
 
   for (i in seq_along(img_files)) {
@@ -1141,160 +1670,122 @@ yolo_dataset_augment <- function(data,
     raw_lines <- if (file.exists(lbl_f)) readLines(lbl_f, warn = FALSE) else character(0)
     raw_lines <- raw_lines[nzchar(trimws(raw_lines))]
 
-    orig_arr <- image_data(im, type = "normalized")
-    if (length(dim(orig_arr)) == 2L) {
-      dim(orig_arr) <- c(dim(orig_arr)[1], dim(orig_arr)[2], 1L)
-    }
-
     for (cp in seq_len(n_cp)) {
-      arr <- orig_arr
-      do_fh <- isTRUE(flip_h) && (runif(1) > 0.45)
-      do_fv <- isTRUE(flip_v) && (runif(1) > 0.5)
-      ang <- if (length(rotate) > 0L) sample(rotate, 1) else 0
+      cur_im <- im
+      cur_lines <- raw_lines
 
-      do_bright <- isTRUE(brightness) && (runif(1) > 0.35)
-      do_contrast <- isTRUE(contrast) && (runif(1) > 0.4)
-      do_noise <- isTRUE(noise) && (runif(1) > 0.45)
-      do_blur <- isTRUE(blur) && (runif(1) > 0.45)
+      ops <- .sample_chosen_ops()
+      do_fh <- ops$do_fh
+      do_fv <- ops$do_fv
+      do_rot <- ops$do_rot
+      ang <- ops$ang
+      do_persp <- ops$do_persp
+      persp_pars <- ops$persp_pars
+      do_bright <- ops$do_bright
+      do_contrast <- ops$do_contrast
+      do_noise <- ops$do_noise
+      do_blur <- ops$do_blur
+      do_cutout <- ops$do_cutout
 
-      # Ensure at least one transformation is performed
-      if (!do_fh && !do_fv && ang == 0 && !do_bright && !do_contrast && !do_noise && !do_blur) {
-        eligible_ops <- c()
-        if (isTRUE(flip_h)) eligible_ops <- c(eligible_ops, "flip_h")
-        if (isTRUE(flip_v)) eligible_ops <- c(eligible_ops, "flip_v")
-        if (length(setdiff(rotate, 0)) > 0L) eligible_ops <- c(eligible_ops, "rot")
-        if (isTRUE(brightness)) eligible_ops <- c(eligible_ops, "bright")
-        if (isTRUE(contrast)) eligible_ops <- c(eligible_ops, "contrast")
-        if (isTRUE(noise)) eligible_ops <- c(eligible_ops, "noise")
-        if (isTRUE(blur)) eligible_ops <- c(eligible_ops, "blur")
-
-        if (length(eligible_ops) > 0L) {
-          forced <- sample(eligible_ops, 1)
-          if (forced == "flip_h") do_fh <- TRUE
-          else if (forced == "flip_v") do_fv <- TRUE
-          else if (forced == "rot") ang <- sample(setdiff(rotate, 0), 1)
-          else if (forced == "bright") do_bright <- TRUE
-          else if (forced == "contrast") do_contrast <- TRUE
-          else if (forced == "noise") do_noise <- TRUE
-          else if (forced == "blur") do_blur <- TRUE
-        }
+      # 1. Flip horizontal
+      if (do_fh) {
+        d <- dim(cur_im); attrs <- attributes(cur_im)
+        cur_im <- cur_im[rev(seq_len(d[1])), , , drop = FALSE]
+        attributes(cur_im) <- attrs
+        cur_lines <- .yolo_flip_annotations(cur_lines, do_h = TRUE, do_v = FALSE)
       }
 
-      # Transform image array
-      if (do_fh) arr <- arr[rev(seq_len(dim(arr)[1])), , , drop = FALSE]
-      if (do_fv) arr <- arr[, rev(seq_len(dim(arr)[2])), , drop = FALSE]
-
-      if (ang == 90) {
-        arr <- aperm(arr, c(2, 1, 3))
-        arr <- arr[rev(seq_len(dim(arr)[1])), , , drop = FALSE]
-      } else if (ang == 180) {
-        arr <- arr[rev(seq_len(dim(arr)[1])), rev(seq_len(dim(arr)[2])), , drop = FALSE]
-      } else if (ang == 270) {
-        arr <- aperm(arr, c(2, 1, 3))
-        arr <- arr[, rev(seq_len(dim(arr)[2])), , drop = FALSE]
+      # 2. Flip vertical
+      if (do_fv) {
+        d <- dim(cur_im); attrs <- attributes(cur_im)
+        cur_im <- cur_im[, rev(seq_len(d[2])), , drop = FALSE]
+        attributes(cur_im) <- attrs
+        cur_lines <- .yolo_flip_annotations(cur_lines, do_h = FALSE, do_v = TRUE)
       }
 
-      # Transform annotations
-      aug_lines <- character()
-      for (ln in raw_lines) {
-        vals <- as.numeric(strsplit(trimws(ln), "\\s+")[[1]])
-        cid <- as.integer(vals[1])
-
-        if (length(vals) == 5L) {
-          # Box: xc, yc, w, h
-          xc <- vals[2]; yc <- vals[3]; w <- vals[4]; h <- vals[5]
-          if (do_fh) xc <- 1.0 - xc
-          if (do_fv) yc <- 1.0 - yc
-          if (ang == 90) {
-            old_xc <- xc; old_yc <- yc; old_w <- w; old_h <- h
-            xc <- 1.0 - old_yc
-            yc <- old_xc
-            w <- old_h
-            h <- old_w
-          } else if (ang == 180) {
-            xc <- 1.0 - xc
-            yc <- 1.0 - yc
-          } else if (ang == 270) {
-            old_xc <- xc; old_yc <- yc; old_w <- w; old_h <- h
-            xc <- old_yc
-            yc <- 1.0 - old_xc
-            w <- old_h
-            h <- old_w
-          }
-          # Safety boundary clamping
-          xc <- min(1.0, max(0.0, xc))
-          yc <- min(1.0, max(0.0, yc))
-          w <- min(1.0, max(0.0, w))
-          h <- min(1.0, max(0.0, h))
-          aug_lines <- c(aug_lines, sprintf("%d %.6f %.6f %.6f %.6f", cid, xc, yc, w, h))
-        } else {
-          # Polygon: class x1 y1 x2 y2 ...
-          coords <- vals[-1]
-          xs <- coords[seq(1, length(coords), by = 2)]
-          ys <- coords[seq(2, length(coords), by = 2)]
-
-          if (do_fh) xs <- 1.0 - xs
-          if (do_fv) ys <- 1.0 - ys
-
-          if (ang == 90) {
-            old_xs <- xs; old_ys <- ys
-            xs <- 1.0 - old_ys
-            ys <- old_xs
-          } else if (ang == 180) {
-            xs <- 1.0 - xs
-            ys <- 1.0 - ys
-          } else if (ang == 270) {
-            old_xs <- xs; old_ys <- ys
-            xs <- old_ys
-            ys <- 1.0 - old_xs
-          }
-
-          xs <- pmin(1.0, pmax(0.0, xs))
-          ys <- pmin(1.0, pmax(0.0, ys))
-
-          interleaved <- as.vector(rbind(xs, ys))
-          aug_lines <- c(aug_lines, paste(c(cid, sprintf("%.6f", interleaved)), collapse = " "))
-        }
+      # 3. 3D Perspective warp
+      if (do_persp) {
+        W_in <- dim(cur_im)[1]; H_in <- dim(cur_im)[2]
+        cur_im <- image_perspective(cur_im, x = persp_pars$px, y = persp_pars$py, z = persp_pars$pz,
+                                    scale = persp_pars$pscale, bg_col = bg_col, keep_size = TRUE, plot = FALSE)
+        M_persp <- attr(cur_im, "homography")
+        cur_lines <- .yolo_transform_annotations(cur_lines, W_in, H_in, dim(cur_im)[1], dim(cur_im)[2], M_persp)
       }
 
-      # Photometric & Blur transforms
-      if (do_blur) {
-        b_sig <- runif(1, min(blur_sigma), max(blur_sigma))
-        arr <- gaussian_blur_cpp(arr, sigma = b_sig)
+      # 4. Rotation (supports arbitrary angles, e.g. 45, 90, 180, 270)
+      if (do_rot && ang != 0) {
+        W_in <- dim(cur_im)[1]; H_in <- dim(cur_im)[2]
+        cur_im <- image_rotate(cur_im, angle = ang, bg_col = bg_col, plot = FALSE)
+        W_out <- dim(cur_im)[1]; H_out <- dim(cur_im)[2]
+        M_rot <- .build_rot_matrix(W_in, H_in, W_out, H_out, ang)
+        cur_lines <- .yolo_transform_annotations(cur_lines, W_in, H_in, W_out, H_out, M_rot)
       }
-      if (do_bright) {
-        b_fac <- runif(1, min(brightness_range), max(brightness_range))
-        arr <- image_brightness_cpp(arr, factor = b_fac, offset = 0.0)
-      }
+
       if (do_contrast) {
-        c_fac <- runif(1, min(contrast_range), max(contrast_range))
-        m_val <- mean(arr)
-        arr <- m_val + c_fac * (arr - m_val)
+        c_lim <- if (length(contrast_range) == 1L) {
+          as.numeric(contrast_range)
+        } else if (min(contrast_range) < 1.0 && max(contrast_range) <= 1.5) {
+          runif(1, 1.5, 3.5)
+        } else {
+          runif(1, min(contrast_range), max(contrast_range))
+        }
+        cur_im <- image_contrast(cur_im, clip_limit = c_lim, verbose = FALSE, plot = FALSE)
       }
-      if (do_noise) {
-        sd_val <- runif(1, min(noise_sd), max(noise_sd))
-        seed_val <- as.integer(sample.int(1000000L, 1L))
-        arr <- image_noise_cpp(arr, type = 1L, mean = 0.0, sd = sd_val, p = 0.0, seed = seed_val)
+
+      # 5. Photometric & Blur transforms
+      has_photo <- (do_blur || do_bright || do_noise || do_cutout)
+      if (has_photo) {
+        u <- unclass(cur_im)
+        arr <- if (is.raw(u)) as.numeric(u) / 255.0 else as.numeric(u)
+        dim(arr) <- dim(u)
+        if (length(dim(arr)) == 2L) dim(arr) <- c(dim(arr)[1], dim(arr)[2], 1L)
+
+        if (do_blur) {
+          b_sig <- runif(1, min(blur_sigma), max(blur_sigma))
+          arr <- gaussian_blur_cpp(arr, sigma = b_sig)
+        }
+        if (do_bright) {
+          b_fac <- runif(1, min(brightness_range), max(brightness_range))
+          arr <- image_brightness_cpp(arr, factor = b_fac, offset = 0.0)
+        }
+        if (do_noise) {
+          sd_val <- runif(1, min(noise_sd), max(noise_sd))
+          seed_val <- as.integer(sample.int(1000000L, 1L))
+          arr <- image_noise_cpp(arr, type = 1L, mean = 0.0, sd = sd_val, p = 0.0, seed = seed_val)
+        }
+        if (do_cutout) {
+          arr <- .apply_cutout(arr, raw_lines = cur_lines, target = cutout_target,
+                               n_cutouts = cutout_n, size_range = cutout_size, fill = cutout_fill,
+                               pos = cutout_pos)
+        }
+        img_to_write <- arr
+      } else {
+        img_to_write <- unclass(cur_im)
       }
 
       applied_ops <- c()
       if (do_fh) applied_ops <- c(applied_ops, "fliph")
       if (do_fv) applied_ops <- c(applied_ops, "flipv")
-      if (ang != 0) applied_ops <- c(applied_ops, paste0("rot", ang))
+      if (do_persp) applied_ops <- c(applied_ops, sprintf("persp_x%d_y%d", round(persp_pars$px), round(persp_pars$py)))
+      if (do_rot && ang != 0) applied_ops <- c(applied_ops, paste0("rot", round(ang)))
       if (do_bright) applied_ops <- c(applied_ops, "bright")
       if (do_contrast) applied_ops <- c(applied_ops, "contrast")
       if (do_noise) applied_ops <- c(applied_ops, "noise")
       if (do_blur) applied_ops <- c(applied_ops, "blur")
+      if (do_cutout) applied_ops <- c(applied_ops, paste0("cutout_", cutout_target))
       ops_tag <- if (length(applied_ops) > 0L) paste0("_", paste(applied_ops, collapse = "_")) else ""
 
       new_fn <- paste0(stem, "_aug", cp, ops_tag, ".", ext)
       new_txt <- paste0(stem, "_aug", cp, ops_tag, ".txt")
 
-      image_export(as_image(arr, colormode = "Color"), file.path(tr_img_dir, new_fn), verbose = FALSE)
-      writeLines(aug_lines, file.path(tr_lbl_dir, new_txt))
+      write_image_cpp(img_to_write, file.path(tr_img_dir, new_fn), quality = quality)
+      writeLines(cur_lines, file.path(tr_lbl_dir, new_txt))
       total_created <- total_created + 1L
+      if (show_pb) cli::cli_progress_update(id = pb)
     }
   }
+
+  if (show_pb) cli::cli_progress_done(id = pb)
 
   # Invalidate stale YOLO label caches
   unlink(file.path(target_dir, "labels", "train.cache"), force = TRUE)
@@ -1318,6 +1809,104 @@ yolo_dataset_augment <- function(data,
 
 #' @export
 yolo_dataset_aug <- yolo_dataset_augment
+
+#' @title Remove Augmented Images and Labels from a YOLO Dataset
+#' @name yolo_dataset_augment_clean
+#' @aliases yolo_dataset_aug_clean yolo_dataset_clean_aug
+#' @description
+#' `yolo_dataset_augment_clean()` removes all synthetic augmented image and label files
+#' (matching the pattern `_aug[0-9]+`) previously generated by [yolo_dataset_augment()],
+#' reverting the dataset back to its pristine original state.
+#'
+#' It automatically invalidates stale YOLO cache files (`train.cache`, `val.cache`, `test.cache`)
+#' to ensure subsequent YOLO training or validation does not reference deleted files.
+#'
+#' @param data A `yolo_dataset` object, `yolo_dataset_cls` object, or directory path.
+#' @param verbose Logical. Whether to print informative messages (default: `TRUE`).
+#'
+#' @return An invisible `yolo_dataset` object pointing to the cleaned dataset.
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#'
+#' # 1. Augment dataset in-place
+#' ds <- yolo_dataset_augment("dataset_complex", copies = 2)
+#'
+#' # 2. Clean up augmented variants and return to pristine state
+#' ds_clean <- yolo_dataset_augment_clean("dataset_complex")
+#' }
+yolo_dataset_augment_clean <- function(data, verbose = TRUE) {
+  dir_path <- .yolo_get_dir(data)
+  task <- .yolo_detect_task(dir_path)
+  classes <- .yolo_get_classes(dir_path)
+
+  img_patt <- "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$"
+
+  n_removed_img <- 0L
+  n_removed_lbl <- 0L
+  n_orig_img <- 0L
+
+  if (task == "classify") {
+    all_imgs <- list.files(dir_path, pattern = img_patt, full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+    aug_imgs <- all_imgs[grepl("_aug\\d+", basename(all_imgs))]
+    if (length(aug_imgs) > 0L) {
+      unlink(aug_imgs, force = TRUE)
+      n_removed_img <- length(aug_imgs)
+    }
+    n_orig_img <- length(all_imgs) - n_removed_img
+  } else {
+    # Detection or Segmentation
+    img_dir <- file.path(dir_path, "images")
+    lbl_dir <- file.path(dir_path, "labels")
+
+    if (dir.exists(img_dir)) {
+      all_imgs <- list.files(img_dir, pattern = img_patt, full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+      aug_imgs <- all_imgs[grepl("_aug\\d+", basename(all_imgs))]
+      if (length(aug_imgs) > 0L) {
+        unlink(aug_imgs, force = TRUE)
+        n_removed_img <- length(aug_imgs)
+      }
+      n_orig_img <- length(all_imgs) - n_removed_img
+    }
+
+    if (dir.exists(lbl_dir)) {
+      all_lbls <- list.files(lbl_dir, pattern = "\\.txt$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+      aug_lbls <- all_lbls[grepl("_aug\\d+", basename(all_lbls))]
+      if (length(aug_lbls) > 0L) {
+        unlink(aug_lbls, force = TRUE)
+        n_removed_lbl <- length(aug_lbls)
+      }
+    }
+
+    # Invalidate stale cache files
+    unlink(file.path(dir_path, "labels", "train.cache"), force = TRUE)
+    unlink(file.path(dir_path, "labels", "val.cache"), force = TRUE)
+    unlink(file.path(dir_path, "labels", "test.cache"), force = TRUE)
+  }
+
+  if (isTRUE(verbose)) {
+    if (n_removed_img == 0L && n_removed_lbl == 0L) {
+      cli::cli_alert_info("No augmented files matching `_aug[0-9]+` found in {.path {dir_path}}.")
+    } else {
+      cli::cli_alert_success("Cleaned augmented files from {.path {dir_path}}.")
+      cli::cli_bullets(c(
+        "*" = "Augmented images removed: {n_removed_img}",
+        if (task != "classify") "*" = "Augmented label files removed: {n_removed_lbl}",
+        "*" = "Remaining original images: {n_orig_img}",
+        "v" = "YOLO label caches invalidated."
+      ))
+    }
+  }
+
+  invisible(.yolo_wrap_dataset(dir_path, task = task, classes = classes))
+}
+
+#' @export
+yolo_dataset_aug_clean <- yolo_dataset_augment_clean
+
+#' @export
+yolo_dataset_clean_aug <- yolo_dataset_augment_clean
 
 
 # ==============================================================================
@@ -2140,3 +2729,878 @@ yolo_dataset_stats <- function(data, verbose = TRUE) {
 
   invisible(res_df)
 }
+
+
+# ==============================================================================
+# 9. TILING & SLIDING WINDOW WITH OVERLAP (yolo_dataset_tiling)
+# ==============================================================================
+#' @title Tiling and Sliding Window Slicing for High-Resolution YOLO Datasets
+#' @name yolo_dataset_tiling
+#' @aliases yolo_dataset_tile
+#' @description
+#' `yolo_dataset_tiling()` slices high-resolution images into uniform overlapping tiles
+#' (sliding window) suitable for training YOLO object detection and instance segmentation models.
+#'
+#' It maps and adapts all existing YOLO bounding boxes (or polygons) to the local coordinate
+#' system of each tile, applying the standard truncation/preservation criterion: keeping
+#' objects whose center falls within the tile or whose intersection preserves at least 50%
+#' of the original area (configurable via `min_area_ratio` and `assign_by`).
+#'
+#' Crucially, data splitting across `train`, `val`, and `test` is performed at the **source image**
+#' level (or inherited from existing split directories), ensuring that all tiles derived from the
+#' same original image remain in the same split to strictly prevent data leakage.
+#'
+#' Empty background tiles (containing no objects) are preserved with empty `.txt` files to provide
+#' essential negative background samples for YOLO training.
+#'
+#' @param data A `yolo_dataset` object, or path to a YOLO dataset directory (or folder containing images and labels).
+#' @param path Alias for `data`.
+#' @param out_dir Output directory where the tiled dataset will be created. If `NULL` (default), tiles the dataset in-place within the same directory.
+#' @param tile_size Integer or numeric vector of length 2 giving `c(width, height)`. Standard multiple of 32 (default: `640L`).
+#' @param overlap Numeric fraction of overlap between adjacent tiles (default: `0.20`, i.e., 20%). Ignored if `n_tiles` is set.
+#' @param n_tiles Optional integer or numeric vector of length 2 giving exact number of tiles per axis (e.g. `n_tiles = 5` or `n_tiles = c(5, 5)`). If provided, overrides `overlap`.
+#' @param min_area_ratio Minimum proportion of original object area preserved when truncated by a tile boundary (default: `0.50`, i.e., 50%).
+#' @param assign_by Criterion for keeping truncated annotations: `"center_or_overlap"` (default, keeps if center is inside tile OR area ratio >= `min_area_ratio`), `"center"` (only if center is inside), or `"overlap"` (only if area ratio >= `min_area_ratio`).
+#' @param min_box_size Minimum width/height in pixels for a cropped bounding box in the tile (default: `4`).
+#' @param include_empty Logical. Whether to generate empty `.txt` files and keep background tiles containing no objects (default: `TRUE`).
+#' @param max_bg_ratio Optional numeric fraction. Maximum ratio of background tiles relative to object tiles. If `NULL` (default), keeps all background tiles.
+#' @param split_ratio Numeric vector of length 3 giving `c(train, val, test)` proportions (default: `c(0.70, 0.20, 0.10)`). Ignored if the source dataset is already partitioned into splits.
+#' @param pad Logical. If an image is smaller than `tile_size`, whether to pad it with `bg_col` to `tile_size` (default: `TRUE`).
+#' @param bg_col Background color for padding when `pad = TRUE` (default: `"black"`).
+#' @param class_names Character vector of class names. If `NULL` (default), auto-detected from source `data.yaml` or set to `c("object")`.
+#' @param seed Optional integer seed for reproducible splitting (default: `42`).
+#' @param verbose Logical. Whether to print progress and statistics. Defaults to `TRUE`.
+#' @param progress Logical. Whether to show a CLI progress bar. Defaults to `TRUE`.
+#' @param ... Additional arguments.
+#'
+#' @return A `yolo_dataset_tiled` object (inheriting from `yolo_dataset`) pointing to the generated dataset directory.
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#'
+#' # 1. Tile a high-resolution YOLO dataset with 20% overlap
+#' tiled <- yolo_dataset_tiling("highres_dataset",
+#'                              out_dir = "tiled_dataset",
+#'                              tile_size = 640,
+#'                              overlap = 0.20)
+#' plot(tiled)
+#'
+#' # 2. Uniform 5x5 grid per image with 50% minimum area preservation
+#' tiled_5x5 <- yolo_dataset_tiling("highres_dataset",
+#'                                  out_dir = "tiled_5x5",
+#'                                  tile_size = 640,
+#'                                  n_tiles = c(5, 5),
+#'                                  min_area_ratio = 0.50)
+#' }
+yolo_dataset_tiling <- function(data = NULL,
+                                out_dir = NULL,
+                                path = NULL,
+                                tile_size = 640L,
+                                overlap = 0.20,
+                                n_tiles = NULL,
+                                min_area_ratio = 0.50,
+                                assign_by = c("center_or_overlap", "center", "overlap"),
+                                min_box_size = 4,
+                                include_empty = TRUE,
+                                max_bg_ratio = NULL,
+                                split_ratio = c(0.70, 0.20, 0.10),
+                                pad = TRUE,
+                                bg_col = "black",
+                                class_names = NULL,
+                                seed = 42,
+                                verbose = TRUE,
+                                progress = TRUE,
+                                ...) {
+  if (is.null(data)) {
+    if (!is.null(path)) {
+      data <- path
+    } else {
+      cli::cli_abort("Argument {.arg data} (or {.arg path}) must be provided.")
+    }
+  }
+
+  extra_args <- list(...)
+  if (!is.null(extra_args$train_prop) && is.numeric(extra_args$train_prop)) {
+    tp <- extra_args$train_prop[1]
+    if (tp >= 1.0) {
+      split_ratio <- c(1.0, 0.0, 0.0)
+    } else {
+      split_ratio <- c(tp, 1.0 - tp, 0.0)
+    }
+  }
+
+  assign_by <- match.arg(assign_by)
+  mode_int <- switch(assign_by,
+    "center_or_overlap" = 0L,
+    "center" = 1L,
+    "overlap" = 2L
+  )
+
+  tile_w <- as.integer(tile_size[1])
+  tile_h <- as.integer(if (length(tile_size) >= 2L) tile_size[2] else tile_size[1])
+
+  if (tile_w <= 0L || tile_h <= 0L) {
+    cli::cli_abort("{.arg tile_size} must be positive integer dimensions.")
+  }
+
+  if (tile_w %% 32L != 0L || tile_h %% 32L != 0L) {
+    if (isTRUE(verbose)) {
+      cli::cli_alert_warning("tile_size ({tile_w}x{tile_h}) is not a multiple of 32. YOLO models typically perform best with multiples of 32.")
+    }
+  }
+
+  dir_path <- .yolo_get_dir(data)
+  if (!dir.exists(dir_path)) {
+    cli::cli_abort("Source dataset directory {.path {dir_path}} does not exist.")
+  }
+
+  detected_task <- .yolo_detect_task(dir_path)
+  if (is.null(class_names) || length(class_names) == 0L) {
+    class_names <- .yolo_get_classes(dir_path)
+  }
+  if (is.null(class_names) || length(class_names) == 0L) {
+    class_names <- c("object")
+  }
+
+  # Background color conversion
+  bg_rgb <- tryCatch(grDevices::col2rgb(bg_col)[, 1], error = function(e) c(0, 0, 0))
+  bg_num <- as.numeric(bg_rgb)
+
+  # Discover images and their existing or assigned split
+  img_pattern <- "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$"
+
+  # Case A: Standard YOLO directory structure with images/<split>
+  splits_found <- character(0)
+  if (dir.exists(file.path(dir_path, "images"))) {
+    for (sp in c("train", "val", "test")) {
+      if (dir.exists(file.path(dir_path, "images", sp))) {
+        splits_found <- c(splits_found, sp)
+      }
+    }
+  }
+
+  source_records <- list()
+
+  if (length(splits_found) > 0L) {
+    for (sp in splits_found) {
+      sp_im_dir <- file.path(dir_path, "images", sp)
+      sp_lb_dir <- file.path(dir_path, "labels", sp)
+      fls <- list.files(sp_im_dir, pattern = img_pattern, full.names = TRUE, ignore.case = TRUE)
+      fls <- fls[!grepl("_tile_\\d+_\\d+", basename(fls))]
+      for (f in fls) {
+        stem <- tools::file_path_sans_ext(basename(f))
+        lbl_cand <- file.path(sp_lb_dir, paste0(stem, ".txt"))
+        source_records[[length(source_records) + 1L]] <- list(
+          img_path = f,
+          lbl_path = if (file.exists(lbl_cand)) lbl_cand else NULL,
+          split = sp,
+          stem = stem
+        )
+      }
+    }
+  } else if (dir.exists(file.path(dir_path, "images"))) {
+    # Case B: images/ and labels/ without train/val/test
+    sp_im_dir <- file.path(dir_path, "images")
+    sp_lb_dir <- file.path(dir_path, "labels")
+    fls <- list.files(sp_im_dir, pattern = img_pattern, full.names = TRUE, ignore.case = TRUE)
+    fls <- fls[!grepl("_tile_\\d+_\\d+", basename(fls))]
+    for (f in fls) {
+      stem <- tools::file_path_sans_ext(basename(f))
+      lbl_cand <- file.path(sp_lb_dir, paste0(stem, ".txt"))
+      source_records[[length(source_records) + 1L]] <- list(
+        img_path = f,
+        lbl_path = if (file.exists(lbl_cand)) lbl_cand else NULL,
+        split = NULL,
+        stem = stem
+      )
+    }
+  } else {
+    # Case C: Flat folder containing images and .txt files side-by-side
+    fls <- list.files(dir_path, pattern = img_pattern, full.names = TRUE, ignore.case = TRUE)
+    fls <- fls[!grepl("_tile_\\d+_\\d+", basename(fls))]
+    for (f in fls) {
+      stem <- tools::file_path_sans_ext(basename(f))
+      lbl_cand <- file.path(dir_path, paste0(stem, ".txt"))
+      source_records[[length(source_records) + 1L]] <- list(
+        img_path = f,
+        lbl_path = if (file.exists(lbl_cand)) lbl_cand else NULL,
+        split = NULL,
+        stem = stem
+      )
+    }
+  }
+
+  n_source_imgs <- length(source_records)
+  if (n_source_imgs == 0L) {
+    cli::cli_abort("No valid images found in {.path {dir_path}} matching {.val {img_pattern}}.")
+  }
+
+  # Assign splits at the SOURCE IMAGE level if not pre-existing (ZERO data leakage!)
+  if (is.null(source_records[[1L]]$split)) {
+    if (!is.null(seed)) set.seed(seed)
+    shuffled_idx <- if (n_source_imgs > 1L) sample(n_source_imgs) else 1L
+    sp_norm <- as.numeric(split_ratio)
+    if (length(sp_norm) == 1L) sp_norm <- c(sp_norm, max(0.0, 1.0 - sp_norm), 0.0)
+    else if (length(sp_norm) == 2L) sp_norm <- c(sp_norm, max(0.0, 1.0 - sum(sp_norm)))
+    sp_sum <- sum(sp_norm)
+    sp_norm <- if (sp_sum > 0) sp_norm / sp_sum else c(1.0, 0.0, 0.0)
+
+    assigned_splits <- character(n_source_imgs)
+    if (n_source_imgs == 1L) {
+      assigned_splits[1] <- if (sp_norm[1] > 0) "train" else if (sp_norm[2] > 0) "val" else "test"
+    } else {
+      counts <- as.integer(round(n_source_imgs * sp_norm))
+      if (counts[1] < 1L && sp_norm[1] > 0) counts[1] <- 1L
+      diff <- n_source_imgs - sum(counts)
+      if (diff > 0L) {
+        counts[1] <- counts[1] + diff
+      } else if (diff < 0L) {
+        while (diff < 0L) {
+          if (counts[3] > 0L) counts[3] <- counts[3] - 1L
+          else if (counts[2] > 0L) counts[2] <- counts[2] - 1L
+          else if (counts[1] > 1L) counts[1] <- counts[1] - 1L
+          else break
+          diff <- diff + 1L
+        }
+      }
+
+      cur <- 1L
+      if (counts[1] > 0L && cur <= n_source_imgs) {
+        idx <- seq(from = cur, length.out = min(counts[1], n_source_imgs - cur + 1L))
+        assigned_splits[shuffled_idx[idx]] <- "train"
+        cur <- cur + length(idx)
+      }
+      if (counts[2] > 0L && cur <= n_source_imgs) {
+        idx <- seq(from = cur, length.out = min(counts[2], n_source_imgs - cur + 1L))
+        assigned_splits[shuffled_idx[idx]] <- "val"
+        cur <- cur + length(idx)
+      }
+      if (counts[3] > 0L && cur <= n_source_imgs) {
+        idx <- seq(from = cur, length.out = min(counts[3], n_source_imgs - cur + 1L))
+        assigned_splits[shuffled_idx[idx]] <- "test"
+        cur <- cur + length(idx)
+      }
+      assigned_splits[assigned_splits == ""] <- "train"
+    }
+
+    for (i in seq_len(n_source_imgs)) {
+      source_records[[i]]$split <- assigned_splits[i]
+    }
+  }
+
+  # Prepare destination directories
+  out_dir <- if (!is.null(out_dir)) normalizePath(out_dir[1], winslash = "/", mustWork = FALSE) else dir_path
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  active_splits <- unique(vapply(source_records, function(x) x$split, character(1)))
+  for (sp in active_splits) {
+    dir.create(file.path(out_dir, "images", sp), recursive = TRUE, showWarnings = FALSE)
+    dir.create(file.path(out_dir, "labels", sp), recursive = TRUE, showWarnings = FALSE)
+  }
+
+  # Grid calculation helper
+  .calc_axis_starts <- function(dim_size, t_size, n_t, ov) {
+    if (dim_size <= t_size) return(1L)
+    if (!is.null(n_t)) {
+      nx <- max(1L, as.integer(n_t))
+      if (nx == 1L) return(1L)
+      st <- (dim_size - t_size) / (nx - 1L)
+      return(as.integer(round(1.0 + (0:(nx - 1L)) * st)))
+    }
+    step <- max(1L, as.integer(round(t_size * (1.0 - ov))))
+    nx <- as.integer(ceiling((dim_size - t_size) / step)) + 1L
+    st <- (dim_size - t_size) / (nx - 1L)
+    as.integer(round(1.0 + (0:(nx - 1L)) * st))
+  }
+
+  # Calculate total tiles across dataset for progress bar
+  total_tiles_expected <- 0L
+  img_meta <- vector("list", n_source_imgs)
+
+  for (i in seq_len(n_source_imgs)) {
+    rec <- source_records[[i]]
+    w_cur <- tile_w; h_cur <- tile_h
+    im_temp <- try(image_import(rec$img_path), silent = TRUE)
+    if (!inherits(im_temp, "try-error") && is_image(im_temp)) {
+      w_cur <- as.integer(dim(im_temp)[1])
+      h_cur <- as.integer(dim(im_temp)[2])
+    }
+
+    xs <- .calc_axis_starts(w_cur, tile_w, if (!is.null(n_tiles)) n_tiles[1] else NULL, overlap)
+    ys <- .calc_axis_starts(h_cur, tile_h, if (!is.null(n_tiles) && length(n_tiles) >= 2L) n_tiles[2] else if (!is.null(n_tiles)) n_tiles[1] else NULL, overlap)
+    img_meta[[i]] <- list(w = w_cur, h = h_cur, xs = xs, ys = ys)
+    total_tiles_expected <- total_tiles_expected + (length(xs) * length(ys))
+  }
+
+  show_pb <- isTRUE(verbose) && isTRUE(progress)
+  if (show_pb) {
+    pb <- cli::cli_progress_bar(
+      name = "Tiling dataset",
+      total = total_tiles_expected,
+      format = "{cli::pb_spin} Tiling dataset [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}",
+      clear = FALSE
+    )
+  }
+
+  total_tiles_created <- 0L
+  tiles_with_objs <- 0L
+  tiles_empty <- 0L
+
+  for (i in seq_len(n_source_imgs)) {
+    rec <- source_records[[i]]
+    im <- try(image_import(rec$img_path), silent = TRUE)
+    if (inherits(im, "try-error") || !is_image(im)) {
+      if (show_pb) cli::cli_progress_update(id = pb, inc = length(img_meta[[i]]$xs) * length(img_meta[[i]]$ys))
+      next
+    }
+
+    W <- dim(im)[1]
+    H <- dim(im)[2]
+    cur_split <- rec$split
+    stem <- rec$stem
+    ext <- tolower(tools::file_ext(rec$img_path))
+    if (!nzchar(ext)) ext <- "jpg"
+
+    # Parse annotations
+    raw_lines <- if (!is.null(rec$lbl_path) && file.exists(rec$lbl_path)) {
+      readLines(rec$lbl_path, warn = FALSE)
+    } else {
+      character(0)
+    }
+    raw_lines <- raw_lines[nzchar(trimws(raw_lines))]
+
+    boxes_list <- list()
+    polys_list <- list()
+    poly_cids <- numeric(0)
+
+    for (ln in raw_lines) {
+      vals <- suppressWarnings(as.numeric(strsplit(trimws(ln), "\\s+")[[1]]))
+      if (length(vals) < 5L || any(is.na(vals))) next
+      cid <- vals[1]
+
+      if (length(vals) == 5L) {
+        # Detection: class_id xc yc w h
+        xc <- vals[2]; yc <- vals[3]; bw <- vals[4]; bh <- vals[5]
+        b_x1 <- (xc - bw * 0.5) * W
+        b_x2 <- (xc + bw * 0.5) * W
+        b_y1 <- (yc - bh * 0.5) * H
+        b_y2 <- (yc + bh * 0.5) * H
+        boxes_list[[length(boxes_list) + 1L]] <- c(cid, b_x1, b_y1, b_x2, b_y2)
+      } else if (length(vals) >= 6L && (length(vals) - 1L) %% 2L == 0L) {
+        # Segmentation: class_id x1 y1 x2 y2 ... xn yn
+        coords <- vals[-1]
+        px <- coords[seq(1, length(coords), by = 2L)] * W
+        py <- coords[seq(2, length(coords), by = 2L)] * H
+        interleaved <- as.vector(rbind(px, py))
+        polys_list[[length(polys_list) + 1L]] <- interleaved
+        poly_cids <- c(poly_cids, cid)
+      }
+    }
+
+    boxes_mat <- if (length(boxes_list) > 0L) {
+      do.call(rbind, boxes_list)
+    } else {
+      matrix(numeric(0), nrow = 0L, ncol = 5L)
+    }
+
+    xs <- img_meta[[i]]$xs
+    ys <- img_meta[[i]]$ys
+
+    for (r_idx in seq_along(ys)) {
+      y1 <- ys[r_idx]
+      for (c_idx in seq_along(xs)) {
+        x1 <- xs[c_idx]
+
+        # Crop tile using C++ OpenMP kernel
+        tile_img <- crop_tile_cpp(im, x1, y1, tile_w, tile_h, bg_num)
+
+        # Coordinate frame in continuous space [0, W]
+        t_x1 <- static_cast_double <- x1 - 1.0
+        t_x2 <- t_x1 + tile_w
+        t_y1 <- y1 - 1.0
+        t_y2 <- t_y1 + tile_h
+
+        # Clip boxes
+        res_b <- clip_yolo_boxes_cpp(
+          boxes = boxes_mat,
+          tile_x1 = t_x1, tile_y1 = t_y1,
+          tile_x2 = t_x2, tile_y2 = t_y2,
+          tile_w = tile_w, tile_h = tile_h,
+          min_area_ratio = min_area_ratio,
+          mode = mode_int,
+          min_box_size = min_box_size
+        )
+
+        # Clip polygons (if any)
+        res_p <- if (length(polys_list) > 0L) {
+          clip_yolo_polygons_cpp(
+            polygons = polys_list,
+            class_ids = poly_cids,
+            tile_x1 = t_x1, tile_y1 = t_y1,
+            tile_x2 = t_x2, tile_y2 = t_y2,
+            tile_w = tile_w, tile_h = tile_h,
+            min_area_ratio = min_area_ratio,
+            mode = mode_int,
+            max_vertices = 32L
+          )
+        } else {
+          list(class_ids = integer(0), polygons = list())
+        }
+
+        # Build local YOLO label lines
+        tile_lines <- character(0)
+        if (nrow(res_b) > 0L) {
+          for (bi in seq_len(nrow(res_b))) {
+            tile_lines <- c(tile_lines, sprintf("%d %.6f %.6f %.6f %.6f",
+                                                as.integer(res_b[bi, 1]),
+                                                res_b[bi, 2], res_b[bi, 3],
+                                                res_b[bi, 4], res_b[bi, 5]))
+          }
+        }
+        if (length(res_p$polygons) > 0L) {
+          for (pi in seq_along(res_p$polygons)) {
+            tile_lines <- c(tile_lines, paste(c(as.integer(res_p$class_ids[pi]), sprintf("%.6f", res_p$polygons[[pi]])), collapse = " "))
+          }
+        }
+
+        has_objects <- (length(tile_lines) > 0L)
+
+        # Filter empty background tiles if requested
+        if (!has_objects) {
+          if (!isTRUE(include_empty)) {
+            if (show_pb) cli::cli_progress_update(id = pb)
+            next
+          }
+          if (!is.null(max_bg_ratio) && is.numeric(max_bg_ratio)) {
+            if (tiles_empty >= (max_bg_ratio * max(1L, tiles_with_objs))) {
+              if (show_pb) cli::cli_progress_update(id = pb)
+              next
+            }
+          }
+          tiles_empty <- tiles_empty + 1L
+        } else {
+          tiles_with_objs <- tiles_with_objs + 1L
+        }
+
+        # Save tile image and label file
+        tile_stem <- sprintf("%s_tile_%d_%d", stem, r_idx, c_idx)
+        tile_fn <- paste0(tile_stem, ".", ext)
+        tile_txt_fn <- paste0(tile_stem, ".txt")
+
+        dest_img <- file.path(out_dir, "images", cur_split, tile_fn)
+        dest_lbl <- file.path(out_dir, "labels", cur_split, tile_txt_fn)
+
+        .write_image_file(tile_img, dest_img, quality = 95)
+        writeLines(tile_lines, dest_lbl)
+
+        total_tiles_created <- total_tiles_created + 1L
+        if (show_pb) cli::cli_progress_update(id = pb)
+      }
+    }
+  }
+
+  if (show_pb) cli::cli_progress_done(id = pb)
+
+  # Programmatically generate data.yaml
+  yaml_lines <- c(paste0("path: ", out_dir))
+  if (dir.exists(file.path(out_dir, "images", "train")) &&
+      length(list.files(file.path(out_dir, "images", "train"))) > 0L) {
+    yaml_lines <- c(yaml_lines, "train: images/train")
+  }
+  if (dir.exists(file.path(out_dir, "images", "val")) &&
+      length(list.files(file.path(out_dir, "images", "val"))) > 0L) {
+    yaml_lines <- c(yaml_lines, "val: images/val")
+  } else if (dir.exists(file.path(out_dir, "images", "train"))) {
+    yaml_lines <- c(yaml_lines, "val: images/train")
+  }
+  if (dir.exists(file.path(out_dir, "images", "test")) &&
+      length(list.files(file.path(out_dir, "images", "test"))) > 0L) {
+    yaml_lines <- c(yaml_lines, "test: images/test")
+  }
+  yaml_lines <- c(
+    yaml_lines,
+    "",
+    paste0("nc: ", length(class_names)),
+    "names:"
+  )
+  for (ci in seq_along(class_names)) {
+    yaml_lines <- c(yaml_lines, sprintf("  %d: %s", ci - 1L, class_names[ci]))
+  }
+  writeLines(yaml_lines, file.path(out_dir, "data.yaml"))
+
+  # Invalidate stale YOLO label caches
+  unlink(file.path(out_dir, "labels", "train.cache"), force = TRUE)
+  unlink(file.path(out_dir, "labels", "val.cache"), force = TRUE)
+  unlink(file.path(out_dir, "labels", "test.cache"), force = TRUE)
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_success("Dataset tiling complete! Created {total_tiles_created} tiles.")
+    cli::cli_bullets(c(
+      "*" = "Source images processed: {n_source_imgs}",
+      "*" = "Tile dimensions: {tile_w} x {tile_h} pixels",
+      "*" = "Tiles with objects: {tiles_with_objs} ({round(tiles_with_objs / max(1L, total_tiles_created) * 100, 1)}%)",
+      "*" = "Empty background tiles: {tiles_empty} ({round(tiles_empty / max(1L, total_tiles_created) * 100, 1)}%)",
+      "*" = "Classes ({length(class_names)}): {.val {paste(class_names, collapse = ', ')}}",
+      "v" = "Data leakage strictly prevented: all tiles from the same source image share the same split.",
+      "v" = "Config file written: {.file data.yaml}."
+    ))
+  }
+
+  out_wrap <- .yolo_wrap_dataset(out_dir, task = detected_task, classes = class_names)
+  class(out_wrap) <- unique(c("yolo_dataset_tiled", class(out_wrap)))
+  out_wrap$is_tiled <- TRUE
+  out_wrap$tile_size <- c(tile_w, tile_h)
+  out_wrap$overlap <- overlap
+  out_wrap$n_tiles_total <- total_tiles_created
+  out_wrap$n_tiles_with_objects <- tiles_with_objs
+  out_wrap$n_tiles_background <- tiles_empty
+
+  invisible(out_wrap)
+}
+
+#' @export
+yolo_dataset_tile <- yolo_dataset_tiling
+
+#' @method plot yolo_dataset_tiled
+#' @export
+plot.yolo_dataset_tiled <- function(x, ...) {
+  plot.yolo_dataset(x, ...)
+}
+
+#' @method print yolo_dataset_tiled
+#' @export
+print.yolo_dataset_tiled <- function(x, ...) {
+  cli::cli_h2("Tiled YOLO Dataset (pliman)")
+  cli::cli_bullets(c(
+    "*" = "Directory: {.path {x$dir}}",
+    "*" = "Tile size: {.val {paste(x$tile_size, collapse = 'x')}}",
+    "*" = "Total tiles created: {.val {x$n_tiles_total}} ({.val {x$n_tiles_with_objects}} with objects, {.val {x$n_tiles_background}} background)",
+    "*" = "Classes: {.val {paste(x$classes, collapse = ', ')}}"
+  ))
+  invisible(x)
+}
+
+#' @title Remove Generated Tiles from a YOLO Dataset
+#' @name yolo_dataset_tiling_clean
+#' @aliases yolo_dataset_tile_clean yolo_dataset_clean_tile yolo_dataset_clean_tiling
+#' @description
+#' `yolo_dataset_tiling_clean()` removes all synthetic tile images and labels
+#' (matching the pattern `_tile_[0-9]+_[0-9]+`) previously generated by [yolo_dataset_tiling()],
+#' reverting the dataset back to its pre-tiled state.
+#'
+#' It automatically invalidates stale YOLO cache files (`train.cache`, `val.cache`, `test.cache`)
+#' to ensure subsequent YOLO training does not reference deleted files.
+#'
+#' @param data A `yolo_dataset` object, or directory path.
+#' @param verbose Logical. Whether to print informative messages (default: `TRUE`).
+#'
+#' @return An invisible `yolo_dataset` object pointing to the cleaned dataset.
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#'
+#' # 1. Tile dataset in-place
+#' ds <- yolo_dataset_tiling("dataset_complex", tile_size = 640)
+#'
+#' # 2. Clean up tiles and return to pre-tiled state
+#' ds_clean <- yolo_dataset_tiling_clean("dataset_complex")
+#' }
+yolo_dataset_tiling_clean <- function(data, verbose = TRUE) {
+  dir_path <- .yolo_get_dir(data)
+  task <- .yolo_detect_task(dir_path)
+  classes <- .yolo_get_classes(dir_path)
+
+  img_patt <- "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$"
+
+  # Find all tile images and labels matching _tile_\d+_\d+
+  all_imgs <- list.files(dir_path, pattern = img_patt, full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+  tile_imgs <- all_imgs[grepl("_tile_\\d+_\\d+", basename(all_imgs))]
+
+  all_lbls <- list.files(dir_path, pattern = "\\.txt$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+  tile_lbls <- all_lbls[grepl("_tile_\\d+_\\d+", basename(all_lbls))]
+
+  n_removed_img <- length(tile_imgs)
+  n_removed_lbl <- length(tile_lbls)
+
+  if (n_removed_img > 0L) {
+    unlink(tile_imgs, force = TRUE)
+  }
+  if (n_removed_lbl > 0L) {
+    unlink(tile_lbls, force = TRUE)
+  }
+
+  n_remaining_imgs <- length(all_imgs) - n_removed_img
+
+  # Invalidate stale cache files
+  unlink(file.path(dir_path, "labels", "train.cache"), force = TRUE)
+  unlink(file.path(dir_path, "labels", "val.cache"), force = TRUE)
+  unlink(file.path(dir_path, "labels", "test.cache"), force = TRUE)
+
+  if (isTRUE(verbose)) {
+    if (n_removed_img == 0L && n_removed_lbl == 0L) {
+      cli::cli_alert_info("No tile files matching `_tile_[0-9]+_[0-9]+` found in {.path {dir_path}}.")
+    } else {
+      cli::cli_alert_success("Cleaned tile files from {.path {dir_path}}.")
+      cli::cli_bullets(c(
+        "*" = "Tile images removed: {n_removed_img}",
+        "*" = "Tile label files removed: {n_removed_lbl}",
+        "*" = "Remaining images: {n_remaining_imgs}",
+        "v" = "YOLO label caches invalidated."
+      ))
+    }
+  }
+
+  invisible(.yolo_wrap_dataset(dir_path, task = task, classes = classes))
+}
+
+#' @rdname yolo_dataset_tiling_clean
+#' @export
+yolo_dataset_tile_clean <- yolo_dataset_tiling_clean
+
+#' @rdname yolo_dataset_tiling_clean
+#' @export
+yolo_dataset_clean_tile <- yolo_dataset_tiling_clean
+
+#' @rdname yolo_dataset_tiling_clean
+#' @export
+yolo_dataset_clean_tiling <- yolo_dataset_tiling_clean
+
+#' @title Undo YOLO Dataset Operations (Ctrl + Z)
+#' @name yolo_dataset_undo
+#' @description
+#' Reverses the last labeling, export, or autolabeling operation performed on a YOLO dataset,
+#' functioning like a "Ctrl + Z" action.
+#'
+#' If source images were moved (`move = TRUE`), they are safely moved back to their original
+#' source directory. If images were copied (`move = FALSE`), the copies in `images/` are removed.
+#' All generated labels (`labels/`), review preview images (`review/`), and YAML configs are
+#' cleanly purged. If no history manifest is found, it can also safely restore all images from `images/`
+#' back to a designated folder (e.g. `"data"` or the parent directory).
+#'
+#' @param data Path to the dataset directory (e.g. `"dataset_rotulado"`, `"."`) or a `yolo_dataset` object.
+#' @param to Optional destination folder to return the images to (used if original location cannot be determined
+#'   or to override original locations).
+#' @param steps Integer. Number of operations to undo (default `1L`).
+#' @param purge_empty Logical. Whether to remove empty dataset directories (`images/`, `labels/`, `review/`) after restoring images. Defaults to `TRUE`.
+#' @param verbose Logical. Show progress messages. Defaults to `TRUE`.
+#'
+#' @return Invisible list containing details of restored images, removed labels, and cleaned files.
+#' @export
+yolo_dataset_undo <- function(data = ".",
+                              to = NULL,
+                              steps = 1L,
+                              purge_empty = TRUE,
+                              verbose = TRUE) {
+  dir_path <- tryCatch(.yolo_get_dir(data), error = function(e) {
+    if (is.character(data) && length(data) == 1L) normalizePath(data, winslash = "/", mustWork = FALSE) else "."
+  })
+  hist_file <- file.path(dir_path, ".yolo_history.rds")
+
+  n_restored <- 0L
+  n_cleaned_copies <- 0L
+  n_labels_removed <- 0L
+  n_reviews_removed <- 0L
+  restored_to_dirs <- character()
+
+  if (file.exists(hist_file)) {
+    hist_list <- tryCatch(readRDS(hist_file), error = function(e) list())
+    if (is.list(hist_list) && length(hist_list) > 0L) {
+      n_ops <- min(length(hist_list), as.integer(max(1L, steps[1])))
+      ops_to_undo <- rev(tail(hist_list, n_ops))
+      remaining_hist <- head(hist_list, length(hist_list) - n_ops)
+
+      for (op in ops_to_undo) {
+        img_df <- op$images
+        was_moved <- isTRUE(op$moved)
+
+        if (!is.null(img_df) && nrow(img_df) > 0L) {
+          for (r in seq_len(nrow(img_df))) {
+            d_img <- img_df$dest[r]
+            o_img <- img_df$orig[r]
+            d_lbl <- img_df$lbl[r]
+            d_rev <- img_df$rev[r]
+
+            # 1. Image restoration or deletion
+            if (file.exists(d_img)) {
+              if (was_moved) {
+                target_dest <- if (!is.null(to) && nzchar(to)) {
+                  file.path(normalizePath(to, winslash = "/", mustWork = FALSE), basename(d_img))
+                } else if (!is.na(o_img) && nzchar(o_img)) {
+                  o_img
+                } else if (!is.null(op$input_dir) && nzchar(op$input_dir)) {
+                  file.path(op$input_dir, basename(d_img))
+                } else {
+                  file.path(dirname(dir_path), basename(d_img))
+                }
+
+                target_dir <- dirname(target_dest)
+                if (!dir.exists(target_dir)) dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
+                restored_to_dirs <- c(restored_to_dirs, target_dir)
+
+                mv_ok <- file.rename(d_img, target_dest)
+                if (!mv_ok) {
+                  file.copy(d_img, target_dest, overwrite = TRUE)
+                  unlink(d_img, force = TRUE)
+                }
+                n_restored <- n_restored + 1L
+              } else {
+                unlink(d_img, force = TRUE)
+                n_cleaned_copies <- n_cleaned_copies + 1L
+              }
+            }
+
+            # 2. Label removal
+            if (!is.na(d_lbl) && file.exists(d_lbl)) {
+              unlink(d_lbl, force = TRUE)
+              n_labels_removed <- n_labels_removed + 1L
+            }
+
+            # 3. Review removal
+            if (!is.na(d_rev) && file.exists(d_rev)) {
+              unlink(d_rev, force = TRUE)
+              n_reviews_removed <- n_reviews_removed + 1L
+            }
+          }
+        }
+
+        # Purge yaml file if created
+        if (!is.null(op$yaml_file) && file.exists(op$yaml_file)) {
+          unlink(op$yaml_file, force = TRUE)
+        }
+      }
+
+      if (length(remaining_hist) > 0L) {
+        saveRDS(remaining_hist, hist_file)
+      } else {
+        unlink(hist_file, force = TRUE)
+      }
+    }
+  } else {
+    # Fallback when no .yolo_history.rds exists:
+    img_patt <- "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$"
+    all_imgs <- list.files(file.path(dir_path, "images"), pattern = img_patt, full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+    if (length(all_imgs) == 0L) {
+      all_imgs <- list.files(dir_path, pattern = img_patt, full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+      all_imgs <- all_imgs[!grepl("(_aug\\d+|_tile_\\d+_\\d+|^review_)", basename(all_imgs))]
+    }
+
+    target_dir <- if (!is.null(to) && nzchar(to)) {
+      normalizePath(to, winslash = "/", mustWork = FALSE)
+    } else {
+      file.path(dirname(dir_path), "data")
+    }
+    dir.create(target_dir, recursive = TRUE, showWarnings = FALSE)
+    restored_to_dirs <- c(restored_to_dirs, target_dir)
+
+    for (im_f in all_imgs) {
+      target_file <- file.path(target_dir, basename(im_f))
+      mv_ok <- file.rename(im_f, target_file)
+      if (!mv_ok) {
+        file.copy(im_f, target_file, overwrite = TRUE)
+        unlink(im_f, force = TRUE)
+      }
+      n_restored <- n_restored + 1L
+    }
+
+    # Remove all label files (.txt)
+    all_lbls <- list.files(file.path(dir_path, "labels"), pattern = "\\.txt$", full.names = TRUE, recursive = TRUE, ignore.case = TRUE)
+    if (length(all_lbls) > 0L) {
+      unlink(all_lbls, force = TRUE)
+      n_labels_removed <- length(all_lbls)
+    }
+
+    # Remove review images
+    rev_imgs <- list.files(file.path(dir_path, "review"), full.names = TRUE, recursive = TRUE)
+    if (length(rev_imgs) > 0L) {
+      unlink(rev_imgs, force = TRUE)
+      n_reviews_removed <- length(rev_imgs)
+    }
+
+    # Remove yaml
+    unlink(file.path(dir_path, "data.yaml"), force = TRUE)
+    unlink(file.path(dir_path, "dataset.yaml"), force = TRUE)
+  }
+
+  # Invalidate label cache files and purge leftover runs directories
+  unlink(file.path(dir_path, "labels", "train.cache"), force = TRUE)
+  unlink(file.path(dir_path, "labels", "val.cache"), force = TRUE)
+  unlink(file.path(dir_path, "labels", "test.cache"), force = TRUE)
+  if (dir.exists(file.path(dir_path, "runs"))) unlink(file.path(dir_path, "runs"), recursive = TRUE, force = TRUE)
+  if (dir.exists(file.path(getwd(), "runs"))) unlink(file.path(getwd(), "runs"), recursive = TRUE, force = TRUE)
+
+  # Purge empty directories
+  if (isTRUE(purge_empty)) {
+    sub_dirs <- c(
+      file.path(dir_path, "images", c("train", "val", "test")),
+      file.path(dir_path, "images"),
+      file.path(dir_path, "labels", c("train", "val", "test")),
+      file.path(dir_path, "labels"),
+      file.path(dir_path, "review"),
+      file.path(dir_path, c("train", "val", "test"))
+    )
+    for (sd in sub_dirs) {
+      if (dir.exists(sd)) {
+        fls <- list.files(sd, all.files = TRUE, no.. = TRUE)
+        if (length(fls) == 0L) unlink(sd, recursive = TRUE, force = TRUE)
+      }
+    }
+    if (dir.exists(dir_path) && normalizePath(dir_path, winslash = "/") != normalizePath(".", winslash = "/")) {
+      remaining_files <- list.files(dir_path, all.files = TRUE, no.. = TRUE)
+      if (length(remaining_files) == 0L) {
+        unlink(dir_path, recursive = TRUE, force = TRUE)
+      }
+    }
+  }
+
+  res_dest <- unique(restored_to_dirs)
+
+  if (isTRUE(verbose)) {
+    cli::cli_h2("YOLO Dataset Undo (Ctrl + Z)")
+    bullets <- character()
+    if (n_restored > 0L) {
+      bullets <- c(bullets, "v" = sprintf("Restored %d image(s) to: %s", n_restored, paste(res_dest, collapse = ", ")))
+    }
+    if (n_cleaned_copies > 0L) {
+      bullets <- c(bullets, "v" = sprintf("Removed %d copied image(s) from dataset", n_cleaned_copies))
+    }
+    if (n_labels_removed > 0L) {
+      bullets <- c(bullets, "v" = sprintf("Removed %d label file(s) (.txt)", n_labels_removed))
+    }
+    if (n_reviews_removed > 0L) {
+      bullets <- c(bullets, "v" = sprintf("Cleaned %d review preview image(s)", n_reviews_removed))
+    }
+    if (length(bullets) == 0L) {
+      cli::cli_alert_info("No files were modified or pending undo in {.path {dir_path}}.")
+    } else {
+      cli::cli_bullets(bullets)
+      cli::cli_alert_success("Operation successfully reverted!")
+    }
+  }
+
+  invisible(list(
+    restored_images = n_restored,
+    cleaned_copies = n_cleaned_copies,
+    removed_labels = n_labels_removed,
+    removed_reviews = n_reviews_removed,
+    target_dirs = res_dest
+  ))
+}
+
+#' @rdname yolo_dataset_undo
+#' @export
+yolo_undo <- yolo_dataset_undo
+
+#' @rdname yolo_dataset_undo
+#' @export
+yolo_autolabel_undo <- yolo_dataset_undo
+
+#' @rdname yolo_dataset_undo
+#' @export
+yolo_dataset_export_undo <- yolo_dataset_undo
+
+#' @rdname yolo_dataset_undo
+#' @export
+yolo_dataset_label_undo <- yolo_dataset_undo
+

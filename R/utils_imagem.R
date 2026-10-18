@@ -1113,6 +1113,136 @@ image_rotate <- function(img,
 
 
 #' @name utils_transform
+#' @title 3D Image Perspective Transformation and Homography Warp
+#' @description
+#' `image_perspective()` applies a 3D perspective projection and homography warp
+#' to an image or list of images. It simulates realistic camera perspective tilts
+#' around the X (pitch), Y (yaw), and Z (roll) axes in 3D space with bilinear
+#' interpolation powered by an OpenMP C++ kernel.
+#'
+#' @param img An `Image` object or list of `Image` objects.
+#' @param x Numeric. Tilt angle around the horizontal X-axis (pitch) in degrees (default: `0`).
+#' @param y Numeric. Tilt angle around the vertical Y-axis (yaw) in degrees (default: `0`).
+#' @param z Numeric. Rotation angle around the optical Z-axis (roll) in degrees (default: `0`).
+#' @param scale Numeric. Scale / zoom factor applied to the projected image (default: `1.0`).
+#' @param focal_distance Numeric or `NULL`. Camera focal distance factor (default: `NULL`, using image max dimension).
+#' @param keep_size Logical. If `TRUE` (default), preserves original image dimensions.
+#'   If `FALSE`, the output canvas expands to enclose all transformed corners.
+#' @param parallel Logical. Process multiple images in parallel (default: `FALSE`).
+#' @param workers Number of parallel workers.
+#' @param verbose Logical. Show progress messages.
+#' @param plot Logical. Plot the transformed image(s) (default: `TRUE`).
+#' @return An `Image` object (or list of `Image` objects) with the attribute `"homography"`
+#'   containing the 3x3 projective transformation matrix `M`.
+#' @export
+image_perspective <- function(img,
+                              x = 0,
+                              y = 0,
+                              z = 0,
+                              scale = 1.0,
+                              focal_distance = NULL,
+                              bg_col = "white",
+                              keep_size = TRUE,
+                              parallel = FALSE,
+                              workers = NULL,
+                              verbose = TRUE,
+                              plot = TRUE) {
+
+  focal_fac <- if (is.null(focal_distance) || focal_distance <= 0) 1.0 else focal_distance
+
+  .one <- function(im) {
+    cm    <- attr(im, "colormode") %||% "Color"
+    nch   <- if (length(dim(im)) == 3) dim(im)[3] else 1L
+    bg_v  <- if (is.numeric(bg_col)) {
+      bg_col
+    } else {
+      tryCatch(
+        grDevices::col2rgb(bg_col)[, 1] / 255,
+        error = function(e) rep(1, nch)
+      )
+    }
+    arr <- image_perspective_cpp(image_data(im),
+                                 theta_x = as.numeric(x),
+                                 theta_y = as.numeric(y),
+                                 theta_z = as.numeric(z),
+                                 scale = as.numeric(scale),
+                                 focal_fac = as.numeric(focal_fac),
+                                 bg_color = bg_v,
+                                 keep_size = isTRUE(keep_size))
+    out <- as_image(arr, colormode = cm)
+    attr(out, "homography") <- attr(arr, "homography")
+    out
+  }
+
+  if (is.list(img) && !is_image(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+    if (!all(sapply(img, is_image))) {
+      cli::cli_abort("All images must be of class {.cls image}.")
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Applying perspective to {length(img)} images in parallel"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) pliman::image_perspective(im, x, y, z, scale, focal_distance, bg_col, keep_size, plot = FALSE)
+      )[.progress]
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images in parallel...",
+          msg_done   = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
+        )
+      }
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Applying perspective to {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images sequentially...",
+          msg_done   = "Processing complete",
+          msg_failed = "Sequential processing failed"
+        )
+      }
+
+      res <- lapply(img, .one)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) {
+        plot(r)
+      }
+    }
+
+    return(res)
+  } else {
+    transformed <- .one(img)
+
+    if (isTRUE(plot)) {
+      plot(transformed)
+    }
+
+    return(transformed)
+  }
+}
+
+
+#' @name utils_transform
 #' @export
 image_horizontal <- function(img,
                              parallel = FALSE,
@@ -2429,6 +2559,7 @@ image_contrast <- function(img,
   }
 }
 
+#' @rdname utils_transform
 #' @export
 image_blurr <- image_blur
 

@@ -8,12 +8,12 @@ yolo_dataset_export(
   img,
   model = NULL,
   annotations = "auto",
-  dir = "yolo_dataset",
+  dir = NULL,
   task = c("detect", "segment"),
   class_names = c("object"),
   class_id = 0L,
   prompt = NULL,
-  prompt_mode = c("each", "first"),
+  prompt_mode = c("first", "each"),
   interactive = is.null(prompt) && !is.null(model) && is.character(model) &&
     identical(tolower(model[1]), "persam") && base::interactive(),
   sim_threshold = 0.5,
@@ -27,6 +27,8 @@ yolo_dataset_export(
   n_points = 40L,
   min_area = 15,
   filter_edge = TRUE,
+  crop_to_objects = FALSE,
+  crop_margin = 0.05,
   show_similarity = FALSE,
   superres_map = FALSE,
   review = TRUE,
@@ -36,6 +38,7 @@ yolo_dataset_export(
   badge = TRUE,
   engine = c("gpu", "cpu"),
   device_id = -1,
+  move = TRUE,
   overwrite = TRUE,
   verbose = TRUE,
   ...
@@ -61,7 +64,9 @@ containing images to annotate.}
 \item A custom list of contour matrices or bounding boxes.
 }}
 
-\item{dir}{Output directory path for the YOLO dataset. Defaults to \code{"yolo_dataset"}.}
+\item{dir}{Output directory path for the YOLO dataset. If \code{NULL} (default when \code{img} is a directory path),
+the dataset structure (\verb{images/}, \verb{labels/}, \code{data.yaml}) is generated directly inside \code{img}.
+Specify a directory name only if you wish to create a separate dataset folder.}
 
 \item{task}{Task type: \code{"detect"} (default) for bounding-box detection or \code{"segment"}
 for polygon instance segmentation.}
@@ -115,6 +120,10 @@ compact and clean.}
 
 \item{filter_edge}{Logical. If \code{TRUE} (default), filters out spurious border-cut artifacts touching image edges.}
 
+\item{crop_to_objects}{Logical. If \code{TRUE}, crops the image to the bounding box containing all detected objects plus a margin (default: \code{FALSE}).}
+
+\item{crop_margin}{Numeric. Margin fraction added around the object bounding box when \code{crop_to_objects = TRUE} (default: \code{0.05}, i.e., 5\%).}
+
 \item{show_similarity}{Logical. If \code{TRUE}, displays a side-by-side 2-panel preview showing the detected
 objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidencia") on the right. Defaults to \code{FALSE}.}
 
@@ -136,6 +145,8 @@ to limit the number of review images generated.}
 \item{engine}{Computing device engine: \code{"cpu"} (default) or \code{"gpu"}.}
 
 \item{device_id}{GPU device ID (default \code{-1}).}
+
+\item{move}{Logical. If \code{TRUE} (default), moves the source images directly into the dataset's \verb{images/} split directories instead of copying them. Defaults to \code{TRUE}.}
 
 \item{overwrite}{Logical. If \code{TRUE} (default), overwrites existing dataset files in \code{dir}.}
 

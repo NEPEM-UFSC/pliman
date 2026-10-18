@@ -503,6 +503,7 @@ print.root_analysis <- function(x, ...) {
 #' @param alpha Numeric transparency in `[0, 1]` for the diameter heatmap overlay (default: 0.65).
 #' @param col Optional vector of colors for the diameter heatmap palette.
 #' @param lwd Line width for drawing root skeleton segments (default: 2.0).
+#' @param cex_nodes Character expansion factor for root topological nodes (Crown, Branch points, Root tips). Defaults to `1.0`.
 #' @param legend_pos Position of the legend: `"auto"` (default, automatically places legend in
 #'   the corner with fewest/no root obstacles), `"topleft"`, `"topright"`, `"bottomleft"`,
 #'   `"bottomright"`, or `FALSE` to omit legends.

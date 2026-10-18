@@ -1245,7 +1245,9 @@ compute_measures_disease <- function(mask){
 
 # Helper functions to apply stats on a list
 
-#' These functions applies common statistics to a list of objects, returning a
+#' @title Apply summary statistics to a list of objects
+#' @description
+#' These functions apply common statistics to a list of objects, returning a
 #' numeric vector.
 #'
 #' @param x A data.frame or matrix with numeric values.

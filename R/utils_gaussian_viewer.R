@@ -27,7 +27,7 @@
 #' - **"Look Through Camera" View**: Align the 3D scene camera directly with any photo pose to inspect point cloud alignment from that exact shot's perspective.
 #' - **Metashape Navigation Trackball**: Translucent smooth glass 3D sphere (customizable opacity, zero wireframe clutter) with colored Pitch (X), Roll (Y), and Yaw (Z) gimbal rings.
 #' - **Direct 3D Axis Dragging**: Click and drag directly on the X, Y, or Z rings in the 3D viewport to rotate the model.
-#' - **3-Axis Model Alignment**: Interactive sliders, step buttons (+/-90°, +/-15°), and code copy to level tilted models horizontally.
+#' - **3-Axis Model Alignment**: Interactive sliders, step buttons (+/-90&deg;, +/-15&deg;), and code copy to level tilted models horizontally.
 #' - **Double-Click Pivot Focusing**: Double click anywhere on the model to set the orbit pivot and center the Trackball Sphere.
 #' - **Dual Rendering Engines**: Switch between crisp Metashape-style point pixels and volumetric continuous Gaussian splats.
 #' - **Splat Surface Closure**: Continuous alpha-blending slider to seal gaps and form solid watertight surfaces.
@@ -48,7 +48,7 @@
 #' @param file Character string. Path to the output HTML file. Defaults to a temporary file.
 #' @param browser Logical. If `TRUE` (default), automatically opens the default web browser.
 #' @param browser_path Optional character string specifying a custom browser executable (e.g. Google Chrome).
-#' @param browser_path Optional character string specifying a custom browser executable (e.g. Google Chrome).
+#' @param thumbnails Character string specifying thumbnail handling: `"on_demand"`, `"embedded"`, or `"none"` (defaults to `"on_demand"`).
 #' @param mode Character string. Initial render mode: `"points"`, `"splats"`, or `"mesh"`. Defaults to `"mesh"` if a mesh is loaded, otherwise `"points"`.
 #' @param color_by Character string. Initial color mode: `"rgb"`, `"clay"`, `"height"`, `"density"`, or `"semantic"`.
 #' @param point_size Numeric scalar. Initial point/splat size. Defaults to `3.5`.
@@ -1424,25 +1424,25 @@ gs_viewer <- function(splat = NULL,
 <body>
   <div id="canvas-container"></div>
   <div id="toast-msg">Copied!</div>
-  <div id="cam-tooltip">📷 Camera</div>
+  <div id="cam-tooltip">&#128247; Camera</div>
 
   <!-- Metashape Viewport Top Floating Toolbar -->
   <div class="metashape-toolbar">
-    <button id="tb-pts" class="tb-btn ', ifelse(mode == "points", "active", ""), '" onclick="handlePointsToolbarClick()" title="Toggle Point Cloud Visibility">👁️ Points</button>
-    <button id="tb-mode" class="tb-btn ', ifelse(mode == "splats", "active", ""), '" onclick="handleSplatsToolbarClick()" title="Toggle Gaussian Splats Mode">✨ Splats</button>
-    <button id="tb-mesh" class="tb-btn ', ifelse(mode == "mesh", "active", ""), '" onclick="handleMeshToolbarClick()" title="Toggle 3D Polygonal Mesh Mode">🔺 Mesh</button>
+    <button id="tb-pts" class="tb-btn ', ifelse(mode == "points", "active", ""), '" onclick="handlePointsToolbarClick()" title="Toggle Point Cloud Visibility">&#128065;&#65039; Points</button>
+    <button id="tb-mode" class="tb-btn ', ifelse(mode == "splats", "active", ""), '" onclick="handleSplatsToolbarClick()" title="Toggle Gaussian Splats Mode">&#10024; Splats</button>
+    <button id="tb-mesh" class="tb-btn ', ifelse(mode == "mesh", "active", ""), '" onclick="handleMeshToolbarClick()" title="Toggle 3D Polygonal Mesh Mode">&#128314; Mesh</button>
     <div class="tb-divider"></div>
-    <button id="tb-cams" class="tb-btn ', ifelse(has_cameras && show_cameras, "active tb-cams", ""), '" onclick="toggleCamerasVisibility()" title="Toggle Camera Frustums Visibility">📷 Cameras</button>
-    <button id="tb-sight" class="tb-btn ', ifelse(has_cameras && sight_lines, "active", ""), '" onclick="toggleSightLines()" title="Toggle Sight Rays Visibility">📐 Sight Rays</button>
-    <button id="tb-gizmo" class="tb-btn ', ifelse(trackball, "active", ""), '" onclick="toggleGizmo()" title="Toggle Navigation Sphere Gizmo">🌐 Trackball</button>
-    <button id="tb-grid" class="tb-btn active" onclick="toggleGrid()" title="Toggle Ground Grid">🔲 Grid</button>
+    <button id="tb-cams" class="tb-btn ', ifelse(has_cameras && show_cameras, "active tb-cams", ""), '" onclick="toggleCamerasVisibility()" title="Toggle Camera Frustums Visibility">&#128247; Cameras</button>
+    <button id="tb-sight" class="tb-btn ', ifelse(has_cameras && sight_lines, "active", ""), '" onclick="toggleSightLines()" title="Toggle Sight Rays Visibility">&#128208; Sight Rays</button>
+    <button id="tb-gizmo" class="tb-btn ', ifelse(trackball, "active", ""), '" onclick="toggleGizmo()" title="Toggle Navigation Sphere Gizmo">&#127760; Trackball</button>
+    <button id="tb-grid" class="tb-btn active" onclick="toggleGrid()" title="Toggle Ground Grid">&#128306; Grid</button>
     <div class="tb-divider"></div>
-    <button id="tb-ruler" class="tb-btn" onclick="toggleRulerTool()" title="3D Ruler: Measure euclidean distance between points">📏 3D Ruler</button>
-    <button id="tb-proj" class="tb-btn" onclick="toggleCameraProjection()" title="Toggle Perspective / Orthographic CAD Projection">📐 Ortho</button>
+    <button id="tb-ruler" class="tb-btn" onclick="toggleRulerTool()" title="3D Ruler: Measure euclidean distance between points">&#128207; 3D Ruler</button>
+    <button id="tb-proj" class="tb-btn" onclick="toggleCameraProjection()" title="Toggle Perspective / Orthographic CAD Projection">&#128208; Ortho</button>
     <div class="tb-divider"></div>
-    <button id="tb-theme" class="tb-btn" onclick="toggleBackgroundTheme()" title="Toggle Light / Dark Theme">☀️ Theme</button>
-    <button id="tb-export" class="tb-btn" onclick="openExportModal()" title="Export Filtered Cloud (.ply/.txt) or Camera Poses" style="color: #34d399; font-weight: 700;">💾 Export</button>
-    <button class="tb-btn" onclick="captureSnapshot()" title="Capture High-Resolution Snapshot">📸 Snapshot</button>
+    <button id="tb-theme" class="tb-btn" onclick="toggleBackgroundTheme()" title="Toggle Light / Dark Theme">&#9728;&#65039; Theme</button>
+    <button id="tb-export" class="tb-btn" onclick="openExportModal()" title="Export Filtered Cloud (.ply/.txt) or Camera Poses" style="color: #34d399; font-weight: 700;">&#128190; Export</button>
+    <button class="tb-btn" onclick="captureSnapshot()" title="Capture High-Resolution Snapshot">&#128248; Snapshot</button>
   </div>
 
   <!-- Hidden File Pickers -->
@@ -1457,8 +1457,8 @@ gs_viewer <- function(splat = NULL,
   <!-- Welcome / Empty State Dropzone Modal (shown if no splat loaded initially) -->
   <div id="dropzone-welcome" class="dropzone-overlay" style="display: ', ifelse(has_initial_model, "none", "flex"), ';">
     <div class="dropzone-card" id="dropzone-card-welcome" style="position: relative; max-width: 620px;">
-      <button class="modal-close-btn" style="position: absolute; top: 16px; right: 16px;" onclick="closeWelcomeModal()" title="Close">✕</button>
-      <div class="dropzone-icon">🌱</div>
+      <button class="modal-close-btn" style="position: absolute; top: 16px; right: 16px;" onclick="closeWelcomeModal()" title="Close">&#10005;</button>
+      <div class="dropzone-icon">&#127793;</div>
       <div class="dropzone-title">3D Data & Layer Manager</div>
       <div class="dropzone-desc">
         Import point cloud, calibrated cameras, and photos together or individually.<br>The 3D scene will dynamically update as assets are loaded.
@@ -1469,60 +1469,60 @@ gs_viewer <- function(splat = NULL,
         <!-- Field 1: Pontos 3D -->
         <div class="field-card ', ifelse(has_initial_model, "loaded", ""), '" id="welcome-model-card">
           <div class="field-header">
-            <span class="field-icon">📦</span>
+            <span class="field-icon">&#128230;</span>
             <div>
               <div class="field-title">Point Cloud / Splat (.ply, .splat, .txt)</div>
               <div id="welcome-model-status" class="field-status ', ifelse(has_initial_model, "loaded", "empty"), '">
-                ', ifelse(has_initial_model, paste0("✓ ", format(n, big.mark = ","), " points loaded"), "No file selected"), '
+                ', ifelse(has_initial_model, paste0("&#10003; ", format(n, big.mark = ","), " points loaded"), "No file selected"), '
               </div>
             </div>
           </div>
-          <button class="field-btn" onclick="triggerModelImport()">📂 Select Points</button>
+          <button class="field-btn" onclick="triggerModelImport()">&#128194; Select Points</button>
         </div>
 
-        <!-- Field 2: Câmeras SFM -->
+        <!-- Field 2: C&#226;meras SFM -->
         <div class="field-card ', ifelse(has_cameras, "loaded", ""), '" id="welcome-cams-card">
           <div class="field-header">
-            <span class="field-icon">📷</span>
+            <span class="field-icon">&#128247;</span>
             <div>
               <div class="field-title">Camera Poses (images.txt, cameras.xml)</div>
               <div id="welcome-cams-status" class="field-status ', ifelse(has_cameras, "loaded", "empty"), '">
-                ', ifelse(has_cameras, paste0("✓ ", length(parsed_cameras), " calibrated cameras"), "No cameras selected"), '
+                ', ifelse(has_cameras, paste0("&#10003; ", length(parsed_cameras), " calibrated cameras"), "No cameras selected"), '
               </div>
             </div>
           </div>
-          <button class="field-btn" onclick="triggerCamsImport()">📷 Select Cameras</button>
+          <button class="field-btn" onclick="triggerCamsImport()">&#128247; Select Cameras</button>
         </div>
 
         <!-- Field 3: Fotos -->
         <div class="field-card ', ifelse(has_cameras && has_img_files, "loaded", ""), '" id="welcome-photos-card">
           <div class="field-header">
-            <span class="field-icon">🖼️</span>
+            <span class="field-icon">&#128444;&#65039;</span>
             <div>
               <div class="field-title">Camera Photos (Directory or Images)</div>
               <div id="welcome-photos-status" class="field-status ', ifelse(has_cameras && has_img_files, "loaded", "empty"), '">
-                ', ifelse(has_cameras && has_img_files, "✓ Embedded photos", "No photos linked"), '
+                ', ifelse(has_cameras && has_img_files, "&#10003; Embedded photos", "No photos linked"), '
               </div>
             </div>
           </div>
           <div style="display: flex; gap: 6px;">
-            <button class="field-btn" onclick="triggerPhotosDirImport()" title="Link entire photo folder">📁 Folder</button>
-            <button class="field-btn" onclick="triggerPhotosImport()" title="Select individual photo files">🖼️ Photos</button>
+            <button class="field-btn" onclick="triggerPhotosDirImport()" title="Link entire photo folder">&#128193; Folder</button>
+            <button class="field-btn" onclick="triggerPhotosImport()" title="Select individual photo files">&#128444;&#65039; Photos</button>
           </div>
         </div>
       </div>
 
       <!-- Super Batch Button -->
       <button class="btn-batch-primary" onclick="triggerBatchImport()">
-        ⚡ Select Multiple Files Together (Points + Cameras + Photos)
+        &#9889; Select Multiple Files Together (Points + Cameras + Photos)
       </button>
 
       <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; margin-top: 2px;">
         <span style="font-size: 11px; color: var(--text-muted);">
-          ⚡ 100% Client-Side WebGL GPU &bull; Zero Server
+          &#9889; 100% Client-Side WebGL GPU &bull; Zero Server
         </span>
         <button class="btn-enter-scene" onclick="closeWelcomeModal()">
-          ▶ Enter 3D Scene
+          &#9654; Enter 3D Scene
         </button>
       </div>
     </div>
@@ -1531,7 +1531,7 @@ gs_viewer <- function(splat = NULL,
   <!-- Dragging Overlay (appears when user drags any file over the viewport) -->
   <div id="dropzone-drag" class="dropzone-overlay" style="display: none;">
     <div class="dropzone-card drag-active">
-      <div class="dropzone-icon">📥</div>
+      <div class="dropzone-icon">&#128229;</div>
       <div class="dropzone-title">Drop your 3D Files or Cameras Here</div>
       <div class="dropzone-desc">Instant automatic asset classification and loading!</div>
     </div>
@@ -1542,31 +1542,31 @@ gs_viewer <- function(splat = NULL,
     <div class="modal-card">
       <div class="modal-header">
         <div class="modal-title-box">
-          <span style="font-size: 18px;">📸</span>
+          <span style="font-size: 18px;">&#128248;</span>
           <div>
             <div id="modal-cam-name" class="modal-cam-name">Photo</div>
             <div id="modal-cam-meta" class="modal-cam-meta">Metadata</div>
           </div>
         </div>
-        <button class="modal-close-btn" onclick="closePhotoModal()">✕</button>
+        <button class="modal-close-btn" onclick="closePhotoModal()">&#10005;</button>
       </div>
       <div class="modal-body" style="position: relative; display: flex; align-items: center; justify-content: center; min-height: 240px; background: #020617;">
         <div id="modal-img-loading" style="display: none; position: absolute; color: #38bdf8; font-size: 13px; font-weight: 600; gap: 8px; align-items: center;">
-          <span>⏳ Loading Photo...</span>
+          <span>&#9203; Loading Photo...</span>
         </div>
         <img id="modal-img" src="" alt="Camera Photo" class="modal-photo">
         <div id="modal-photo-fallback" style="display: none; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 10px; color: var(--text-muted); text-align: center;">
-          <span style="font-size: 32px;">📷</span>
+          <span style="font-size: 32px;">&#128247;</span>
           <div id="modal-fallback-msg" style="font-size: 12px; max-width: 320px; line-height: 1.5;">Photo thumbnail not loaded directly. Link the photos folder once for instant preview:</div>
           <button class="btn-action" style="background: #10b981; color: #fff; font-weight: 700; padding: 8px 16px; border-radius: 8px; cursor: pointer; margin-top: 4px;" onclick="triggerPhotosDirImport()">
-            📁 Link Photos Folder (1 Click)
+            &#128193; Link Photos Folder (1 Click)
           </button>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-modal-nav" onclick="prevPhoto()">◀ Previous</button>
-        <button class="btn-modal-action" onclick="lookThroughCurrentCamera()">🎥 Look Through Camera</button>
-        <button class="btn-modal-nav" onclick="nextPhoto()">Next ▶</button>
+        <button class="btn-modal-nav" onclick="prevPhoto()">&#9664; Previous</button>
+        <button class="btn-modal-action" onclick="lookThroughCurrentCamera()">&#127909; Look Through Camera</button>
+        <button class="btn-modal-nav" onclick="nextPhoto()">Next &#9654;</button>
       </div>
     </div>
   </div>
@@ -1576,13 +1576,13 @@ gs_viewer <- function(splat = NULL,
     <div class="modal-card" style="max-width: 540px; width: 92%;">
       <div class="modal-header">
         <div class="modal-title-box">
-          <span style="font-size: 20px;">💾</span>
+          <span style="font-size: 20px;">&#128190;</span>
           <div>
             <div class="modal-cam-name">Export 3D Data & Cameras</div>
             <div class="modal-cam-meta">Direct client-side downloads of filtered assets</div>
           </div>
         </div>
-        <button class="modal-close-btn" onclick="closeExportModal()" title="Close">✕</button>
+        <button class="modal-close-btn" onclick="closeExportModal()" title="Close">&#10005;</button>
       </div>
       <div class="modal-body" style="background: #0f172a; padding: 18px; display: flex; flex-direction: column; gap: 12px;">
         <div style="font-size: 11px; color: var(--text-muted); line-height: 1.5;">
@@ -1598,7 +1598,7 @@ gs_viewer <- function(splat = NULL,
           <!-- Export 1: Filtered PLY -->
           <div class="field-card" style="cursor: default;">
             <div class="field-header">
-              <span class="field-icon">📦</span>
+              <span class="field-icon">&#128230;</span>
               <div>
                 <div class="field-title">Filtered Point Cloud (.PLY)</div>
                 <div class="field-status">Binary Little-Endian with XYZ coordinates and RGB colors (MeshLab / CloudCompare / Gaussian Splatting)</div>
@@ -1610,7 +1610,7 @@ gs_viewer <- function(splat = NULL,
           <!-- Export 2: Filtered TXT -->
           <div class="field-card" style="cursor: default;">
             <div class="field-header">
-              <span class="field-icon">📄</span>
+              <span class="field-icon">&#128196;</span>
               <div>
                 <div class="field-title">Point Cloud Table (.TXT)</div>
                 <div class="field-status">Formatted table with X Y Z R G B columns for R or Python analysis</div>
@@ -1622,7 +1622,7 @@ gs_viewer <- function(splat = NULL,
           <!-- Export 3: Cameras TXT -->
           <div class="field-card" style="cursor: default;">
             <div class="field-header">
-              <span class="field-icon">📷</span>
+              <span class="field-icon">&#128247;</span>
               <div>
                 <div class="field-title">Camera Poses (.TXT / COLMAP)</div>
                 <div class="field-status">Standard images.txt format with normalized quaternions and camera translations</div>
@@ -1642,11 +1642,11 @@ gs_viewer <- function(splat = NULL,
   <div class="hud-panel">
     <div class="hud-header">
       <div class="hud-title">
-        <span>🌱 3D Viewer</span>
+        <span>&#127793; 3D Viewer</span>
         <span class="hud-badge">pliman</span>
       </div>
       <div style="display: flex; align-items: center; gap: 8px;">
-        <button class="btn-import-header" onclick="openWelcomeModal()" title="Manage or import layers">📂 Import</button>
+        <button class="btn-import-header" onclick="openWelcomeModal()" title="Manage or import layers">&#128194; Import</button>
         <div id="fps-counter" class="fps-badge">60 FPS</div>
       </div>
     </div>
@@ -1655,66 +1655,66 @@ gs_viewer <- function(splat = NULL,
     <div class="control-group">
       <div class="control-label">
         <span>Scene Layers</span>
-        <button class="btn-reset-sm" onclick="openWelcomeModal()" title="Open full import panel">📂 Import...</button>
+        <button class="btn-reset-sm" onclick="openWelcomeModal()" title="Open full import panel">&#128194; Import...</button>
       </div>
       <div class="layer-list">
         <!-- Layer 1: Pontos / Splat -->
         <div class="layer-item">
           <div class="layer-info">
-            <span class="layer-icon">📦</span>
+            <span class="layer-icon">&#128230;</span>
             <div class="layer-texts">
               <div class="layer-name">Point Cloud</div>
               <div id="hud-model-status" class="layer-meta">', ifelse(has_initial_model, paste0(format(n, big.mark = ","), " pts"), "None"), '</div>
             </div>
           </div>
           <div class="layer-actions">
-            <button id="btn-pts-toggle" class="btn-layer-toggle ', ifelse(has_initial_model && mode != "mesh", "active", ""), '" onclick="togglePointsVisibility()" title="Toggle Points Visibility">👁️</button>
-            <button class="btn-layer-sub" onclick="triggerModelImport()" title="Load / Replace Points">📂</button>
+            <button id="btn-pts-toggle" class="btn-layer-toggle ', ifelse(has_initial_model && mode != "mesh", "active", ""), '" onclick="togglePointsVisibility()" title="Toggle Points Visibility">&#128065;&#65039;</button>
+            <button class="btn-layer-sub" onclick="triggerModelImport()" title="Load / Replace Points">&#128194;</button>
           </div>
         </div>
 
         <!-- Layer 1b: 3D Surface Mesh -->
         <div class="layer-item">
           <div class="layer-info">
-            <span class="layer-icon">🔺</span>
+            <span class="layer-icon">&#128314;</span>
             <div class="layer-texts">
               <div class="layer-name">3D Surface Mesh</div>
               <div id="hud-mesh-status" class="layer-meta">', ifelse(has_faces, paste0(format(num_faces, big.mark = ","), " faces"), "None"), '</div>
             </div>
           </div>
           <div class="layer-actions">
-            <button id="btn-mesh-toggle" class="btn-layer-toggle ', ifelse(has_faces && mode == "mesh", "active", ""), '" onclick="toggleMeshVisibility()" title="Toggle Mesh Visibility">👁️</button>
-            <button class="btn-layer-sub" onclick="triggerMeshImport()" title="Load / Replace Mesh">📂</button>
+            <button id="btn-mesh-toggle" class="btn-layer-toggle ', ifelse(has_faces && mode == "mesh", "active", ""), '" onclick="toggleMeshVisibility()" title="Toggle Mesh Visibility">&#128065;&#65039;</button>
+            <button class="btn-layer-sub" onclick="triggerMeshImport()" title="Load / Replace Mesh">&#128194;</button>
           </div>
         </div>
 
-        <!-- Layer 2: Câmeras SFM -->
+        <!-- Layer 2: C&#226;meras SFM -->
         <div class="layer-item">
           <div class="layer-info">
-            <span class="layer-icon">📷</span>
+            <span class="layer-icon">&#128247;</span>
             <div class="layer-texts">
               <div class="layer-name">SFM Cameras</div>
               <div id="hud-cams-status" class="layer-meta">', ifelse(has_cameras, paste0(length(parsed_cameras), " cams"), "None"), '</div>
             </div>
           </div>
           <div class="layer-actions">
-            <button id="btn-cams-toggle" class="btn-layer-toggle ', ifelse(has_cameras && show_cameras, "active", ""), '" onclick="toggleCamerasVisibility()" title="Toggle Cameras Visibility">👁️</button>
-            <button class="btn-layer-sub" onclick="triggerCamsImport()" title="Load / Replace Cameras">📷</button>
+            <button id="btn-cams-toggle" class="btn-layer-toggle ', ifelse(has_cameras && show_cameras, "active", ""), '" onclick="toggleCamerasVisibility()" title="Toggle Cameras Visibility">&#128065;&#65039;</button>
+            <button class="btn-layer-sub" onclick="triggerCamsImport()" title="Load / Replace Cameras">&#128247;</button>
           </div>
         </div>
 
         <!-- Layer 3: Fotos -->
         <div class="layer-item">
           <div class="layer-info">
-            <span class="layer-icon">🖼️</span>
+            <span class="layer-icon">&#128444;&#65039;</span>
             <div class="layer-texts">
               <div class="layer-name">Camera Photos</div>
               <div id="hud-photos-status" class="layer-meta">', ifelse(has_cameras && has_img_files, "Active photos", "None"), '</div>
             </div>
           </div>
           <div class="layer-actions">
-            <button class="btn-layer-sub" onclick="triggerPhotosDirImport()" title="Link Photos Folder">📁</button>
-            <button class="btn-layer-sub" onclick="triggerPhotosImport()" title="Link Photo Files">🖼️</button>
+            <button class="btn-layer-sub" onclick="triggerPhotosDirImport()" title="Link Photos Folder">&#128193;</button>
+            <button class="btn-layer-sub" onclick="triggerPhotosImport()" title="Link Photo Files">&#128444;&#65039;</button>
           </div>
         </div>
       </div>
@@ -1735,7 +1735,7 @@ gs_viewer <- function(splat = NULL,
     <!-- 3D Polygonal Mesh Controls -->
     <div class="control-group" id="group-mesh-controls" style="display: ', ifelse(mode == "mesh", "flex", "none"), '; flex-direction: column; gap: 8px;">
       <div class="control-label">
-        <span>🔺 Mesh Shading & Material</span>
+        <span>&#128314; Mesh Shading & Material</span>
         <span id="lbl-mesh-mode-name" class="val">', ifelse(color_by == "clay", "Clay", "Solid"), '</span>
       </div>
       <div class="segmented-control-4">
@@ -1747,13 +1747,13 @@ gs_viewer <- function(splat = NULL,
 
       <!-- Texture & Shading Toggles -->
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-        <button id="btn-mesh-texture-toggle" class="btn-action ', ifelse(tex_data_uri != "", "active", ""), '" onclick="toggleMeshTexture()" title="Toggle texture mapping on or off">🖼️ Texture: ', ifelse(tex_data_uri != "", "ON", "OFF"), '</button>
-        <button class="btn-action" onclick="triggerTextureImport()" title="Load texture image file (.png, .jpg) or texture atlas">📁 Load Texture</button>
+        <button id="btn-mesh-texture-toggle" class="btn-action ', ifelse(tex_data_uri != "", "active", ""), '" onclick="toggleMeshTexture()" title="Toggle texture mapping on or off">&#128444;&#65039; Texture: ', ifelse(tex_data_uri != "", "ON", "OFF"), '</button>
+        <button class="btn-action" onclick="triggerTextureImport()" title="Load texture image file (.png, .jpg) or texture atlas">&#128193; Load Texture</button>
       </div>
 
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-        <button id="btn-mesh-flat-toggle" class="btn-action" onclick="toggleMeshFlatShading()" title="Toggle smooth vertex normals vs faceted flat polygons">✨ Smooth Shading</button>
-        <button id="btn-mesh-doubleside-toggle" class="btn-action active" onclick="toggleMeshDoubleSided()" title="Toggle two-sided vs front-facing rendering">↔️ Double-Sided</button>
+        <button id="btn-mesh-flat-toggle" class="btn-action" onclick="toggleMeshFlatShading()" title="Toggle smooth vertex normals vs faceted flat polygons">&#10024; Smooth Shading</button>
+        <button id="btn-mesh-doubleside-toggle" class="btn-action active" onclick="toggleMeshDoubleSided()" title="Toggle two-sided vs front-facing rendering">&#8596;&#65039; Double-Sided</button>
       </div>
 
       <!-- Wireframe Opacity Slider (when wireframe is active) -->
@@ -1779,14 +1779,14 @@ gs_viewer <- function(splat = NULL,
       <!-- Point Shape Selector -->
       <div class="control-group" id="group-shape" style="display: ', ifelse(mode == "points", "flex", "none"), ';">
         <div class="control-label">Point Shape</div>
-        <button id="btn-toggle-shape" class="btn-toggle" onclick="togglePointShape()">⚪ Smooth Circle (Antialiased)</button>
+        <button id="btn-toggle-shape" class="btn-toggle" onclick="togglePointShape()">&#9898; Smooth Circle (Antialiased)</button>
       </div>
     </div>
 
     <!-- RealityCapture Online Noise Filter (SOR / Density) -->
     <div class="control-group">
       <div class="control-label">
-        <span>🎯 Online Noise Filter (Density / SOR)</span>
+        <span>&#127919; Online Noise Filter (Density / SOR)</span>
         <span id="lbl-noise-val" class="val">Off</span>
       </div>
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 6px;">
@@ -1806,29 +1806,29 @@ gs_viewer <- function(splat = NULL,
     <!-- RealityCapture Reconstruction Region (3D Section Box) -->
     <div class="control-group">
       <div class="control-label">
-        <span>✂️ Reconstruction Region (3D Box)</span>
+        <span>&#9986;&#65039; Reconstruction Region (3D Box)</span>
         <button id="btn-toggle-clipbox" class="btn-reset-sm" onclick="toggleClipBox()">Enable Box</button>
       </div>
       <div id="clipbox-controls" style="display: none; flex-direction: column; gap: 7px; margin-top: 6px;">
         <!-- Gizmo Interactive Mode Toggle -->
         <div style="display: flex; gap: 3px; background: rgba(0,0,0,0.25); padding: 2px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);">
-          <button id="btn-gizmo-trans" class="btn-tool active" style="flex: 1; padding: 4px 2px; font-size: 10px;" onclick="setGizmoMode(\'translate\')" title="Translate / Move Box (W)">✋ Move</button>
-          <button id="btn-gizmo-rot" class="btn-tool" style="flex: 1; padding: 4px 2px; font-size: 10px;" onclick="setGizmoMode(\'rotate\')" title="Rotate Box Angles (E)">🔄 Rotate</button>
-          <button id="btn-gizmo-scale" class="btn-tool" style="flex: 1; padding: 4px 2px; font-size: 10px;" onclick="setGizmoMode(\'scale\')" title="Resize Box Dimensions (R)">📐 Scale</button>
+          <button id="btn-gizmo-trans" class="btn-tool active" style="flex: 1; padding: 4px 2px; font-size: 10px;" onclick="setGizmoMode(\'translate\')" title="Translate / Move Box (W)">&#9995; Move</button>
+          <button id="btn-gizmo-rot" class="btn-tool" style="flex: 1; padding: 4px 2px; font-size: 10px;" onclick="setGizmoMode(\'rotate\')" title="Rotate Box Angles (E)">&#128260; Rotate</button>
+          <button id="btn-gizmo-scale" class="btn-tool" style="flex: 1; padding: 4px 2px; font-size: 10px;" onclick="setGizmoMode(\'scale\')" title="Resize Box Dimensions (R)">&#128208; Scale</button>
         </div>
 
         <!-- Quick Align Actions -->
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px;">
-          <button class="btn-action" onclick="autoFitClipBox()" title="Auto-fit box around subject core">🌱 Auto Subject</button>
-          <button class="btn-action" onclick="cutClipBoxBase()" title="Lift bottom face to crop floor/table">✂️ Cut Floor</button>
-          <button class="btn-action" onclick="levelClipBox()" title="Level box to horizon plane">⚖️ Level</button>
+          <button class="btn-action" onclick="autoFitClipBox()" title="Auto-fit box around subject core">&#127793; Auto Subject</button>
+          <button class="btn-action" onclick="cutClipBoxBase()" title="Lift bottom face to crop floor/table">&#9986;&#65039; Cut Floor</button>
+          <button class="btn-action" onclick="levelClipBox()" title="Level box to horizon plane">&#9878;&#65039; Level</button>
         </div>
 
         <!-- 3D Rotation Sliders (Pitch, Roll, Yaw in Degrees) -->
         <div style="background: rgba(15,23,42,0.6); padding: 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 4px;">
           <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); font-weight: 600;">
             <span>3D ROTATION (DEGREES)</span>
-            <span id="lbl-box-rot" style="color: #38bdf8;">0° / 0° / 0°</span>
+            <span id="lbl-box-rot" style="color: #38bdf8;">0&deg; / 0&deg; / 0&deg;</span>
           </div>
           <div class="axis-control-row">
             <span class="axis-badge axis-x" style="min-width: 46px;">Pitch X</span>
@@ -1867,14 +1867,14 @@ gs_viewer <- function(splat = NULL,
         <!-- Crop and Export Section -->
         <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 2px;">
           <button id="btn-crop-cloud" class="btn-action" style="background: linear-gradient(135deg, #059669, #10b981); color: #fff; font-weight: 700; border-color: #34d399; justify-content: center; padding: 6px;" onclick="applyCropPointCloud()" title="Permanently crop and keep only points inside the 3D Box">
-            ✂️ Crop Point Cloud (Keep Inside)
+            &#9986;&#65039; Crop Point Cloud (Keep Inside)
           </button>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
             <button id="btn-undo-crop" class="btn-action" style="display: none; justify-content: center;" onclick="undoCropPointCloud()" title="Revert to previous uncropped point cloud">
-              ↺ Undo Crop
+              &#8634; Undo Crop
             </button>
             <button id="btn-export-cropped-ply" class="btn-action" style="justify-content: center;" onclick="exportCroppedPLY()" title="Download cropped points as clean 3D PLY file">
-              💾 Export PLY
+              &#128190; Export PLY
             </button>
           </div>
         </div>
@@ -1884,7 +1884,7 @@ gs_viewer <- function(splat = NULL,
     <!-- 3D Ruler Measurements Panel -->
     <div class="control-group" id="group-measurements" style="display: none;">
       <div class="control-label">
-        <span>📏 3D Measurements (Ruler)</span>
+        <span>&#128207; 3D Measurements (Ruler)</span>
         <button class="btn-reset-sm" onclick="clearMeasurements()">Clear All</button>
       </div>
       <div id="measurements-list" class="metrics-box" style="gap: 5px;">
@@ -1897,12 +1897,12 @@ gs_viewer <- function(splat = NULL,
     <!-- Metashape Bounding Region & Noise Crop -->
     <div class="control-group">
       <div class="control-label">
-        <span>🎯 Bounding Region (Noise Crop)</span>
+        <span>&#127919; Bounding Region (Noise Crop)</span>
         <span id="lbl-crop-val" class="val">100%</span>
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px;">
-        <button class="btn-action" onclick="setCropPreset(0.35)" title="Focus on central subject and crop surrounding environment walls">🌱 Focus on Subject</button>
-        <button class="btn-action" onclick="setCropPreset(1.0)" title="Display entire scene including surrounding environment">🌐 Full Scene</button>
+        <button class="btn-action" onclick="setCropPreset(0.35)" title="Focus on central subject and crop surrounding environment walls">&#127793; Focus on Subject</button>
+        <button class="btn-action" onclick="setCropPreset(1.0)" title="Display entire scene including surrounding environment">&#127760; Full Scene</button>
       </div>
       <input type="range" id="slider-crop" min="0.05" max="1.0" step="0.02" value="1.0" oninput="updateCropRadius(this.value)">
       <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">
@@ -1920,23 +1920,23 @@ gs_viewer <- function(splat = NULL,
         </div>
       </div>
       <div class="segmented-control" style="margin-bottom: 8px;">
-        <button id="btn-space-world" class="seg-btn active" onclick="setAlignmentSpace(\'world\')" title="Gizmo aligned with Ground Grid (World coordinates for leveling)">🌐 World (Grid)</button>
-        <button id="btn-space-local" class="seg-btn" onclick="setAlignmentSpace(\'local\')" title="Gizmo aligned with Object (Local coordinates for intrinsic tilt)">🧊 Local (Object)</button>
+        <button id="btn-space-world" class="seg-btn active" onclick="setAlignmentSpace(\'world\')" title="Gizmo aligned with Ground Grid (World coordinates for leveling)">&#127760; World (Grid)</button>
+        <button id="btn-space-local" class="seg-btn" onclick="setAlignmentSpace(\'local\')" title="Gizmo aligned with Object (Local coordinates for intrinsic tilt)">&#129482; Local (Object)</button>
       </div>
       <div class="axis-control-row">
         <span class="axis-badge axis-x">X (Pitch)</span>
         <input type="range" id="rot-x-slider" min="-180" max="180" value="', init_rot_x, '" step="1" oninput="updateModelRotation()">
-        <span id="rot-x-val" class="axis-val">', init_rot_x, '°</span>
+        <span id="rot-x-val" class="axis-val">', init_rot_x, '&deg;</span>
       </div>
       <div class="axis-control-row">
         <span class="axis-badge axis-y">Y (Roll)</span>
         <input type="range" id="rot-y-slider" min="-180" max="180" value="', init_rot_y, '" step="1" oninput="updateModelRotation()">
-        <span id="rot-y-val" class="axis-val">', init_rot_y, '°</span>
+        <span id="rot-y-val" class="axis-val">', init_rot_y, '&deg;</span>
       </div>
       <div class="axis-control-row">
         <span class="axis-badge axis-z">Z (Yaw)</span>
         <input type="range" id="rot-z-slider" min="-180" max="180" value="', init_rot_z, '" step="1" oninput="updateModelRotation()">
-        <span id="rot-z-val" class="axis-val">', init_rot_z, '°</span>
+        <span id="rot-z-val" class="axis-val">', init_rot_z, '&deg;</span>
       </div>
     </div>
 
@@ -2006,7 +2006,7 @@ gs_viewer <- function(splat = NULL,
 
     <!-- Snapshot / Export -->
     <button class="btn-primary" onclick="captureSnapshot()">
-      📷 Capture High-Res Snapshot
+      &#128247; Capture High-Res Snapshot
     </button>
   </div>
 
@@ -2014,7 +2014,7 @@ gs_viewer <- function(splat = NULL,
   <div class="bottom-bar">
     <div class="coords-hud" id="coords-panel">
       <div class="coords-title">
-        <span>📍 3D Coordinates</span>
+        <span>&#128205; 3D Coordinates</span>
         <span id="coords-status" style="font-size: 9px; color: var(--text-muted); font-weight: normal;">Target Center</span>
       </div>
       <div class="coords-vals" id="coords-text">
@@ -2724,7 +2724,7 @@ gs_viewer <- function(splat = NULL,
       const rz = Math.round(clipBoxGroup.rotation.z * 180 / Math.PI);
 
       const rotLabel = document.getElementById("lbl-box-rot");
-      if (rotLabel) rotLabel.textContent = `${rx}° / ${ry}° / ${rz}°`;
+      if (rotLabel) rotLabel.textContent = `${rx}&deg; / ${ry}&deg; / ${rz}&deg;`;
 
       const rotX = document.getElementById("clip-rot-x");
       const rotY = document.getElementById("clip-rot-y");
@@ -2764,7 +2764,7 @@ gs_viewer <- function(splat = NULL,
       clipBoxGroup.scale.set(Math.max(0.05, sx), Math.max(0.05, sy), Math.max(0.05, sz));
 
       const rotLabel = document.getElementById("lbl-box-rot");
-      if (rotLabel) rotLabel.textContent = `${Math.round(rx*180/Math.PI)}° / ${Math.round(ry*180/Math.PI)}° / ${Math.round(rz*180/Math.PI)}°`;
+      if (rotLabel) rotLabel.textContent = `${Math.round(rx*180/Math.PI)}&deg; / ${Math.round(ry*180/Math.PI)}&deg; / ${Math.round(rz*180/Math.PI)}&deg;`;
 
       const dimsLabel = document.getElementById("lbl-box-dims");
       if (dimsLabel) dimsLabel.textContent = `${sx.toFixed(2)} x ${sy.toFixed(2)} x ${sz.toFixed(2)}m`;
@@ -2783,7 +2783,7 @@ gs_viewer <- function(splat = NULL,
 
       syncUIFromBox();
       updateSplatBuffers();
-      showToast("🌱 Reconstruction box auto-fitted to subject core");
+      showToast("&#127793; Reconstruction box auto-fitted to subject core");
     }
 
     function cutClipBoxBase() {
@@ -2796,7 +2796,7 @@ gs_viewer <- function(splat = NULL,
 
       syncUIFromBox();
       updateSplatBuffers();
-      showToast("✂️ Floor / table surface trimmed");
+      showToast("&#9986;&#65039; Floor / table surface trimmed");
     }
 
     function levelClipBox() {
@@ -2807,7 +2807,7 @@ gs_viewer <- function(splat = NULL,
 
       syncUIFromBox();
       updateSplatBuffers();
-      showToast("⚖️ Box leveled to horizontal horizon plane");
+      showToast("&#9878;&#65039; Box leveled to horizontal horizon plane");
     }
 
     function resetClipBox() {
@@ -2819,7 +2819,7 @@ gs_viewer <- function(splat = NULL,
 
       syncUIFromBox();
       updateSplatBuffers();
-      showToast("🔄 Reconstruction box reset");
+      showToast("&#128260; Reconstruction box reset");
     }
 
     function rebuildCroppedGeometry() {
@@ -2871,7 +2871,7 @@ gs_viewer <- function(splat = NULL,
 
       const newCount = keptIndices.length;
       if (newCount === 0) {
-        showToast("⚠️ The box contains 0 points! Adjust box position to encompass your subject.");
+        showToast("&#9888;&#65039; The box contains 0 points! Adjust box position to encompass your subject.");
         return;
       }
 
@@ -2914,7 +2914,7 @@ gs_viewer <- function(splat = NULL,
       const ptBadge = document.querySelector(".layer-item .layer-meta");
       if (ptBadge) ptBadge.textContent = `${newCount.toLocaleString()} pts (Cropped)`;
 
-      showToast(`✂️ Point cloud cropped! Kept ${newCount.toLocaleString()} points inside box.`);
+      showToast(`&#9986;&#65039; Point cloud cropped! Kept ${newCount.toLocaleString()} points inside box.`);
     }
 
     function undoCropPointCloud() {
@@ -2936,7 +2936,7 @@ gs_viewer <- function(splat = NULL,
       const ptBadge = document.querySelector(".layer-item .layer-meta");
       if (ptBadge) ptBadge.textContent = `${numGaussians.toLocaleString()} pts`;
 
-      showToast(`↺ Restored original point cloud (${numGaussians.toLocaleString()} points)`);
+      showToast(`&#8634; Restored original point cloud (${numGaussians.toLocaleString()} points)`);
     }
 
     function exportCroppedPLY() {
@@ -2945,7 +2945,7 @@ gs_viewer <- function(splat = NULL,
         return;
       }
 
-      showToast("⏳ Generating clean PLY point cloud file...");
+      showToast("&#9203; Generating clean PLY point cloud file...");
 
       const cx = (centerOrigin && centerOrigin.length >= 3) ? centerOrigin[0] : 0;
       const cy = (centerOrigin && centerOrigin.length >= 3) ? centerOrigin[1] : 0;
@@ -2993,7 +2993,7 @@ gs_viewer <- function(splat = NULL,
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      showToast(`💾 Saved point_cloud_cropped_${numGaussians}pts.ply!`);
+      showToast(`&#128190; Saved point_cloud_cropped_${numGaussians}pts.ply!`);
     }
 
     let cropRadiusMultiplier = 1.0;
@@ -3004,7 +3004,7 @@ gs_viewer <- function(splat = NULL,
       const lbl = document.getElementById("lbl-crop-val");
       if (lbl) lbl.textContent = Math.round(cropRadiusMultiplier * 100) + "%";
       updateSplatBuffers();
-      showToast(val < 0.9 ? "🌱 Subject focus active (distant noise cropped)" : "🌐 Full scene restored");
+      showToast(val < 0.9 ? "&#127793; Subject focus active (distant noise cropped)" : "&#127760; Full scene restored");
     }
 
     function updateCropRadius(val) {
@@ -3257,7 +3257,7 @@ gs_viewer <- function(splat = NULL,
               camTooltip.style.display = "block";
               camTooltip.style.left = event.clientX + "px";
               camTooltip.style.top = event.clientY + "px";
-              camTooltip.textContent = `📷 ${camData.label} (Click to inspect)`;
+              camTooltip.textContent = `&#128247; ${camData.label} (Click to inspect)`;
             }
             return;
           } else {
@@ -3495,7 +3495,7 @@ gs_viewer <- function(splat = NULL,
       const modalFallback = document.getElementById("modal-photo-fallback");
 
       modalName.textContent = cam.label;
-      modalMeta.textContent = `Camera ${activeCameraModalIndex + 1} of ${rawCameras.length} • Resolution: ${cam.w}x${cam.h} • fx: ${cam.fx}px`;
+      modalMeta.textContent = `Camera ${activeCameraModalIndex + 1} of ${rawCameras.length} &bull; Resolution: ${cam.w}x${cam.h} &bull; fx: ${cam.fx}px`;
 
       let targetSrc = cam.img || "";
       if (!targetSrc && typeof localPhotoStore !== "undefined") {
@@ -3922,7 +3922,7 @@ gs_viewer <- function(splat = NULL,
       applyMeshShadingState();
       const btn = document.getElementById("btn-mesh-flat-toggle");
       if (btn) {
-        btn.textContent = isMeshFlatShading ? "📐 Faceted Flat" : "✨ Smooth Shading";
+        btn.textContent = isMeshFlatShading ? "&#128208; Faceted Flat" : "&#10024; Smooth Shading";
         btn.classList.toggle("active", isMeshFlatShading);
       }
       showToast(isMeshFlatShading ? "Shading: Faceted Flat" : "Shading: Smooth Normals");
@@ -3933,7 +3933,7 @@ gs_viewer <- function(splat = NULL,
       applyMeshShadingState();
       const btn = document.getElementById("btn-mesh-doubleside-toggle");
       if (btn) {
-        btn.textContent = isMeshDoubleSided ? "↔️ Double-Sided" : "↗️ Front-Only";
+        btn.textContent = isMeshDoubleSided ? "&#8596;&#65039; Double-Sided" : "&#8599;&#65039; Front-Only";
         btn.classList.toggle("active", isMeshDoubleSided);
       }
       showToast(isMeshDoubleSided ? "Faces: Two-Sided" : "Faces: Front Only");
@@ -4019,7 +4019,7 @@ gs_viewer <- function(splat = NULL,
       if (wireCtrls) wireCtrls.style.display = (meshShadingMode === "wireframe" || meshShadingMode === "solid_wireframe") ? "flex" : "none";
       if (lblMode) lblMode.textContent = meshShadingMode.toUpperCase().replace(/_/g, " + ");
       if (btnTex) {
-        btnTex.textContent = isMeshTextureActive && meshTextureObject ? "🖼️ Texture: ON" : "🖼️ Texture: OFF";
+        btnTex.textContent = isMeshTextureActive && meshTextureObject ? "&#128444;&#65039; Texture: ON" : "&#128444;&#65039; Texture: OFF";
         btnTex.classList.toggle("active", isMeshTextureActive && !!meshTextureObject);
       }
     }
@@ -4029,7 +4029,7 @@ gs_viewer <- function(splat = NULL,
       if (material) material.uniforms.uPointShape.value = pointShapeValue;
       const btnShape = document.getElementById("btn-toggle-shape");
       if (btnShape) {
-        btnShape.textContent = (pointShapeValue === 0) ? "⚪ Smooth Circle (Antialiased)" : "⬛ Crisp Square (Pixel)";
+        btnShape.textContent = (pointShapeValue === 0) ? "&#9898; Smooth Circle (Antialiased)" : "&#11035; Crisp Square (Pixel)";
         btnShape.classList.toggle("active", pointShapeValue === 1);
       }
       showToast(pointShapeValue === 0 ? "Shape: Smooth Circle" : "Shape: Crisp Square");
@@ -4040,7 +4040,7 @@ gs_viewer <- function(splat = NULL,
       if (material) material.uniforms.uPointShape.value = shape;
       const btnShape = document.getElementById("btn-toggle-shape");
       if (btnShape) {
-        btnShape.textContent = (shape === 0) ? "⚪ Smooth Circle (Antialiased)" : "⬛ Crisp Square (Pixel)";
+        btnShape.textContent = (shape === 0) ? "&#9898; Smooth Circle (Antialiased)" : "&#11035; Crisp Square (Pixel)";
         btnShape.classList.toggle("active", shape === 1);
       }
     }
@@ -4122,9 +4122,9 @@ gs_viewer <- function(splat = NULL,
       const ryDeg = parseFloat(document.getElementById("rot-y-slider").value) || 0;
       const rzDeg = parseFloat(document.getElementById("rot-z-slider").value) || 0;
 
-      document.getElementById("rot-x-val").textContent = Math.round(rxDeg) + "°";
-      document.getElementById("rot-y-val").textContent = Math.round(ryDeg) + "°";
-      document.getElementById("rot-z-val").textContent = Math.round(rzDeg) + "°";
+      document.getElementById("rot-x-val").textContent = Math.round(rxDeg) + "&deg;";
+      document.getElementById("rot-y-val").textContent = Math.round(ryDeg) + "&deg;";
+      document.getElementById("rot-z-val").textContent = Math.round(rzDeg) + "&deg;";
 
       const rx = rxDeg * Math.PI / 180.0;
       const ry = ryDeg * Math.PI / 180.0;
@@ -4158,9 +4158,9 @@ gs_viewer <- function(splat = NULL,
       if (sx) sx.value = rxDeg;
       if (sy) sy.value = ryDeg;
       if (sz) sz.value = rzDeg;
-      if (vx) vx.textContent = rxDeg + "°";
-      if (vy) vy.textContent = ryDeg + "°";
-      if (vz) vz.textContent = rzDeg + "°";
+      if (vx) vx.textContent = rxDeg + "&deg;";
+      if (vy) vy.textContent = ryDeg + "&deg;";
+      if (vz) vz.textContent = rzDeg + "&deg;";
     }
 
     function stepModelRotation(axis, deg) {
@@ -4197,7 +4197,7 @@ gs_viewer <- function(splat = NULL,
       document.getElementById("rot-y-slider").value = 0;
       document.getElementById("rot-z-slider").value = 0;
       updateModelRotation();
-      showToast("Model rotation reset to 0°");
+      showToast("Model rotation reset to 0&deg;");
     }
 
     function copyRotationCode() {
@@ -4232,7 +4232,7 @@ gs_viewer <- function(splat = NULL,
       const tbTheme = document.getElementById("tb-theme");
       if (btnTheme) {
         btnTheme.classList.toggle("active", theme === "light");
-        btnTheme.textContent = (theme === "light") ? "🌙 Switch to Dark Theme" : "☀️ Metashape Light Theme";
+        btnTheme.textContent = (theme === "light") ? "&#127769; Switch to Dark Theme" : "&#9728;&#65039; Metashape Light Theme";
       }
       if (tbTheme) tbTheme.classList.toggle("active", theme === "light");
 
@@ -4326,7 +4326,7 @@ gs_viewer <- function(splat = NULL,
         activeCamera = orthoCamera;
         if (tbProj) {
           tbProj.classList.add("active");
-          tbProj.innerHTML = "📐 Ortho";
+          tbProj.innerHTML = "&#128208; Ortho";
         }
         showToast("Orthographic CAD projection enabled");
       } else {
@@ -4338,7 +4338,7 @@ gs_viewer <- function(splat = NULL,
         activeCamera = camera;
         if (tbProj) {
           tbProj.classList.remove("active");
-          tbProj.innerHTML = "📐 Persp";
+          tbProj.innerHTML = "&#128208; Persp";
         }
         showToast("Perspective projection restored");
       }
@@ -4483,9 +4483,9 @@ gs_viewer <- function(splat = NULL,
           <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.06); padding: 5px 8px; border-radius: 6px; font-size: 11px;">
             <div>
               <span style="color: #facc15; font-weight: bold;">#${m.id}: ${m.distStr}</span>
-              <span style="font-size: 10px; color: var(--text-muted); margin-left: 6px;">(ΔX: ${m.dxStr}, ΔY: ${m.dyStr}, ΔZ: ${m.dzStr})</span>
+              <span style="font-size: 10px; color: var(--text-muted); margin-left: 6px;">(&Delta;X: ${m.dxStr}, &Delta;Y: ${m.dyStr}, &Delta;Z: ${m.dzStr})</span>
             </div>
-            <button class="btn-reset-sm" onclick="removeMeasurement(${idx})" style="color: #ef4444;" title="Delete measurement">✕</button>
+            <button class="btn-reset-sm" onclick="removeMeasurement(${idx})" style="color: #ef4444;" title="Delete measurement">&#10005;</button>
           </div>
         `;
       });
@@ -4871,7 +4871,7 @@ gs_viewer <- function(splat = NULL,
       if (numGaussians > 0) {
         const txt = numGaussians.toLocaleString() + " pts";
         if (welcomeMStatus) {
-          welcomeMStatus.textContent = "✓ " + txt;
+          welcomeMStatus.textContent = "&#10003; " + txt;
           welcomeMStatus.className = "field-status loaded";
         }
         if (welcomeMCard) welcomeMCard.classList.add("loaded");
@@ -4910,7 +4910,7 @@ gs_viewer <- function(splat = NULL,
       if (rawCameras && rawCameras.length > 0) {
         const txt = rawCameras.length + " cameras";
         if (welcomeCStatus) {
-          welcomeCStatus.textContent = "✓ " + txt;
+          welcomeCStatus.textContent = "&#10003; " + txt;
           welcomeCStatus.className = "field-status loaded";
         }
         if (welcomeCCard) welcomeCCard.classList.add("loaded");
@@ -4937,7 +4937,7 @@ gs_viewer <- function(splat = NULL,
       if (photoCount > 0) {
         const txt = photoCount + " linked photos";
         if (welcomePStatus) {
-          welcomePStatus.textContent = "✓ " + txt;
+          welcomePStatus.textContent = "&#10003; " + txt;
           welcomePStatus.className = "field-status loaded";
         }
         if (welcomePCard) welcomePCard.classList.add("loaded");

@@ -7,18 +7,22 @@
 yolo_dataset_autolabel(
   input_dir,
   model,
-  output_dir,
-  task = if (!is.null(model$task)) model$task else c("segment", "detect"),
+  output_dir = NULL,
+  task = c("detect", "segment"),
+  classes = NULL,
   conf_threshold = NULL,
   max_objects = NULL,
   split_ratio = c(0.7, 0.2, 0.1),
+  crop_to_objects = FALSE,
+  crop_margin = 0.05,
   engine = "gpu",
   device_id = -1,
+  move = TRUE,
   review = TRUE,
   rainbow = TRUE,
-  show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
-  show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
-  badge = if (!is.null(model$badge)) model$badge else TRUE,
+  show_class = TRUE,
+  show_conf = TRUE,
+  badge = TRUE,
   seed = 42,
   verbose = TRUE,
   ...
@@ -29,23 +33,37 @@ yolo_dataset_autolabel(
 
 \item{model}{A \code{yolo_fewshot_model} object fitted with \code{\link[=yolo_fewshot_fit]{yolo_fewshot_fit()}}.}
 
-\item{output_dir}{Target directory to write the YOLO dataset.}
+\item{output_dir}{Target directory to write the YOLO dataset. If \code{NULL} (default),
+the dataset structure (\verb{images/}, \verb{labels/}, \code{data.yaml}) is generated directly inside \code{input_dir}.
+Specify a new directory path only if you wish to create a separate dataset folder.}
 
 \item{task}{Target task: \code{"segment"} (polygons) or \code{"detect"} (bounding boxes). Defaults to \code{model$task}.}
 
+\item{classes}{Character vector of class names. If \code{NULL} (default), automatically inferred from the model object or metadata.}
+
 \item{conf_threshold}{Minimum confidence / similarity threshold for accepting predicted instances (e.g. 0.50). If \code{NULL} (default), uses \code{model$conf_threshold}.}
 
+\item{max_objects}{Maximum number of objects to detect per image. If \code{NULL} (default), no limit is applied.}
+
 \item{split_ratio}{Numeric vector of length 3 for \code{c(train, val, test)} split. Defaults to \code{c(0.70, 0.20, 0.10)}.}
+
+\item{crop_to_objects}{Logical. If \code{TRUE}, crops the image to the bounding box containing all detected objects plus a margin (default: \code{FALSE}).}
+
+\item{crop_margin}{Numeric. Margin fraction added around the object bounding box when \code{crop_to_objects = TRUE} (default: \code{0.05}, i.e., 5\%).}
 
 \item{engine}{Execution engine override: \code{"cpu"} or \code{"gpu"}. If \code{NULL}, uses \code{model$engine}.}
 
 \item{device_id}{GPU device ID if \code{engine = "gpu"}. Defaults to \code{-1}.}
 
+\item{move}{Logical. If \code{TRUE} (default), moves the source images to the target split folders
+instead of copying them, saving disk space and avoiding duplicate files. An undo operation can be performed via \code{\link[=yolo_dataset_undo]{yolo_dataset_undo()}}
+to restore files to their original location. Defaults to \code{TRUE}.}
+
 \item{review}{Logical or integer. If \code{TRUE} (default), writes annotated review images to \verb{review/}
 subfolder for visual inspection of all images. An integer can be provided (e.g. \code{review = 30})
-to limit the number of review images generated.}
+to limit the number of review images generated. Setting \code{review = FALSE} avoids creating duplicate preview images.}
 
-\item{rainbow}{Logical. If \code{TRUE}, review previews are rendered with distinct rainbow colors per instance. Defaults to \code{FALSE}.}
+\item{rainbow}{Logical. If \code{TRUE}, review previews are rendered with distinct rainbow colors per instance. Defaults to \code{TRUE}.}
 
 \item{show_class}{Logical. Whether to display class name on labels/badges in review images. Defaults to \code{TRUE}.}
 

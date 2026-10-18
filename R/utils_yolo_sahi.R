@@ -227,6 +227,9 @@
 #' @param postprocess_type Character. Post-processing merge strategy: `"GREEDY_NMM"` (default, Non-Maximum Merging,
 #'   unifying overlapping pieces into single encompassing boxes) or `"NMS"` (standard Non-Maximum Suppression).
 #' @param match_threshold Numeric scalar between 0 and 1. Threshold for merging candidates. Defaults to `0.50`.
+#' @param classes Optional character or integer vector of class names or IDs to keep (e.g., `"car"` or `c("car", "truck")`).
+#'   Detections belonging to other classes are discarded before post-processing. Defaults to `NULL` (all classes kept).
+#' @param agnostic_nms Logical. If `TRUE`, bounding boxes and masks from different classes compete during post-processing suppression. Defaults to `FALSE`.
 #' @param seam_merging Logical. If `TRUE` (default), seamlessly detects and merges objects that have been
 #'   sliced in half across tile cut boundaries.
 #' @param full_image_inference Logical. If `TRUE` (default), runs an additional detection pass on the
@@ -265,6 +268,7 @@ image_detect_sahi <- function(img,
                               match_threshold = 0.50,
                               classes = NULL,
                               agnostic_nms = FALSE,
+                              seam_merging = TRUE,
                               full_image_inference = TRUE,
                               cex = 1.0,
                               pad = 1.0,
@@ -512,6 +516,7 @@ image_detect_sahi <- function(img,
 #' @param lwd Numeric border line width. Defaults to `1`.
 #' @param classes Optional character or integer vector of class names or IDs to keep (e.g., `"car"` or `c("car", "truck")`).
 #'   Detections belonging to other classes are discarded before post-processing. Defaults to `NULL` (all classes kept).
+#' @param agnostic_nms Logical. If `TRUE`, bounding boxes and masks from different classes compete during post-processing suppression. Defaults to `FALSE`.
 #' @param bbox Logical. If `TRUE`, draws bounding boxes and class badges around segmented instances. Defaults to `FALSE`.
 #' @param mask Logical. If `TRUE` (default), draws instance segmentation masks.
 #' @param cex Numeric character expansion for labels and badges. Defaults to `1.0`.

@@ -70,6 +70,8 @@ unifying overlapping pieces into single encompassing boxes) or \code{"NMS"} (sta
 \item{classes}{Optional character or integer vector of class names or IDs to keep (e.g., \code{"car"} or \code{c("car", "truck")}).
 Detections belonging to other classes are discarded before post-processing. Defaults to \code{NULL} (all classes kept).}
 
+\item{agnostic_nms}{Logical. If \code{TRUE}, bounding boxes and masks from different classes compete during post-processing suppression. Defaults to \code{FALSE}.}
+
 \item{seam_merging}{Logical. If \code{TRUE} (default), seamlessly detects and merges objects that have been
 sliced in half across tile cut boundaries.}
 

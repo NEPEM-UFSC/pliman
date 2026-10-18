@@ -2,7 +2,7 @@
 % Please edit documentation in R/utilities.R
 \name{separate_col}
 \alias{separate_col}
-\title{Turns a single character column into multiple columns.}
+\title{Turns a single character column into multiple columns}
 \usage{
 separate_col(.data, col, into, sep = "[^[:alnum:]]+")
 }

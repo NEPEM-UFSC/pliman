@@ -3,68 +3,6 @@
 # pliman: Plant Image Analysis in R
 # ==============================================================================
 
-#' @title Interactive Few-Shot Exemplar Fitting for Object Detection and Segmentation
-#' @name yolo_fewshot_fit
-#' @description
-#' `yolo_fewshot_fit()` implements an interactive few-shot visual learning engine powered by
-#' Meta AI's Segment Anything 2.1 (SAM 2.1 / PerSAM). The user selects 3–5 sample instances
-#' of an object (e.g. seeds, beans, logs, leaves, lesions, fruits) by clicking on an image.
-#'
-#' Using the PerSAM exemplar matching engine, the function computes visual prototypes from the
-#' exemplars and segments all other matching instances across the entire image with high precision.
-#'
-#' The user can specify `task = "segment"` to obtain instance masks and polygonal boundaries
-#' for YOLO segmentation datasets, or `task = "detect"` for oriented/axis-aligned bounding boxes.
-#'
-#' The resulting model object (`yolo_fewshot_model`) can be inspected, plotted, and directly
-#' propagated to hundreds of unannotated images in a folder using [yolo_dataset_autolabel()].
-#'
-#' @param img An `image` object, file path, or matrix.
-#' @param points Optional $(x, y)$ coordinates of exemplar points. If `NULL` (default),
-#'   an interactive plotting window opens for the user to click on 3–5 representative objects.
-#' @param label Character vector naming the target class(es). Can be a single class (e.g., `"bean"`, `"leaf"`, `"seed"`, `"tora"`)
-#'   or a character vector of multiple classes (e.g., `c("leaf", "lesion")`, `c("healthy", "damaged")`). Defaults to `"object"`.
-#'   When multiple classes are specified, `yolo_fewshot_fit()` interactively collects exemplars for each class in sequence,
-#'   or uses the respective elements from `points` if a list is provided.
-#' @param task Target task: `"segment"` (instance segmentation polygons and masks) or
-#'   `"detect"` (bounding boxes). Defaults to `"segment"`.
-#' @param conf_threshold Numeric scalar between 0 and 1 specifying detection confidence/similarity threshold. Defaults to `0.50` (or `0.25` for adaptive).
-#' @param radius Optional estimated radius in pixels for target objects. If `NULL` (default),
-#'   automatically detected from exemplar edge gradients.
-#' @param min_dist Minimum distance in pixels between detected instances. Defaults to `16`.
-#' @param min_area Minimum object area in pixels. If `NULL` (default), automatically calibrated
-#'   from the exemplar scale (`0.20 * median_exemplar_area`) to filter out background noise.
-#' @param max_area Maximum object area in pixels. If `NULL` (default), automatically calibrated
-#'   (`3.80 * median_exemplar_area`).
-#' @param method Segmentation method: `"sam"` (or `"persam"`, Meta Segment Anything 2.1 via ONNX)
-#'   or `"adaptive"` (fast color-texture morphology). Defaults to `"sam"`.
-#' @param engine Execution engine for SAM: `"cpu"` or `"gpu"`. Defaults to `"cpu"`.
-#' @param device_id GPU device ID if `engine = "gpu"`. Defaults to `-1`.
-#' @param interactive Logical. Whether to enable interactive review and refinement after exemplar segmentation (allows adding missed objects, removing false positives, adjusting threshold, or resampling). Defaults to `interactive()`.
-#' @param rainbow Logical. If `TRUE` (default), plots instances in distinct rainbow colors.
-#' @param show_class Logical. Whether to display class name on labels/badges. Defaults to `TRUE`.
-#' @param show_conf Logical. Whether to display confidence score on labels/badges. Defaults to `TRUE`.
-#' @param badge Logical. Whether to draw a filled background badge behind labels. Defaults to `TRUE`.
-#' @param plot Logical. Display the detection and segmentation overlay. Defaults to `TRUE`.
-#' @param verbose Logical. Show progress messages. Defaults to `TRUE`.
-#' @param ... Additional arguments passed to downstream methods or aliases (e.g., `show_labels`, `show_scores`, `label_box`).
-#'
-#' @return An object of class `yolo_fewshot_model` containing exemplar signatures,
-#'   detected instances on the reference image, and parameters for batch propagation.
-#' @export
-#' @examples
-#' \dontrun{
-#' library(pliman)
-#'
-#' # 1. Fit exemplar model on reference photo (clicks or supplied coordinates)
-#' modelo_tora <- yolo_fewshot_fit("toras/toras22.png", label = "tora", task = "segment", method = "sam")
-#'
-#' # 2. Inspect segmentation overlay on reference photo
-#' plot(modelo_tora)
-#'
-#' # 3. Auto-label entire directory of 300 photos into a YOLO dataset
-#' ds <- yolo_dataset_autolabel("toras_raw/", model = modelo_tora, output_dir = "dataset_toras_yolo")
-#' }
 
 .point_in_polygon <- function(px, py, pol_x, pol_y) {
   n <- length(pol_x)
@@ -188,6 +126,7 @@
                                              cw,
                                              ch,
                                              pre_proto,
+                                             latest_proto = NULL,
                                              task = "segment",
                                              label = "object",
                                              conf_threshold = 0.50,
@@ -204,6 +143,10 @@
                                              img_name = "",
                                              img_idx = 1L,
                                              total_imgs = 1L) {
+  if (is.null(pre_proto) && !is.null(latest_proto)) {
+    pre_proto <- latest_proto
+  }
+
   .render_fewshot_review_plot(
     im = curr_im,
     boxes = r_boxes,
@@ -246,7 +189,8 @@
         boxes = r_boxes,
         polygons = r_polys,
         points = curr_points,
-        conf = curr_conf
+        conf = curr_conf,
+        prototypes = pre_proto
       ))
     }
 
@@ -260,7 +204,8 @@
         boxes = r_boxes,
         polygons = r_polys,
         points = curr_points,
-        conf = curr_conf
+        conf = curr_conf,
+        prototypes = pre_proto
       ))
     }
 
@@ -382,13 +327,13 @@
         curr_points <- if (!is.null(curr_points)) rbind(curr_points, new_coords) else new_coords
 
         cli::cli_progress_step(
-          msg = "Re-evaluating SAM 2.1 with {nrow(new_coords)} added exemplar(s) [{toupper(engine)}]... (aguarde alguns segundos)",
+          msg = "Re-evaluating SAM 2.1 with {nrow(new_coords)} added exemplar(s) [{toupper(engine)}]... ",
           msg_done = "SAM 2.1 re-evaluation complete"
         )
         new_pres <- tryCatch({
           .run_persam(
             mat = c_num_arr,
-            exemplar_points = curr_points,
+            exemplar_points = new_coords,
             precomputed_prototypes = pre_proto,
             sim_threshold = curr_conf,
             min_dist = min_dist,
@@ -401,6 +346,27 @@
           )
         }, error = function(e) NULL)
 
+        cli::cli_progress_done()
+
+        if (!is.null(new_pres) && !is.null(new_pres$prototypes)) {
+          if (!is.null(pre_proto)) {
+            pre_proto$semantic <- c(pre_proto$semantic, new_pres$prototypes$semantic)
+            pre_proto$hr0 <- c(pre_proto$hr0, new_pres$prototypes$hr0)
+            if (!is.null(new_pres$prototypes$avg_area) && new_pres$prototypes$avg_area > 0) {
+              pre_proto$avg_area <- mean(c(pre_proto$avg_area, new_pres$prototypes$avg_area))
+            }
+          } else {
+            pre_proto <- new_pres$prototypes
+          }
+        }
+
+        nbx <- data.frame(
+          xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
+          conf = numeric(0), class_id = integer(0), class_name = character(0),
+          stringsAsFactors = FALSE
+        )
+        npl <- list()
+
         if (!is.null(new_pres) && nrow(new_pres$boxes) > 0L) {
           nbx <- data.frame(
             xmin = as.numeric(new_pres$boxes$xmin),
@@ -412,7 +378,6 @@
             class_name = label,
             stringsAsFactors = FALSE
           )
-          npl <- list()
           for (ci in seq_along(new_pres$contours)) {
             cnt <- new_pres$contours[[ci]]
             if (is.matrix(cnt) && nrow(cnt) >= 3L) {
@@ -424,46 +389,100 @@
               npl[[ci]] <- as.vector(rbind(gx, gy))
             }
           }
+        }
 
-          if (length(deleted_centers) > 0L) {
-            keep_idx <- rep(TRUE, nrow(nbx))
-            for (bi in seq_len(nrow(nbx))) {
-              bc_x <- (nbx$xmin[bi] + nbx$xmax[bi]) / 2
-              bc_y <- (nbx$ymin[bi] + nbx$ymax[bi]) / 2
-              for (dc in deleted_centers) {
-                if (((bc_x - dc[1])^2 + (bc_y - dc[2])^2) < (min(cw, ch) * 0.05)^2) {
-                  keep_idx[bi] <- FALSE
-                  break
-                }
+        # Seamlessly merge previous r_boxes with newly detected boxes
+        if (nrow(r_boxes) > 0L) {
+          keep_old <- rep(TRUE, nrow(r_boxes))
+          for (oi in seq_len(nrow(r_boxes))) {
+            ocx <- (r_boxes$xmin[oi] + r_boxes$xmax[oi]) / 2
+            ocy <- (r_boxes$ymin[oi] + r_boxes$ymax[oi]) / 2
+            for (ni in seq_len(nrow(nbx))) {
+              ncx <- (nbx$xmin[ni] + nbx$xmax[ni]) / 2
+              ncy <- (nbx$ymin[ni] + nbx$ymax[ni]) / 2
+              if (((ocx - ncx)^2 + (ocy - ncy)^2) < (min(cw, ch) * 0.04)^2) {
+                keep_old[oi] <- FALSE
+                break
               }
             }
-            nbx <- nbx[keep_idx, , drop = FALSE]
-            if (length(npl) > 0L) {
-              npl <- npl[keep_idx[seq_along(npl)]]
+          }
+          if (any(keep_old)) {
+            nbx <- rbind(r_boxes[keep_old, , drop = FALSE], nbx)
+            if (length(r_polys) > 0L) {
+              npl <- c(r_polys[keep_old[seq_along(r_polys)]], npl)
             }
           }
-
-          r_boxes <- nbx
-          r_polys <- npl
-
-          cli::cli_alert_success("Model updated! {if (identical(task, 'segment') && length(r_polys) > 0L) length(r_polys) else nrow(r_boxes)} total instance(s) detected.")
-          .render_fewshot_review_plot(
-            im = curr_im,
-            boxes = r_boxes,
-            polygons = r_polys,
-            exemplar_points = curr_points,
-            task = task,
-            label = label,
-            conf_threshold = curr_conf,
-            rainbow = rainbow,
-            show_class = show_class,
-            show_conf = show_conf,
-            badge = badge,
-            img_name = img_name,
-            img_idx = img_idx,
-            total_imgs = total_imgs
-          )
         }
+
+        # Fallback guarantee: ensure EVERY clicked point has a box on screen!
+        def_w <- if (nrow(nbx) > 0L) stats::median(nbx$xmax - nbx$xmin) else min(cw, ch) * 0.04
+        def_h <- if (nrow(nbx) > 0L) stats::median(nbx$ymax - nbx$ymin) else min(cw, ch) * 0.04
+        if (is.na(def_w) || def_w <= 0) def_w <- min(cw, ch) * 0.04
+        if (is.na(def_h) || def_h <= 0) def_h <- min(cw, ch) * 0.04
+
+        for (pi in seq_len(nrow(new_coords))) {
+          px <- new_coords[pi, 1]; py <- new_coords[pi, 2]
+          has_box <- any(px >= nbx$xmin & px <= nbx$xmax & py >= nbx$ymin & py <= nbx$ymax)
+          if (!has_box) {
+            fallback_row <- data.frame(
+              xmin = max(0, px - def_w / 2),
+              ymin = max(0, py - def_h / 2),
+              xmax = min(cw, px + def_w / 2),
+              ymax = min(ch, py + def_h / 2),
+              conf = 1.0,
+              class_id = 0L,
+              class_name = label,
+              stringsAsFactors = FALSE
+            )
+            nbx <- rbind(nbx, fallback_row)
+            if (identical(task, "segment")) {
+              th <- seq(0, 2 * pi, length.out = 16)
+              circ_x <- (px + (def_w / 2) * cos(th)) / cw
+              circ_y <- (py + (def_h / 2) * sin(th)) / ch
+              npl[[length(npl) + 1L]] <- as.vector(rbind(circ_x, circ_y))
+            }
+          }
+        }
+
+        # Filter any previously deleted centers
+        if (length(deleted_centers) > 0L && nrow(nbx) > 0L) {
+          keep_idx <- rep(TRUE, nrow(nbx))
+          for (bi in seq_len(nrow(nbx))) {
+            bc_x <- (nbx$xmin[bi] + nbx$xmax[bi]) / 2
+            bc_y <- (nbx$ymin[bi] + nbx$ymax[bi]) / 2
+            for (dc in deleted_centers) {
+              if (((bc_x - dc[1])^2 + (bc_y - dc[2])^2) < (min(cw, ch) * 0.04)^2) {
+                keep_idx[bi] <- FALSE
+                break
+              }
+            }
+          }
+          nbx <- nbx[keep_idx, , drop = FALSE]
+          if (length(npl) > 0L) {
+            npl <- npl[keep_idx[seq_along(npl)]]
+          }
+        }
+
+        r_boxes <- nbx
+        r_polys <- npl
+
+        cli::cli_alert_success("Model updated! {if (identical(task, 'segment') && length(r_polys) > 0L) length(r_polys) else nrow(r_boxes)} total instance(s) detected.")
+        .render_fewshot_review_plot(
+          im = curr_im,
+          boxes = r_boxes,
+          polygons = r_polys,
+          exemplar_points = curr_points,
+          task = task,
+          label = label,
+          conf_threshold = curr_conf,
+          rainbow = rainbow,
+          show_class = show_class,
+          show_conf = show_conf,
+          badge = badge,
+          img_name = img_name,
+          img_idx = img_idx,
+          total_imgs = total_imgs
+        )
       }
       next
     }
@@ -479,7 +498,7 @@
       if (!is.na(new_val) && new_val > 0 && new_val < 1) {
         curr_conf <- new_val
         cli::cli_progress_step(
-          msg = "Re-evaluating detections with threshold = {curr_conf} [{toupper(engine)}]... (aguarde alguns segundos)",
+          msg = "Re-evaluating detections with threshold = {curr_conf} [{toupper(engine)}]... ",
           msg_done = "Threshold update complete"
         )
         new_pres <- tryCatch({
@@ -497,6 +516,8 @@
             verbose = FALSE
           )
         }, error = function(e) NULL)
+
+        cli::cli_progress_done()
 
         if (!is.null(new_pres) && nrow(new_pres$boxes) > 0L) {
           nbx <- data.frame(
@@ -574,6 +595,69 @@
   }
 }
 
+#' @title Interactive Few-Shot Exemplar Fitting for Object Detection and Segmentation
+#' @name yolo_fewshot_fit
+#' @description
+#' `yolo_fewshot_fit()` implements an interactive few-shot visual learning engine powered by
+#' Meta AI's Segment Anything 2.1 (SAM 2.1 / PerSAM). The user selects 3–5 sample instances
+#' of an object (e.g. seeds, beans, logs, leaves, lesions, fruits) by clicking on an image.
+#'
+#' Using the PerSAM exemplar matching engine, the function computes visual prototypes from the
+#' exemplars and segments all other matching instances across the entire image with high precision.
+#'
+#' The user can specify `task = "segment"` to obtain instance masks and polygonal boundaries
+#' for YOLO segmentation datasets, or `task = "detect"` for oriented/axis-aligned bounding boxes.
+#'
+#' The resulting model object (`yolo_fewshot_model`) can be inspected, plotted, and directly
+#' propagated to hundreds of unannotated images in a folder using [yolo_dataset_autolabel()].
+#'
+#' @param img An `image` object, file path, or matrix.
+#' @param points,sample Optional $(x, y)$ coordinates of exemplar points. If `NULL` (default),
+#'   an interactive plotting window opens for the user to click on 3–5 representative objects.
+#' @param label Character vector naming the target class(es). Can be a single class (e.g., `"bean"`, `"leaf"`, `"seed"`, `"tora"`)
+#'   or a character vector of multiple classes (e.g., `c("leaf", "lesion")`, `c("healthy", "damaged")`). Defaults to `"object"`.
+#'   When multiple classes are specified, `yolo_fewshot_fit()` interactively collects exemplars for each class in sequence,
+#'   or uses the respective elements from `points` if a list is provided.
+#' @param task Target task: `"segment"` (instance segmentation polygons and masks) or
+#'   `"detect"` (bounding boxes). Defaults to `"segment"`.
+#' @param conf_threshold Numeric scalar between 0 and 1 specifying detection confidence/similarity threshold. Defaults to `0.50` (or `0.25` for adaptive).
+#' @param radius Optional estimated radius in pixels for target objects. If `NULL` (default),
+#'   automatically detected from exemplar edge gradients.
+#' @param min_dist Minimum distance in pixels between detected instances. Defaults to `12`.
+#' @param min_area Minimum object area in pixels. If `NULL` (default), automatically calibrated
+#'   from the exemplar scale (`0.20 * median_exemplar_area`) to filter out background noise.
+#' @param max_area Maximum object area in pixels. If `NULL` (default), automatically calibrated
+#'   (`3.80 * median_exemplar_area`).
+#' @param max_objects Maximum number of instances to detect. Defaults to `NULL` (no limit).
+#' @param method Segmentation method: `"sam"` (or `"persam"`, Meta Segment Anything 2.1 via ONNX)
+#'   or `"adaptive"` (fast color-texture morphology). Defaults to `"sam"`.
+#' @param engine Execution engine for SAM: `"cpu"` or `"gpu"`. Defaults to `"cpu"`.
+#' @param device_id GPU device ID if `engine = "gpu"`. Defaults to `-1`.
+#' @param interactive Logical. Whether to enable interactive review and refinement after exemplar segmentation (allows adding missed objects, removing false positives, adjusting threshold, or resampling). Defaults to `interactive()`.
+#' @param rainbow Logical. If `TRUE` (default), plots instances in distinct rainbow colors.
+#' @param show_class Logical. Whether to display class name on labels/badges. Defaults to `TRUE`.
+#' @param show_conf Logical. Whether to display confidence score on labels/badges. Defaults to `TRUE`.
+#' @param badge Logical. Whether to draw a filled background badge behind labels. Defaults to `TRUE`.
+#' @param plot Logical. Display the detection and segmentation overlay. Defaults to `TRUE`.
+#' @param verbose Logical. Show progress messages. Defaults to `TRUE`.
+#' @param ... Additional arguments passed to downstream methods or aliases (e.g., `show_labels`, `show_scores`, `label_box`).
+#'
+#' @return An object of class `yolo_fewshot_model` containing exemplar signatures,
+#'   detected instances on the reference image, and parameters for batch propagation.
+#' @export
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#'
+#' # 1. Fit exemplar model on reference photo (clicks or supplied coordinates)
+#' modelo_tora <- yolo_fewshot_fit("toras/toras22.png", label = "tora", task = "segment", method = "sam")
+#'
+#' # 2. Inspect segmentation overlay on reference photo
+#' plot(modelo_tora)
+#'
+#' # 3. Auto-label entire directory of 300 photos into a YOLO dataset
+#' ds <- yolo_dataset_autolabel("toras_raw/", model = modelo_tora, output_dir = "dataset_toras_yolo")
+#' }
 yolo_fewshot_fit <- function(img,
                              points = NULL,
                              sample = NULL,
@@ -1017,7 +1101,7 @@ yolo_fewshot_fit <- function(img,
               cli::cli_alert_info("Auto-detecting on {.file {im_name_lbl}} using {length(all_prototypes_sem)} learned prototype{?s}.")
             }
             cli::cli_progress_step(
-              msg = "Running SAM 2.1 inference on {.file {im_name_lbl}} [{toupper(engine)}]... (aguarde alguns segundos)",
+              msg = "Running SAM 2.1 inference on {.file {im_name_lbl}} [{toupper(engine)}]... ",
               msg_done = "SAM 2.1 inference complete on {.file {im_name_lbl}}"
             )
           }
@@ -1042,6 +1126,10 @@ yolo_fewshot_fit <- function(img,
             }
             NULL
           })
+
+          if (isTRUE(verbose)) {
+            cli::cli_progress_done()
+          }
 
           if (!is.null(p_res) && !is.null(p_res$prototypes)) {
             img_proto_sem <- p_res$prototypes$semantic
@@ -1092,6 +1180,7 @@ yolo_fewshot_fit <- function(img,
             cw = cw,
             ch = ch,
             pre_proto = pre_proto,
+            latest_proto = if (!is.null(p_res) && !is.null(p_res$prototypes)) p_res$prototypes else NULL,
             task = task,
             label = label,
             conf_threshold = conf_threshold,
@@ -1516,6 +1605,7 @@ yolo_fewshot_fit <- function(img,
       cw = w,
       ch = h,
       pre_proto = NULL,
+      latest_proto = if (exists("persam_res") && !is.null(persam_res$prototypes)) persam_res$prototypes else NULL,
       task = task,
       label = label,
       conf_threshold = conf_threshold,
@@ -2164,16 +2254,25 @@ yolo_fewshot_predict <- function(model,
 #'
 #' @param input_dir Directory containing raw unannotated images.
 #' @param model A `yolo_fewshot_model` object fitted with [yolo_fewshot_fit()].
-#' @param output_dir Target directory to write the YOLO dataset.
+#' @param output_dir Target directory to write the YOLO dataset. If `NULL` (default),
+#'   the dataset structure (`images/`, `labels/`, `data.yaml`) is generated directly inside `input_dir`.
+#'   Specify a new directory path only if you wish to create a separate dataset folder.
 #' @param task Target task: `"segment"` (polygons) or `"detect"` (bounding boxes). Defaults to `model$task`.
+#' @param classes Character vector of class names. If `NULL` (default), automatically inferred from the model object or metadata.
 #' @param conf_threshold Minimum confidence / similarity threshold for accepting predicted instances (e.g. 0.50). If `NULL` (default), uses `model$conf_threshold`.
+#' @param max_objects Maximum number of objects to detect per image. If `NULL` (default), no limit is applied.
 #' @param split_ratio Numeric vector of length 3 for `c(train, val, test)` split. Defaults to `c(0.70, 0.20, 0.10)`.
+#' @param crop_to_objects Logical. If `TRUE`, crops the image to the bounding box containing all detected objects plus a margin (default: `FALSE`).
+#' @param crop_margin Numeric. Margin fraction added around the object bounding box when `crop_to_objects = TRUE` (default: `0.05`, i.e., 5%).
 #' @param engine Execution engine override: `"cpu"` or `"gpu"`. If `NULL`, uses `model$engine`.
 #' @param device_id GPU device ID if `engine = "gpu"`. Defaults to `-1`.
+#' @param move Logical. If `TRUE` (default), moves the source images to the target split folders
+#'   instead of copying them, saving disk space and avoiding duplicate files. An undo operation can be performed via [yolo_dataset_undo()]
+#'   to restore files to their original location. Defaults to `TRUE`.
 #' @param review Logical or integer. If `TRUE` (default), writes annotated review images to `review/`
 #'   subfolder for visual inspection of all images. An integer can be provided (e.g. `review = 30`)
-#'   to limit the number of review images generated.
-#' @param rainbow Logical. If `TRUE`, review previews are rendered with distinct rainbow colors per instance. Defaults to `FALSE`.
+#'   to limit the number of review images generated. Setting `review = FALSE` avoids creating duplicate preview images.
+#' @param rainbow Logical. If `TRUE`, review previews are rendered with distinct rainbow colors per instance. Defaults to `TRUE`.
 #' @param show_class Logical. Whether to display class name on labels/badges in review images. Defaults to `TRUE`.
 #' @param show_conf Logical. Whether to display confidence score on labels/badges in review images. Defaults to `TRUE`.
 #' @param badge Logical. Whether to draw a filled background badge behind labels in review images. Defaults to `TRUE`.
@@ -2185,55 +2284,203 @@ yolo_fewshot_predict <- function(model,
 #' @export
 yolo_dataset_autolabel <- function(input_dir,
                                    model,
-                                   output_dir,
-                                   task = if (!is.null(model$task)) model$task else c("segment", "detect"),
+                                   output_dir = NULL,
+                                   task = c("detect", "segment"),
+                                   classes = NULL,
                                    conf_threshold = NULL,
                                    max_objects = NULL,
                                    split_ratio = c(0.70, 0.20, 0.10),
+                                   crop_to_objects = FALSE,
+                                   crop_margin = 0.05,
                                    engine = "gpu",
                                    device_id = -1,
+                                   move = TRUE,
                                    review = TRUE,
                                    rainbow = TRUE,
-                                   show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
-                                   show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
-                                   badge = if (!is.null(model$badge)) model$badge else TRUE,
+                                   show_class = TRUE,
+                                   show_conf = TRUE,
+                                   badge = TRUE,
                                    seed = 42,
                                    verbose = TRUE,
                                    ...) {
   dots <- list(...)
+  if ("move" %in% names(dots)) move <- isTRUE(dots$move)
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if ("crop_to_objects" %in% names(dots)) crop_to_objects <- isTRUE(dots$crop_to_objects)
+  if ("crop_margin" %in% names(dots)) crop_margin <- as.numeric(dots$crop_margin[1])
+  if (is.numeric(crop_to_objects) && length(crop_to_objects) == 1L && crop_to_objects > 0) {
+    crop_margin <- as.numeric(crop_to_objects)
+    crop_to_objects <- TRUE
+  }
 
-  task <- match.arg(task, c("segment", "detect"))
-  if (is.list(model) && !inherits(model, "yolo_fewshot_model")) {
-    if (all(vapply(model, function(m) inherits(m, "yolo_fewshot_model"), logical(1)))) {
-      model <- do.call(c, model)
+  # Support swapping input_dir and model if called as yolo_dataset_autolabel(model, input_dir, ...)
+  if ((inherits(input_dir, c("yolo_workflow", "yolo_train", "yolo_fewshot_model")) ||
+       (is.character(input_dir) && length(input_dir) == 1L && grepl("\\.(onnx|pt)$", input_dir))) &&
+      (missing(model) || (is.character(model) && length(model) == 1L && dir.exists(model)))) {
+    tmp_m <- input_dir
+    input_dir <- if (!missing(model)) model else if (!is.null(tmp_m$workflow$data)) tmp_m$workflow$data else "."
+    model <- tmp_m
+  }
+
+  if (missing(task) || is.null(task)) {
+    if (inherits(model, c("yolo_workflow", "yolo_train")) && !is.null(model$task)) {
+      task <- model$task
+    } else if (inherits(model, "yolo_fewshot_model") && !is.null(model$task)) {
+      task <- model$task
+    } else {
+      task <- "detect"
+    }
+  } else {
+    task <- match.arg(task, c("detect", "segment"))
+  }
+
+  is_yolo_model <- FALSE
+  yolo_model_path <- NULL
+  if (inherits(model, c("yolo_workflow", "yolo_train"))) {
+    is_yolo_model <- TRUE
+    yolo_model_path <- model$model_file
+    if ((is.null(yolo_model_path) || !file.exists(yolo_model_path)) && !is.null(model$pt_file) && file.exists(model$pt_file)) {
+      yolo_model_path <- model$pt_file
+    }
+    if (!is.null(yolo_model_path) && file.exists(yolo_model_path)) {
+      yolo_model_path <- normalizePath(yolo_model_path, winslash = "/", mustWork = FALSE)
+    }
+    if (missing(task) || is.null(task)) {
+      task <- if (!is.null(model$task)) model$task else "detect"
+    }
+    if (is.null(classes)) {
+      classes <- if (!is.null(model$classes)) as.character(model$classes) else "object"
+    }
+  } else if (is.character(model) && length(model) == 1L) {
+    # Check if it's an RDS file containing a model object
+    if (grepl("\\.rds$", model, ignore.case = TRUE) && file.exists(model)) {
+      loaded_m <- try(readRDS(model), silent = TRUE)
+      if (!inherits(loaded_m, "try-error")) {
+        model <- loaded_m
+      }
+    }
+    if (inherits(model, c("yolo_workflow", "yolo_train"))) {
+      is_yolo_model <- TRUE
+      yolo_model_path <- model$model_file
+      if ((is.null(yolo_model_path) || !file.exists(yolo_model_path)) && !is.null(model$pt_file) && file.exists(model$pt_file)) {
+        yolo_model_path <- model$pt_file
+      }
+      if (missing(task) || is.null(task)) {
+        task <- if (!is.null(model$task)) model$task else "detect"
+      }
+      if (is.null(classes)) {
+        classes <- if (!is.null(model$classes)) as.character(model$classes) else "object"
+      }
+    } else if (inherits(model, "yolo_fewshot_model")) {
+      # Handled in fewshot block below
+    } else {
+      stem <- sub("\\.(onnx|pt)$", "", basename(model), ignore.case = TRUE)
+      cand_paths <- c(
+        model,
+        file.path(getwd(), model),
+        file.path(pliman_model_dir(), model),
+        file.path(pliman_model_dir(), paste0(model, ".onnx")),
+        file.path(pliman_model_dir(), paste0(model, ".pt")),
+        file.path(pliman_model_dir(), paste0(stem, ".onnx")),
+        file.path(pliman_model_dir(), paste0(stem, ".pt")),
+        file.path(pliman_model_dir(), paste0(stem, "_results"), "weights", "best.onnx"),
+        file.path(pliman_model_dir(), paste0(stem, "_results"), "weights", "best.pt"),
+        file.path(getwd(), paste0(stem, "_results"), "weights", "best.onnx"),
+        file.path(getwd(), paste0(stem, "_results"), "weights", "best.pt"),
+        file.path(dirname(model), paste0(stem, "_results"), "weights", "best.onnx"),
+        file.path(dirname(model), paste0(stem, "_results"), "weights", "best.pt")
+      )
+      cand_paths <- unique(cand_paths[nzchar(cand_paths)])
+      ex_cand <- cand_paths[file.exists(cand_paths) & !dir.exists(cand_paths)]
+      if (length(ex_cand) > 0L) {
+        is_yolo_model <- TRUE
+        yolo_model_path <- normalizePath(ex_cand[1], winslash = "/")
+      } else {
+        loc_m <- .find_local_model(model, dir = pliman_model_dir())
+        if (!is.null(loc_m) && file.exists(loc_m)) {
+          is_yolo_model <- TRUE
+          yolo_model_path <- normalizePath(loc_m, winslash = "/")
+        } else if (grepl("\\.(onnx|pt)$", model, ignore.case = TRUE) || grepl("yolo", model, ignore.case = TRUE)) {
+          is_yolo_model <- TRUE
+          yolo_model_path <- model
+        } else {
+          cli::cli_abort(c(
+            "Model {.val {model}} was not found.",
+            "i" = "Searched in working directory: {.path {getwd()}}",
+            "i" = "Searched in pliman models directory: {.path {pliman_model_dir()}}"
+          ))
+        }
+      }
+      if (is_yolo_model) {
+        if (is.null(classes)) {
+          classes <- "object"
+          model_stem <- sub("\\.(onnx|pt)$", "", basename(yolo_model_path), ignore.case = TRUE)
+          res_dirs <- c(
+            file.path(dirname(yolo_model_path), paste0(model_stem, "_results")),
+            file.path(pliman_model_dir(), paste0(model_stem, "_results")),
+            sub("/weights$", "", dirname(yolo_model_path))
+          )
+          res_dirs <- unique(res_dirs[dir.exists(res_dirs)])
+          if (length(res_dirs) > 0L) {
+            pr_f <- file.path(res_dirs[1], "pr_curve.csv")
+            cm_f <- file.path(res_dirs[1], "confusion_matrix.csv")
+            if (file.exists(pr_f)) {
+              pr_hdr <- names(utils::read.csv(pr_f, nrows = 1, check.names = FALSE))
+              if (length(pr_hdr) > 1L) classes <- pr_hdr[-1]
+            } else if (file.exists(cm_f)) {
+              cm_hdr <- names(utils::read.csv(cm_f, nrows = 1, check.names = FALSE))
+              cm_classes <- cm_hdr[-1]
+              cm_classes <- cm_classes[!tolower(cm_classes) %in% c("background", "fundo")]
+              if (length(cm_classes) > 0L) classes <- cm_classes
+            }
+          }
+        }
+      }
     }
   }
-  if (!inherits(model, "yolo_fewshot_model")) {
-    cli::cli_abort("{.arg model} must be a {.cls yolo_fewshot_model} from {.fn yolo_fewshot_fit}.")
-  }
 
-  classes <- if (!is.null(model$classes)) {
-    as.character(model$classes)
-  } else if (!is.null(model$label)) {
-    as.character(model$label)
-  } else {
-    "object"
+  if (!is_yolo_model) {
+    if (is.list(model) && !inherits(model, "yolo_fewshot_model")) {
+      if (all(vapply(model, function(m) inherits(m, "yolo_fewshot_model"), logical(1)))) {
+        model <- do.call(c, model)
+      }
+    }
+    if (!inherits(model, "yolo_fewshot_model")) {
+      cli::cli_abort("{.arg model} must be a trained YOLO model, file path/name, or a {.cls yolo_fewshot_model} from {.fn yolo_fewshot_fit}.")
+    }
+    if (is.null(classes)) {
+      classes <- if (!is.null(model$classes)) {
+        as.character(model$classes)
+      } else if (!is.null(model$label)) {
+        as.character(model$label)
+      } else {
+        "object"
+      }
+    }
   }
 
   if (!dir.exists(input_dir)) {
     cli::cli_abort("Directory {.path {input_dir}} does not exist.")
   }
 
-  fls <- list.files(input_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp)$", full.names = TRUE, ignore.case = TRUE)
+  fls <- list.files(input_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", full.names = TRUE, ignore.case = TRUE, recursive = FALSE)
+  fls <- fls[!grepl("^review_", basename(fls))]
+  if (length(fls) == 0L) {
+    cand_fls <- list.files(input_dir, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", full.names = TRUE, ignore.case = TRUE, recursive = TRUE)
+    cand_fls <- cand_fls[!grepl("(_aug\\d+|_tile_\\d+_\\d+|^review_)", basename(cand_fls))]
+    fls <- cand_fls
+  }
   if (length(fls) == 0L) {
     cli::cli_abort("No valid images found in {.path {input_dir}}.")
   }
 
   if (!is.null(seed)) set.seed(seed)
 
+  if (is.null(output_dir) || !nzchar(output_dir)) {
+    output_dir <- input_dir
+  }
   output_dir <- normalizePath(output_dir, winslash = "/", mustWork = FALSE)
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -2264,8 +2511,8 @@ yolo_dataset_autolabel <- function(input_dir,
     split_assign[split_assign == ""] <- "val"
   }
 
-  used_eng <- if (!is.null(engine)) engine else if (!is.null(model$engine)) model$engine else "cpu"
-  conf_t <- if (!is.null(conf_threshold)) as.numeric(conf_threshold) else model$conf_threshold
+  used_eng <- if (!is.null(engine)) engine else if (is.list(model) && !is.null(model$engine)) model$engine else "cpu"
+  conf_t <- if (!is.null(conf_threshold)) as.numeric(conf_threshold) else if (is.list(model) && !is.null(model$conf_threshold)) as.numeric(model$conf_threshold) else 0.40
 
   cli_pb <- NULL
   if (isTRUE(verbose)) {
@@ -2313,31 +2560,122 @@ yolo_dataset_autolabel <- function(input_dir,
   }
 
   total_objects <- 0L
+  logged_orig_paths <- character()
+  logged_dest_imgs <- character()
+  logged_dest_lbls <- character()
+  logged_rev_imgs <- character()
 
   for (i in seq_along(shuffled)) {
     im_path <- shuffled[i]
     sp <- split_assign[i]
-    pred <- try(yolo_fewshot_predict(model, im_path, task = task, conf_threshold = conf_t, max_objects = max_objects, engine = engine, device_id = device_id, plot = FALSE), silent = TRUE)
-    if (inherits(pred, "try-error")) {
-      if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
-      next
-    }
-
-    df_b <- pred$boxes
-    polys <- pred$polygons
-
-    # Filter strictly by conf_t
-    if (!is.null(conf_t) && nrow(df_b) > 0L && !is.null(df_b$conf)) {
-      pass_idx <- which(df_b$conf >= conf_t)
-      df_b <- df_b[pass_idx, , drop = FALSE]
-      if (length(polys) > 0L) {
-        polys <- polys[pass_idx]
+    if (is_yolo_model) {
+      model_dir_ctx <- if (!is.null(yolo_model_path) && file.exists(yolo_model_path)) dirname(yolo_model_path) else pliman_model_dir()
+      if (identical(task, "detect")) {
+        det <- try(image_detect_dl(im_path, model = yolo_model_path,
+                                   labels = classes,
+                                   conf_threshold = if (!is.null(conf_t)) conf_t else 0.40,
+                                   plot = FALSE, verbose = FALSE,
+                                   dir = model_dir_ctx,
+                                   engine = used_eng, device_id = device_id), silent = TRUE)
+        if (inherits(det, "try-error")) {
+          if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
+          next
+        }
+        df_b <- as.data.frame(det)
+        polys <- list()
+        im_obj <- image_import(im_path)
+      } else {
+        seg <- try(image_segment_dl(im_path, model = yolo_model_path,
+                                    labels = classes,
+                                    box_threshold = if (!is.null(conf_t)) conf_t else 0.40,
+                                    plot = FALSE, verbose = FALSE,
+                                    dir = model_dir_ctx,
+                                    engine = used_eng, device_id = device_id), silent = TRUE)
+        if (inherits(seg, "try-error")) {
+          if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
+          next
+        }
+        df_b <- if (!is.null(seg$boxes)) as.data.frame(seg$boxes) else if (!is.null(attr(seg, "boxes"))) as.data.frame(attr(seg, "boxes")) else data.frame()
+        polys <- list()
+        cnts <- if (!is.null(seg$contours)) seg$contours else attr(seg, "contours")
+        if (!is.null(cnts)) {
+          im_tmp <- image_import(im_path)
+          iw <- dim(im_tmp)[1]; ih <- dim(im_tmp)[2]
+          for (ci in seq_along(cnts)) {
+            cnt <- cnts[[ci]]
+            if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+              gx <- cnt[, 1] / iw; gy <- cnt[, 2] / ih
+              if (length(gx) > 32L) {
+                idx <- round(seq(1, length(gx), length.out = 32))
+                gx <- gx[idx]; gy <- gy[idx]
+              }
+              polys[[ci]] <- as.vector(rbind(gx, gy))
+            }
+          }
+        }
+        im_obj <- image_import(im_path)
       }
-    }
+      if (nrow(df_b) > 0L) {
+        if (!"conf" %in% names(df_b)) {
+          if ("score" %in% names(df_b)) df_b$conf <- df_b$score
+          else if ("confidence" %in% names(df_b)) df_b$conf <- df_b$confidence
+        }
+        if (!"class_id" %in% names(df_b)) {
+          if ("label" %in% names(df_b) && length(classes) > 0L) {
+            df_b$class_id <- match(df_b$label, classes) - 1L
+            df_b$class_id[is.na(df_b$class_id)] <- 0L
+          } else {
+            df_b$class_id <- 0L
+          }
+        }
+        if (!"class_name" %in% names(df_b)) {
+          if ("label" %in% names(df_b)) {
+            df_b$class_name <- df_b$label
+          } else if ("class_id" %in% names(df_b) && length(classes) > 0L) {
+            c_safe <- df_b$class_id + 1L
+            c_safe[c_safe < 1L | c_safe > length(classes)] <- 1L
+            df_b$class_name <- classes[c_safe]
+          }
+        }
+      }
+    } else {
+      pred <- try(yolo_fewshot_predict(model, im_path, task = task, conf_threshold = conf_t, max_objects = max_objects, engine = engine, device_id = device_id, plot = FALSE), silent = TRUE)
+      if (inherits(pred, "try-error")) {
+        if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
+        next
+      }
 
-    im_obj <- pred$image
+      df_b <- pred$boxes
+      polys <- pred$polygons
+
+      # Filter strictly by conf_t
+      if (!is.null(conf_t) && nrow(df_b) > 0L && !is.null(df_b$conf)) {
+        pass_idx <- which(df_b$conf >= conf_t)
+        df_b <- df_b[pass_idx, , drop = FALSE]
+        if (length(polys) > 0L) {
+          polys <- polys[pass_idx]
+        }
+      }
+
+      im_obj <- pred$image
+    }
     dims <- dim(im_obj)
     w <- dims[1]; h <- dims[2]
+
+    # Optional crop to objects
+    was_cropped <- FALSE
+    if (isTRUE(crop_to_objects)) {
+      cmarg <- if (is.numeric(crop_margin) && length(crop_margin) >= 1L && !is.na(crop_margin[1])) as.numeric(crop_margin[1]) else 0.05
+      c_res <- .yolo_crop_to_objects(im_obj, boxes = df_b, polygons = polys, margin = cmarg)
+      if (isTRUE(c_res$cropped)) {
+        im_obj <- c_res$img
+        df_b <- c_res$boxes
+        polys <- c_res$polygons
+        w <- dim(im_obj)[1]
+        h <- dim(im_obj)[2]
+        was_cropped <- TRUE
+      }
+    }
 
     # Destination paths with unique stems
     fn_dest <- unique_fns[[im_path]]
@@ -2345,7 +2683,28 @@ yolo_dataset_autolabel <- function(input_dir,
     dest_img <- file.path(output_dir, "images", sp, fn_dest)
     dest_lbl <- file.path(output_dir, "labels", sp, paste0(stem_dest, ".txt"))
 
-    file.copy(im_path, dest_img, overwrite = TRUE)
+    logged_orig_paths <- c(logged_orig_paths, im_path)
+    logged_dest_imgs <- c(logged_dest_imgs, dest_img)
+    logged_dest_lbls <- c(logged_dest_lbls, dest_lbl)
+
+    if (was_cropped) {
+      image_export(im_obj, name = fn_dest, subfolder = file.path(output_dir, "images", sp), verbose = FALSE)
+      if (isTRUE(move) && normalizePath(im_path, winslash = "/", mustWork = FALSE) != normalizePath(dest_img, winslash = "/", mustWork = FALSE)) {
+        unlink(im_path, force = TRUE)
+      }
+    } else if (isTRUE(move)) {
+      if (normalizePath(im_path, winslash = "/", mustWork = FALSE) != normalizePath(dest_img, winslash = "/", mustWork = FALSE)) {
+        mv_ok <- file.rename(im_path, dest_img)
+        if (!mv_ok) {
+          file.copy(im_path, dest_img, overwrite = TRUE)
+          unlink(im_path, force = TRUE)
+        }
+      }
+    } else {
+      if (normalizePath(im_path, winslash = "/", mustWork = FALSE) != normalizePath(dest_img, winslash = "/", mustWork = FALSE)) {
+        file.copy(im_path, dest_img, overwrite = TRUE)
+      }
+    }
 
     # Build YOLO label lines
     lines <- character()
@@ -2377,6 +2736,7 @@ yolo_dataset_autolabel <- function(input_dir,
     writeLines(lines, dest_lbl)
 
     # Optional review image rendering (wrapped in tryCatch to prevent file locks or device errors from crashing autolabel)
+    cur_rev <- NA_character_
     if (do_review && i <= max_review) {
       tryCatch({
         rev_out <- file.path(review_dir, paste0("review_", fn_dest))
@@ -2386,12 +2746,14 @@ yolo_dataset_autolabel <- function(input_dir,
         tryCatch({
           grDevices::png(rev_out, width = out_w, height = out_h, res = 120)
           dev_opened <- TRUE
+          cur_rev <- rev_out
         }, error = function(e) {
           # Try alternative filename if primary is locked by image viewer
           alt_out <- file.path(review_dir, paste0("review_", i, "_", fn_dest))
           tryCatch({
             grDevices::png(alt_out, width = out_w, height = out_h, res = 120)
             dev_opened <<- TRUE
+            cur_rev <<- alt_out
           }, error = function(e2) NULL)
         })
 
@@ -2460,6 +2822,7 @@ yolo_dataset_autolabel <- function(input_dir,
         }
       })
     }
+    logged_rev_imgs <- c(logged_rev_imgs, cur_rev)
 
     if (isTRUE(verbose) && !is.null(cli_pb)) {
       cli::cli_progress_update(id = cli_pb)
@@ -2482,11 +2845,54 @@ yolo_dataset_autolabel <- function(input_dir,
   )
   writeLines(yaml_content, file.path(output_dir, "data.yaml"))
 
+  # Save undo history manifest (.yolo_history.rds)
+  hist_file <- file.path(output_dir, ".yolo_history.rds")
+  existing_hist <- if (file.exists(hist_file)) tryCatch(readRDS(hist_file), error = function(e) list()) else list()
+  if (!is.list(existing_hist)) existing_hist <- list()
+
+  history_entry <- list(
+    id = paste0("autolabel_", format(Sys.time(), "%Y%m%d_%H%M%S")),
+    timestamp = Sys.time(),
+    operation = "autolabel",
+    input_dir = normalizePath(input_dir, winslash = "/", mustWork = FALSE),
+    output_dir = output_dir,
+    moved = isTRUE(move),
+    images = data.frame(
+      orig = logged_orig_paths,
+      dest = logged_dest_imgs,
+      lbl = logged_dest_lbls,
+      rev = logged_rev_imgs,
+      stringsAsFactors = FALSE
+    ),
+    yaml_file = file.path(output_dir, "data.yaml"),
+    review_dir = if (do_review) review_dir else NULL
+  )
+  existing_hist[[length(existing_hist) + 1L]] <- history_entry
+  saveRDS(existing_hist, hist_file)
+
   if (isTRUE(verbose)) {
     cli::cli_alert_success("Dataset auto-labeled successfully!")
     cli::cli_alert_info("Total instances generated: {.val {total_objects}}")
     if (do_review) {
       cli::cli_alert_info("Review previews written to: {.path {review_dir}}")
+    }
+  }
+
+  # Ensure no unwanted 'runs' directory remains from any model initialization
+  wd_runs <- file.path(getwd(), "runs")
+  if (dir.exists(wd_runs)) {
+    unlink(wd_runs, recursive = TRUE, force = TRUE)
+  }
+  if (!is.null(output_dir)) {
+    out_runs <- file.path(output_dir, "runs")
+    if (dir.exists(out_runs)) {
+      unlink(out_runs, recursive = TRUE, force = TRUE)
+    }
+  }
+  if (!is.null(input_dir) && is.character(input_dir) && length(input_dir) == 1L && dir.exists(input_dir)) {
+    in_runs <- file.path(input_dir, "runs")
+    if (dir.exists(in_runs)) {
+      unlink(in_runs, recursive = TRUE, force = TRUE)
     }
   }
 

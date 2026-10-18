@@ -1382,6 +1382,57 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// perspective_matrix_cpp
+List perspective_matrix_cpp(int W, int H, double theta_x, double theta_y, double theta_z, double scale, double focal_fac, bool keep_size);
+RcppExport SEXP _pliman_perspective_matrix_cpp(SEXP WSEXP, SEXP HSEXP, SEXP theta_xSEXP, SEXP theta_ySEXP, SEXP theta_zSEXP, SEXP scaleSEXP, SEXP focal_facSEXP, SEXP keep_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type W(WSEXP);
+    Rcpp::traits::input_parameter< int >::type H(HSEXP);
+    Rcpp::traits::input_parameter< double >::type theta_x(theta_xSEXP);
+    Rcpp::traits::input_parameter< double >::type theta_y(theta_ySEXP);
+    Rcpp::traits::input_parameter< double >::type theta_z(theta_zSEXP);
+    Rcpp::traits::input_parameter< double >::type scale(scaleSEXP);
+    Rcpp::traits::input_parameter< double >::type focal_fac(focal_facSEXP);
+    Rcpp::traits::input_parameter< bool >::type keep_size(keep_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(perspective_matrix_cpp(W, H, theta_x, theta_y, theta_z, scale, focal_fac, keep_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// image_warp_perspective_cpp
+SEXP image_warp_perspective_cpp(SEXP img_sexp, NumericMatrix Minv_mat, int oW, int oH, NumericVector bg_color);
+RcppExport SEXP _pliman_image_warp_perspective_cpp(SEXP img_sexpSEXP, SEXP Minv_matSEXP, SEXP oWSEXP, SEXP oHSEXP, SEXP bg_colorSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img_sexp(img_sexpSEXP);
+    Rcpp::traits::input_parameter< NumericMatrix >::type Minv_mat(Minv_matSEXP);
+    Rcpp::traits::input_parameter< int >::type oW(oWSEXP);
+    Rcpp::traits::input_parameter< int >::type oH(oHSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type bg_color(bg_colorSEXP);
+    rcpp_result_gen = Rcpp::wrap(image_warp_perspective_cpp(img_sexp, Minv_mat, oW, oH, bg_color));
+    return rcpp_result_gen;
+END_RCPP
+}
+// image_perspective_cpp
+SEXP image_perspective_cpp(SEXP img_sexp, double theta_x, double theta_y, double theta_z, double scale, double focal_fac, NumericVector bg_color, bool keep_size);
+RcppExport SEXP _pliman_image_perspective_cpp(SEXP img_sexpSEXP, SEXP theta_xSEXP, SEXP theta_ySEXP, SEXP theta_zSEXP, SEXP scaleSEXP, SEXP focal_facSEXP, SEXP bg_colorSEXP, SEXP keep_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img_sexp(img_sexpSEXP);
+    Rcpp::traits::input_parameter< double >::type theta_x(theta_xSEXP);
+    Rcpp::traits::input_parameter< double >::type theta_y(theta_ySEXP);
+    Rcpp::traits::input_parameter< double >::type theta_z(theta_zSEXP);
+    Rcpp::traits::input_parameter< double >::type scale(scaleSEXP);
+    Rcpp::traits::input_parameter< double >::type focal_fac(focal_facSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type bg_color(bg_colorSEXP);
+    Rcpp::traits::input_parameter< bool >::type keep_size(keep_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(image_perspective_cpp(img_sexp, theta_x, theta_y, theta_z, scale, focal_fac, bg_color, keep_size));
+    return rcpp_result_gen;
+END_RCPP
+}
 // image_hreflect_cpp
 SEXP image_hreflect_cpp(SEXP img_sexp);
 RcppExport SEXP _pliman_image_hreflect_cpp(SEXP img_sexpSEXP) {
@@ -2251,6 +2302,63 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// crop_tile_cpp
+SEXP crop_tile_cpp(SEXP img, int x1, int y1, int tile_w, int tile_h, NumericVector bg_val);
+RcppExport SEXP _pliman_crop_tile_cpp(SEXP imgSEXP, SEXP x1SEXP, SEXP y1SEXP, SEXP tile_wSEXP, SEXP tile_hSEXP, SEXP bg_valSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< int >::type x1(x1SEXP);
+    Rcpp::traits::input_parameter< int >::type y1(y1SEXP);
+    Rcpp::traits::input_parameter< int >::type tile_w(tile_wSEXP);
+    Rcpp::traits::input_parameter< int >::type tile_h(tile_hSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type bg_val(bg_valSEXP);
+    rcpp_result_gen = Rcpp::wrap(crop_tile_cpp(img, x1, y1, tile_w, tile_h, bg_val));
+    return rcpp_result_gen;
+END_RCPP
+}
+// clip_yolo_boxes_cpp
+NumericMatrix clip_yolo_boxes_cpp(NumericMatrix boxes, double tile_x1, double tile_y1, double tile_x2, double tile_y2, double tile_w, double tile_h, double min_area_ratio, int mode, double min_box_size);
+RcppExport SEXP _pliman_clip_yolo_boxes_cpp(SEXP boxesSEXP, SEXP tile_x1SEXP, SEXP tile_y1SEXP, SEXP tile_x2SEXP, SEXP tile_y2SEXP, SEXP tile_wSEXP, SEXP tile_hSEXP, SEXP min_area_ratioSEXP, SEXP modeSEXP, SEXP min_box_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< NumericMatrix >::type boxes(boxesSEXP);
+    Rcpp::traits::input_parameter< double >::type tile_x1(tile_x1SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_y1(tile_y1SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_x2(tile_x2SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_y2(tile_y2SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_w(tile_wSEXP);
+    Rcpp::traits::input_parameter< double >::type tile_h(tile_hSEXP);
+    Rcpp::traits::input_parameter< double >::type min_area_ratio(min_area_ratioSEXP);
+    Rcpp::traits::input_parameter< int >::type mode(modeSEXP);
+    Rcpp::traits::input_parameter< double >::type min_box_size(min_box_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(clip_yolo_boxes_cpp(boxes, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio, mode, min_box_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// clip_yolo_polygons_cpp
+List clip_yolo_polygons_cpp(List polygons, NumericVector class_ids, double tile_x1, double tile_y1, double tile_x2, double tile_y2, double tile_w, double tile_h, double min_area_ratio, int mode, int max_vertices);
+RcppExport SEXP _pliman_clip_yolo_polygons_cpp(SEXP polygonsSEXP, SEXP class_idsSEXP, SEXP tile_x1SEXP, SEXP tile_y1SEXP, SEXP tile_x2SEXP, SEXP tile_y2SEXP, SEXP tile_wSEXP, SEXP tile_hSEXP, SEXP min_area_ratioSEXP, SEXP modeSEXP, SEXP max_verticesSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type polygons(polygonsSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type class_ids(class_idsSEXP);
+    Rcpp::traits::input_parameter< double >::type tile_x1(tile_x1SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_y1(tile_y1SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_x2(tile_x2SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_y2(tile_y2SEXP);
+    Rcpp::traits::input_parameter< double >::type tile_w(tile_wSEXP);
+    Rcpp::traits::input_parameter< double >::type tile_h(tile_hSEXP);
+    Rcpp::traits::input_parameter< double >::type min_area_ratio(min_area_ratioSEXP);
+    Rcpp::traits::input_parameter< int >::type mode(modeSEXP);
+    Rcpp::traits::input_parameter< int >::type max_vertices(max_verticesSEXP);
+    rcpp_result_gen = Rcpp::wrap(clip_yolo_polygons_cpp(polygons, class_ids, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio, mode, max_vertices));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
     {"_pliman_filter_labels_cpp", (DL_FUNC) &_pliman_filter_labels_cpp, 2},
@@ -2354,6 +2462,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_save_frame_bgr_cpp", (DL_FUNC) &_pliman_save_frame_bgr_cpp, 3},
     {"_pliman_swap_rgb_bgr_inplace_cpp", (DL_FUNC) &_pliman_swap_rgb_bgr_inplace_cpp, 1},
     {"_pliman_load_frame_bgr_cpp", (DL_FUNC) &_pliman_load_frame_bgr_cpp, 1},
+    {"_pliman_perspective_matrix_cpp", (DL_FUNC) &_pliman_perspective_matrix_cpp, 8},
+    {"_pliman_image_warp_perspective_cpp", (DL_FUNC) &_pliman_image_warp_perspective_cpp, 5},
+    {"_pliman_image_perspective_cpp", (DL_FUNC) &_pliman_image_perspective_cpp, 8},
     {"_pliman_image_hreflect_cpp", (DL_FUNC) &_pliman_image_hreflect_cpp, 1},
     {"_pliman_image_vreflect_cpp", (DL_FUNC) &_pliman_image_vreflect_cpp, 1},
     {"_pliman_image_resize_cpp", (DL_FUNC) &_pliman_image_resize_cpp, 4},
@@ -2411,6 +2522,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_update_tracker_cpp", (DL_FUNC) &_pliman_update_tracker_cpp, 13},
     {"_pliman_watershed_cpp", (DL_FUNC) &_pliman_watershed_cpp, 3},
     {"_pliman_help_dist_transform", (DL_FUNC) &_pliman_help_dist_transform, 1},
+    {"_pliman_crop_tile_cpp", (DL_FUNC) &_pliman_crop_tile_cpp, 6},
+    {"_pliman_clip_yolo_boxes_cpp", (DL_FUNC) &_pliman_clip_yolo_boxes_cpp, 10},
+    {"_pliman_clip_yolo_polygons_cpp", (DL_FUNC) &_pliman_clip_yolo_polygons_cpp, 11},
     {NULL, NULL, 0}
 };
 

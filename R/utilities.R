@@ -578,7 +578,7 @@ clear_td <- function(){
   unlink(paste0(normalizePath(tempdir()), "/", dir(tempdir())), recursive = TRUE)
 }
 
-#' Turns a single character column into multiple columns.
+#' Turns a single character column into multiple columns
 #'
 #' Given either a regular expression or a vector of character positions,
 #' `separate_col()` turns a single character column into multiple columns.
