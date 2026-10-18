@@ -37,9 +37,8 @@
 #' @param splat Optional. An object of class `gaussian_splat` (e.g. from [gs_import_metashape()] or [gs_fit()]),
 #'   `colmap_sfm`, or a character string path to a `.ply`, `.splat`, or `.txt` file. If `NULL` (default), launches
 #'   a standalone viewer in import mode with a drag-and-drop interface.
-#' @param cameras Optional camera poses. Can be a list of camera objects (e.g. from [gs_import_cameras_colmap()]
-#'   or [gs_import_cameras_metashape()]), or a character string path to a COLMAP sparse directory
-#'   (e.g. `"sparse/0"`), `images.txt`, or Metashape `cameras.xml`.
+#' @param cameras Optional camera poses. Can be a list of camera objects (e.g. from [gs_import_cameras_colmap()]),
+#'   or a character string path to a COLMAP sparse directory (e.g. `"sparse/0"`), `images.txt`, or exported text cameras.
 #' @param images Optional path to the directory containing the original photos (e.g. `"my_photos/"`). If provided,
 #'   clicking on any 3D camera frustum will display that photo in a floating viewer modal!
 #' @param show_cameras Logical. If `TRUE` (default when cameras are provided), displays 3D camera frustums.
@@ -281,12 +280,7 @@ gs_viewer <- function(splat = NULL,
           parsed_cameras <- gs_import_cameras_colmap(cameras)
         }
       } else if (file.exists(cameras)) {
-        ext <- tolower(tools::file_ext(cameras))
-        if (ext == "xml") {
-          parsed_cameras <- gs_import_cameras_metashape(cameras)
-        } else {
-          parsed_cameras <- gs_import_cameras_colmap(cameras)
-        }
+        parsed_cameras <- gs_import_cameras_colmap(cameras)
       }
     } else if (is.list(cameras)) {
       if (!is.null(cameras[[1]]$position) && !is.null(cameras[[1]]$R)) {

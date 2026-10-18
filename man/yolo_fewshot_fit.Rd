@@ -104,12 +104,10 @@ propagated to hundreds of unannotated images in a folder using \code{\link[=yolo
 library(pliman)
 
 # 1. Fit exemplar model on reference photo (clicks or supplied coordinates)
-modelo_tora <- yolo_fewshot_fit("toras/toras22.png", label = "tora", task = "segment", method = "sam")
+yolo_fewshot_fit("img.jpg",
+                 label = "tora",
+                 task = "segment",
+                 method = "sam")
 
-# 2. Inspect segmentation overlay on reference photo
-plot(modelo_tora)
-
-# 3. Auto-label entire directory of 300 photos into a YOLO dataset
-ds <- yolo_dataset_autolabel("toras_raw/", model = modelo_tora, output_dir = "dataset_toras_yolo")
 }
 }

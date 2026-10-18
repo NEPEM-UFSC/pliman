@@ -44,7 +44,10 @@ located inside a specified 3D Oriented Bounding Box (OBB) or Axis-Aligned Boundi
 library(pliman)
 
 # Crop around plant subject
-splat_cropped <- gs_crop(sfm_completo, xlim = c(-0.5, 0.5), ylim = c(-0.5, 0.5), zlim = c(-0.2, 0.8))
+splat_cropped <- gs_crop(sfm_completo,
+                         xlim = c(-0.5, 0.5),
+                         ylim = c(-0.5, 0.5),
+                         zlim = c(-0.2, 0.8))
 plot(splat_cropped)
 }
 }

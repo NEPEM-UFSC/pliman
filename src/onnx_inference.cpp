@@ -272,6 +272,8 @@ struct CachedSession {
 };
 
 static std::map<std::string, CachedSession> g_session_cache;
+static std::vector<std::string> g_session_lru_order;
+static const size_t MAX_CACHED_SESSIONS = 3;
 
 struct CachedEncoderFeatures {
   bool valid = false;
@@ -283,6 +285,24 @@ struct CachedEncoderFeatures {
   std::vector<float> embed;
 };
 static CachedEncoderFeatures g_cached_encoder;
+
+static void evict_cached_session_by_key(const OrtApi* ort, const std::string& key) {
+  auto it = g_session_cache.find(key);
+  if (it != g_session_cache.end()) {
+    CachedSession& cs = it->second;
+    if (cs.session) ort->ReleaseSession(cs.session);
+    if (cs.mem_info) ort->ReleaseMemoryInfo(cs.mem_info);
+    if (cs.options) ort->ReleaseSessionOptions(cs.options);
+    if (cs.env) ort->ReleaseEnv(cs.env);
+    g_session_cache.erase(it);
+  }
+  for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
+    if (*it_lru == key) {
+      g_session_lru_order.erase(it_lru);
+      break;
+    }
+  }
+}
 
 static void clear_onnx_sessions_internal() {
   if (g_ort_api == NULL) return;
@@ -298,6 +318,7 @@ static void clear_onnx_sessions_internal() {
     if (cs.env) g_ort_api->ReleaseEnv(cs.env);
   }
   g_session_cache.clear();
+  g_session_lru_order.clear();
 }
 
 static CachedSession get_or_create_cached_session(
@@ -318,7 +339,32 @@ static CachedSession get_or_create_cached_session(
                     (use_gpu ? ("_gpu_" + std::to_string(actual_device_id)) : "_cpu");
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
+    for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
+      if (*it_lru == key) {
+        g_session_lru_order.erase(it_lru);
+        break;
+      }
+    }
+    g_session_lru_order.push_back(key);
     return it->second;
+  }
+
+  // Evict older variants of the exact same model_path (e.g. different thread count or device)
+  std::vector<std::string> stale_keys;
+  std::string prefix = model_path + "_th_";
+  for (const auto& pair : g_session_cache) {
+    if (pair.first.rfind(prefix, 0) == 0 && pair.first != key) {
+      stale_keys.push_back(pair.first);
+    }
+  }
+  for (const auto& sk : stale_keys) {
+    evict_cached_session_by_key(ort, sk);
+  }
+
+  // Evict least recently used session if capacity is reached
+  while (g_session_cache.size() >= MAX_CACHED_SESSIONS && !g_session_lru_order.empty()) {
+    std::string lru_key = g_session_lru_order.front();
+    evict_cached_session_by_key(ort, lru_key);
   }
 
   CachedSession cs;
@@ -389,6 +435,7 @@ static CachedSession get_or_create_cached_session(
   (void)ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &cs.mem_info);
 
   g_session_cache[key] = cs;
+  g_session_lru_order.push_back(key);
   return cs;
 }
 

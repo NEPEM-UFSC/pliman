@@ -29,7 +29,7 @@ gs_fit(
 \item{images}{Character path to directory with photos, character vector of image file paths,
 or a list of loaded \code{Image} objects.}
 
-\item{cameras}{Named list of camera specifications (from \code{\link[=gs_import_cameras_metashape]{gs_import_cameras_metashape()}}).}
+\item{cameras}{Named list of camera specifications (from \code{\link[=gs_import_cameras_colmap]{gs_import_cameras_colmap()}}).}
 
 \item{splat}{Optional initial \code{gaussian_splat} object (e.g., from \code{\link[=gs_import_metashape]{gs_import_metashape()}}
 sparse tie points). If \code{NULL}, initialized automatically from camera bounding volume.}
@@ -86,8 +86,8 @@ Can run with high-performance GPU hardware acceleration via CUDA/PyTorch/CuPy NV
 \dontrun{
 library(pliman)
 
-# 1. Import cameras and sparse tie points exported from Metashape
-cams <- gs_import_cameras_metashape("cameras.xml")
+# 1. Import cameras and sparse tie points exported from Metashape/COLMAP
+cams <- gs_import_cameras_colmap("sparse/0/")
 init_splat <- gs_import_metashape("sparse_points.ply")
 
 # 2. Train 3D Gaussian Splats on GPU (CUDA)
