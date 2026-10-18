@@ -34,6 +34,7 @@ Imports:
     utils
 Suggests: 
     av,
+    base64enc,
     BiocManager,
     curl,
     fields,
@@ -41,10 +42,13 @@ Suggests:
     knitr,
     leafem (>= 0.2.0),
     leaflet (>= 2.1.2),
+    magick,
     mapedit (>= 0.6.0),
     mapview (>= 2.11.0),
     pak,
     pkgload,
+    reticulate,
+    rlas,
     rmarkdown,
     rprojroot,
     rstudioapi,

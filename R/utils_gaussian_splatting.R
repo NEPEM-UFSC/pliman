@@ -582,11 +582,7 @@ gs_import_metashape <- function(file,
       faces <- res$faces
     }
   } else if (format == "txt") {
-    df <- if (requireNamespace("data.table", quietly = TRUE)) {
-      as.data.frame(data.table::fread(file, header = FALSE))
-    } else {
-      utils::read.table(file, header = FALSE, stringsAsFactors = FALSE)
-    }
+    df <- utils::read.table(file, header = FALSE, stringsAsFactors = FALSE)
     if (ncol(df) < 3) stop("TXT file must have at least 3 columns (X, Y, Z).")
     pts <- as.matrix(df[, 1:3])
     if (ncol(df) >= 6) {
@@ -649,92 +645,7 @@ gs_import_metashape <- function(file,
   splat
 }
 
-#' @title Import Camera Calibration and Poses from Agisoft Metashape XML
-#' @name gs_import_cameras_metashape
-#' @description
-#' Parses camera extrinsics (rotation $R$, translation $t$) and intrinsics (focal length $f_x, f_y$,
-#' principal point $c_x, c_y$, dimensions) from an Agisoft Metashape exported XML file
-#' (*File -> Export -> Export Cameras -> Agisoft XML*). Allows exact 2D-to-3D projection
-#' and SAM segmentation of original photos.
-#'
-#' @param xml_file Path to the Metashape exported camera XML file.
-#' @return A named list of camera specifications (each formatted as [gs_camera()]), keyed by photo label.
-#' @export
-gs_import_cameras_metashape <- function(xml_file) {
-  if (!file.exists(xml_file)) {
-    stop("XML file not found: ", xml_file)
-  }
 
-  if (!requireNamespace("xml2", quietly = TRUE)) {
-    stop("Package 'xml2' is required to parse Metashape camera XML files.")
-  }
-
-  doc <- xml2::read_xml(xml_file)
-
-  # Extract sensor calibration (intrinsics)
-  sensors <- xml2::xml_find_all(doc, ".//sensor")
-  sensor_map <- list()
-
-  for (s in sensors) {
-    s_id <- xml2::xml_attr(s, "id")
-    res_node <- xml2::xml_find_first(s, ".//resolution")
-    w <- if (!is.na(res_node)) as.integer(xml2::xml_attr(res_node, "width")) else 4000L
-    h <- if (!is.na(res_node)) as.integer(xml2::xml_attr(res_node, "height")) else 3000L
-
-    f_node <- xml2::xml_find_first(s, ".//calibration/f")
-    f_val <- if (!is.na(f_node)) as.numeric(xml2::xml_text(f_node)) else (w * 0.8)
-
-    cx_node <- xml2::xml_find_first(s, ".//calibration/cx")
-    cy_node <- xml2::xml_find_first(s, ".//calibration/cy")
-    cx_val <- (w / 2.0) + (if (!is.na(cx_node)) as.numeric(xml2::xml_text(cx_node)) else 0.0)
-    cy_val <- (h / 2.0) + (if (!is.na(cy_node)) as.numeric(xml2::xml_text(cy_node)) else 0.0)
-
-    sensor_map[[s_id]] <- list(width = w, height = h, fx = f_val, fy = f_val, cx = cx_val, cy = cy_val)
-  }
-
-  # Extract cameras (extrinsics)
-  cams_nodes <- xml2::xml_find_all(doc, ".//camera")
-  cameras_list <- list()
-
-  for (cam in cams_nodes) {
-    label <- xml2::xml_attr(cam, "label")
-    s_id <- xml2::xml_attr(cam, "sensor_id")
-    trans_node <- xml2::xml_find_first(cam, ".//transform")
-
-    if (is.na(trans_node)) next
-
-    trans_vals <- as.numeric(strsplit(trimws(xml2::xml_text(trans_node)), "\\s+")[[1]])
-    if (length(trans_vals) != 16) next
-
-    T_cw <- matrix(trans_vals, nrow = 4, ncol = 4, byrow = TRUE)
-
-    R_cw <- T_cw[1:3, 1:3]
-    pos_world <- T_cw[1:3, 4]
-
-    R_wc <- t(R_cw)
-    t_wc <- as.numeric(-R_wc %*% pos_world)
-
-    sens <- if (!is.null(sensor_map[[s_id]])) sensor_map[[s_id]] else sensor_map[[1]]
-
-    cam_spec <- list(
-      R = R_wc,
-      t = t_wc,
-      fx = sens$fx,
-      fy = sens$fy,
-      cx = sens$cx,
-      cy = sens$cy,
-      width = sens$width,
-      height = sens$height,
-      position = pos_world,
-      label = label
-    )
-
-    cameras_list[[label]] <- cam_spec
-  }
-
-  cli::cli_alert_success("Imported {length(cameras_list)} calibrated camera pose(s) from {.path {xml_file}}.")
-  cameras_list
-}
 
 # ==============================================================================
 # GPU ACCELERATION HELPERS (CUDA, PYTORCH & CUPY NVRTC)
@@ -923,7 +834,7 @@ gs_import_cameras_metashape <- function(xml_file) {
 #'
 #' @param images Character path to directory with photos, character vector of image file paths,
 #'   or a list of loaded `Image` objects.
-#' @param cameras Named list of camera specifications (from [gs_import_cameras_metashape()]).
+#' @param cameras Named list of camera specifications (from [gs_import_cameras_colmap()]).
 #' @param splat Optional initial `gaussian_splat` object (e.g., from [gs_import_metashape()]
 #'   sparse tie points). If `NULL`, initialized automatically from camera bounding volume.
 #' @param iterations Integer. Total number of optimization steps. Defaults to `500`.
@@ -950,8 +861,8 @@ gs_import_cameras_metashape <- function(xml_file) {
 #' \dontrun{
 #' library(pliman)
 #'
-#' # 1. Import cameras and sparse tie points exported from Metashape
-#' cams <- gs_import_cameras_metashape("cameras.xml")
+#' # 1. Import cameras and sparse tie points exported from Metashape/COLMAP
+#' cams <- gs_import_cameras_colmap("sparse/0/")
 #' init_splat <- gs_import_metashape("sparse_points.ply")
 #'
 #' # 2. Train 3D Gaussian Splats on GPU (CUDA)
@@ -1438,7 +1349,10 @@ gs_filter_outliers <- function(splat, k = 20, std_ratio = 1.0, radius = 0.0, min
 #' library(pliman)
 #'
 #' # Crop around plant subject
-#' splat_cropped <- gs_crop(sfm_completo, xlim = c(-0.5, 0.5), ylim = c(-0.5, 0.5), zlim = c(-0.2, 0.8))
+#' splat_cropped <- gs_crop(sfm_completo,
+#'                          xlim = c(-0.5, 0.5),
+#'                          ylim = c(-0.5, 0.5),
+#'                          zlim = c(-0.2, 0.8))
 #' plot(splat_cropped)
 #' }
 gs_crop <- function(splat,

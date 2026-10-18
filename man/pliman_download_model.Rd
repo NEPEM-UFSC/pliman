@@ -8,7 +8,8 @@ pliman_download_model(
   model = "u2netp",
   dir = pliman_model_dir(),
   force = FALSE,
-  refresh = FALSE
+  refresh = FALSE,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -21,6 +22,8 @@ Can be a known model name (e.g. \code{"yolo26n"}, \code{"rmbg-2.0"}), an asset f
 \item{force}{Logical. If \code{TRUE}, forces re-download even if the file exists (default \code{FALSE}).}
 
 \item{refresh}{Logical. If \code{TRUE}, forces re-fetching the GitHub release asset catalog (default \code{FALSE}).}
+
+\item{verbose}{Logical. If \code{TRUE}, returns the progress of instalation.}
 }
 \value{
 A character vector with the absolute path(s) to the downloaded model file(s).

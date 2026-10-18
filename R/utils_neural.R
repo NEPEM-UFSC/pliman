@@ -1507,6 +1507,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 #' @param dir Directory to save the model files (default: `pliman_model_dir()`).
 #' @param force Logical. If `TRUE`, forces re-download even if the file exists (default `FALSE`).
 #' @param refresh Logical. If `TRUE`, forces re-fetching the GitHub release asset catalog (default `FALSE`).
+#' @param verbose Logical. If `TRUE`, returns the progress of instalation.
 #' @return A character vector with the absolute path(s) to the downloaded model file(s).
 #' @export
 #' @examples
@@ -3825,6 +3826,16 @@ image_remove_bg_dl <- function(img,
   }
 
   # 4. Run SAM 2.1 on all detected boxes
+  if (use_gpu && isTRUE(mask)) {
+    gpu_info <- tryCatch(pliman_gpu_info_cpp(), error = function(e) NULL)
+    if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
+      def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
+      if (gpu_info$vram_mb[def_id] < 6000) {
+        clear_onnx_sessions_cpp()
+      }
+    }
+  }
+
   if (isTRUE(verbose)) {
     cli::cli_progress_step(
       msg = "Segmenting {num_boxes} instance{?s} with SAM 2.1 [{toupper(engine)}]...",
@@ -5335,6 +5346,7 @@ image_segment_dl <- function(img,
                              plot = TRUE,
                              dir = pliman_model_dir(),
                              ...) {
+  engine_specified <- !missing(engine)
   engine <- match.arg(engine)
   dots <- list(...)
   if ("label_size" %in% names(dots)) cex <- dots$label_size
@@ -5425,13 +5437,50 @@ image_segment_dl <- function(img,
   }
 
   is_url <- is.character(model) && grepl("^https?://", model[1])
-  if (!is_url && is.character(model)) {
-    local_m <- .find_local_model(model[1], dir = dir)
+  model_raw <- if (is.character(model)) model[1] else "u2netp"
+  resolved_model <- if (!is_url && is.character(model)) .resolve_model_name(model_raw) else model_raw
+  model_stem <- tolower(sub("\\.(onnx|pt)$", "", basename(model_raw)))
+  resolved_stem <- tolower(sub("\\.(onnx|pt)$", "", basename(resolved_model)))
+
+  non_yolo_models <- c(
+    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
+    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben",
+    "sam2.1", "sam3.1", "sam", "grounded-sam", "persam", "stardist", "star-dist",
+    "depth-anything-v2", "dinov2", "realesrgan-compact",
+    "yolov8s-world", "yolo-world", "yoloworld", "yolov8s-worldv2"
+  )
+
+  bg_models <- c(
+    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
+    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben"
+  )
+
+  is_bg_model <- !is_url && (
+    model_raw %in% bg_models ||
+    resolved_model %in% bg_models ||
+    model_stem %in% bg_models ||
+    resolved_stem %in% bg_models
+  )
+
+  is_known_non_yolo <- !is_url && (
+    is_bg_model ||
+    model_raw %in% non_yolo_models ||
+    resolved_model %in% non_yolo_models ||
+    model_stem %in% non_yolo_models ||
+    resolved_stem %in% non_yolo_models
+  )
+
+  if (is_bg_model) {
+    model <- resolved_stem
+  } else if (!is_url && !is_known_non_yolo) {
+    local_m <- .find_local_model(model_raw, dir = dir)
     if (!is.null(local_m)) {
       model <- local_m
     } else {
-      model <- .resolve_model_name(model[1])
+      model <- resolved_model
     }
+  } else if (!is_url) {
+    model <- resolved_stem
   }
 
   if (!is_url && grepl("[-_]cls", tolower(model))) {
@@ -5454,13 +5503,6 @@ image_segment_dl <- function(img,
   is_sam_model <- grepl("sam", model, ignore.case = TRUE)
   use_persam <- isTRUE(exemplar) || (model == "persam") || (is_sam_model && identical(prompt, "exemplar"))
   use_grounded_sam <- !use_persam && ((model == "grounded-sam") || (is_sam_model && is_text_prompt))
-  non_yolo_models <- c(
-    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
-    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben",
-    "sam2.1", "sam3.1", "sam", "grounded-sam", "persam", "stardist", "star-dist",
-    "depth-anything-v2", "dinov2", "realesrgan-compact",
-    "yolov8s-world", "yolo-world", "yoloworld", "yolov8s-worldv2"
-  )
 
   if (grepl("world", tolower(model[1]))) {
     if (isTRUE(bbox) && !isTRUE(mask)) {
@@ -5488,20 +5530,45 @@ image_segment_dl <- function(img,
     }
   }
 
-  is_known_non_yolo <- model %in% non_yolo_models
-
-  is_custom_yolo <- !is_known_non_yolo && (
+  is_custom_yolo <- !is_known_non_yolo && !is_bg_model && (
     grepl("yolo", model, ignore.case = TRUE) ||
     grepl("[-_]seg", model, ignore.case = TRUE) ||
     grepl("[-_]det", model, ignore.case = TRUE) ||
     grepl("\\.(onnx|pt)$", model, ignore.case = TRUE)
   )
-  use_yolo_seg <- !use_persam && !use_grounded_sam && !is_known_non_yolo && (
+  use_yolo_seg <- !use_persam && !use_grounded_sam && !is_known_non_yolo && !is_bg_model && (
     model %in% c("yolo26n-seg", "yolo26s-seg", "yolo26m-seg", "yolo26l-seg", "yolo26x-seg",
                  "yolo11n-seg", "yolo11s-seg", "yolo11m-seg", "yolo11l-seg", "yolo11x-seg", "yolo-seg") ||
     is_custom_yolo
   )
-  use_stardist <- !use_persam && !use_grounded_sam && !use_yolo_seg && (model %in% c("stardist", "star-dist"))
+  use_stardist <- !use_persam && !use_grounded_sam && !use_yolo_seg && !is_bg_model && (model %in% c("stardist", "star-dist"))
+
+  # Automatic engine selection for memory-heavy foundation vision models (Grounded-SAM / PerSAM)
+  if (!engine_specified && (use_grounded_sam || use_persam)) {
+    gpu_info <- tryCatch(pliman_gpu_info_cpp(), error = function(e) NULL)
+    has_large_vram <- FALSE
+    if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
+      def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
+      vram <- gpu_info$vram_mb[def_id]
+      is_ded <- if (!is.null(gpu_info$is_dedicated)) gpu_info$is_dedicated[def_id] else TRUE
+      has_large_vram <- isTRUE(is_ded) && (vram >= 6000)
+    }
+    if (!has_large_vram) {
+      engine <- "cpu"
+      if (isTRUE(verbose)) {
+        cli::cli_alert_info("Auto-selected {.code engine = 'cpu'} for {if (use_grounded_sam) 'Grounded-SAM' else 'PerSAM'}.")
+      }
+    }
+  } else if (engine_specified && engine == "gpu" && (use_grounded_sam || use_persam) && isTRUE(verbose)) {
+    gpu_info <- tryCatch(pliman_gpu_info_cpp(), error = function(e) NULL)
+    if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
+      def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
+      vram <- gpu_info$vram_mb[def_id]
+      if (vram < 6000) {
+        cli::cli_alert_info("Tip: For GPUs with <= 4GB VRAM, {.code engine = 'cpu'} runs up to 3x faster (avoids DirectML shader compilation & memory paging).")
+      }
+    }
+  }
 
   if (use_persam || use_grounded_sam || use_yolo_seg || use_stardist) {
     if (use_persam) {
@@ -6600,6 +6667,20 @@ image_detect_dl <- function(img,
     cli::cli_abort(c(
       "Model {.val {model[1]}} is an image classification model, not an object detector.",
       "i" = "Please use {.fn image_classify_dl} instead."
+    ))
+  }
+
+  bg_models <- c(
+    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
+    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben"
+  )
+  raw_m <- if (is.character(model)) model[1] else "yolo26n"
+  stem_m <- tolower(sub("\\.(onnx|pt)$", "", basename(raw_m)))
+  resolved_stem <- tolower(sub("\\.(onnx|pt)$", "", basename(.resolve_model_name(raw_m))))
+  if (!is_url && (raw_m %in% bg_models || stem_m %in% bg_models || resolved_stem %in% bg_models)) {
+    cli::cli_abort(c(
+      "Model {.val {model[1]}} is a background removal / salient object segmentation model, not an object detector.",
+      "i" = "Please use {.fn image_segment_dl} instead."
     ))
   }
 

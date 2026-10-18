@@ -31,9 +31,8 @@ gs_viewer(
 \code{colmap_sfm}, or a character string path to a \code{.ply}, \code{.splat}, or \code{.txt} file. If \code{NULL} (default), launches
 a standalone viewer in import mode with a drag-and-drop interface.}
 
-\item{cameras}{Optional camera poses. Can be a list of camera objects (e.g. from \code{\link[=gs_import_cameras_colmap]{gs_import_cameras_colmap()}}
-or \code{\link[=gs_import_cameras_metashape]{gs_import_cameras_metashape()}}), or a character string path to a COLMAP sparse directory
-(e.g. \code{"sparse/0"}), \code{images.txt}, or Metashape \code{cameras.xml}.}
+\item{cameras}{Optional camera poses. Can be a list of camera objects (e.g. from \code{\link[=gs_import_cameras_colmap]{gs_import_cameras_colmap()}}),
+or a character string path to a COLMAP sparse directory (e.g. \code{"sparse/0"}), \code{images.txt}, or exported text cameras.}
 
 \item{images}{Optional path to the directory containing the original photos (e.g. \code{"my_photos/"}). If provided,
 clicking on any 3D camera frustum will display that photo in a floating viewer modal!}
