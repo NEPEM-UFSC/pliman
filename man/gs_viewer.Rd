@@ -46,6 +46,8 @@ clicking on any 3D camera frustum will display that photo in a floating viewer m
 
 \item{texture}{Optional character string path to a texture image (.png or .jpg) or texture atlas directory.}
 
+\item{thumbnails}{Character string specifying thumbnail handling: \code{"on_demand"}, \code{"embedded"}, or \code{"none"} (defaults to \code{"on_demand"}).}
+
 \item{file}{Character string. Path to the output HTML file. Defaults to a temporary file.}
 
 \item{browser}{Logical. If \code{TRUE} (default), automatically opens the default web browser.}

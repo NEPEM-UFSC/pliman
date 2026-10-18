@@ -6,6 +6,7 @@
 \alias{image_crop}
 \alias{image_dimension}
 \alias{image_rotate}
+\alias{image_perspective}
 \alias{image_horizontal}
 \alias{image_vertical}
 \alias{image_hreflect}
@@ -16,6 +17,7 @@
 \alias{image_filter}
 \alias{image_blur}
 \alias{image_contrast}
+\alias{image_blurr}
 \alias{image_erode}
 \alias{image_dilate}
 \alias{image_fill_hull}
@@ -60,6 +62,21 @@ image_rotate(
   angle,
   bg_col = "white",
   bg_color = NULL,
+  parallel = FALSE,
+  workers = NULL,
+  verbose = TRUE,
+  plot = TRUE
+)
+
+image_perspective(
+  img,
+  x = 0,
+  y = 0,
+  z = 0,
+  scale = 1,
+  focal_distance = NULL,
+  bg_col = "white",
+  keep_size = TRUE,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
@@ -156,6 +173,15 @@ image_contrast(
   ny = 8,
   clip_limit = 3,
   bins = 256,
+  parallel = FALSE,
+  workers = NULL,
+  verbose = TRUE,
+  plot = FALSE
+)
+
+image_blurr(
+  img,
+  sigma = 3,
   parallel = FALSE,
   workers = NULL,
   verbose = TRUE,
@@ -300,6 +326,19 @@ If \code{max_pixels < npixels(img)}, regular sampling is used before plotting.}
 
 \item{bg_col, bg_color}{Color used to fill the background pixels, defaults to \code{"white"}.}
 
+\item{x}{Numeric. Tilt angle around the horizontal X-axis (pitch) in degrees (default: \code{0}).}
+
+\item{y}{Numeric. Tilt angle around the vertical Y-axis (yaw) in degrees (default: \code{0}).}
+
+\item{z}{Numeric. Rotation angle around the optical Z-axis (roll) in degrees (default: \code{0}).}
+
+\item{scale}{Numeric. Scale / zoom factor applied to the projected image (default: \code{1.0}).}
+
+\item{focal_distance}{Numeric or \code{NULL}. Camera focal distance factor (default: \code{NULL}, using image max dimension).}
+
+\item{keep_size}{Logical. If \code{TRUE} (default), preserves original image dimensions.
+If \code{FALSE}, the output canvas expands to enclose all transformed corners.}
+
 \item{top, bottom, left, right}{The number of pixels removed from \code{top},
 \code{bottom}, \code{left}, and \code{right} when using \code{\link[=image_trim]{image_trim()}}.}
 
@@ -360,6 +399,9 @@ ensuring small noise projections touching large objects are split and removed.}
 \item If \code{image} is a list, a list of the same length will be returned.
 }
 
+An \code{Image} object (or list of \code{Image} objects) with the attribute \code{"homography"}
+containing the 3x3 projective transformation matrix \code{M}.
+
 A binary \code{image} object or a list of \code{image} objects.
 
 A binary \code{image} object or a list of \code{image} objects.
@@ -395,6 +437,11 @@ histogram equalization.
 \item \code{image_blur()} Performs blurring filter of images.
 \item \code{image_skeleton()} Performs image skeletonization.
 }
+
+\code{image_perspective()} applies a 3D perspective projection and homography warp
+to an image or list of images. It simulates realistic camera perspective tilts
+around the X (pitch), Y (yaw), and Z (roll) axes in 3D space with bilinear
+interpolation powered by an OpenMP C++ kernel.
 
 Performs morphological erosion of a binary image.
 

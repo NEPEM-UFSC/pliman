@@ -5,7 +5,7 @@
 \title{Train and Fine-Tune YOLO Models for Segmentation or Detection}
 \usage{
 yolo_train(
-  data = "yolo_dataset/data.yaml",
+  data = "yolo_dataset",
   model = "yolo26n-seg",
   epochs = 50,
   imgsz = 640,
@@ -28,7 +28,10 @@ yolo_train(
 )
 }
 \arguments{
-\item{data}{Path to the \code{data.yaml} file (e.g. \code{"dataset_cafe/data.yaml"}).}
+\item{data}{Path to the dataset directory (e.g. \code{"yolo_dataset"} or \code{"pasta"}), or to a dataset
+YAML configuration file (e.g. \code{"pasta/data.yaml"} or \code{"pasta/dataset.yaml"}). Can also be a
+\code{yolo_dataset} object returned by \code{\link[=yolo_dataset_export]{yolo_dataset_export()}}, \code{\link[=yolo_dataset_autolabel]{yolo_dataset_autolabel()}}, or
+\code{\link[=yolo_dataset_tiling]{yolo_dataset_tiling()}}. Defaults to \code{"yolo_dataset"}.}
 
 \item{model}{Base pre-trained model architecture to fine-tune. Defaults to \code{"yolo26n-seg"}.
 Can be \code{"yolo26n-seg"}, \code{"yolo26s-seg"}, \code{"yolo11n-seg"}, \code{"yolo26n"}, or path to a \code{.pt} file.}
@@ -162,7 +165,7 @@ library(pliman)
 
 # Train a custom coffee grain segmentation model
 model_res <- yolo_train(
-  data = "dataset_cafe/data.yaml",
+  data = "dataset_cafe", # or "dataset_cafe/data.yaml"
   model = "yolo26n-seg",
   epochs = 30,
   output_name = "cafe_seg.onnx"

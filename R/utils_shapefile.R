@@ -586,7 +586,7 @@ shapefile_plot <- function(shapefile, ...){
 }
 
 
-#' Import/export shapefiles.
+#' Import/export shapefiles
 #' @description
 #'
 #' * `shapefile_input()` creates or imports a shapefile and optionally converts

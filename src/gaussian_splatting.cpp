@@ -514,6 +514,7 @@ List cpp_gs_measure(NumericMatrix positions,
 //' @param scale_threshold Double. Scale threshold distinguishing split from clone. Defaults to 0.01.
 //' @param min_opacity Double. Minimum opacity threshold for pruning. Defaults to 0.05.
 //' @param max_scale Double. Maximum world scale for pruning. Defaults to 0.5.
+//' @param max_gaussians Integer. Maximum allowable number of Gaussians. Defaults to 200000.
 //' @return An updated List of 3D Gaussians.
 //' @export
 // [[Rcpp::export]]

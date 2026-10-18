@@ -6,8 +6,7 @@
 \alias{sd_list}
 \alias{max_list}
 \alias{min_list}
-\title{These functions applies common statistics to a list of objects, returning a
-numeric vector.}
+\title{Apply summary statistics to a list of objects}
 \usage{
 mean_list(x, ...)
 
@@ -27,7 +26,7 @@ sd(), etc.)}
 A numeric vector.
 }
 \description{
-These functions applies common statistics to a list of objects, returning a
+These functions apply common statistics to a list of objects, returning a
 numeric vector.
 }
 \examples{

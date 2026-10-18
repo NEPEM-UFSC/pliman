@@ -1523,7 +1523,8 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 pliman_download_model <- function(model = "u2netp",
                                   dir = pliman_model_dir(),
                                   force = FALSE,
-                                  refresh = FALSE) {
+                                  refresh = FALSE,
+                                  verbose = TRUE) {
   dir <- pliman_model_dir(dir)
   if (!dir.exists(dir)) dir.create(dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -1610,11 +1611,15 @@ pliman_download_model <- function(model = "u2netp",
           paste0(base_url, cand)
         }
         probe_dest <- file.path(dir, cand)
-        cli::cli_alert_info("Probing repository asset {.val {cand}} at {.url {probe_url}}...")
+        if (isTRUE(verbose)) {
+          cli::cli_alert_info("Probing repository asset {.val {cand}} at {.url {probe_url}}...")
+        }
         ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000, progress = FALSE)
         if (ok_probe && file.exists(probe_dest) && file.info(probe_dest)$size > 1000) {
           dest_norm <- normalizePath(probe_dest, winslash = "/")
-          cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully to {.path {dest_norm}}")
+          if (isTRUE(verbose)) {
+            cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully to {.path {dest_norm}}")
+          }
           downloaded_probe <- dest_norm
           break
         } else {
@@ -3998,11 +4003,32 @@ image_remove_bg_dl <- function(img,
   orig_w <- dims[1]
   orig_h <- dims[2]
 
-  # Interactive picking of exemplar points if not supplied and no precomputed prototypes
-  if (!is.null(precomputed_prototypes)) {
+  # Parse exemplar points or precomputed prototypes
+  if (!is.null(exemplar_points)) {
+    if (is.matrix(exemplar_points) || is.data.frame(exemplar_points)) {
+      ex_x <- as.numeric(exemplar_points[, 1])
+      ex_y <- as.numeric(exemplar_points[, 2])
+      if (length(ex_x) == 0) {
+        cli::cli_abort("No exemplar point provided.")
+      }
+    } else if (is.numeric(exemplar_points)) {
+      if (length(exemplar_points) == 2) {
+        ex_x <- exemplar_points[1]
+        ex_y <- exemplar_points[2]
+      } else if (length(exemplar_points) > 0 && length(exemplar_points) %% 2 == 0) {
+        half <- length(exemplar_points) / 2
+        ex_x <- exemplar_points[seq_len(half)]
+        ex_y <- exemplar_points[(half + 1L):length(exemplar_points)]
+      } else {
+        cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
+      }
+    } else {
+      cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
+    }
+  } else if (!is.null(precomputed_prototypes)) {
     ex_x <- numeric(0)
     ex_y <- numeric(0)
-  } else if (is.null(exemplar_points)) {
+  } else {
     cli::cli_alert_info("Click on 1 or more exemplar object(s) in the plot window. Press <Esc> or right-click when finished.")
     plot(as_image(mat))
     pts <- tryCatch(graphics::locator(n = 512, type = "p", col = "cyan", pch = 19), error = function(e) NULL)
@@ -4012,25 +4038,6 @@ image_remove_bg_dl <- function(img,
     } else {
       cli::cli_abort("No point selected.")
     }
-  } else if (is.matrix(exemplar_points) || is.data.frame(exemplar_points)) {
-    ex_x <- as.numeric(exemplar_points[, 1])
-    ex_y <- as.numeric(exemplar_points[, 2])
-    if (length(ex_x) == 0) {
-      cli::cli_abort("No exemplar point provided.")
-    }
-  } else if (is.numeric(exemplar_points)) {
-    if (length(exemplar_points) == 2) {
-      ex_x <- exemplar_points[1]
-      ex_y <- exemplar_points[2]
-    } else if (length(exemplar_points) > 0 && length(exemplar_points) %% 2 == 0) {
-      half <- length(exemplar_points) / 2
-      ex_x <- exemplar_points[seq_len(half)]
-      ex_y <- exemplar_points[(half + 1L):length(exemplar_points)]
-    } else {
-      cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
-    }
-  } else {
-    cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
   }
 
   # 1. Preprocess for SAM 2.1 (1024x1024, ImageNet norm)
@@ -4199,6 +4206,7 @@ image_remove_bg_dl <- function(img,
       labels = NULL,
       mask = matrix(FALSE, nrow = orig_w, ncol = orig_h),
       similarity_map = sim_img,
+      prototypes = persam_res$prototypes,
       features = data.frame()
     ))
   }
@@ -5420,7 +5428,7 @@ image_segment_dl <- function(img,
   if (!is_url && is.character(model)) {
     local_m <- .find_local_model(model[1], dir = dir)
     if (!is.null(local_m)) {
-      model <- basename(local_m)
+      model <- local_m
     } else {
       model <- .resolve_model_name(model[1])
     }
@@ -5935,7 +5943,7 @@ image_segment_dl <- function(img,
       attr(gs_res, "counts") <- gs_res$counts
       attr(gs_res, "image") <- as_image(mat)
       if (!is.null(gs_res$similarity_map)) attr(gs_res, "similarity_map") <- gs_res$similarity_map
-      gs_res <- .attach_features(gs_res, mat = mat, boxes = gs_res$boxes, conts = flat_conts,
+      gs_res <- .attach_features(gs_res, mat = mat, boxes = gs_res$boxes, conts = instance_conts,
                                  return_features = return_features, feature_model = feature_model,
                                  plot_features = plot_features, threads = threads, engine = engine,
                                  device_id = device_id, dir = dir, verbose = verbose,
@@ -6580,7 +6588,7 @@ image_detect_dl <- function(img,
   } else if (is.character(model)) {
     local_m <- .find_local_model(model[1], dir = dir)
     if (!is.null(local_m)) {
-      basename(local_m)
+      local_m
     } else {
       .resolve_model_name(model[1])
     }
@@ -9338,7 +9346,7 @@ image_pose_dl <- function(img,
   model_str <- if (is.character(model)) {
     local_m <- .find_local_model(model[1], dir = dir)
     if (!is.null(local_m)) {
-      basename(local_m)
+      local_m
     } else {
       .resolve_model_name(model[1])
     }
@@ -9604,7 +9612,7 @@ image_classify_dl <- function(img,
     } else if (is.character(model)) {
       local_m <- .find_local_model(model[1], dir = dir)
       if (!is.null(local_m)) {
-        basename(local_m)
+        local_m
       } else {
         .resolve_model_name(model[1])
       }

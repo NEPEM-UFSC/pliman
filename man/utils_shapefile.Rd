@@ -5,7 +5,7 @@
 \alias{shapefile_input}
 \alias{shapefile_export}
 \alias{shapefile_view}
-\title{Import/export shapefiles.}
+\title{Import/export shapefiles}
 \usage{
 shapefile_input(
   shapefile,

@@ -26,6 +26,8 @@ cpp_gs_densify(
 \item{min_opacity}{Double. Minimum opacity threshold for pruning. Defaults to 0.05.}
 
 \item{max_scale}{Double. Maximum world scale for pruning. Defaults to 0.5.}
+
+\item{max_gaussians}{Integer. Maximum allowable number of Gaussians. Defaults to 200000.}
 }
 \value{
 An updated List of 3D Gaussians.

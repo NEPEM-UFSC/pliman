@@ -399,6 +399,7 @@ cpp_gs_measure <- function(positions, scales_log, quaternions, semantic_ids, tar
 #' @param scale_threshold Double. Scale threshold distinguishing split from clone. Defaults to 0.01.
 #' @param min_opacity Double. Minimum opacity threshold for pruning. Defaults to 0.05.
 #' @param max_scale Double. Maximum world scale for pruning. Defaults to 0.5.
+#' @param max_gaussians Integer. Maximum allowable number of Gaussians. Defaults to 200000.
 #' @return An updated List of 3D Gaussians.
 #' @export
 cpp_gs_densify <- function(gaussians, grad_2d_norm, grad_threshold = 0.0002, scale_threshold = 0.01, min_opacity = 0.05, max_scale = 0.5, max_gaussians = 200000L) {
@@ -549,6 +550,18 @@ swap_rgb_bgr_inplace_cpp <- function(bm) {
 
 load_frame_bgr_cpp <- function(filename) {
     .Call(`_pliman_load_frame_bgr_cpp`, filename)
+}
+
+perspective_matrix_cpp <- function(W, H, theta_x, theta_y, theta_z, scale = 1.0, focal_fac = 1.0, keep_size = TRUE) {
+    .Call(`_pliman_perspective_matrix_cpp`, W, H, theta_x, theta_y, theta_z, scale, focal_fac, keep_size)
+}
+
+image_warp_perspective_cpp <- function(img_sexp, Minv_mat, oW, oH, bg_color) {
+    .Call(`_pliman_image_warp_perspective_cpp`, img_sexp, Minv_mat, oW, oH, bg_color)
+}
+
+image_perspective_cpp <- function(img_sexp, theta_x, theta_y, theta_z, scale, focal_fac, bg_color, keep_size) {
+    .Call(`_pliman_image_perspective_cpp`, img_sexp, theta_x, theta_y, theta_z, scale, focal_fac, bg_color, keep_size)
 }
 
 image_hreflect_cpp <- function(img_sexp) {
@@ -819,5 +832,23 @@ watershed_cpp <- function(img_r, tolerance = 1.0, ext = 1L) {
 
 help_dist_transform <- function(bin) {
     .Call(`_pliman_help_dist_transform`, bin)
+}
+
+#' @keywords internal
+#' @noRd
+crop_tile_cpp <- function(img, x1, y1, tile_w, tile_h, bg_val) {
+    .Call(`_pliman_crop_tile_cpp`, img, x1, y1, tile_w, tile_h, bg_val)
+}
+
+#' @keywords internal
+#' @noRd
+clip_yolo_boxes_cpp <- function(boxes, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio = 0.50, mode = 0L, min_box_size = 2.0) {
+    .Call(`_pliman_clip_yolo_boxes_cpp`, boxes, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio, mode, min_box_size)
+}
+
+#' @keywords internal
+#' @noRd
+clip_yolo_polygons_cpp <- function(polygons, class_ids, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio = 0.50, mode = 0L, max_vertices = 32L) {
+    .Call(`_pliman_clip_yolo_polygons_cpp`, polygons, class_ids, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio, mode, max_vertices)
 }
 

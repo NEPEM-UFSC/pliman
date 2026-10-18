@@ -12,17 +12,33 @@ yolo_dataset_augment(
   copies = 1L,
   flip_h = TRUE,
   flip_v = FALSE,
-  rotate = c(0, 90, 180, 270),
+  rotate = c(-45, 45),
+  rotate_range = c(-45, 45),
+  perspective = TRUE,
+  perspective_x = c(20, 40),
+  perspective_y = c(20, 40),
+  perspective_z = c(20, 40),
+  perspective_scale = c(0.95, 1.05),
+  bg_col = "white",
   brightness = TRUE,
-  brightness_range = c(0.85, 1.15),
+  brightness_range = c(0.6, 1.2),
   contrast = TRUE,
-  contrast_range = c(0.85, 1.15),
+  contrast_range = c(1, 3),
   noise = TRUE,
-  noise_sd = c(0.005, 0.025),
+  noise_sd = c(0.05, 0.1),
   blur = TRUE,
-  blur_sigma = c(1, 3),
+  blur_sigma = c(2, 4),
+  cutout = TRUE,
+  cutout_target = c("object", "image"),
+  cutout_pos = c("corner", "random"),
+  cutout_n = c(3, 5),
+  cutout_size = c(0.4, 0.6),
+  cutout_fill = "mean",
+  quality = 90,
+  max_ops = c(1, 3),
   seed = 42,
   verbose = TRUE,
+  progress = TRUE,
   ...
 )
 }
@@ -42,28 +58,70 @@ Ignored if \code{total_imgs} is specified.}
 
 \item{flip_v}{Logical. Allow vertical flipping with probability 0.5 (default: \code{FALSE}).}
 
-\item{rotate}{Integer vector of allowable rotation angles in degrees (default: \code{c(0, 90, 180, 270)}).
-For each augmented copy, one angle is sampled randomly from this vector.}
+\item{rotate}{Vector or logical. Rotation augmentation in degrees. Can be:
+\itemize{
+\item A single numeric angle (e.g., \code{rotate = 45} or \code{rotate = 90} to strictly rotate by that angle),
+\item A continuous range \code{c(min, max)} of angles (default: \code{c(-45, 45)}),
+\item A vector of discrete angles to sample from (e.g. \code{c(0, 90, 180, 270)}),
+\item \code{TRUE} (samples uniformly from \code{rotate_range}), or \code{FALSE}/\code{0} (no rotation).
+}}
+
+\item{rotate_range}{Numeric vector of length 2 giving \code{c(min, max)} rotation angles in degrees
+when \code{rotate = TRUE} (default: \code{c(-45, 45)}).}
+
+\item{perspective}{Logical. Whether to apply 3D camera perspective warp augmentation (default: \code{TRUE}).
+When \code{TRUE}, simulates realistic pitch, yaw, and roll camera tilts.}
+
+\item{perspective_x}{Numeric vector of length 2 giving \code{c(min, max)} pitch tilt range around X in degrees (default: \code{c(20, 40)}).
+If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or negative tilts between 20 and 40 degrees.}
+
+\item{perspective_y}{Numeric vector of length 2 giving \code{c(min, max)} yaw tilt range around Y in degrees (default: \code{c(20, 40)}).
+If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or negative tilts between 20 and 40 degrees.}
+
+\item{perspective_z}{Numeric vector of length 2 giving \code{c(min, max)} roll angle range around Z in degrees (default: \code{c(20, 40)}).
+If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or negative rolls between 20 and 40 degrees.}
+
+\item{perspective_scale}{Numeric vector of length 2 giving \code{c(min, max)} zoom scale range (default: \code{c(0.95, 1.05)}).}
+
+\item{bg_col}{Background fill color for exposed canvas (default: \code{"white"}).}
 
 \item{brightness}{Logical. Allow random brightness jitter (default: \code{TRUE}).}
 
-\item{brightness_range}{Numeric vector of length 2 giving \code{c(min, max)} brightness scaling factors (default: \code{c(0.85, 1.15)}).}
+\item{brightness_range}{Numeric vector of length 2 giving \code{c(min, max)} brightness scaling factors (default: \code{c(0.6, 1.2)}).}
 
-\item{contrast}{Logical. Allow random contrast scaling (default: \code{TRUE}).}
+\item{contrast}{Logical. Allow random contrast adjustment via adaptive histogram equalization (\code{\link[=image_contrast]{image_contrast()}}). Defaults to \code{TRUE}.}
 
-\item{contrast_range}{Numeric vector of length 2 giving \code{c(min, max)} contrast scaling factors (default: \code{c(0.85, 1.15)}).}
+\item{contrast_range}{Numeric vector of length 2 giving \code{c(min, max)} clip limit for \code{\link[=image_contrast]{image_contrast()}} (default: \code{c(1, 3)}).}
 
 \item{noise}{Logical. Allow additive Gaussian noise (default: \code{TRUE}).}
 
-\item{noise_sd}{Numeric vector of length 2 giving \code{c(min, max)} standard deviation of Gaussian noise (default: \code{c(0.005, 0.025)}).}
+\item{noise_sd}{Numeric vector of length 2 giving \code{c(min, max)} standard deviation of Gaussian noise (default: \code{c(0.05, 0.1)}).}
 
 \item{blur}{Logical. Allow Gaussian blurring (default: \code{TRUE}).}
 
-\item{blur_sigma}{Numeric vector of length 2 giving \code{c(min, max)} Gaussian blur sigma (default: \code{c(1, 3)}).}
+\item{blur_sigma}{Numeric vector of length 2 giving \code{c(min, max)} Gaussian blur sigma (default: \code{c(2, 4)}).}
+
+\item{cutout}{Logical. Whether to apply Cutout / Random Erasing augmentation to simulate occlusions (default: \code{TRUE}).}
+
+\item{cutout_target}{Target location for cutout rectangles. Either \code{"object"} (default, occludes parts of annotated objects) or \code{"image"} (places cutout rectangles randomly across the entire image canvas).}
+
+\item{cutout_pos}{Positioning strategy when \code{cutout_target = "object"}. Either \code{"corner"} (default, randomly anchors the cutout at one of the four bounding box corners, simulating realistic partial occlusion of objects) or \code{"random"} (places cutout anywhere within the bounding box).}
+
+\item{cutout_n}{Number of cutout rectangles to generate per image/object. Can be an integer or integer range \code{c(min, max)} (default: \code{c(3, 5)}).}
+
+\item{cutout_size}{Numeric vector of length 2 giving \code{c(min, max)} relative dimensions of the cutout rectangle. When \code{cutout_target = "object"}, it is relative to object bounding box dimensions (default: \code{c(0.4, 0.6)}). When \code{cutout_target = "image"}, it is relative to image dimensions.}
+
+\item{cutout_fill}{Fill color or pattern for cutout rectangles. Can be \code{"mean"} (channel-wise mean image color, default), \code{"black"}, \code{"white"}, \code{"noise"} (random uniform noise), or any valid R color name.}
+
+\item{quality}{Integer between 1 and 100. JPEG compression quality for exported augmented images (default: \code{90}). Quality 85-90 preserves pristine pixel fidelity while encoding several times faster than 95+.}
+
+\item{max_ops}{Maximum number of transformations/alterations applied to each augmented image copy (default: \code{c(1, 3)}). Can be an integer (e.g., \code{2} or \code{3}, meaning between 1 and \code{max_ops} operations are randomly selected), a range \code{c(min, max)} (e.g. \code{c(1, 3)}), or \code{NULL} (no limit, independent probabilities for all enabled operations).}
 
 \item{seed}{Optional integer seed for reproducibility (default: 42).}
 
-\item{verbose}{Logical. Whether to show progress. Defaults to \code{TRUE}.}
+\item{verbose}{Logical. Whether to print informative messages. Defaults to \code{TRUE}.}
+
+\item{progress}{Logical. Whether to display a CLI progress bar during data augmentation. Defaults to \code{TRUE}.}
 
 \item{...}{Additional arguments (supports alias \code{blurr = TRUE}, \code{blurr_sigma}, \code{noise_range}).}
 }
@@ -109,9 +167,10 @@ ds_aug1 <- yolo_dataset_augment("dataset_cafe")
 # 2. Set an exact target total number of images (e.g. exactly 1250 training images)
 ds_aug1250 <- yolo_dataset_augment("dataset_cafe", total_imgs = 1250)
 
-# 3. Custom blur and noise ranges for high-resolution images
-ds_aug_hr <- yolo_dataset_augment("dataset_cafe",
-                                  blur_sigma = c(2, 5),
-                                  noise_sd = c(0.01, 0.03))
+# 3. Cutout augmentation focused on objects
+ds_cutout <- yolo_dataset_augment("dataset_cafe",
+                                  cutout = TRUE,
+                                  cutout_target = "object",
+                                  cutout_size = c(0.4, 0.6))
 }
 }

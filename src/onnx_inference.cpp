@@ -273,8 +273,23 @@ struct CachedSession {
 
 static std::map<std::string, CachedSession> g_session_cache;
 
+struct CachedEncoderFeatures {
+  bool valid = false;
+  uint64_t tensor_hash = 0;
+  size_t tensor_size = 0;
+  std::string enc_path;
+  std::vector<float> hr0;
+  std::vector<float> hr1;
+  std::vector<float> embed;
+};
+static CachedEncoderFeatures g_cached_encoder;
+
 static void clear_onnx_sessions_internal() {
   if (g_ort_api == NULL) return;
+  g_cached_encoder.valid = false;
+  g_cached_encoder.hr0.clear();
+  g_cached_encoder.hr1.clear();
+  g_cached_encoder.embed.clear();
   for (auto& pair : g_session_cache) {
     CachedSession& cs = pair.second;
     if (cs.session) g_ort_api->ReleaseSession(cs.session);
@@ -1181,7 +1196,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   OrtSession* session_dec = cs_dec.session;
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
 
-  // 1. Run SAM 2.1 Encoder ONCE on [1, 3, 1024, 1024]
+  // 1. Run SAM 2.1 Encoder ONCE on [1, 3, 1024, 1024] (with static cache for instant review updates)
   int64_t img_shape[4] = {1, 3, 1024, 1024};
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
   std::vector<float> img_values(total_img_floats);
@@ -1189,31 +1204,82 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     img_values[i] = (float)tensor_vec[i];
   }
 
-  OrtValue* input_img_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, img_values.data(), total_img_floats * sizeof(float),
-    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_img_tensor
-  );
+  uint64_t cur_hash = 14695981039346656037ULL;
+  size_t hash_step = (total_img_floats > 16384) ? (total_img_floats / 4096) : 1;
+  for (size_t i = 0; i < total_img_floats; i += hash_step) {
+    uint32_t val = 0;
+    float f = img_values[i];
+    std::memcpy(&val, &f, sizeof(float));
+    cur_hash ^= val;
+    cur_hash *= 1099511628211ULL;
+  }
 
-  const char* enc_in_names[] = { "image" };
-  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
+  int64_t hr0_shape[4] = { 1, 32, 256, 256 };
+  int64_t hr1_shape[4] = { 1, 64, 128, 128 };
+  int64_t embed_shape[4] = { 1, 256, 64, 64 };
+
   OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
-
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
   (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
 
-  OrtStatus* status = ort->Run(
-    session_enc, run_options, enc_in_names, (const OrtValue* const*)&input_img_tensor,
-    1, enc_out_names, 3, enc_outputs
-  );
+  OrtValue* input_img_tensor = NULL;
 
-  if (status != NULL) {
-    std::string msg = ort->GetErrorMessage(status);
-    ort->ReleaseStatus(status);
-    ort->ReleaseRunOptions(run_options);
-    ort->ReleaseValue(input_img_tensor);
-    Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
+  bool is_cached = g_cached_encoder.valid &&
+                   g_cached_encoder.enc_path == encoder_path &&
+                   g_cached_encoder.tensor_size == total_img_floats &&
+                   g_cached_encoder.tensor_hash == cur_hash;
+
+  if (is_cached) {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, g_cached_encoder.hr0.data(), g_cached_encoder.hr0.size() * sizeof(float),
+      hr0_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[0]
+    );
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, g_cached_encoder.hr1.data(), g_cached_encoder.hr1.size() * sizeof(float),
+      hr1_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[1]
+    );
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, g_cached_encoder.embed.data(), g_cached_encoder.embed.size() * sizeof(float),
+      embed_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[2]
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, img_values.data(), total_img_floats * sizeof(float),
+      img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_img_tensor
+    );
+
+    const char* enc_in_names[] = { "image" };
+    const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
+
+    OrtStatus* status = ort->Run(
+      session_enc, run_options, enc_in_names, (const OrtValue* const*)&input_img_tensor,
+      1, enc_out_names, 3, enc_outputs
+    );
+
+    if (status != NULL) {
+      std::string msg = ort->GetErrorMessage(status);
+      ort->ReleaseStatus(status);
+      ort->ReleaseRunOptions(run_options);
+      ort->ReleaseValue(input_img_tensor);
+      Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
+    }
+
+    // Cache the encoder outputs for instantaneous re-evaluations
+    float* p_hr0 = NULL;
+    float* p_hr1 = NULL;
+    float* p_emb = NULL;
+    (void)ort->GetTensorMutableData(enc_outputs[0], (void**)&p_hr0);
+    (void)ort->GetTensorMutableData(enc_outputs[1], (void**)&p_hr1);
+    (void)ort->GetTensorMutableData(enc_outputs[2], (void**)&p_emb);
+
+    g_cached_encoder.hr0.assign(p_hr0, p_hr0 + (1 * 32 * 256 * 256));
+    g_cached_encoder.hr1.assign(p_hr1, p_hr1 + (1 * 64 * 128 * 128));
+    g_cached_encoder.embed.assign(p_emb, p_emb + (1 * 256 * 64 * 64));
+    g_cached_encoder.tensor_hash = cur_hash;
+    g_cached_encoder.tensor_size = total_img_floats;
+    g_cached_encoder.enc_path = encoder_path;
+    g_cached_encoder.valid = true;
   }
 
   // 2. Decoder Common Setup
@@ -1284,14 +1350,16 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     if (p_list.containsElementNamed("max_area")) {
       max_ex_area = Rcpp::as<float>(p_list["max_area"]);
     }
-  } else {
-    int num_exemplars = (int)exemplar_x.size();
-    if (num_exemplars < 1) {
-      exemplar_x = Rcpp::NumericVector::create(orig_w / 2.0);
-      exemplar_y = Rcpp::NumericVector::create(orig_h / 2.0);
-      num_exemplars = 1;
-    }
+  }
 
+  int num_exemplars = (int)exemplar_x.size();
+  if (precomputed_prototypes.isNull() && num_exemplars < 1) {
+    exemplar_x = Rcpp::NumericVector::create(orig_w / 2.0);
+    exemplar_y = Rcpp::NumericVector::create(orig_h / 2.0);
+    num_exemplars = 1;
+  }
+
+  if (num_exemplars > 0) {
     for (int ex = 0; ex < num_exemplars; ++ex) {
     float px = (float)(exemplar_x[ex] / orig_w * 1024.0);
     float py = (float)(exemplar_y[ex] / orig_h * 1024.0);
@@ -1877,11 +1945,15 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     peak_grid = std::move(dense_out);
   }
 
+  float cell_size = 1024.0f / (float)grid_res;
+
   // 6. Detect Local Maxima (Peaks) on peak_grid
   struct CandPeak {
     int r;
     int k;
     float sim;
+    float px;
+    float py;
   };
   std::vector<CandPeak> cand_peaks;
 
@@ -1913,7 +1985,9 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
         if (!is_peak) break;
       }
       if (is_peak) {
-        cand_peaks.push_back({ r, k, cur_sim });
+        float px = ((float)k + 0.5f) * cell_size;
+        float py = ((float)r + 0.5f) * cell_size;
+        cand_peaks.push_back({ r, k, cur_sim, px, py });
       }
     }
   }
@@ -1923,19 +1997,20 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   });
 
   // Spatial NMS on candidate peaks (min_dist proportionally scaled to 1024-space)
-  float cell_size = 1024.0f / (float)grid_res;
   float min_dist_1024 = (float)(min_dist * 1024.0 / std::max(orig_w, orig_h));
   float grid_min_dist = min_dist_1024 / cell_size;
   if (grid_min_dist < 1.0f) grid_min_dist = 1.0f;
 
   std::vector<CandPeak> accepted_peaks;
-  if (precomputed_prototypes.isNull()) {
+  if (num_exemplars > 0) {
     int num_ex = (int)exemplar_x.size();
     for (int ex = 0; ex < num_ex; ++ex) {
+      float px = (float)(exemplar_x[ex] / orig_w * 1024.0);
+      float py = (float)(exemplar_y[ex] / orig_h * 1024.0);
       int ek = std::max(0, std::min(grid_res - 1, (int)std::round(exemplar_x[ex] / orig_w * (double)grid_res)));
       int er = std::max(0, std::min(grid_res - 1, (int)std::round(exemplar_y[ex] / orig_h * (double)grid_res)));
       float sim = peak_grid[(size_t)er * grid_res + ek];
-      accepted_peaks.push_back({ er, ek, std::max(1.0f, sim) });
+      accepted_peaks.push_back({ er, ek, std::max(1.0f, sim), px, py });
     }
   }
 
@@ -1981,8 +2056,8 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
 
   #pragma omp parallel for num_threads(actual_omp_threads) schedule(dynamic)
   for (int p = 0; p < num_peaks; ++p) {
-    float cand_px = (accepted_peaks[p].k + 0.5f) * cell_size;
-    float cand_py = (accepted_peaks[p].r + 0.5f) * cell_size;
+    float cand_px = accepted_peaks[p].px;
+    float cand_py = accepted_peaks[p].py;
 
     float pt_coords[2] = { cand_px, cand_py };
     float pt_label[1] = { 1.0f };
@@ -2075,6 +2150,10 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
           }
         }
 
+        if (p < num_exemplars) {
+          score += 5.0f;
+        }
+
         if (score > best_score) {
           best_score = score;
           best_idx = m;
@@ -2102,7 +2181,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
         }
       }
 
-      int min_fg = std::max(2, std::min(10, (int)std::round(min_dist_1024 / 4.0f)));
+      int min_fg = (p < num_exemplars) ? 1 : std::max(2, std::min(10, (int)std::round(min_dist_1024 / 4.0f)));
       if (fg_total >= min_fg && fg_total <= (int)(mask_h * mask_w * 0.85f)) {
         double bx1 = (double)min_c / 256.0 * orig_w;
         double by1 = (double)min_r / 256.0 * orig_h;
@@ -2264,7 +2343,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
 
   // Cleanup
   ort->ReleaseRunOptions(run_options);
-  ort->ReleaseValue(input_img_tensor);
+  if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
   ort->ReleaseValue(mask_input_tensor);
   ort->ReleaseValue(has_mask_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);

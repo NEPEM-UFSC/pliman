@@ -18,6 +18,7 @@ image_detect_sahi(
   match_threshold = 0.5,
   classes = NULL,
   agnostic_nms = FALSE,
+  seam_merging = TRUE,
   full_image_inference = TRUE,
   cex = 1,
   pad = 1,
@@ -58,6 +59,14 @@ unifying overlapping pieces into single encompassing boxes) or \code{"NMS"} (sta
 
 \item{match_threshold}{Numeric scalar between 0 and 1. Threshold for merging candidates. Defaults to \code{0.50}.}
 
+\item{classes}{Optional character or integer vector of class names or IDs to keep (e.g., \code{"car"} or \code{c("car", "truck")}).
+Detections belonging to other classes are discarded before post-processing. Defaults to \code{NULL} (all classes kept).}
+
+\item{agnostic_nms}{Logical. If \code{TRUE}, bounding boxes and masks from different classes compete during post-processing suppression. Defaults to \code{FALSE}.}
+
+\item{seam_merging}{Logical. If \code{TRUE} (default), seamlessly detects and merges objects that have been
+sliced in half across tile cut boundaries.}
+
 \item{full_image_inference}{Logical. If \code{TRUE} (default), runs an additional detection pass on the
 resized full canvas to capture objects larger than individual slices.}
 
@@ -82,9 +91,6 @@ resized full canvas to capture objects larger than individual slices.}
 \item{verbose}{Logical. Show progress bar and tile metrics. Defaults to \code{TRUE}.}
 
 \item{...}{Additional arguments passed to \code{\link[=image_detect_dl]{image_detect_dl()}}.}
-
-\item{seam_merging}{Logical. If \code{TRUE} (default), seamlessly detects and merges objects that have been
-sliced in half across tile cut boundaries.}
 }
 \value{
 A \code{data.frame} of global bounding boxes with attributes \code{image}, \code{counts}, and \code{summary}.
