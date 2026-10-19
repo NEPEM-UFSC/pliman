@@ -29,12 +29,10 @@
 #' @param ... Additional arguments to be passed to `downsample_fun`.
 #' @return An `sf` object, the same object returned by [mapedit::editMap()].
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' # Example usage:
 #' img <- image_pliman("sev_leaf.jpg")
 #' image_view(img)
-#' }
 #'
 #' @export
 #'
@@ -285,13 +283,11 @@ custom_palette <- function(colors = c("yellow", "#53CC67", "#009B95", "#00588B",
 #' @return None
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' # Example usage:
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' plot_index(img, index = c("R", "G"))
-#' }
 #'
 plot_index <- function(img = NULL,
                        object = NULL,
@@ -621,12 +617,10 @@ plot_index <- function(img = NULL,
 #'   all functions.
 #' @return The alighed/cropped image for further visualization or analysis.
 #'
-#' @examples
+#' @examplesIf interactive()
 #' # Example usage:
-#' if (interactive()) {
 #' img <- image_pliman("mult_leaves.jpg")
 #' image_prepare(img, viewer = "mapview")
-#'}
 #' @export
 image_prepare <- function(img,
                           viewer = get_pliman_viewer(),

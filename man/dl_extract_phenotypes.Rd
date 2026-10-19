@@ -59,7 +59,7 @@ solidity, eccentricity, aspect ratio, and major/minor axes.
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Segment leaves and lesions
@@ -68,5 +68,5 @@ res <- image_segment_dl("bean_rust.jpg", model = "bean_rust_yolo_seg.onnx")
 # Extract comprehensive phenotypes & disease severity
 pheno <- dl_extract_phenotypes(res, pixel_size = 0.02, severity = TRUE)
 head(pheno)
-}
+\dontshow{\}) # examplesIf}
 }

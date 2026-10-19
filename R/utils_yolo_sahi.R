@@ -248,13 +248,11 @@
 #'
 #' @return A `data.frame` of global bounding boxes with attributes `image`, `counts`, and `summary`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Run SAHI on a 4000x3000 drone orthophoto
 #' res <- image_detect_sahi("drone_field.jpg", model = "seedlings.onnx", slice_width = 640)
-#' }
 image_detect_sahi <- function(img,
                               model = "yolo26n",
                               slice_height = 640,

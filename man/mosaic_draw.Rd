@@ -115,13 +115,12 @@ statistic for each object.
 }
 }
 \examples{
-
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 # Load a raster showing the elevation of Luxembourg
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 
 # draw a polyline to see the elevation profile along the line
 mosaic_draw(mosaic, buffer = 1500)
-}
+\dontshow{\}) # examplesIf}
 }

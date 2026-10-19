@@ -31,7 +31,7 @@ by up to 75\% (e.g. from 24 MB to 6 MB) and accelerates CPU inference throughput
 by 2–3x with negligible accuracy trade-off.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Quantize classification model
@@ -39,5 +39,5 @@ q_model <- onnx_quantize("dataset_flores_yolo_cls.onnx")
 
 # Run inference with 3x speedup on CPU
 res <- image_classify_dl("rose.jpg", model = q_model)
-}
+\dontshow{\}) # examplesIf}
 }

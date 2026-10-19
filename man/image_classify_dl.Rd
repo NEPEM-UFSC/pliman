@@ -63,7 +63,7 @@ Classifies images using pre-trained YOLO26 classification models across
 CLIP (ViT-B/32) cross-modal embeddings and cosine similarity softmax.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("sample.png")
   # YOLO classification
@@ -72,5 +72,5 @@ CLIP (ViT-B/32) cross-modal embeddings and cosine similarity softmax.
   # CLIP zero-shot classification
   res <- image_classify_dl(img, candidates = c("healthy leaf", "rust lesion", "insect damage"))
   print(res)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -21,8 +21,8 @@ the translation vector \eqn{t}, calculates the 3D optical center \eqn{C = -R^T t
 camera specifications ready for \code{\link[=gs_fit]{gs_fit()}}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 cams <- gs_import_cameras_colmap("sparse/0/images.txt")
-}
+\dontshow{\}) # examplesIf}
 }

@@ -18,12 +18,12 @@ using native OS system calls in C++ (\code{GlobalMemoryStatusEx} on Windows, \co
 and Mach Kernel \code{host_statistics} on macOS). It executes in microseconds with zero memory allocation.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 # Get free RAM in GB
 get_free_ram()
 
 # Get free RAM in MB
 get_free_ram("MB")
-}
+\dontshow{\}) # examplesIf}
 }

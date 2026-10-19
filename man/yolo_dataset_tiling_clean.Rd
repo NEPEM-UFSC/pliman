@@ -32,7 +32,7 @@ It automatically invalidates stale YOLO cache files (\code{train.cache}, \code{v
 to ensure subsequent YOLO training does not reference deleted files.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Tile dataset in-place
@@ -40,5 +40,5 @@ ds <- yolo_dataset_tiling("dataset_complex", tile_size = 640)
 
 # 2. Clean up tiles and return to pre-tiled state
 ds_clean <- yolo_dataset_tiling_clean("dataset_complex")
-}
+\dontshow{\}) # examplesIf}
 }

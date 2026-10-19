@@ -15,11 +15,9 @@
 #' @export
 #' @importFrom graphics image
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' make_brush(size = 51) |> image()
 #' make_brush(size = 51, shape = "diamond") |> image()
-#' }
 make_brush <- function(size,
                        shape = "disc",
                        step = TRUE,
@@ -55,15 +53,13 @@ make_brush <- function(size,
 #' @return A binary image with 0s and 1s.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("soybean_touch.jpg")
 #' make_mask(img, brush = make_brush(size = 201))
 #' make_mask(img,
 #'           brush = make_brush(size = 401, shape = "diamond"),
 #'           rel_pos_x = 0.1,
 #'           rel_pos_y = 0.8)
-#' }
 make_mask <- function(img,
                       brush,
                       rel_pos_x = 0.5,
@@ -118,8 +114,7 @@ make_mask <- function(img,
 #' @return A color `image` object
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("soybean_touch.jpg")
 #' plot(img)
 #' image_segment_mask(img, size = 601)
@@ -129,7 +124,6 @@ make_mask <- function(img,
 #'                    rel_pos_x = 0,
 #'                    rel_pos_y = 0,
 #'                    type = "shadow")
-#' }
 image_segment_mask <- function(img,
                                size,
                                shape = "disc",

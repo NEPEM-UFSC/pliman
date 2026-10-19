@@ -44,12 +44,11 @@ can be used for image analysis in \code{pliman}. Note that if a large
 memory usage.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 # Convert a mosaic raster to an Image object
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 pliman_image <- mosaic_to_pliman(mosaic)
 plot(pliman_image)
-}
-
+\dontshow{\}) # examplesIf}
 }

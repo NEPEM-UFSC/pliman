@@ -80,11 +80,10 @@ None
 Plot an image index
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 # Example usage:
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 plot_index(img, index = c("R", "G"))
-}
-
+\dontshow{\}) # examplesIf}
 }

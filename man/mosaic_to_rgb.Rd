@@ -33,7 +33,7 @@ is displayed, but this behavior can be controlled using the \code{plot}
 parameter.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 
 library(pliman)
 # Convert a mosaic raster to an RGB image and display it
@@ -42,7 +42,6 @@ mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 # Convert a mosaic raster to an RGB image without displaying it
 rgb_image <- mosaic_to_rgb(c(mosaic * 2, mosaic - 0.3, mosaic * 0.8))
 plot(rgb_image)
-}
 
-
+\dontshow{\}) # examplesIf}
 }

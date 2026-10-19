@@ -49,11 +49,11 @@ user press Esc, the interactive process is interrupted and a \code{data.frame}
 with the \code{x} and \code{y} coordinates for the landmarks is returned.
 }
 \examples{
-if(isTRUE(interactive())){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("potato_leaves.jpg")
 x <- landmarks(img)
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

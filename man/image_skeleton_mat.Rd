@@ -67,9 +67,9 @@ algorithm) to dissolve 100\% of internal loops and ladder rungs.
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_import(image_pliman("root.jpg"))
 skel <- image_skeleton_mat(img, plot = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

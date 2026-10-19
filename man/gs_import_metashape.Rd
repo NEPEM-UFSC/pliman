@@ -36,7 +36,7 @@ CloudCompare, LiDAR) and initializes a \code{gaussian_splat} object. Automatical
 as well as delimited TXT/XYZ/CSV tables.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Import a point cloud exported from Agisoft Metashape
@@ -44,5 +44,5 @@ splat <- gs_import_metashape("plant_metashape.ply")
 
 # Open interactive 3D viewer directly in Chrome
 gs_viewer(splat)
-}
+\dontshow{\}) # examplesIf}
 }

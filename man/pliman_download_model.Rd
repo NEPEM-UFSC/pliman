@@ -34,7 +34,7 @@ Supports downloading by model name, model asset name, dynamic GitHub release ass
 or directly from a custom URL (e.g. \verb{https://.../model.onnx}).
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   # Download a single model
   pliman_download_model("u2netp")
 
@@ -43,5 +43,5 @@ or directly from a custom URL (e.g. \verb{https://.../model.onnx}).
 
   # Download all models at once
   pliman_download_model("all")
-}
+\dontshow{\}) # examplesIf}
 }

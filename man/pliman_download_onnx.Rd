@@ -36,8 +36,8 @@ downloads the pre-compiled CPU binary (~15-60 MB), extracts the shared library
 places it in \code{pliman}'s binary directory, and configures the environment.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   pliman_download_onnx()
   pliman_download_onnx(engine = "gpu")
-}
+\dontshow{\}) # examplesIf}
 }

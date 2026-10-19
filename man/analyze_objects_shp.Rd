@@ -134,7 +134,7 @@ Additionally, the shapefiles representing the analyzed objects are included
 in the output object for further analysis or visualization.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Computes the DGCI index for each flax leaf
@@ -148,5 +148,5 @@ res <-
 plot(flax)
 plot(res$shapefiles)
 plot_measures(res, measure = "DGCI")
-}
+\dontshow{\}) # examplesIf}
 }

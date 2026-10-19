@@ -52,7 +52,7 @@ composite image array.
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Stitch two overlapping leaf scans
@@ -62,7 +62,7 @@ imgs <- list(
 )
 stitched <- image_stitch(imgs, direction = "horizontal")
 plot(stitched)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

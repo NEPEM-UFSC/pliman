@@ -115,7 +115,7 @@ current plot. The object identification (\code{"id"}) is drawn by default.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("objects_300dpi.jpg")
 plot(img)
@@ -146,9 +146,8 @@ measures[1, "radius_max"] * 2
 get_measures(results,
              id = 1,
              area ~ 100)
-}
 
-
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

@@ -22,12 +22,12 @@ their arguments using complex vectors (Claude, 2008).
 Borrowed from Claude (2008), pp. 50
 }
 \examples{
-if(isTRUE(interactive())){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("potato_leaves.jpg")
 x <- landmarks(img)
 landmarks_angle(x)
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

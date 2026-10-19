@@ -51,12 +51,10 @@ create_mat <- function(vect, nr){
 #' Springer 316 pp.
 #' @export
 #'
-#' @examples
-#' if(isTRUE(interactive())){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg")
 #' x <- landmarks(img)
-#' }
 landmarks <- function(img,
                       n = Inf,
                       viewer = get_pliman_viewer(),
@@ -322,8 +320,7 @@ landmarks_add <- function(x,
 #' Springer 316 pp.
 #' @export
 #'
-#' @examples
-#' if(isTRUE(interactive())){
+#' @examplesIf interactive()
 #' library(pliman)
 #' #### compute scale (dots per unit of known distance) ####
 #' # only works in an interactive section
@@ -338,7 +335,6 @@ landmarks_add <- function(x,
 #'
 #' # scale ~118
 #' # 118 * 2.54 ~300 DPI
-#' }
 calibrate <- function(img, viewer = get_pliman_viewer()){
   viewopt <- c("base", "mapview")
   viewopt <- viewopt[pmatch(viewer[[1]], viewopt)]
@@ -373,13 +369,11 @@ calibrate <- function(img, viewer = get_pliman_viewer()){
 #' Springer 316 pp.
 #' @export
 #'
-#' @examples
-#' if(isTRUE(interactive())){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg")
 #' x <- landmarks(img)
 #' landmarks_dist(x)
-#' }
 #'
 
 landmarks_dist <- function(x){
@@ -407,13 +401,11 @@ landmarks_dist <- function(x){
 #' Springer 316 pp.
 #' @export
 #'
-#' @examples
-#' if(isTRUE(interactive())){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg")
 #' x <- landmarks(img)
 #' landmarks_angle(x)
-#' }
 landmarks_angle <- function(x, unit = c("rad", "deg")){
   unit <- unit[[1]]
   if (!unit %in% c("rad", "deg")) {
@@ -463,11 +455,9 @@ landmarks_angle <- function(x, unit = c("rad", "deg")){
 #' @importFrom stats cor qnorm
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' ellipse(contours)
-#' }
 ellipse <- function(x,
                     conf = 0.95,
                     np = 100,

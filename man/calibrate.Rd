@@ -30,7 +30,7 @@ distance (cm) on the graph. I invite users to photograph the object together
 with a scale (e.g., ruler, micrometer...).
 }
 \examples{
-if(isTRUE(interactive())){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 #### compute scale (dots per unit of known distance) ####
 # only works in an interactive section
@@ -45,7 +45,7 @@ calibrate(img)
 
 # scale ~118
 # 118 * 2.54 ~300 DPI
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

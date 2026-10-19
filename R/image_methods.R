@@ -23,12 +23,10 @@
 #' @return Invisibly returns the plotted `image` object.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' img <- image(array(as.raw(sample(0:255, 30000)), dim = c(100, 100, 3)))
 #' plot(img, main = "Sample Image")
 #' plot(img, xlim = c(20, 80), ylim = c(20, 80), main = "Zoomed Region")
-#' }
 plot.image <- function(x,
                        y = NULL,
                        colormode = NULL,
@@ -171,11 +169,9 @@ view.default <- function(x, ...) {
 #' @return Invisibly returns the current zoomed sub-image or full image object.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' img <- image_import(image_pliman("sev_leaf.jpg"))
 #' view(img)
-#' }
 view.image <- function(x, viewer = get_pliman_viewer(), ...) {
   if (missing(viewer) && requireNamespace("mapview", quietly = TRUE)) {
     viewer <- "mapview"

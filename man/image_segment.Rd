@@ -168,13 +168,12 @@ the proportions of segmented pixels.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("soybean_touch.jpg", plot = TRUE)
 image_segment(img, index = c("R, G, B"))
-}
 
-
+\dontshow{\}) # examplesIf}
 }
 \references{
 Nobuyuki Otsu, "A threshold selection method from gray-level

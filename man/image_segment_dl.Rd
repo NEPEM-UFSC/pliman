@@ -21,6 +21,11 @@ image_segment_dl(
   show_conf = TRUE,
   show_class = TRUE,
   show_id = FALSE,
+  show_point = FALSE,
+  show_box = NULL,
+  point_size = 1.5,
+  point_pch = 16,
+  point_col = NULL,
   badge = TRUE,
   rainbow = TRUE,
   model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1",
@@ -119,6 +124,16 @@ Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad
 \item{show_id}{Logical. If \code{TRUE}, overlays object instance IDs in bounding box
 labels or at their center of mass (computed via \code{\link[=poly_mass]{poly_mass()}}) when \code{type = "highlight"}
 and \code{bbox = FALSE}. Defaults to \code{FALSE}.}
+
+\item{show_point}{Logical. Whether to show a point at the centroid of each segmented object. Defaults to \code{FALSE}.}
+
+\item{show_box}{Logical. Whether to draw bounding boxes. Defaults to \code{NULL} (drawn if \code{bbox = TRUE}).}
+
+\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1.5}.}
+
+\item{point_pch}{Integer. Plotting symbol (\code{pch}) for the centroid point. Defaults to \code{16} (filled circle).}
+
+\item{point_col}{Character. Color of the centroid point. Defaults to \code{NULL} (matches the object color / rainbow).}
 
 \item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
 If \code{FALSE}, only the text is drawn directly.}
@@ -306,7 +321,7 @@ segments, and counts all visually similar objects across the entire image using 
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
 
@@ -371,5 +386,5 @@ segments, and counts all visually similar objects across the entire image using 
     type = "highlight",
     bbox = TRUE
   )
-}
+\dontshow{\}) # examplesIf}
 }

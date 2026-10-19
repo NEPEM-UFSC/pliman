@@ -17,14 +17,12 @@
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' iris2 <- iris |> rownames_to_column()
 #' head(iris2)
 #' iris2$rowname <- paste0("r", iris2$rowname)
 #' iris2 |> column_to_rownames("rowname") |> head()
-#' }
 #'
 column_to_rownames <- function(.data, var = "rowname"){
   df <-
@@ -670,13 +668,10 @@ ggplot_color <- function(n = 1){
 #' * [open_wd_here()] Opens the File Explorer of the path returned by `get_wd_here()`.
 #' @export
 #' @name utils_wd
-#' @examples
-#'
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' get_wd_here()
 #' set_wd_here()
 #' open_wd_here()
-#' }
 set_wd_here <- function(path = NULL) {
   if (!requireNamespace("rstudioapi", quietly = TRUE)) {
     if (interactive()) {
@@ -1135,14 +1130,12 @@ trunc_path <- function(path, max_chars = 100, sep = "...") {
 #' @return Invisibly returns `TRUE` if the operation was successful.
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' # Clear everything
 #' clear_pliman_cache()
 #'
 #' # Clear only files older than 7 days
 #' clear_pliman_cache(all = FALSE, days = 7)
-#' }
 #'
 clear_pliman_cache <- function(all = TRUE, days = NULL) {
   cache_dir <- tools::R_user_dir("plimanshiny", which = "config")

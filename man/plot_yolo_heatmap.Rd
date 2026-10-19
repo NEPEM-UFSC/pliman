@@ -46,10 +46,10 @@ extracted during YOLO inference, either standalone or overlaid with alpha transp
 onto the original image.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("tomatoes.jpg")
   res <- image_segment_dl(img, model = "yolo26n-seg", return_features = TRUE)
   plot_yolo_heatmap(res)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -82,9 +82,9 @@ dataset directory and displays them in a multi-panel grid with overlaid segmenta
 or bounding boxes. By default, randomly samples \code{n} images from the requested split.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 dataset <- yolo_dataset_export(img, dir = "dataset_cafe", model = "persam")
 yolo_dataset_preview(dataset, n = 4, random = TRUE)
 plot(dataset, n = 6)
-}
+\dontshow{\}) # examplesIf}
 }

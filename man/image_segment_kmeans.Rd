@@ -67,11 +67,11 @@ background)
 Segments image objects using clustering by the k-means clustering algorithm
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image_pliman("la_leaves.jpg", plot = TRUE)
 seg <- image_segment_kmeans(img)
 seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Hartigan, J. A. and Wong, M. A. (1979). Algorithm AS 136: A

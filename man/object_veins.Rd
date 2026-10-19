@@ -76,11 +76,10 @@ dynamic resolution-independent boundary erosion, and per-object Otsu adaptive
 thresholding. Optionally applies Guo-Hall skeleton thinning.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
 veins <- object_veins(img, overlay = TRUE, col = "red")
 veins$proportion
-}
-
+\dontshow{\}) # examplesIf}
 }

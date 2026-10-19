@@ -463,7 +463,7 @@ dilation followed by an erosion. It is useful for filling small holes or
 connecting nearby objects.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 plot(img)
@@ -473,7 +473,7 @@ img2 <- image_hreflect(img)
 img3 <- image_vreflect(img)
 img4 <- image_vertical(img)
 image_combine(img1, img2, img3, img4)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

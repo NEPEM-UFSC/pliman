@@ -53,9 +53,9 @@ objects. It also features a mechanism to merge highly connected objects,
 effectively preventing over-segmentation.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
   w_med <- image_watershed(bin$B)
-}
+\dontshow{\}) # examplesIf}
 }

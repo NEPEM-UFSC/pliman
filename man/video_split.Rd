@@ -81,7 +81,7 @@ the entire video duration.
 \code{video_to_frames()} is an alias for \code{video_split()}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 # Extract 1 frame per second
 video_split("my_video.mp4", dir = "frames_fps", fps = 1)
 
@@ -90,7 +90,7 @@ video_split("my_video.mp4", dir = "frames_n", n = 20)
 
 # Extract all frames as PNG
 video_to_frames("my_video.mp4", dir = "all_frames", format = "png")
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

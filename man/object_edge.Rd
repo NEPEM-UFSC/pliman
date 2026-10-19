@@ -32,12 +32,11 @@ convolving the image with a small, separable, and integer-valued filter in
 the horizontal and vertical directions.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
 object_edge(img)
-}
-
+\dontshow{\}) # examplesIf}
 }
 \references{
 Sobel, I., and G. Feldman. 1973. A 3×3 isotropic gradient

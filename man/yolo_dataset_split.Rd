@@ -39,10 +39,10 @@ and optionally \verb{test/} splits. It ensures that pairs are preserved and rege
 an updated \code{data.yaml}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Re-stratify into 70\% train, 20\% validation, 10\% test
 ds_split <- yolo_dataset_split("dataset_cafe", split = c(0.7, 0.2, 0.1))
-}
+\dontshow{\}) # examplesIf}
 }

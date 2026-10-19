@@ -55,10 +55,10 @@ in \code{pliman}. Storing pixel data efficiently (using 8-bit \code{raw} vectors
 provides up to 8x memory reduction compared to standard float64 double arrays.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image(array(as.raw(sample(0:255, 300, replace = TRUE)), dim = c(10, 10, 3)))
 print(img)
 summary(img)
 is_image(img)
-}
+\dontshow{\}) # examplesIf}
 }

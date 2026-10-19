@@ -19,7 +19,7 @@ This function projects a given mosaic from the lon/lat coordinate system to
 an EPSG-based CRS determined by the mosaic's extent.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(terra)
 library(pliman)
 
@@ -28,6 +28,5 @@ mosaic <- rast(nrow=10, ncol=10, xmin=-120, xmax=-60, ymin=30, ymax=60)
 
 # Project the mosaic to the appropriate UTM zone
 mosaic_lonlat2epsg(mosaic)
-}
-
+\dontshow{\}) # examplesIf}
 }

@@ -82,12 +82,12 @@ images and generate the complete YOLO dataset before the cloud URLs expire!
 }
 
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 # Download and export the entire dataset permanently before URLs expire:
 ds <- yolo_dataset_from_ndjson(
   file = "african-wildlife.ndjson",
   zip = TRUE
 )
 yolo_dataset_preview(ds)
-}
+\dontshow{\}) # examplesIf}
 }

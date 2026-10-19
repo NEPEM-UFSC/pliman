@@ -170,7 +170,7 @@ medium, coarse, and user-defined root diameter bins.
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Analyze a root image scanned at 600 DPI
@@ -184,7 +184,7 @@ plot(res)
 
 # Plot continuous diameter heatmap
 plot(res, type = "diameter")
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Seethepalli, A., Guo, H., Liu, X., Ruff, T., & York, L. M. (2021).

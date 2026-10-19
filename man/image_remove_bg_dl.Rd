@@ -186,7 +186,7 @@ producing a 4-channel \strong{RGBA} image with a transparent background by defau
 or replacing the background with a solid color.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
 
@@ -207,5 +207,5 @@ or replacing the background with a solid color.
 
   # Extract instances matching a visual exemplar click (PerSAM)
   img_exemplar <- image_remove_bg_dl(img, model = "persam", prompt = c(120, 150))
-}
+\dontshow{\}) # examplesIf}
 }

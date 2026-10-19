@@ -41,10 +41,10 @@ Computes L2-normalized 512-dimensional semantic embeddings for one or more image
 using OpenAI's CLIP (ViT-B/32) vision encoder directly via C++ ONNX Runtime.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
   emb <- image_embed_dl(img)
   length(emb) # 512
-}
+\dontshow{\}) # examplesIf}
 }

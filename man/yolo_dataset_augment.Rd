@@ -158,7 +158,7 @@ Already augmented images (named with suffix \code{_aug[0-9]+}) are automatically
 preventing recursive dataset explosion if the function is executed multiple times.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Default: 1 augmented copy per image (doubles training size)
@@ -172,5 +172,5 @@ ds_cutout <- yolo_dataset_augment("dataset_cafe",
                                   cutout = TRUE,
                                   cutout_target = "object",
                                   cutout_size = c(0.4, 0.6))
-}
+\dontshow{\}) # examplesIf}
 }

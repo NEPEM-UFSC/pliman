@@ -100,7 +100,7 @@ The resulting model object (\code{yolo_fewshot_model}) can be inspected, plotted
 propagated to hundreds of unannotated images in a folder using \code{\link[=yolo_dataset_autolabel]{yolo_dataset_autolabel()}}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Fit exemplar model on reference photo (clicks or supplied coordinates)
@@ -108,6 +108,5 @@ yolo_fewshot_fit("img.jpg",
                  label = "tora",
                  task = "segment",
                  method = "sam")
-
-}
+\dontshow{\}) # examplesIf}
 }

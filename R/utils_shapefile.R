@@ -273,8 +273,7 @@ plot_id <- function(shapefile = NULL,
 #' @return A list with the built shapefile. Each element is an `sf` object with
 #'   the coordinates of the drawn polygons.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' mosaic <- image_pliman("soy_ortho.tif")
 #'
@@ -295,7 +294,6 @@ plot_id <- function(shapefile = NULL,
 #'                       ncol = 3)
 #' mosaic_plot(mosaic)
 #' shapefile_plot(shps[[1]], add = TRUE)
-#' }
 #'
 shapefile_build <- function(mosaic,
                             basemap = NULL,
@@ -567,12 +565,10 @@ shapefile_build <- function(mosaic,
 #' @return A `NULL` object
 #' @export
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' r <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 #' shapefile_plot(r)
-#' }
 shapefile_plot <- function(shapefile, ...){
   if(!inherits(shapefile, "SpatVector") & !inherits(shapefile, "sf") ){
     cli::cli_abort(c(
@@ -631,13 +627,11 @@ shapefile_plot <- function(shapefile, ...){
 #'
 #'  * `shapefile_view()` returns an object of class `mapview`.
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- system.file("ex/lux.shp", package="terra")
 #' shp_file <- shapefile_input(shp, as_sf = FALSE)
 #' shapefile_view(shp_file)
-#' }
 #'
 #' @export
 shapefile_input <- function(shapefile,
@@ -794,12 +788,10 @@ shapefile_view <- function(shapefile,
 #' @export
 #' @return A modified shapefile with user-edited features.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 #' edited <- shapefile_edit(shp)
-#' }
 shapefile_edit <- function(shapefile,
                            mosaic = NULL,
                            basemap = NULL,
@@ -871,14 +863,12 @@ shapefile_edit <- function(shapefile,
 #' The width and height are derived from sequential distances between points.
 #'
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' path_shp <- paste0(image_pliman(), "/soy_shape.rds")
 #' shp <- shapefile_input(path_shp)
 #' shapefile_measures(shp)
-#' }
 #'
 #'
 
@@ -1046,8 +1036,7 @@ check_cols_shp <- function(shpimp){
 #' - `shapefile_union()`: Computes the geometric union of `shp1` and `shp2`.
 #'
 #' @return A filtered `sf` object or the result of the geometric operation.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' shp1 <- shapefile_input(paste0(image_pliman(), "/shp1.rds"))
@@ -1063,7 +1052,6 @@ check_cols_shp <- function(shpimp){
 #' shapefile_intersection(shp1, shp2)
 #' shapefile_difference(shp1, shp2)
 #' shapefile_union(shp1, shp2)
-#' }
 #' @name shapefile_operations
 #' @export
 #'
@@ -1163,9 +1151,7 @@ shapefile_union <- function(shp1, shp2){
 #'   representing the half‐plot midlines.
 #' @export
 #'
-#' @examples
-#'
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- shapefile_input( paste0(image_pliman(), "/soy_shape.rds"))
 #' mosaic <- mosaic_input( paste0(image_pliman(), "/soy_dsm.tif"))
@@ -1173,7 +1159,6 @@ shapefile_union <- function(shp1, shp2){
 #' half <- line_on_halfplot(shp)
 #' shapefile_plot(half, add = TRUE, col = "blue")
 #'
-#' }
 line_on_halfplot <- function(shapefile) {
   coords <- sf::st_coordinates(shapefile)
   corners_list <- split(coords[, c("X","Y")], coords[, "L2"])
@@ -1209,8 +1194,7 @@ line_on_halfplot <- function(shapefile) {
 #' @return An `sf` object with the transformed geometry, preserving all original attributes.
 #' @export
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- system.file("ex/lux.shp", package="terra")
 #' shp_file <- shapefile_input(shp)
@@ -1218,7 +1202,6 @@ line_on_halfplot <- function(shapefile) {
 #' rot <- shapefile_transform(shp_file, angle = 5)
 #' shapefile_plot(rot, add = TRUE, border = "red")
 #'
-#' }
 shapefile_transform <- function(shapefile,
                                 shift_x = 0,
                                 shift_y = 0,

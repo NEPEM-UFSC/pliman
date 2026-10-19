@@ -18,12 +18,11 @@ value based on Otsu's method, which minimizes the combined intra-class
 variance
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image_pliman("soybean_touch.jpg")
 thresh <- otsu(image_data(img[,,3]))
 plot(img[,,3] < thresh)
-}
-
+\dontshow{\}) # examplesIf}
 }
 \references{
 Otsu, N. 1979. Threshold selection method from gray-level

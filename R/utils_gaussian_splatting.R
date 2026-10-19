@@ -20,15 +20,13 @@
 #' @param sh_degree Integer. Maximum Spherical Harmonics degree (0, 1, or 2). Defaults to `0`.
 #' @return An S3 object of class `gaussian_splat`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Create 500 random points representing a small plant canopy
 #' pts <- matrix(rnorm(1500, mean = 0, sd = 0.5), ncol = 3)
 #' splat <- gs_create(pts)
 #' print(splat)
-#' }
 gs_create <- function(points,
                       colors = NULL,
                       initial_scale = NULL,
@@ -536,8 +534,7 @@ gs_densify <- function(splat,
 #'   to this maximum number of points for fast prototyping or rendering.
 #' @return A `gaussian_splat` object ready for [gs_viewer()], [gs_render()], [gs_segment_sam()], and [gs_measure()].
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Import a point cloud exported from Agisoft Metashape
@@ -545,7 +542,6 @@ gs_densify <- function(splat,
 #'
 #' # Open interactive 3D viewer directly in Chrome
 #' gs_viewer(splat)
-#' }
 gs_import_metashape <- function(file,
                                 format = c("auto", "ply", "txt", "las"),
                                 initial_scale = NULL,
@@ -857,8 +853,7 @@ gs_import_metashape <- function(file,
 #' @param verbose Logical. If `TRUE`, displays progress and training metrics. Defaults to `TRUE`.
 #' @return A trained `gaussian_splat` object.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Import cameras and sparse tie points exported from Metashape/COLMAP
@@ -876,7 +871,6 @@ gs_import_metashape <- function(file,
 #'
 #' # 3. Open interactive WebGL viewer in Google Chrome
 #' gs_viewer(trained_splat)
-#' }
 gs_fit <- function(images,
                    cameras = NULL,
                    splat = NULL,
@@ -1255,14 +1249,12 @@ gs_fit <- function(images,
 #' @param verbose Logical. Show progress and statistics. Defaults to `TRUE`.
 #' @return An updated and cleaned `gaussian_splat`, `colmap_sfm`, or point matrix.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Clean floating noise from a COLMAP reconstruction
 #' sfm_clean <- gs_filter_outliers(sfm_completo, k = 20, std_ratio = 1.0)
 #' plot(sfm_clean)
-#' }
 gs_filter_outliers <- function(splat, k = 20, std_ratio = 1.0, radius = 0.0, min_neighbors = 0, verbose = TRUE) {
   is_colmap <- inherits(splat, "colmap_sfm")
   cameras_saved <- NULL
@@ -1344,8 +1336,7 @@ gs_filter_outliers <- function(splat, k = 20, std_ratio = 1.0, radius = 0.0, min
 #' @param verbose Logical. Print summary statistics. Defaults to `TRUE`.
 #' @return An updated, cropped object of the same class as `splat`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Crop around plant subject
@@ -1354,7 +1345,6 @@ gs_filter_outliers <- function(splat, k = 20, std_ratio = 1.0, radius = 0.0, min
 #'                          ylim = c(-0.5, 0.5),
 #'                          zlim = c(-0.2, 0.8))
 #' plot(splat_cropped)
-#' }
 gs_crop <- function(splat,
                     xlim = NULL,
                     ylim = NULL,

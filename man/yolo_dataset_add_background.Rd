@@ -51,12 +51,12 @@ To obtain an \code{.ndjson} file to use here:
 }
 
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 # Using a local NDJSON downloaded from Ultralytics Hub:
 yolo_dataset_add_background(
   dir = "yolo_toras",
   source = "african-wildlife.ndjson",
   n = 20
 )
-}
+\dontshow{\}) # examplesIf}
 }

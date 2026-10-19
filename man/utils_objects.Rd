@@ -165,7 +165,7 @@ of each object in the image.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("la_leaves.jpg")
 # Get the object's (leaves) identification
@@ -177,6 +177,5 @@ object_coord(img, id = c(1, 3))
 # Isolate leaf 3
 isolated <- object_isolate(img, id = 3)
 plot(isolated)
-
-}
+\dontshow{\}) # examplesIf}
 }

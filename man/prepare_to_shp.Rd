@@ -19,8 +19,8 @@ An aligned and cropped \code{image} object.
 It is a simple wrapper around \code{\link[=image_align]{image_align()}} and \code{\link[=image_crop]{image_crop()}}. In this case, only the option \code{viewer = "base"} is used. To use \code{viewer = "mapview"}, please, use such functions separately.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image_pliman("flax_leaves.jpg")
 prepare_to_shp(img)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -20,9 +20,9 @@ It reports sample frequencies per split, class proportion percentages, imbalance
 and (for object detection/segmentation) bounding box area distributions.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 stats <- yolo_dataset_stats("dataset_flores_yolo")
-}
+\dontshow{\}) # examplesIf}
 }

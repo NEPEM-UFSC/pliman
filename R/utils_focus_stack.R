@@ -68,8 +68,7 @@
 #' Analysis and Machine Intelligence, 30(10), 1858-1865.
 #'
 #' @name focus_stack
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Load or read a stack of multi-focus images
@@ -90,7 +89,6 @@
 #' # Handling large stacks (e.g. 200 frames from a focus rack video)
 #' # Automatically extract 25 key focal planes for alignment and fusion:
 #' fused_rack <- process_focus_stack(imgs, max_frames = 25, fusion_method = "laplacian")
-#' }
 NULL
 
 # -----------------------------------------------------------------------------

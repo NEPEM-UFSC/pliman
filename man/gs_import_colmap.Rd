@@ -22,8 +22,8 @@ Simultaneously loads calibrated camera poses and sparse tie points exported by
 COLMAP, initializing a \code{gaussian_splat} object ready for \code{\link[=gs_fit]{gs_fit()}}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 col_data <- gs_import_colmap("my_photos/colmap_workspace/sparse/0")
-}
+\dontshow{\}) # examplesIf}
 }

@@ -454,7 +454,7 @@ Provide transparent backward compatibility with data frame operations on raw det
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
 
   # 1. Video detection and ecological diversity analysis
@@ -492,5 +492,5 @@ Provide transparent backward compatibility with data frame operations on raw det
     count_line = c(0.5, 0, 0.5, 1), # vertical counting tripwire
     return_data = TRUE
   )
-}
+\dontshow{\}) # examplesIf}
 }

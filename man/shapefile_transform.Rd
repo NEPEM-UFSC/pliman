@@ -48,13 +48,12 @@ This logic ensures the grid rotates and expands "in place" rather than flying
 off relative to the coordinate origin.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 shp <- system.file("ex/lux.shp", package="terra")
 shp_file <- shapefile_input(shp)
 shapefile_plot(shp_file)
 rot <- shapefile_transform(shp_file, angle = 5)
 shapefile_plot(rot, add = TRUE, border = "red")
-
-}
+\dontshow{\}) # examplesIf}
 }

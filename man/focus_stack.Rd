@@ -205,7 +205,7 @@ taking raw images, performing alignment, keyframe subsampling (\code{max_frames}
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Load or read a stack of multi-focus images
@@ -226,7 +226,7 @@ plot(fused_dl)
 # Handling large stacks (e.g. 200 frames from a focus rack video)
 # Automatically extract 25 key focal planes for alignment and fusion:
 fused_rack <- process_focus_stack(imgs, max_frames = 25, fusion_method = "laplacian")
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Zhang, Y., Liu, Y., Sun, P., Yan, H., Zhao, X., & Zhang, L. (2020).

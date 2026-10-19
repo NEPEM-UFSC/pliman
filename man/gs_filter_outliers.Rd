@@ -37,11 +37,11 @@ or Gaussian Splats based on local neighborhood density using a high-performance 
 C++ 3D Kd-Tree (OpenMP accelerated, zero external package dependencies).
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Clean floating noise from a COLMAP reconstruction
 sfm_clean <- gs_filter_outliers(sfm_completo, k = 20, std_ratio = 1.0)
 plot(sfm_clean)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -29,8 +29,8 @@ directly into pliman's local bin directory, requiring \strong{zero external pack
 and \strong{zero Python}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   onnx_install()
   onnx_install(engine = "gpu")
-}
+\dontshow{\}) # examplesIf}
 }

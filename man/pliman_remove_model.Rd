@@ -42,7 +42,7 @@ Deletes locally downloaded neural network models (.onnx, .pt) and associated
 auxiliary files from the pliman models directory to free up disk space.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   # Remove a specific model
   pliman_remove_model("yolo26n")
 
@@ -57,5 +57,5 @@ auxiliary files from the pliman models directory to free up disk space.
 
   # Remove all installed models
   pliman_remove_model("all", force = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

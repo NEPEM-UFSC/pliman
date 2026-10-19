@@ -28,13 +28,13 @@ values.
 Given an object image, converts it into a data frame where each row corresponds to the intensity values of each pixel in the image.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 dim(img)
 mat <- image_to_mat(img)
 dim(mat[[1]])
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

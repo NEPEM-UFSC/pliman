@@ -212,7 +212,7 @@ The exported directory adheres to the standard structure expected by YOLOv8, YOL
 }\if{html}{\out{</div>}}
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Semi-Automated 1-Click Labeling with PerSAM:
@@ -243,5 +243,5 @@ yolo_dataset_export(
   index = "B",
   watershed = TRUE
 )
-}
+\dontshow{\}) # examplesIf}
 }

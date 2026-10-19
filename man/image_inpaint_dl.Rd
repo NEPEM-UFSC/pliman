@@ -52,8 +52,8 @@ Modifies or replaces masked regions of an image based on a natural language text
 using SD-Turbo inpainting.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   inpainted <- image_inpaint_dl(img, mask, "a fresh green sprout")
-}
+\dontshow{\}) # examplesIf}
 }

@@ -35,8 +35,7 @@
 #'  results.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #'library(pliman)
 #'img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 #'sev <-
@@ -45,7 +44,6 @@
 #'                      index_dh = "NGRDI",
 #'                      workers = 2)
 #' sev$severity
-#' }
 #'
 #'
 measure_disease_byl <- function(img,

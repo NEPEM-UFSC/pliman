@@ -29,9 +29,9 @@ A \code{NULL} object
 Plot the values of a SpatRaster
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 mosaic_plot(r)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -346,7 +346,7 @@ features for each object based on a gray-level co-occurrence matrix (Haralick
 et al. 1979). See more details in \code{\link[=analyze_objects]{analyze_objects()}}.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf_nb.jpg")
 healthy <- image_pliman("sev_healthy.jpg")
@@ -361,8 +361,7 @@ sev <-
 
 # an interactive section
 measure_disease_iter(img)
-}
-
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

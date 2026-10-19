@@ -91,10 +91,9 @@ Batch processing is performed by declaring a file name pattern that matches
 the images within the working directory.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 object_export_shp(flax)
-
-}
+\dontshow{\}) # examplesIf}
 }

@@ -251,8 +251,7 @@
 #'
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Audit a YOLO dataset and automatically fix issues
@@ -260,7 +259,6 @@
 #'
 #' # Pipe directly into training!
 #' ds_clean |> yolo_train(model = "yolo26n-seg", epochs = 50)
-#' }
 yolo_dataset_audit <- function(data,
                                repair = FALSE,
                                min_images = 10L,
@@ -625,8 +623,7 @@ plot.yolo_dataset_audit <- function(x, ...) {
 #'
 #' @return A `yolo_dataset` object pointing to `out_dir` (ready for `yolo_train()` or piping `|>`).
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Merge two datasets collected from different seasons
@@ -634,7 +631,6 @@ plot.yolo_dataset_audit <- function(x, ...) {
 #'   datasets = list("dataset_2024", "dataset_2025"),
 #'   out_dir  = "dataset_unificado"
 #' )
-#' }
 yolo_dataset_merge <- function(datasets,
                                out_dir = "merged_yolo_dataset",
                                class_map = NULL,
@@ -868,8 +864,7 @@ yolo_dataset_combine <- yolo_dataset_merge
 #'
 #' @return A `yolo_dataset` object pointing to the augmented dataset directory.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Default: 1 augmented copy per image (doubles training size)
@@ -883,7 +878,6 @@ yolo_dataset_combine <- yolo_dataset_merge
 #'                                   cutout = TRUE,
 #'                                   cutout_target = "object",
 #'                                   cutout_size = c(0.4, 0.6))
-#' }
 yolo_dataset_augment <- function(data,
                                  out_dir = NULL,
                                  total_imgs = NULL,
@@ -1826,8 +1820,7 @@ yolo_dataset_aug <- yolo_dataset_augment
 #'
 #' @return An invisible `yolo_dataset` object pointing to the cleaned dataset.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Augment dataset in-place
@@ -1835,7 +1828,6 @@ yolo_dataset_aug <- yolo_dataset_augment
 #'
 #' # 2. Clean up augmented variants and return to pristine state
 #' ds_clean <- yolo_dataset_augment_clean("dataset_complex")
-#' }
 yolo_dataset_augment_clean <- function(data, verbose = TRUE) {
   dir_path <- .yolo_get_dir(data)
   task <- .yolo_detect_task(dir_path)
@@ -1933,8 +1925,7 @@ yolo_dataset_clean_aug <- yolo_dataset_augment_clean
 #'
 #' @return A `yolo_dataset` object pointing to the filtered dataset.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Focus exclusively on 2 classes from a 10-class dataset
@@ -1943,7 +1934,6 @@ yolo_dataset_clean_aug <- yolo_dataset_augment_clean
 #'   keep_classes = c("ferrugem", "mancha_angular"),
 #'   out_dir      = "dataset_doencas"
 #' )
-#' }
 yolo_dataset_filter <- function(data,
                                 keep_classes = NULL,
                                 drop_classes = NULL,
@@ -2093,8 +2083,7 @@ yolo_dataset_subset <- yolo_dataset_filter
 #'
 #' @return A `yolo_dataset` object pointing to `out_dir`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Convert CSV bounding boxes from field phenotyping
@@ -2104,7 +2093,6 @@ yolo_dataset_subset <- yolo_dataset_filter
 #'   img_dir = "field_photos",
 #'   out_dir = "dataset_field_yolo"
 #' )
-#' }
 yolo_dataset_convert <- function(input,
                                  format = c("csv", "coco", "voc"),
                                  img_dir = NULL,
@@ -2378,13 +2366,11 @@ yolo_dataset_convert <- function(input,
 #'
 #' @return A `yolo_dataset` object pointing to the newly split dataset.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Re-stratify into 70% train, 20% validation, 10% test
 #' ds_split <- yolo_dataset_split("dataset_cafe", split = c(0.7, 0.2, 0.1))
-#' }
 yolo_dataset_split <- function(data,
                                out_dir = "split_yolo_dataset",
                                split = c(train = 0.70, val = 0.20, test = 0.10),
@@ -2544,13 +2530,11 @@ yolo_dataset_split <- function(data,
 #'
 #' @return A `yolo_dataset` object with balanced class distributions.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Oversample minority classes to achieve equal sample sizes
 #' ds_balanced <- yolo_dataset_balance("dataset_flores_yolo", strategy = "oversample")
-#' }
 yolo_dataset_balance <- function(data,
                                  strategy = c("oversample", "undersample"),
                                  target_count = NULL,
@@ -2664,12 +2648,10 @@ yolo_dataset_balance <- function(data,
 #'
 #' @return A `data.frame` containing summary statistics per class.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' stats <- yolo_dataset_stats("dataset_flores_yolo")
-#' }
 yolo_dataset_stats <- function(data, verbose = TRUE) {
   dir_path <- .yolo_get_dir(data)
   task <- .yolo_detect_task(dir_path)
@@ -2775,8 +2757,7 @@ yolo_dataset_stats <- function(data, verbose = TRUE) {
 #'
 #' @return A `yolo_dataset_tiled` object (inheriting from `yolo_dataset`) pointing to the generated dataset directory.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Tile a high-resolution YOLO dataset with 20% overlap
@@ -2792,7 +2773,6 @@ yolo_dataset_stats <- function(data, verbose = TRUE) {
 #'                                  tile_size = 640,
 #'                                  n_tiles = c(5, 5),
 #'                                  min_area_ratio = 0.50)
-#' }
 yolo_dataset_tiling <- function(data = NULL,
                                 out_dir = NULL,
                                 path = NULL,
@@ -3297,8 +3277,7 @@ print.yolo_dataset_tiled <- function(x, ...) {
 #'
 #' @return An invisible `yolo_dataset` object pointing to the cleaned dataset.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Tile dataset in-place
@@ -3306,7 +3285,6 @@ print.yolo_dataset_tiled <- function(x, ...) {
 #'
 #' # 2. Clean up tiles and return to pre-tiled state
 #' ds_clean <- yolo_dataset_tiling_clean("dataset_complex")
-#' }
 yolo_dataset_tiling_clean <- function(data, verbose = TRUE) {
   dir_path <- .yolo_get_dir(data)
   task <- .yolo_detect_task(dir_path)

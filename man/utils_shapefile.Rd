@@ -79,11 +79,10 @@ to \code{MULTILINESTRING} if required.
 }
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 shp <- system.file("ex/lux.shp", package="terra")
 shp_file <- shapefile_input(shp, as_sf = FALSE)
 shapefile_view(shp_file)
-}
-
+\dontshow{\}) # examplesIf}
 }

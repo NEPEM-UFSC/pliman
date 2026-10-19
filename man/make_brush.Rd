@@ -28,8 +28,8 @@ Generates brushes of various sizes and shapes that can be used as structuring
 elements.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 make_brush(size = 51) |> image()
 make_brush(size = 51, shape = "diamond") |> image()
-}
+\dontshow{\}) # examplesIf}
 }

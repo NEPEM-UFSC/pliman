@@ -43,7 +43,7 @@ A grid with the images in \code{...}
 Combines several images to a grid
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img1 <- image_pliman("sev_leaf.jpg")
 img2 <- image_pliman("sev_leaf_nb.jpg")
@@ -51,7 +51,7 @@ image_combine(img1, img2)
 
 # Remove margins to optimize plotting area:
 image_combine(img1, img2, mar = 0)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

@@ -82,7 +82,7 @@ least squares:
 }
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("colorcheck.jpg")
 
@@ -94,5 +94,5 @@ calib <- image_correction(img, card, model = "ccm", plot = TRUE)
 
 # 3. Or using polynomial models
 calib_poly <- image_correction(img, card, model = "root_polynomial")
-}
+\dontshow{\}) # examplesIf}
 }

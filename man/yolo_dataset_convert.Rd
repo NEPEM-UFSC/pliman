@@ -51,7 +51,7 @@ Supports:
 Automatically computes normalized YOLO coordinates and creates \verb{train/} and \verb{val/} splits.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Convert CSV bounding boxes from field phenotyping
@@ -61,5 +61,5 @@ ds_yolo <- yolo_dataset_convert(
   img_dir = "field_photos",
   out_dir = "dataset_field_yolo"
 )
-}
+\dontshow{\}) # examplesIf}
 }

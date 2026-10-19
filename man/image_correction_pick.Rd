@@ -35,7 +35,7 @@ prompt the user to click on \code{color_chips} patches in the image. These
 sampled colors are then mapped to \code{known_colors} using the specified \code{model}.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Sample 4 known chips (e.g. blue, red, yellow, white)
@@ -48,5 +48,5 @@ known_colors <- data.frame(
 img <- image_pliman("colorcheck.jpg")
 img_cor <- image_correction_pick(img, known_colors, color_chips = 4)
 image_combine(img, img_cor)
-}
+\dontshow{\}) # examplesIf}
 }

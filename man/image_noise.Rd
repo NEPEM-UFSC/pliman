@@ -46,12 +46,12 @@ An \code{Image} object or a list of \code{Image} objects.
 into an image, with automatic clamping to \verb{[0, 1]}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 # Add subtle Gaussian noise
 image_noise(img, sd = 0.03, plot = TRUE)
 # Salt and pepper noise
 image_noise(img, type = "salt_pepper", p = 0.05, plot = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -20,8 +20,8 @@ their disk sizes, input resolutions, descriptions, local download status, and mo
 discovered from the Hugging Face repository.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 pliman_available_models()
 pliman_available_models(refresh = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

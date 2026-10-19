@@ -21,12 +21,11 @@ You can either remove the entire cache directory or only files older
 than a given number of days.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 # Clear everything
 clear_pliman_cache()
 
 # Clear only files older than 7 days
 clear_pliman_cache(all = FALSE, days = 7)
-}
-
+\dontshow{\}) # examplesIf}
 }

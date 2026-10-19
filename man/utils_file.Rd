@@ -87,7 +87,7 @@ in pliman.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 # get file name, directory and extension
 file <- "E:/my_folder/my_subfolder/image1.png"
@@ -106,5 +106,5 @@ manipulate_files("test",
                 save_to = paste0(dir, "\\\\"),
                 overwrite = TRUE)
 list.files(dir)
-}
+\dontshow{\}) # examplesIf}
 }

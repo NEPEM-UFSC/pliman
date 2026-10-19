@@ -38,7 +38,7 @@ analyses (Claude, 2008).
 Adapted from Claude (2008). pp. 226.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 leaf1 <- contours[[4]]
 plot_polygon(leaf1)
@@ -51,7 +51,7 @@ efourier_coefs(ef)
 
 efn <- efourier_norm(ef)
 efourier_coefs(efn)
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

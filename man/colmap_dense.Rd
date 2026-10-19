@@ -51,7 +51,7 @@ This delivers dense 3D reconstructions comparable to Agisoft Metashape's "Build 
 leveraging dedicated NVIDIA CUDA GPUs in just 2 to 4 minutes.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Solve camera poses with sparse SfM
@@ -62,5 +62,5 @@ dense_cloud <- colmap_dense(sfm)
 
 # 3. Visualize dense point cloud interactively in 3D
 plot(dense_cloud)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -645,8 +645,7 @@
 #' @return An object of class `yolo_fewshot_model` containing exemplar signatures,
 #'   detected instances on the reference image, and parameters for batch propagation.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Fit exemplar model on reference photo (clicks or supplied coordinates)
@@ -655,7 +654,6 @@
 #'                  task = "segment",
 #'                  method = "sam")
 #'
-#' }
 yolo_fewshot_fit <- function(img,
                              points = NULL,
                              sample = NULL,

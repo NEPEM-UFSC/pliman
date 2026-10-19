@@ -102,7 +102,7 @@ cm_to_pixels(c(1, 2, 3), 96)
 # Convert number of pixels to cm with resolution of 96 dpi.
 pixels_to_cm(c(1, 2, 3), 96)
 
-if(isTRUE(interactive())){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 #### compute the dpi (dots per inch) resolution ####
 # only works in an interactive section
 # objects_300dpi.jpg has a known resolution of 300 dpi
@@ -118,7 +118,7 @@ dpi(img)
 img2 <- image_pliman("la_leaves.jpg")
 # square leaf sample (2 x 2 cm)
 dpi(img2)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

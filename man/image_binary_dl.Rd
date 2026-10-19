@@ -152,7 +152,7 @@ foundation segmentation models (SAM 2.1 / SAM 3.1), zero-shot text-prompted inst
 and one-shot visual exemplar segmentation (PerSAM).
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
 
@@ -170,5 +170,5 @@ and one-shot visual exemplar segmentation (PerSAM).
 
   # One-shot visual exemplar segmentation (PerSAM)
   mask_exemplar <- image_binary_dl(img, model = "persam", prompt = c(150, 200))
-}
+\dontshow{\}) # examplesIf}
 }

@@ -38,7 +38,7 @@ This enables instant, offline performance inspection, publication-ready vector p
 and threshold selection for any trained model without needing Python or GPU re-execution.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Load diagnostics from a previously trained model
@@ -49,7 +49,7 @@ print(res)
 plot(res)
 plot(res, which = "confusion_matrix")
 plot(res, which = "pr_curve")
-}
+\dontshow{\}) # examplesIf}
 }
 \seealso{
 \code{\link[=plot.yolo_train]{plot.yolo_train()}}, \code{\link[=yolo_plot]{yolo_plot()}}, \code{\link[=yolo_train]{yolo_train()}}

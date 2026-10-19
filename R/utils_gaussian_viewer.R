@@ -59,8 +59,7 @@
 #' @param title Character string. Viewer window title.
 #' @return Invisible character string containing the path to the generated HTML file.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Launch standalone viewer ready for drag & drop
@@ -69,7 +68,6 @@
 #' # 2. Or pass a model and cameras directly
 #' splat <- gs_import_metashape("cuia_densa.ply")
 #' gs_viewer(splat, cameras = "colmap/sparse/0", images = "photos/")
-#' }
 gs_viewer <- function(splat = NULL,
                       cameras = NULL,
                       images = NULL,

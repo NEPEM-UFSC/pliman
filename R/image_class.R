@@ -19,13 +19,11 @@
 #' @return An S3 object of class `c("image", "array")`.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' img <- image(array(as.raw(sample(0:255, 300, replace = TRUE)), dim = c(10, 10, 3)))
 #' print(img)
 #' summary(img)
 #' is_image(img)
-#' }
 image <- function(data = raw(),
                   colormode = NULL,
                   colspace = "RGB",

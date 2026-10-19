@@ -170,7 +170,7 @@ the intended serpentine or linear pattern along the long axis of the drawn
 boundary.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 mosaic <- image_pliman("soy_ortho.tif")
 
@@ -191,6 +191,5 @@ shps <-
                       ncol = 3)
 mosaic_plot(mosaic)
 shapefile_plot(shps[[1]], add = TRUE)
-}
-
+\dontshow{\}) # examplesIf}
 }

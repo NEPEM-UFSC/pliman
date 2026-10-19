@@ -25,7 +25,7 @@ It automatically invalidates stale YOLO cache files (\code{train.cache}, \code{v
 to ensure subsequent YOLO training or validation does not reference deleted files.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Augment dataset in-place
@@ -33,5 +33,5 @@ ds <- yolo_dataset_augment("dataset_complex", copies = 2)
 
 # 2. Clean up augmented variants and return to pristine state
 ds_clean <- yolo_dataset_augment_clean("dataset_complex")
-}
+\dontshow{\}) # examplesIf}
 }

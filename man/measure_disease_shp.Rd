@@ -115,7 +115,7 @@ object generated with \code{\link[=image_shp]{image_shp()}} and bind the results
 frames.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 # severity for the three leaflets (from left to right)
 img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 sev <-
@@ -125,5 +125,5 @@ sev <-
                      index_lb = "B",
                      index_dh = "NGRDI")
 sev$severity
-}
+\dontshow{\}) # examplesIf}
 }

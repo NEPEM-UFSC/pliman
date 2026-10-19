@@ -302,7 +302,7 @@ This makes the inclusion ambiguous (i.e., an object can be included in more
 than one plot).
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 url <- "https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"
 mosaic <- mosaic_input(url)
@@ -318,5 +318,5 @@ res <-
                 map_individuals = TRUE)
 # map with individual results
 res$map_indiv
-}
+\dontshow{\}) # examplesIf}
 }

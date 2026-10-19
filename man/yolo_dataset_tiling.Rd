@@ -86,7 +86,7 @@ Empty background tiles (containing no objects) are preserved with empty \code{.t
 essential negative background samples for YOLO training.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Tile a high-resolution YOLO dataset with 20\% overlap
@@ -102,5 +102,5 @@ tiled_5x5 <- yolo_dataset_tiling("highres_dataset",
                                  tile_size = 640,
                                  n_tiles = c(5, 5),
                                  min_area_ratio = 0.50)
-}
+\dontshow{\}) # examplesIf}
 }

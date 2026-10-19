@@ -146,7 +146,7 @@ into \code{\link[=yolo_dataset_autolabel]{yolo_dataset_autolabel()}} to annotate
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Run bootstrap workflow: label 4 sample images with PerSAM, augment to 30, tile 640, train YOLO
@@ -166,5 +166,5 @@ wf <- yolo_train_workflow(
 
 # 2. Automatically propagate trained model across ALL hundreds of images in the folder!
 ds_full <- yolo_dataset_autolabel("dataset_complex", model = wf, output_dir = "dataset_full")
-}
+\dontshow{\}) # examplesIf}
 }

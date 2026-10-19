@@ -21,7 +21,7 @@ A raster object representing the projected mosaic.
 This function projects a given mosaic to a specified CRS.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(terra)
 library(pliman)
 
@@ -34,6 +34,5 @@ target_crs <- "EPSG:32633"
 # Project the mosaic
 projected_mosaic <- mosaic_project(mosaic, "EPSG:32633")
 projected_mosaic
-}
-
+\dontshow{\}) # examplesIf}
 }

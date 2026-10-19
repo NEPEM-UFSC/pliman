@@ -60,9 +60,9 @@ Extracts dense patch embeddings and global representation vectors from DINOv2
 without any labels or supervised training.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
   feats <- image_features_dl(img)
-}
+\dontshow{\}) # examplesIf}
 }

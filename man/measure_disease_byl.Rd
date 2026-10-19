@@ -135,7 +135,7 @@ with \code{\link[=object_split]{object_split()}} and then, \code{\link[=measure_
 leaves.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 sev <-
@@ -144,7 +144,6 @@ sev <-
                      index_dh = "NGRDI",
                      workers = 2)
 sev$severity
-}
 
-
+\dontshow{\}) # examplesIf}
 }

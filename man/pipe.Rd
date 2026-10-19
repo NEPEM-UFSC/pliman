@@ -16,7 +16,7 @@ lhs \%>\% rhs
 Pipe an object forward into a function or call expression.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Basic use:
@@ -30,8 +30,7 @@ img \%>\%
  object_isolate(id = 1) \%>\%  # isolate object 1
  image_filter() \%>\%          # apply a median filter
  plot()                      # plot
-}
-
+\dontshow{\}) # examplesIf}
 }
 \author{
 Nathan Eastwood \email{nathan.eastwood@icloud.com} and Antoine Fabri
