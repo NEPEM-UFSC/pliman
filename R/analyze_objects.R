@@ -1167,29 +1167,52 @@ analyze_objects <- function(img,
       if (!requireNamespace("mirai", quietly = TRUE)) {
         cli::cli_abort("Package {.val mirai} is required for parallel processing. Please install it with {.code install.packages('mirai')}.")
       }
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.3), workers)
+      nworkers <- if (is.null(workers)) {
+        max(1L, floor(parallel::detectCores() * 0.6))
+      } else {
+        as.integer(workers)
+      }
+      eff_workers <- min(nworkers, length(names_plant))
       pkg_root <- tryCatch(rprojroot::find_package_root_file(), error = function(e) getwd())
       is_dev_mode <- file.exists(file.path(pkg_root, "DESCRIPTION")) && requireNamespace("pkgload", quietly = TRUE)
 
+      st <- tryCatch(mirai::status()$daemons, error = function(e) 0L)
+      existing_daemons <- if (is.numeric(st)) st else 0L
+
       daemon_status <- tryCatch({
-        mirai::daemons(nworkers)
-        if (is_dev_mode) {
-          mirai::everywhere(
-            {
-              .libPaths(lp)
-              pkgload::load_all(p_dir, quiet = TRUE, helpers = FALSE)
-            },
-            lp = .libPaths(),
-            p_dir = pkg_root
-          )
-        } else {
-          mirai::everywhere(
-            {
-              .libPaths(lp)
-              library(pliman)
-            },
-            lp = .libPaths()
-          )
+        if (existing_daemons == 0L || (!is.null(workers) && existing_daemons != eff_workers)) {
+          # Protect workers from crashing if current directory has a broken .Rprofile
+          empty_prof <- tempfile()
+          file.create(empty_prof)
+          old_prof <- Sys.getenv("R_PROFILE_USER", unset = NA)
+          Sys.setenv(R_PROFILE_USER = empty_prof)
+
+          mirai::daemons(eff_workers)
+
+          if (is.na(old_prof)) Sys.unsetenv("R_PROFILE_USER") else Sys.setenv(R_PROFILE_USER = old_prof)
+          unlink(empty_prof)
+
+          if (existing_daemons == 0L) {
+            on.exit(mirai::daemons(0), add = TRUE)
+          }
+          if (is_dev_mode) {
+            mirai::everywhere(
+              {
+                .libPaths(lp)
+                pkgload::load_all(p_dir, quiet = TRUE, helpers = FALSE)
+              },
+              lp = .libPaths(),
+              p_dir = pkg_root
+            )
+          } else {
+            mirai::everywhere(
+              {
+                .libPaths(lp)
+                library(pliman)
+              },
+              lp = .libPaths()
+            )
+          }
         }
         TRUE
       }, error = function(e) {
@@ -1198,19 +1221,44 @@ analyze_objects <- function(img,
       })
 
       if (isTRUE(daemon_status)) {
-        on.exit(mirai::daemons(0), add = TRUE)
         if (verbose) {
           cli::cli_rule(
-            left = cli::col_blue("Parallel processing using {nworkers} cores"),
+            left = cli::col_blue("Parallel processing using {eff_workers} cores"),
             right = cli::col_blue("Started on {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
           )
         }
 
-        results <- mirai::mirai_map(
-          .x = names_plant,
-          .f = help_count,
-          .args = args_list
+        # Chunking: group images into balanced batches to minimize IPC overhead
+        n_imgs <- length(names_plant)
+        n_chunks <- if (n_imgs <= eff_workers) {
+          eff_workers
+        } else {
+          min(n_imgs, eff_workers * 3L)
+        }
+        chunk_size <- ceiling(n_imgs / n_chunks)
+        chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_imgs)
+        chunks <- split(names_plant, chunk_factor)
+
+        results_chunks <- mirai::mirai_map(
+          .x = chunks,
+          .f = function(chunk_imgs, fn, args) {
+            lapply(chunk_imgs, function(im) {
+              do.call(fn, c(list(img = im), args))
+            })
+          },
+          .args = list(fn = help_count, args = args_list)
         )[.progress]
+
+        # Check for chunk-level worker errors
+        failed_chunks <- sapply(results_chunks, function(res) inherits(res, "errorValue") || !is.list(res))
+        if (any(failed_chunks)) {
+          err_msg <- paste(sapply(which(failed_chunks), function(idx) {
+            if (inherits(results_chunks[[idx]], "errorValue")) as.character(results_chunks[[idx]]) else "Worker failed to return results"
+          }), collapse = "; ")
+          cli::cli_abort("Parallel processing failed: {err_msg}")
+        }
+
+        results <- do.call(c, results_chunks)
 
         failed_imgs <- sapply(results, function(res) inherits(res, "errorValue") || !is.list(res) || is.null(res[["statistics"]]))
         if (any(failed_imgs)) {
