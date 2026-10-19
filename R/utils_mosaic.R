@@ -1587,7 +1587,7 @@ mosaic_analyze_iter <- function(mosaic,
   if(parallel){
     nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
     mirai::daemons(nworkers)
-    on.exit(mirai::daemons(0))
+    on.exit(mirai::daemons(0), add = TRUE)
 
     if (verbose) {
       cli::cli_rule(
@@ -2833,7 +2833,7 @@ mosaic_index <- function(mosaic,
 
       if(terra::inMemory(mosaic)){
         tf <- paste0(tempfile(), ".tif")
-        on.exit(file.remove(tf))
+        on.exit(file.remove(tf), add = TRUE)
         terra::writeRaster(mosaic, filename = tf)
         tempf <- tf
       } else{
@@ -4740,7 +4740,7 @@ mosaic_clip <- function(mosaic,
   if(parallel){
     nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.7), workers)
     mirai::daemons(nworkers)
-    on.exit(mirai::daemons(0))
+    on.exit(mirai::daemons(0), add = TRUE)
 
     cli::cli_rule(
       left  = cli::col_blue("Clipping mosaic into tiles using  {.val {n}} polygons"),
