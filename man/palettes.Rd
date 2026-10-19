@@ -78,11 +78,10 @@ separate R sessions running in the background on the same machine.}
 to the RGB values.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 pal <- image_palette(img, npal = 5)
-}
 
-
+\dontshow{\}) # examplesIf}
 }

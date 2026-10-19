@@ -35,12 +35,12 @@ initializes rotation quaternions to identity, opacities to initial transmittance
 and Spherical Harmonics degree 0 coefficients from RGB colors.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Create 500 random points representing a small plant canopy
 pts <- matrix(rnorm(1500, mean = 0, sd = 0.5), ncol = 3)
 splat <- gs_create(pts)
 print(splat)
-}
+\dontshow{\}) # examplesIf}
 }

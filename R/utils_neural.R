@@ -987,11 +987,9 @@ pliman_models_base_url <- function() {
 #' @param refresh Logical. If `TRUE`, forces re-fetching the asset catalog from Hugging Face (default `FALSE`).
 #' @return A data frame containing model metadata and local availability.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' pliman_available_models()
 #' pliman_available_models(refresh = TRUE)
-#' }
 pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
   base_url <- pliman_models_base_url()
   hf_yolo_url <- base_url
@@ -1510,8 +1508,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 #' @param verbose Logical. If `TRUE`, returns the progress of instalation.
 #' @return A character vector with the absolute path(s) to the downloaded model file(s).
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   # Download a single model
 #'   pliman_download_model("u2netp")
 #'
@@ -1520,7 +1517,6 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 #'
 #'   # Download all models at once
 #'   pliman_download_model("all")
-#' }
 pliman_download_model <- function(model = "u2netp",
                                   dir = pliman_model_dir(),
                                   force = FALSE,
@@ -1809,8 +1805,7 @@ pliman_download_model <- function(model = "u2netp",
 #' @param verbose Logical. If \code{TRUE} (default), displays informative messages about deleted files.
 #' @return Invisibly returns a character vector of deleted file paths.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   # Remove a specific model
 #'   pliman_remove_model("yolo26n")
 #'
@@ -1825,7 +1820,6 @@ pliman_download_model <- function(model = "u2netp",
 #'
 #'   # Remove all installed models
 #'   pliman_remove_model("all", force = TRUE)
-#' }
 pliman_remove_model <- function(model = NULL,
                                 pattern = NULL,
                                 dir = pliman_model_dir(),
@@ -2037,11 +2031,9 @@ pliman_onnx_dir <- function(dir = NULL) {
 #'   downloads and configures `onnxruntime-directml.dll` and `DirectML.dll` from Microsoft's NuGet CDN.
 #' @return A character string with the path to the installed shared library.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   pliman_download_onnx()
 #'   pliman_download_onnx(engine = "gpu")
-#' }
 pliman_download_onnx <- function(version = "1.20.1",
                                  dir = pliman_onnx_dir(),
                                  force = FALSE,
@@ -2185,11 +2177,9 @@ pliman_download_onnx <- function(version = "1.20.1",
 #' @param engine Execution engine: `"cpu"` (default) or `"gpu"`.
 #' @return A character string with the path to the installed shared library.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   onnx_install()
 #'   onnx_install(engine = "gpu")
-#' }
 onnx_install <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu")) {
   pliman_download_onnx(version = version, force = force, engine = engine)
 }
@@ -2262,10 +2252,8 @@ pliman_onnx_library_path <- function(engine = c("gpu", "cpu")) {
 #'
 #' @return A data frame containing information on detected GPU adapters, or a message if no GPU is available.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   pliman_gpu_info()
-#' }
 pliman_gpu_info <- function() {
   info <- pliman_gpu_info_cpp()
   if (!isTRUE(info$available) || length(info$device_id) == 0) {
@@ -2317,11 +2305,9 @@ pliman_gpu_info <- function() {
 #' @param engine Execution engine: `"cpu"` (default) or `"gpu"`.
 #' @return Logical `TRUE` invisibly on success.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   pliman_configure_dl()
 #'   pliman_configure_dl(engine = "gpu")
-#' }
 pliman_configure_dl <- function(models = "u2netp",
                                 dir = pliman_model_dir(),
                                 force = FALSE,
@@ -2945,8 +2931,7 @@ pliman_configure_dl <- function(models = "u2netp",
 #' @return A binary `image` object (Grayscale, values 0 and 1) or a list of binary `image` objects.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'
@@ -2964,7 +2949,6 @@ pliman_configure_dl <- function(models = "u2netp",
 #'
 #'   # One-shot visual exemplar segmentation (PerSAM)
 #'   mask_exemplar <- image_binary_dl(img, model = "persam", prompt = c(150, 200))
-#' }
 image_binary_dl <- function(img,
                             model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
                             threshold = 0.5,
@@ -3056,8 +3040,7 @@ image_binary_dl <- function(img,
 #' @return An `image` object (4-channel RGBA if `transparent = TRUE`, 3-channel RGB otherwise) or a list of images.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'
@@ -3078,7 +3061,6 @@ image_binary_dl <- function(img,
 #'
 #'   # Extract instances matching a visual exemplar click (PerSAM)
 #'   img_exemplar <- image_remove_bg_dl(img, model = "persam", prompt = c(120, 150))
-#' }
 image_remove_bg_dl <- function(img,
                                model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
                                threshold = 0.5,
@@ -3347,9 +3329,18 @@ image_remove_bg_dl <- function(img,
                               show_conf = TRUE,
                               show_class = TRUE,
                               show_id = FALSE,
+                              show_box = NULL,
+                              show_point = FALSE,
+                              point_size = 1.5,
+                              point_pch = 16,
+                              point_col = NULL,
                               badge = TRUE,
                               cex_scale = NULL) {
   if (is.null(boxes) || !is.data.frame(boxes) || nrow(boxes) == 0) return(invisible(NULL))
+
+  if (is.null(show_box)) {
+    show_box <- !(isTRUE(show_point) && !isTRUE(show_text) && !isTRUE(show_conf) && !isTRUE(show_class))
+  }
 
   if (!is.null(cex_scale)) {
     cex <- cex_scale
@@ -3378,12 +3369,36 @@ image_remove_bg_dl <- function(img,
     }
     x1 <- bx$xmin; y1 <- bx$ymin; x2 <- bx$xmax; y2 <- bx$ymax
 
-    # Draw box outline (rotated polygon for OBB, rectangle for standard)
+    # Determine centroid for point plotting
     is_obb <- all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(bx))
-    if (is_obb) {
-      graphics::polygon(x = c(bx$x1, bx$x2, bx$x3, bx$x4), y = c(bx$y1, bx$y2, bx$y3, bx$y4), border = k_col, lwd = lwd)
+    cx <- if ("cx" %in% names(bx) && !is.na(bx$cx)) {
+      as.numeric(bx$cx)
+    } else if (is_obb) {
+      (bx$x1 + bx$x2 + bx$x3 + bx$x4) / 4
     } else {
-      graphics::rect(xleft = x1, ybottom = y1, xright = x2, ytop = y2, border = k_col, lwd = lwd)
+      (x1 + x2) / 2
+    }
+    cy <- if ("cy" %in% names(bx) && !is.na(bx$cy)) {
+      as.numeric(bx$cy)
+    } else if (is_obb) {
+      (bx$y1 + bx$y2 + bx$y3 + bx$y4) / 4
+    } else {
+      (y1 + y2) / 2
+    }
+
+    # Draw box outline (rotated polygon for OBB, rectangle for standard)
+    if (isTRUE(show_box)) {
+      if (is_obb) {
+        graphics::polygon(x = c(bx$x1, bx$x2, bx$x3, bx$x4), y = c(bx$y1, bx$y2, bx$y3, bx$y4), border = k_col, lwd = lwd)
+      } else {
+        graphics::rect(xleft = x1, ybottom = y1, xright = x2, ytop = y2, border = k_col, lwd = lwd)
+      }
+    }
+
+    # Draw centroid point
+    if (isTRUE(show_point) && is.finite(cx) && is.finite(cy)) {
+      col_pt <- if (!is.null(point_col)) point_col else k_col
+      graphics::points(cx, cy, col = col_pt, pch = point_pch, cex = point_size)
     }
 
     if (!draw_text) next
@@ -4976,13 +4991,11 @@ image_remove_bg_dl <- function(img,
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return An `Image` object containing the colorized / blended heatmap visualization, invisibly.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("tomatoes.jpg")
 #'   res <- image_segment_dl(img, model = "yolo26n-seg", return_features = TRUE)
 #'   plot_yolo_heatmap(res)
-#' }
 plot_yolo_heatmap <- function(img,
                               heatmap = NULL,
                               col_palette = "inferno",
@@ -5163,6 +5176,11 @@ plot_yolo_heatmap <- function(img,
 #' @param show_id Logical. If `TRUE`, overlays object instance IDs in bounding box
 #'   labels or at their center of mass (computed via [poly_mass()]) when `type = "highlight"`
 #'   and `bbox = FALSE`. Defaults to `FALSE`.
+#' @param show_point Logical. Whether to show a point at the centroid of each segmented object. Defaults to `FALSE`.
+#' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (drawn if `bbox = TRUE`).
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1.5`.
+#' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
+#' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param cex Size factor for bounding box label text (default `1.0`). Use smaller values (e.g., `0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
 #' @param pad Padding multiplier controlling the background badge size around label text (default `1.0`).
@@ -5229,8 +5247,7 @@ plot_yolo_heatmap <- function(img,
 #'   * If `img` is a list: A list of the corresponding outputs.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'
@@ -5295,7 +5312,6 @@ plot_yolo_heatmap <- function(img,
 #'     type = "highlight",
 #'     bbox = TRUE
 #'   )
-#' }
 image_segment_dl <- function(img,
                              type = c("segment", "mask", "highlight"),
                              col_background = "white",
@@ -5312,6 +5328,11 @@ image_segment_dl <- function(img,
                              show_conf = TRUE,
                              show_class = TRUE,
                              show_id = FALSE,
+                             show_point = FALSE,
+                             show_box = NULL,
+                             point_size = 1.5,
+                             point_pch = 16,
+                             point_col = NULL,
                              badge = TRUE,
                              rainbow = TRUE,
                              model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
@@ -5348,6 +5369,10 @@ image_segment_dl <- function(img,
                              ...) {
   engine_specified <- !missing(engine)
   engine <- match.arg(engine)
+  mask_specified <- !missing(mask)
+  if (!mask_specified && isTRUE(show_point) && !isTRUE(show_text) && !isTRUE(show_conf) && !isTRUE(show_class) && !isTRUE(bbox)) {
+    mask <- FALSE
+  }
   dots <- list(...)
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
@@ -5359,6 +5384,11 @@ image_segment_dl <- function(img,
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
     if (missing(pad)) pad <- cex[2]
@@ -5383,6 +5413,11 @@ image_segment_dl <- function(img,
                        show_conf = show_conf,
                        show_class = show_class,
                        show_id = show_id,
+                       show_point = show_point,
+                       show_box = show_box,
+                       point_size = point_size,
+                       point_pch = point_pch,
+                       point_col = point_col,
                        badge = badge,
                        rainbow = rainbow,
                        model = model,
@@ -5711,7 +5746,7 @@ image_segment_dl <- function(img,
       cli::cli_alert_info("Tip: If the model was trained for few epochs (e.g. 3), try {.code box_threshold = 0.01} or train for 30-50 epochs so the model learns confident scores.")
     }
 
-    if (!isTRUE(mask) && isTRUE(bbox)) {
+    if (!isTRUE(mask) && (isTRUE(bbox) || isTRUE(show_point))) {
       if (isTRUE(plot)) {
         plot(as_image(mat), ...)
         num_inst <- nrow(gs_res$boxes)
@@ -5734,6 +5769,11 @@ image_segment_dl <- function(img,
             show_conf = show_conf,
             show_class = show_class,
             show_id = show_id,
+            show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+            show_point = show_point,
+            point_size = point_size,
+            point_pch = point_pch,
+            point_col = point_col,
             badge = badge
           )
         }
@@ -5743,7 +5783,10 @@ image_segment_dl <- function(img,
       }
       attr(gs_res$boxes, "summary") <- gs_res$summary
       attr(gs_res$boxes, "counts") <- gs_res$counts
-      attr(gs_res$boxes, "image") <- as_image(mat)
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+      if (isTRUE(attach_im)) {
+        attr(gs_res$boxes, "image") <- as_image(mat)
+      }
       if (!is.null(gs_res$similarity_map)) attr(gs_res$boxes, "similarity_map") <- gs_res$similarity_map
       gs_res$boxes <- .attach_features(gs_res$boxes, mat = mat, boxes = gs_res$boxes,
                                        return_features = return_features, feature_model = feature_model,
@@ -5813,7 +5856,7 @@ image_segment_dl <- function(img,
 
       if (isTRUE(plot)) {
         plot(out, ...)
-        if ((isTRUE(bbox) || !isTRUE(mask)) && nrow(gs_res$boxes) > 0) {
+        if ((isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask)) && nrow(gs_res$boxes) > 0) {
           num_inst <- nrow(gs_res$boxes)
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
@@ -5833,6 +5876,11 @@ image_segment_dl <- function(img,
             show_conf = show_conf,
             show_class = show_class,
             show_id = show_id,
+            show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+            show_point = show_point,
+            point_size = point_size,
+            point_pch = point_pch,
+            point_col = point_col,
             badge = badge
           )
         }
@@ -5844,7 +5892,10 @@ image_segment_dl <- function(img,
       attr(out, "labels") <- gs_res$labels
       attr(out, "summary") <- gs_res$summary
       attr(out, "counts") <- gs_res$counts
-      attr(out, "image") <- as_image(mat)
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+      if (isTRUE(attach_im)) {
+        attr(out, "image") <- as_image(mat)
+      }
       if (!is.null(gs_res$similarity_map)) attr(out, "similarity_map") <- gs_res$similarity_map
       out <- .attach_features(out, mat = mat, boxes = gs_res$boxes,
                               return_features = return_features, feature_model = feature_model,
@@ -5920,6 +5971,11 @@ image_segment_dl <- function(img,
         }
       }
 
+      if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
+        gs_res$boxes$cx <- round(cx, 1)
+        gs_res$boxes$cy <- round(cy, 1)
+      }
+
       if (isTRUE(plot)) {
         if (isTRUE(verbose)) {
           cli::cli_progress_step(
@@ -5957,7 +6013,7 @@ image_segment_dl <- function(img,
             }
           }
 
-          if (isTRUE(bbox) || !isTRUE(mask)) {
+          if (isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask)) {
             .plot_yolo_bboxes(
               boxes = gs_res$boxes,
               palette_colors = palette_colors,
@@ -5968,6 +6024,11 @@ image_segment_dl <- function(img,
               show_conf = show_conf,
               show_class = show_class,
               show_id = show_id,
+              show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+              show_point = show_point,
+              point_size = point_size,
+              point_pch = point_pch,
+              point_col = point_col,
               badge = badge
             )
           } else if (isTRUE(show_id)) {
@@ -6008,7 +6069,10 @@ image_segment_dl <- function(img,
       }
       attr(gs_res, "summary") <- gs_res$summary
       attr(gs_res, "counts") <- gs_res$counts
-      attr(gs_res, "image") <- as_image(mat)
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+      if (isTRUE(attach_im)) {
+        attr(gs_res, "image") <- as_image(mat)
+      }
       if (!is.null(gs_res$similarity_map)) attr(gs_res, "similarity_map") <- gs_res$similarity_map
       gs_res <- .attach_features(gs_res, mat = mat, boxes = gs_res$boxes, conts = instance_conts,
                                  return_features = return_features, feature_model = feature_model,
@@ -6040,19 +6104,24 @@ image_segment_dl <- function(img,
                                verbose = verbose,
                                dir = dir)
 
-  if (!isTRUE(mask) && isTRUE(bbox)) {
+  if (!isTRUE(mask) && (isTRUE(bbox) || isTRUE(show_point))) {
     lbls <- bwlabel_cpp(mask_mat > 0)
     conts <- if (max(lbls) > 0) contour(lbls) else list()
     num_inst <- length(conts)
     if (num_inst > 0) {
       boxes_list <- lapply(seq_along(conts), function(i) {
         p <- conts[[i]]
+        pm <- tryCatch(poly_mass(p), error = function(e) NULL)
+        cx_i <- if (!is.null(pm) && is.matrix(pm) && nrow(pm) >= 1L) pm[1, "x"] else mean(range(p[, 1]))
+        cy_i <- if (!is.null(pm) && is.matrix(pm) && nrow(pm) >= 1L) pm[1, "y"] else mean(range(p[, 2]))
         data.frame(
           id = i,
           xmin = round(min(p[, 1]), 1),
           ymin = round(min(p[, 2]), 1),
           xmax = round(max(p[, 1]), 1),
           ymax = round(max(p[, 2]), 1),
+          cx = round(cx_i, 1),
+          cy = round(cy_i, 1),
           score = 1.0,
           label = "object",
           stringsAsFactors = FALSE
@@ -6061,8 +6130,8 @@ image_segment_dl <- function(img,
       boxes_df <- do.call(rbind, boxes_list)
     } else {
       boxes_df <- data.frame(id = integer(0), xmin = numeric(0), ymin = numeric(0),
-                             xmax = numeric(0), ymax = numeric(0), score = numeric(0),
-                             label = character(0), stringsAsFactors = FALSE)
+                             xmax = numeric(0), ymax = numeric(0), cx = numeric(0), cy = numeric(0),
+                             score = numeric(0), label = character(0), stringsAsFactors = FALSE)
     }
     if (isTRUE(plot)) {
       plot(as_image(mat), ...)
@@ -6085,6 +6154,11 @@ image_segment_dl <- function(img,
           show_conf = show_conf,
           show_class = show_class,
           show_id = show_id,
+          show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+          show_point = show_point,
+          point_size = point_size,
+          point_pch = point_pch,
+          point_col = point_col,
           badge = badge
         )
       }
@@ -6268,12 +6342,10 @@ image_remove_bg <- function(img,
 #' @return An `Image` object representing the colorized depth map, with the raw normalized
 #'   depth matrix stored in the `"depth"` attribute (`attr(res, "depth")`).
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'   depth <- image_depth_dl(img)
-#' }
 image_depth_dl <- function(img,
                            model = "depth-anything-v2",
                            col_palette = "magma",
@@ -6408,12 +6480,10 @@ image_depth_dl <- function(img,
 #'   * `num_patches`: Total number of spatial patches.
 #'   * `embed_dim`: Dimensionality of patch embeddings.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'   feats <- image_features_dl(img)
-#' }
 image_features_dl <- function(img,
                               model = "dinov2",
                               patch_size = 14,
@@ -6552,6 +6622,11 @@ image_features_dl <- function(img,
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
 #' @param show_id Logical. Whether to display object IDs (`#1`, `#2`, ...) in labels (default `FALSE`).
+#' @param show_point Logical. Whether to show a point at the centroid of each detected object. Defaults to `FALSE`.
+#' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (TRUE unless `show_point = TRUE` and all text displays are `FALSE`).
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1.5`.
+#' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
+#' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
 #' @param classes Optional character or numeric vector of target classes to keep (e.g., `"ship"` or `c("ship", "large vehicle")`). All other detected classes are filtered out. Defaults to `NULL` (keep all).
@@ -6574,14 +6649,12 @@ image_features_dl <- function(img,
 #'   with `summary` and `counts` stored as attributes. If `return_features = TRUE`, `features` (an \eqn{N \times D} matrix)
 #'   and `feature_map` (dense spatial PCA `Image`) are also attached as attributes.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("objects.png")
 #'   boxes <- image_detect_dl(img)
 #'   # Rainbow coloring per box:
 #'   boxes_rb <- image_detect_dl(img, rainbow = TRUE)
-#' }
 image_detect_dl <- function(img,
                             model = "yolo26n",
                             conf_threshold = 0.4,
@@ -6597,6 +6670,11 @@ image_detect_dl <- function(img,
                             show_conf = TRUE,
                             show_class = TRUE,
                             show_id = FALSE,
+                            show_point = FALSE,
+                            show_box = NULL,
+                            point_size = 1.5,
+                            point_pch = 16,
+                            point_col = NULL,
                             badge = TRUE,
                             return_features = FALSE,
                             feature_model = c("yolo", "clip-vit-b32", "dinov2"),
@@ -6619,6 +6697,12 @@ image_detect_dl <- function(img,
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
+  if ("bbox" %in% names(dots)) show_box <- isTRUE(dots$bbox)
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
     if (missing(pad)) pad <- cex[2]
@@ -6631,7 +6715,9 @@ image_detect_dl <- function(img,
       image_detect_dl(x, model = model, conf_threshold = conf_threshold, iou_threshold = iou_threshold,
                       classes = classes, labels = labels, col = col, rainbow = rainbow, lwd = lwd,
                       cex = cex, pad = pad, show_text = show_text, show_conf = show_conf,
-                      show_class = show_class, show_id = show_id, badge = badge,
+                      show_class = show_class, show_id = show_id, show_point = show_point,
+                      show_box = show_box, point_size = point_size, point_pch = point_pch,
+                      point_col = point_col, badge = badge,
                       return_features = return_features, feature_model = feature_model, plot_features = plot_features,
                       threads = threads, engine = engine, device_id = device_id, verbose = verbose, plot = FALSE,
                       dir = dir, ...)
@@ -6704,6 +6790,11 @@ image_detect_dl <- function(img,
       show_conf = show_conf,
       show_class = show_class,
       show_id = show_id,
+      show_point = show_point,
+      show_box = show_box,
+      point_size = point_size,
+      point_pch = point_pch,
+      point_col = point_col,
       badge = badge,
       return_features = return_features,
       feature_model = feature_model,
@@ -6765,6 +6856,15 @@ image_detect_dl <- function(img,
   }
 
   df_boxes <- res$boxes
+  if (is.data.frame(df_boxes) && nrow(df_boxes) > 0) {
+    if (all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(df_boxes))) {
+      df_boxes$cx <- round((df_boxes$x1 + df_boxes$x2 + df_boxes$x3 + df_boxes$x4) / 4, 1)
+      df_boxes$cy <- round((df_boxes$y1 + df_boxes$y2 + df_boxes$y3 + df_boxes$y4) / 4, 1)
+    } else if (all(c("xmin", "xmax", "ymin", "ymax") %in% names(df_boxes))) {
+      df_boxes$cx <- round((df_boxes$xmin + df_boxes$xmax) / 2, 1)
+      df_boxes$cy <- round((df_boxes$ymin + df_boxes$ymax) / 2, 1)
+    }
+  }
 
   if (isTRUE(plot)) {
     plot(as_image(mat), ...)
@@ -6787,6 +6887,11 @@ image_detect_dl <- function(img,
         show_conf = show_conf,
         show_class = show_class,
         show_id = show_id,
+        show_box = show_box,
+        show_point = show_point,
+        point_size = point_size,
+        point_pch = point_pch,
+        point_col = point_col,
         badge = badge
       )
     }
@@ -6809,7 +6914,15 @@ image_detect_dl <- function(img,
 
   attr(df_boxes, "summary") <- res$summary
   attr(df_boxes, "counts") <- res$counts
-  attr(df_boxes, "image") <- as_image(mat)
+  attr(df_boxes, "centroids") <- if (is.data.frame(df_boxes) && "cx" %in% names(df_boxes)) {
+    data.frame(id = seq_len(nrow(df_boxes)), x = df_boxes$cx, y = df_boxes$cy)
+  } else {
+    NULL
+  }
+  attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+  if (isTRUE(attach_im)) {
+    attr(df_boxes, "image") <- as_image(mat)
+  }
   if (isTRUE(return_features)) {
     attr(df_boxes, "heatmap") <- res$heatmap
     attr(df_boxes, "feature_energy") <- res$feature_energy
@@ -6828,14 +6941,12 @@ image_detect_dl <- function(img,
 #'   and pixel formats for each device. Default is `FALSE`.
 #' @return A data frame containing camera `id` and friendly `name`, invisibly.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   # List available cameras
 #'   list_cameras()
 #'
 #'   # View detailed resolutions and formats
 #'   list_cameras(details = TRUE)
-#' }
 list_cameras <- function(details = FALSE) {
   if (.Platform$OS.type == "windows" && has_native_camera_cpp()) {
     cams <- tryCatch(list_native_cameras_cpp(), error = function(e) list(id = integer(0), name = character(0)))
@@ -7208,8 +7319,7 @@ list_cameras <- function(details = FALSE) {
 #' }
 #' If `return_data = FALSE`, returns `invisible(NULL)`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'
 #'   # 1. Video detection and ecological diversity analysis
@@ -7247,7 +7357,6 @@ list_cameras <- function(details = FALSE) {
 #'     count_line = c(0.5, 0, 0.5, 1), # vertical counting tripwire
 #'     return_data = TRUE
 #'   )
-#' }
 #' @export
 
 video_detect_dl <- function(video = 0,
@@ -9352,14 +9461,12 @@ video_detect <- video_detect_dl
 #'   * `summary`: Human-readable detection summary string.
 #'   * `counts`: Data frame of instance counts.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("person.png")
 #'   res <- image_pose_dl(img)
 #'   res$boxes
 #'   res$keypoints[[1]]
-#' }
 image_pose_dl <- function(img,
                           model = "yolo26n-pose",
                           conf_threshold = 0.25,
@@ -9540,8 +9647,7 @@ image_pose_dl <- function(img,
 #' @param ... Additional arguments passed to [graphics::plot()] or [graphics::barplot()].
 #' @return A data frame containing top predictions.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("sample.png")
 #'   # YOLO classification
@@ -9550,7 +9656,6 @@ image_pose_dl <- function(img,
 #'   # CLIP zero-shot classification
 #'   res <- image_classify_dl(img, candidates = c("healthy leaf", "rust lesion", "insect damage"))
 #'   print(res)
-#' }
 image_classify_dl <- function(img,
                               candidates = NULL,
                               model = NULL,
@@ -9810,12 +9915,10 @@ image_classify_dl <- function(img,
 #'   * `labels`: Integer matrix with instance IDs.
 #'   * `mask`: Logical foreground mask.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("grains.png")
 #'   res <- image_stardist_dl(img)
-#' }
 image_stardist_dl <- function(img,
                               model = "stardist",
                               prob_threshold = 0.5,
@@ -9920,12 +10023,10 @@ image_stardist_dl <- function(img,
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return An `Image` object with dimensions `(orig_w * 4) x (orig_h * 4) x 3`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("low_res.png")
 #'   img_hr <- image_superres_dl(img)
-#' }
 image_superres_dl <- function(img,
                               model = "realesrgan-compact",
                               scale = 4,
@@ -10146,13 +10247,11 @@ image_superres_dl <- function(img,
 #' @return A numeric vector (if single image) or numeric matrix of dimensions `N x 512`
 #'   containing the L2-normalized image embeddings.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'   emb <- image_embed_dl(img)
 #'   length(emb) # 512
-#' }
 image_embed_dl <- function(img,
                            model = "clip-vit-b32",
                            threads = 0,
@@ -10235,12 +10334,10 @@ image_embed_dl <- function(img,
 #' @param ... Additional arguments.
 #' @return A numeric matrix of dimensions `length(text) x 512` containing the L2-normalized text embeddings.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   embs <- text_embed_dl(c("healthy soybean leaf", "asian rust lesion", "pest bite"))
 #'   dim(embs) # 3 x 512
-#' }
 text_embed_dl <- function(text,
                           model = "clip-vit-b32",
                           threads = 0,
@@ -10324,6 +10421,11 @@ text_embed_dl <- function(text,
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
 #' @param show_id Logical. Whether to display object IDs (`#1`, `#2`, ...) in labels (default `FALSE`).
+#' @param show_point Logical. Whether to show a point at the centroid of each detected object. Defaults to `FALSE`.
+#' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (TRUE unless `show_point = TRUE` and all text displays are `FALSE`).
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1.5`.
+#' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
+#' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
 #' @param return_features Logical. If `TRUE`, extracts deep feature representations for detected
@@ -10343,12 +10445,10 @@ text_embed_dl <- function(text,
 #'   If `return_features = TRUE`, `features` (an \eqn{N \times D} matrix) and `feature_map` (dense spatial PCA `Image`)
 #'   are attached as attributes.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("field.jpg")
 #'   dets <- image_detect_world(img, classes = c("corn plant", "weed", "soil"), rainbow = TRUE)
-#' }
 image_detect_world <- function(img,
                                classes = c("object"),
                                conf_threshold = 0.25,
@@ -10363,6 +10463,11 @@ image_detect_world <- function(img,
                                show_conf = TRUE,
                                show_class = TRUE,
                                show_id = FALSE,
+                               show_point = FALSE,
+                               show_box = NULL,
+                               point_size = 1.5,
+                               point_pch = 16,
+                               point_col = NULL,
                                badge = TRUE,
                                return_features = FALSE,
                                feature_model = c("yolo", "clip-vit-b32", "dinov2"),
@@ -10383,6 +10488,12 @@ image_detect_world <- function(img,
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
+  if ("bbox" %in% names(dots)) show_box <- isTRUE(dots$bbox)
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
     if (missing(pad)) pad <- cex[2]
@@ -10395,6 +10506,9 @@ image_detect_world <- function(img,
                          iou_threshold = iou_threshold, model = model, rainbow = rainbow,
                          col = col, lwd = lwd, cex = cex, pad = pad, show_text = show_text,
                          show_conf = show_conf, show_class = show_class, show_id = show_id,
+                         show_point = show_point, show_box = show_box,
+                         point_size = point_size, point_pch = point_pch,
+                         point_col = point_col,
                          badge = badge, return_features = return_features,
                          feature_model = feature_model, plot_features = plot_features,
                          plot = FALSE, auto_install = auto_install,
@@ -10532,6 +10646,11 @@ image_detect_world <- function(img,
       show_conf = show_conf,
       show_class = show_class,
       show_id = show_id,
+      show_box = show_box,
+      show_point = show_point,
+      point_size = point_size,
+      point_pch = point_pch,
+      point_col = point_col,
       badge = badge
     )
   }
@@ -10569,11 +10688,9 @@ image_detect_world <- function(img,
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A `pliman` `Image` object.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_generate_dl("macro photo of a healthy soybean leaf with morning dew")
-#' }
 image_generate_dl <- function(prompt,
                               negative_prompt = NULL,
                               aspect = c("square", "portrait", "landscape"),
@@ -10733,11 +10850,9 @@ image_generate_dl <- function(prompt,
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A `pliman` `Image` object containing the inpainted result.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   inpainted <- image_inpaint_dl(img, mask, "a fresh green sprout")
-#' }
 image_inpaint_dl <- function(img,
                              mask,
                              prompt,

@@ -19,8 +19,7 @@
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A grid with the images in `...`
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img1 <- image_pliman("sev_leaf.jpg")
 #' img2 <- image_pliman("sev_leaf_nb.jpg")
@@ -28,7 +27,6 @@
 #'
 #' # Remove margins to optimize plotting area:
 #' image_combine(img1, img2, mar = 0)
-#' }
 image_combine <- function(...,
                           labels = NULL,
                           nrow = NULL,
@@ -351,8 +349,7 @@ image_combine <- function(...,
 #' * `image_pliman()` returns a new `image` object with the example image
 #' required. If an empty call is used, the path to the `tmp_images` directory
 #' installed with the package is returned.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' folder <- image_pliman()
 #' full_path <- paste0(folder, "/sev_leaf.jpg")
@@ -360,7 +357,6 @@ image_combine <- function(...,
 #' (file <- basename(full_path))
 #' image_import(img = full_path)
 #' image_import(img = file, path = path)
-#' }
 
 image_import <- function(img,
                          ...,
@@ -736,8 +732,7 @@ image_pliman <- function(img, plot = FALSE){
 #' * All other functions returns a  modified version of `image` depending on the
 #' `image_*()` function used.
 #' * If `image` is a list, a list of the same length will be returned.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("sev_leaf.jpg")
 #'plot(img)
@@ -747,7 +742,6 @@ image_pliman <- function(img, plot = FALSE){
 #'img3 <- image_vreflect(img)
 #'img4 <- image_vertical(img)
 #'image_combine(img1, img2, img3, img4)
-#' }
 image_autocrop <- function(img,
                            index = "NB",
                            edge = 5,
@@ -1600,8 +1594,7 @@ image_vreflect <- function(img,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Load example image
@@ -1616,7 +1609,6 @@ image_vreflect <- function(img,
 #' # Resize a list of images
 #' img_list <- list(img, img)
 #' resized_list <- image_resize(img_list, rel_size = 25, parallel = FALSE)
-#' }
 image_resize <- function(img,
                          rel_size = 100,
                          width,
@@ -2083,12 +2075,10 @@ image_thinning <- function(img,
 #'   function returns a list containing the thinned binary images.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg", plot = TRUE)
 #' image_thinning_guo_hall(img, index = "R", plot = TRUE)
-#' }
 #'
 image_thinning_guo_hall <- function(img,
                                     parallel = FALSE,
@@ -2206,12 +2196,10 @@ image_thinning_guo_hall <- function(img,
 #'
 #' @return A binary `Image` object (or list of `Image` objects) with values 0 and 1.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_import(image_pliman("root.jpg"))
 #' skel <- image_skeleton_mat(img, plot = TRUE)
-#' }
 image_skeleton_mat <- function(img,
                                index = "GRAY",
                                closing = 1,
@@ -2580,15 +2568,13 @@ image_blurr <- image_blur
 #'
 #' @return An `Image` object or a list of `Image` objects.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' # 20% brighter
 #' image_brightness(img, factor = 1.2, plot = TRUE)
 #' # 30% darker
 #' image_brightness(img, factor = 0.7, plot = TRUE)
-#' }
 image_brightness <- function(img,
                              factor = 1.0,
                              offset = 0.0,
@@ -2679,15 +2665,13 @@ image_brightness <- function(img,
 #'
 #' @return An `Image` object or a list of `Image` objects.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' # Add subtle Gaussian noise
 #' image_noise(img, sd = 0.03, plot = TRUE)
 #' # Salt and pepper noise
 #' image_noise(img, type = "salt_pepper", p = 0.05, plot = TRUE)
-#' }
 image_noise <- function(img,
                         type = c("gaussian", "salt_pepper", "speckle"),
                         mean = 0.0,
@@ -2780,11 +2764,9 @@ image_noise <- function(img,
 #' @return An object of class `image`.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' image_create("red")
 #' image_create("#009E73", width = 300, heigth = 100)
-#' }
 
 image_create <- function(color,
                          width = 200,
@@ -2892,12 +2874,10 @@ image_create <- function(color,
 #' @return A list containing binary images. The length will depend on the number
 #'   of indexes used.
 #' @importFrom utils read.csv
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_binary(img, index = c("R, G"))
-#' }
 #'
 image_binary <- function(img,
                          index = "R",
@@ -3151,12 +3131,10 @@ image_binary <- function(img,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A list containing Grayscale images. The length will depend on the
 #'   number of indexes used.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_index(img, index = c("R, NR"))
-#' }
 image_index <- function(img,
                         index = NULL,
                         r = 1,
@@ -3335,8 +3313,7 @@ image_index <- function(img,
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A `NULL` object
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' # Example for S3 method plot()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
@@ -3346,7 +3323,6 @@ image_index <- function(img,
 #'
 #' # density plot
 #' plot(ind, type = "density")
-#' }
 #'
 #
 plot.image_index <- function(x,
@@ -3459,12 +3435,10 @@ plot.image_index <- function(x,
 #' proportion of pixels in the segmented images and (2) the segmented images.
 #'
 
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg", plot = TRUE)
 #'image_segment(img, index = c("R, G, B"))
-#' }
 #'
 #'
 image_segment <- function(img,
@@ -3900,12 +3874,10 @@ image_segment_iter <- function(img,
 #'   K-means clustering algorithm. Applied Statistics, 28, 100-108.
 #'   \doi{10.2307/2346830}
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' seg <- image_segment_kmeans(img)
 #' seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)
-#' }
 
 image_segment_kmeans <-   function (img,
                                     bands = 1:3,
@@ -4016,13 +3988,11 @@ image_segment_kmeans <-   function (img,
 #' @return A list with the segmented image and the mask used for segmentation.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("la_leaves.jpg")
 #' seg <- image_segment_manual(img)
 #' plot(seg$mask)
 #'
-#' }
 image_segment_manual <-  function(img,
                                   shape = c("free", "circle", "rectangle"),
                                   type = c("select", "remove"),
@@ -4187,14 +4157,12 @@ image_segment_manual <-  function(img,
 #' @return A list containing three matrices (R, G, and B), and a data frame
 #'   containing four columns: the name of the image in `image` and the R, G, B
 #'   values.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' dim(img)
 #' mat <- image_to_mat(img)
 #' dim(mat[[1]])
-#' }
 image_to_mat <- function(img,
                          parallel = FALSE,
                          workers = NULL,
@@ -4281,12 +4249,10 @@ image_to_mat <- function(img,
 #' @name palettes
 #' @export
 #' @importFrom stats na.omit
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("sev_leaf.jpg")
 #'pal <- image_palette(img, npal = 5)
-#'}
 #'
 #'
 
@@ -4661,13 +4627,11 @@ image_palette <- function (img,
 #' @return An `image` object
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' image_expand(img, left = 200)
 #' image_expand(img, right = 150, bottom = 250, filter = 5)
-#' }
 #'
 image_expand <- function(img,
                          left = NULL,
@@ -4782,14 +4746,12 @@ image_expand <- function(img,
 #' @param ... Further arguments passed on to [image_expand()].
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' dim(img)
 #' square <- image_square(img)
 #' dim(square)
-#' }
 image_square <- function(img, plot = TRUE, ...){
   len <- dim(img)
   n <- max(len[1], len[2])
@@ -4879,7 +4841,7 @@ image_square <- function(img, plot = TRUE, ...){
 #' # Convert number of pixels to cm with resolution of 96 dpi.
 #' pixels_to_cm(c(1, 2, 3), 96)
 #'
-#' if(isTRUE(interactive())){
+#' @examplesIf interactive()
 #' #### compute the dpi (dots per inch) resolution ####
 #' # only works in an interactive section
 #' # objects_300dpi.jpg has a known resolution of 300 dpi
@@ -4895,7 +4857,6 @@ image_square <- function(img, plot = TRUE, ...){
 #' img2 <- image_pliman("la_leaves.jpg")
 #' # square leaf sample (2 x 2 cm)
 #' dpi(img2)
-#' }
 dpi_to_cm <- function(dpi){
   2.54 / dpi
 }
@@ -5000,8 +4961,7 @@ distance <- function(img,
 #' @name utils_colorspace
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A data frame with the columns of the converted color space
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' rgb_to_lab(img)
@@ -5009,7 +4969,6 @@ distance <- function(img,
 #' # analyze the object and convert the pixels
 #' anal <- analyze_objects(img, object_index = "B", pixel_level_index = TRUE)
 #' rgb_to_lab(anal)
-#' }
 rgb_to_hsb <- function(object){
   if (any(class(object) %in%  c("data.frame", "matrix"))){
     hsb <-
@@ -5409,11 +5368,9 @@ help_imageindex <- function(img,
 #' @return An aligned and cropped `image` object.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("flax_leaves.jpg")
 #' prepare_to_shp(img)
-#' }
 prepare_to_shp <- function(img,
                            align = "vertical"){
 
@@ -5435,8 +5392,7 @@ prepare_to_shp <- function(img,
 #'
 #' @return An `image` object with an added alpha layer, maintaining the RGBA format.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Load a sample RGB image
@@ -5450,7 +5406,6 @@ prepare_to_shp <- function(img,
 #' img_tb <- image_alpha(img, mask)
 #' plot(img_tb)
 #'
-#' }
 #'
 #' @export
 #'
@@ -5501,8 +5456,7 @@ image_alpha <- function(img, mask) {
 #'   connected component is assigned a unique integer label.
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- matrix(c(
 #'   1, 1, 0, 0, 0, 1, 1, 1, 0,
@@ -5514,7 +5468,6 @@ image_alpha <- function(img, mask) {
 #' image_label(img, max_gap = 1) |> plot()
 #' image_label(img, max_gap = 2)
 #' image_label(img, max_gap = 3)
-#' }
 image_label <- function(img, max_gap = 0){
   help_label(img, max_gap = max_gap) |> as_image()
 }
@@ -5530,14 +5483,12 @@ image_label <- function(img, max_gap = 0){
 #' @return A list with the contour lines.
 #' @importFrom utils tail
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' conts <- image_contour_line(img, index = "B")
 #' plot(img)
 #' plot_contour(conts, col = "black")
-#' }
 #'
 image_contour_line <- function(img, index = "GRAY", Q = 2.0){
   ind <- image_index(img, index, plot = FALSE)[[1]]
@@ -5571,13 +5522,11 @@ image_contour_line <- function(img, index = "GRAY", Q = 2.0){
 #' @return a list with an `image` object with values 0 or 255, and the number of
 #'   pixels which have value 255 (pixels_nonzero).
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' conts <- image_canny_edge(img, index = "B")
 #' image_combine(img, conts$edges)
-#' }
 image_canny_edge <- function(img,
                              index = "GRAY",
                              s = 5,
@@ -5844,8 +5793,7 @@ order_quad_corners <- function(pts) {
 #' }
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("colorcheck.jpg")
 #'
@@ -5855,7 +5803,6 @@ order_quad_corners <- function(pts) {
 #'
 #' # View patch overlay
 #' plot(card)
-#' }
 get_card_colors <- function(img,
                             reference = "colorchecker24",
                             nrow = NULL,
@@ -6537,8 +6484,7 @@ summary.pliman_card_colors <- function(object, ...) {
 #' If only `img` and a pre-calculated `k_mat` are supplied, returns the corrected `image` directly.
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("colorcheck.jpg")
 #'
@@ -6550,7 +6496,6 @@ summary.pliman_card_colors <- function(object, ...) {
 #'
 #' # 3. Or using polynomial models
 #' calib_poly <- image_correction(img, card, model = "root_polynomial")
-#' }
 image_correction <- function(img,
                              card_colors = NULL,
                              known_colors = NULL,
@@ -6732,8 +6677,7 @@ image_correction <- function(img,
 #' @return An `image` object with corrected colors.
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Sample 4 known chips (e.g. blue, red, yellow, white)
@@ -6746,7 +6690,6 @@ image_correction <- function(img,
 #' img <- image_pliman("colorcheck.jpg")
 #' img_cor <- image_correction_pick(img, known_colors, color_chips = 4)
 #' image_combine(img, img_cor)
-#' }
 image_correction_pick <- function(img,
                                   known_colors = NULL,
                                   color_chips = 24,

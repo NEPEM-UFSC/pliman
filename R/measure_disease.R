@@ -200,8 +200,7 @@
 #' @export
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf_nb.jpg")
 #' healthy <- image_pliman("sev_healthy.jpg")
@@ -216,7 +215,6 @@
 #'
 #' # an interactive section
 #' measure_disease_iter(img)
-#' }
 #'
 measure_disease <- function(img,
                             img_healthy = NULL,

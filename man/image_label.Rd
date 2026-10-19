@@ -24,7 +24,7 @@ for a specified maximum gap between pixels to still be considered part of
 the same object.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- matrix(c(
   1, 1, 0, 0, 0, 1, 1, 1, 0,
@@ -36,5 +36,5 @@ img <- matrix(c(
 image_label(img, max_gap = 1) |> plot()
 image_label(img, max_gap = 2)
 image_label(img, max_gap = 3)
-}
+\dontshow{\}) # examplesIf}
 }

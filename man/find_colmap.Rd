@@ -15,8 +15,8 @@ Searches for the COLMAP binary in the global system \code{PATH}, R package optio
 managed by \code{pliman}. Configures necessary library paths in \code{PATH} automatically.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 colmap_bin <- find_colmap()
-}
+\dontshow{\}) # examplesIf}
 }

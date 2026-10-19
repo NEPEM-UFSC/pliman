@@ -101,7 +101,7 @@ Features include:
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Launch standalone viewer ready for drag & drop
@@ -110,5 +110,5 @@ gs_viewer()
 # 2. Or pass a model and cameras directly
 splat <- gs_import_metashape("cuia_densa.ply")
 gs_viewer(splat, cameras = "colmap/sparse/0", images = "photos/")
-}
+\dontshow{\}) # examplesIf}
 }

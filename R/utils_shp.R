@@ -33,12 +33,10 @@
 #' @return A list with `row * col` objects containing the plot coordinates.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
-#' }
 #'
 image_shp <- function(img,
                       nrow = 1,
@@ -107,8 +105,7 @@ image_shp <- function(img,
 #' @export
 #' @importFrom grDevices dev.list
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg")
 #' shape <- image_shp(flax, nrow = 3, ncol = 5)
@@ -116,7 +113,6 @@ image_shp <- function(img,
 #' # grid on the existing image
 #' plot(flax)
 #' plot(shape)
-#' }
 plot.image_shp <- function(x,
                            img = NULL,
                            col_line = "black",
@@ -166,13 +162,11 @@ plot.image_shp <- function(x,
 #' @return A list of `image` objects
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' objects <- object_split_shp(flax, nrow = 3, ncol = 5)
 #' image_combine(objects$imgs)
-#' }
 object_split_shp <- function(img,
                              nrow = 1,
                              ncol = 1,
@@ -247,13 +241,11 @@ object_split_shp <- function(img,
 #' @return A `NULL` object.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' object_export_shp(flax)
 #'
-#' }
 object_export_shp <- function(img,
                               pattern = NULL,
                               dir_original = NULL,
@@ -518,12 +510,10 @@ object_export_shp <- function(img,
 #' @return The `img` aligned
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 #' aligned <- image_align(flax)
-#' }
 image_align <- function(img,
                         align = c("vertical", "horizontal"),
                         viewer = get_pliman_viewer(),
@@ -630,8 +620,7 @@ image_align <- function(img,
 #'   section of [analyze_objects()].
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Computes the DGCI index for each flax leaf
@@ -645,7 +634,6 @@ image_align <- function(img,
 #' plot(flax)
 #' plot(res$shapefiles)
 #' plot_measures(res, measure = "DGCI")
-#' }
 analyze_objects_shp <- function(img,
                                 nrow = 1,
                                 ncol = 1,
@@ -992,8 +980,7 @@ analyze_objects_shp <- function(img,
 #' @seealso \code{\link{analyze_objects_shp}}
 #'
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 #' res <-
@@ -1011,7 +998,6 @@ analyze_objects_shp <- function(img,
 #' result$distances
 #' result$cvs
 #' result$means
-#' }
 object_map <- function(object,
                        by_column = "img",
                        direction = c("horizontal", "vertical")) {
@@ -1063,8 +1049,7 @@ object_map <- function(object,
 #' @seealso \code{\link{analyze_objects_shp}}
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 #' res <-
@@ -1073,7 +1058,6 @@ object_map <- function(object,
 #'                        index = "R/(G/B)",
 #'                        plot = FALSE)
 #' object_mark(res)
-#' }
 object_mark <- function(object, col = "white"){
   if(!inherits(object, "anal_obj")){
     cli::cli_abort(c(
@@ -1131,8 +1115,7 @@ plot_shp <- function(coords,
 #' @importFrom grDevices colorRamp
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Computes the DGCI index for each flax leaf
@@ -1146,7 +1129,6 @@ plot_shp <- function(coords,
 #'                        plot = FALSE,
 #'                        object_index = "DGCI")
 #' plot_index_shp(res, attribute = "DGCI")
-#' }
 #'
 plot_index_shp <- function(object,
                            attribute = "coverage",
@@ -1367,8 +1349,7 @@ plot_index_shp <- function(object,
 #'   section of [measure_disease()].
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' # severity for the three leaflets (from left to right)
 #' img <- image_pliman("mult_leaves.jpg", plot = TRUE)
 #' sev <-
@@ -1378,7 +1359,6 @@ plot_index_shp <- function(object,
 #'                      index_lb = "B",
 #'                      index_dh = "NGRDI")
 #' sev$severity
-#' }
 
 measure_disease_shp <- function(img,
                                 nrow = 1,

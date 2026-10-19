@@ -48,7 +48,7 @@ The returned object wraps the audited dataset seamlessly so it can be chained
 directly with the pipe operator \verb{|>} into \code{yolo_train()} or \code{yolo_dataset_augment()}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Audit a YOLO dataset and automatically fix issues
@@ -56,7 +56,7 @@ ds_clean <- yolo_dataset_audit("dataset_cafe", repair = TRUE)
 
 # Pipe directly into training!
 ds_clean |> yolo_train(model = "yolo26n-seg", epochs = 50)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

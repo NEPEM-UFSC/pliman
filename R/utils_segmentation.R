@@ -32,12 +32,10 @@
 #' @importFrom methods .hasSlot slot
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
 #'   w_med <- image_watershed(bin$B)
-#' }
 image_watershed <- function(img,
                             sensitivity = "medium",
                             tolerance = NULL,
@@ -138,12 +136,10 @@ image_watershed <- function(img,
 #' object is assigned a unique integer value. Background pixels are 0.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
 #'   labels <- image_bwlabel(bin$B)
-#' }
 image_bwlabel <- function(binary) {
   if (!is.logical(binary)) {
     binary <- binary > 0
@@ -168,14 +164,12 @@ image_bwlabel <- function(binary) {
 #' @return A color `image` object.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
 #'   lbl <- image_bwlabel(bin$B)
 #'   color_lbl <- image_color_labels(lbl)
 #'   plot(color_lbl)
-#' }
 image_color_labels <- function(labels) {
   if (inherits(labels, "Image") || inherits(labels, "image")) {
     mat <- unclass(labels)
@@ -200,14 +194,12 @@ image_color_labels <- function(labels) {
 #' @return An `image` object or an array, with pixels containing the distances
 #'   to the nearest background points
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' binary <- image_binary(img, "B")[[1]]
 #' wts <- dist_transform(binary)
 #' range(wts)
-#'}
 dist_transform <- function(binary, normalize = FALSE){
   if (is.raw(binary) || is.numeric(binary)) {
     binary <- binary > 0
@@ -243,13 +235,11 @@ dist_transform <- function(binary, normalize = FALSE){
 #' @return A list with the same length of `img` containing the labeled objects.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("soybean_touch.jpg")
 #' # segment the objects using the "B" (blue) band.
 #' object_label(img, index = "B")
 #' object_label(img, index = "B", watershed = TRUE)
-#' }
 
 object_label <- function(img,
                          index = "B",
@@ -345,12 +335,10 @@ object_label <- function(img,
 
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("soybean_touch.jpg")
 #' thresh <- otsu(image_data(img[,,3]))
 #' plot(img[,,3] < thresh)
-#' }
 #'
 otsu <- function(values){
   help_otsu(values)

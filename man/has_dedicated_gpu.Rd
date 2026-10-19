@@ -15,8 +15,8 @@ with CUDA support for accelerated photogrammetry (COLMAP SIFT feature matching)
 and differentiable 3D Gaussian Splatting optimization.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 has_dedicated_gpu()
-}
+\dontshow{\}) # examplesIf}
 }

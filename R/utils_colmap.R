@@ -13,11 +13,9 @@
 #'
 #' @return Logical: `TRUE` if an accessible NVIDIA GPU is detected, `FALSE` otherwise.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' has_dedicated_gpu()
-#' }
 has_dedicated_gpu <- function() {
   # 1. Direct query via nvidia-smi (cross-platform: Windows and Linux)
   nvsmi <- Sys.which("nvidia-smi")
@@ -68,11 +66,9 @@ has_dedicated_gpu <- function() {
 #'
 #' @return Absolute path to the COLMAP executable or `NULL` if not found.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' colmap_bin <- find_colmap()
-#' }
 find_colmap <- function() {
   # Helper to configure PATH if Windows has lib/
   setup_path <- function(p) {
@@ -133,11 +129,9 @@ find_colmap <- function() {
 #' @param version Character string. Target COLMAP GitHub release tag. Defaults to `"4.2.1"`.
 #' @return Absolute path to the installed COLMAP binary.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' install_colmap()
-#' }
 install_colmap <- function(force = FALSE, version = "4.2.1") {
   sys_name <- Sys.info()["sysname"]
   has_cuda <- has_dedicated_gpu()
@@ -337,8 +331,7 @@ install_colmap <- function(force = FALSE, version = "4.2.1") {
 #'   `sparse_dir`, `recon_dir`, `cameras_txt`, `images_txt`, `points3d_ply`, `points3d_txt`,
 #'   `dense_dir`, `fused_ply`) and reconstruction metrics (`n_cameras`, `n_points`).
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' # Fast sparse reconstruction with SIFT & OpenCV camera model
 #' sfm_res <- colmap_sfm("my_photos/", camera_model = "OPENCV")
@@ -349,7 +342,6 @@ install_colmap <- function(force = FALSE, version = "4.2.1") {
 #'
 #' # Full dense point cloud (PatchMatch MVS with GPU CUDA)
 #' dense_res <- colmap_sfm("my_photos/", camera_model = "OPENCV", dense = TRUE)
-#' }
 colmap_sfm <- function(images,
                        output_dir = NULL,
                        camera_model = c("OPENCV", "SIMPLE_RADIAL", "RADIAL", "PINHOLE", "SIMPLE_PINHOLE", "OPENCV_FISHEYE", "FULL_OPENCV"),
@@ -784,8 +776,7 @@ colmap_sfm <- function(images,
 #' @param show_colmap_output Logical. Stream raw COLMAP logs directly to the R console. Defaults to `FALSE`.
 #' @return An updated `colmap_sfm` object with `$dense_dir`, `$fused_ply`, `$n_dense_points`, which can be visualized directly with \code{plot()} or [gs_viewer()].
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Solve camera poses with sparse SfM
@@ -796,7 +787,6 @@ colmap_sfm <- function(images,
 #'
 #' # 3. Visualize dense point cloud interactively in 3D
 #' plot(dense_cloud)
-#' }
 colmap_dense <- function(sfm,
                          images = NULL,
                          output_dir = NULL,
@@ -989,8 +979,7 @@ colmap_dense <- function(sfm,
 #' @return An object of class `colmap_mesh` (named list) containing the path to the reconstructed `.ply` mesh,
 #'   vertex count, face/triangle count, and metadata. Compatible with [gs_viewer()] for interactive 3D inspection.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Reconstruct watertight 3D solid mesh from SfM
@@ -1001,7 +990,6 @@ colmap_dense <- function(sfm,
 #'
 #' # 3. Visualize in 3D WebGL viewer
 #' gs_viewer(mesh)
-#' }
 colmap_mesh <- function(sfm,
                         type = c("delaunay", "poisson"),
                         images = NULL,
@@ -1318,11 +1306,9 @@ plot.colmap_sfm <- function(x, ...) {
 #' @param cameras_file Path to COLMAP `cameras.txt`. If `NULL`, inferred from `images_file`.
 #' @return A named list containing camera specifications for each calibrated image.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' cams <- gs_import_cameras_colmap("sparse/0/images.txt")
-#' }
 gs_import_cameras_colmap <- function(images_file, cameras_file = NULL) {
   if (dir.exists(images_file)) {
     cameras_file <- file.path(images_file, "cameras.txt")
@@ -1466,11 +1452,9 @@ gs_import_cameras_colmap <- function(images_file, cameras_file = NULL) {
 #' @return A named list containing `cameras` (calibrated camera list), `splat` (`gaussian_splat` object),
 #'   and `colmap_dir`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' col_data <- gs_import_colmap("my_photos/colmap_workspace/sparse/0")
-#' }
 gs_import_colmap <- function(colmap_dir, initial_scale = NULL, initial_opacity = 0.99) {
   fused_file_override <- NULL
   if (inherits(colmap_dir, "colmap_sfm")) {
@@ -1579,13 +1563,11 @@ gs_import_colmap <- function(colmap_dir, initial_scale = NULL, initial_opacity =
 #' @param ... Additional arguments passed to [colmap_sfm()], [gs_fit()], or [gs_viewer()].
 #' @return A trained `gaussian_splat` object.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Full end-to-end pipeline in a single function call!
 #' splat <- gs_from_photos("frames/", matching = "exhaustive", iterations = 1000)
-#' }
 gs_from_photos <- function(images,
                            output_dir = NULL,
                            camera_model = "OPENCV",

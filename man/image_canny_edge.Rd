@@ -25,10 +25,10 @@ pixels which have value 255 (pixels_nonzero).
 Canny Edge Detector for Images. Adapted from \url{https://github.com/bnosac/image/tree/master/image.CannyEdges}.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 conts <- image_canny_edge(img, index = "B")
 image_combine(img, conts$edges)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -82,7 +82,7 @@ onto the 3D surface mesh to produce photorealistic texture atlases.
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Reconstruct watertight 3D solid mesh from SfM
@@ -93,5 +93,5 @@ mesh_fast <- colmap_mesh(sfm_completo, type = "delaunay")
 
 # 3. Visualize in 3D WebGL viewer
 gs_viewer(mesh)
-}
+\dontshow{\}) # examplesIf}
 }

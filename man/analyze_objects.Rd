@@ -491,7 +491,7 @@ computed with \code{\link[=poly_apex_base_angle]{poly_apex_base_angle()}}.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
@@ -509,9 +509,8 @@ res <- analyze_objects(img,
                        reference_area = 6,
                        reference_larger = TRUE,
                        lower_noise = 0.3)
-}
-
-if (interactive()) {
+\dontshow{\}) # examplesIf}
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")
@@ -527,7 +526,7 @@ plot(rgb, measure = "perimeter", type = "histogram")
 
 # density of the blue (B) index
 plot(rgb, which = "index")
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Haralick, R.M., K. Shanmugam, and I. Dinstein. 1973. Textural Features for Image

@@ -21,8 +21,8 @@ An object of class \code{image}.
 image_create() can be used to create an \code{image} object with a desired color and size.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 image_create("red")
 image_create("#009E73", width = 300, heigth = 100)
-}
+\dontshow{\}) # examplesIf}
 }

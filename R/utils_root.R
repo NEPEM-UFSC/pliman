@@ -117,8 +117,7 @@
 #' image analysis. Plant Physiology, 187(2), 739-757.
 #'
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Analyze a root image scanned at 600 DPI
@@ -132,7 +131,6 @@
 #'
 #' # Plot continuous diameter heatmap
 #' plot(res, type = "diameter")
-#' }
 root_analyze <- function(img,
                          index = "GRAY",
                          threshold = "otsu",

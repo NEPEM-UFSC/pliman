@@ -52,9 +52,9 @@ Upscales images by 4x using generative convolutional super-resolution with
 intelligent tiled overlapping to prevent GPU/CPU memory exhaustion.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("low_res.png")
   img_hr <- image_superres_dl(img)
-}
+\dontshow{\}) # examplesIf}
 }

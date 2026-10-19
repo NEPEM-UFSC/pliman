@@ -47,7 +47,7 @@ details.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 rgb_to_lab(img)
@@ -55,7 +55,7 @@ rgb_to_lab(img)
 # analyze the object and convert the pixels
 anal <- analyze_objects(img, object_index = "B", pixel_level_index = TRUE)
 rgb_to_lab(anal)
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 See \href{https://www.example.com}{the detailed formulas here}

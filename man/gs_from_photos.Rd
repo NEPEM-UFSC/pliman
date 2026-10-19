@@ -82,10 +82,10 @@ Executes the complete end-to-end 3D reconstruction workflow:
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Full end-to-end pipeline in a single function call!
 splat <- gs_from_photos("frames/", matching = "exhaustive", iterations = 1000)
-}
+\dontshow{\}) # examplesIf}
 }

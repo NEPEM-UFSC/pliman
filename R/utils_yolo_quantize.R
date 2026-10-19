@@ -19,8 +19,7 @@
 #'
 #' @return The normalized file path to the quantized `.onnx` model.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Quantize classification model
@@ -28,7 +27,6 @@
 #'
 #' # Run inference with 3x speedup on CPU
 #' res <- image_classify_dl("rose.jpg", model = q_model)
-#' }
 onnx_quantize <- function(model_path,
                           output_path = NULL,
                           weight_type = c("QUInt8", "QInt8"),
@@ -177,8 +175,7 @@ except Exception as e:
 #' @return A `data.frame` of class `pliman_quantize_summary` listing each model, original size,
 #'   INT8 size, reduction percentage, and conversion status.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Convert a specific installed model
@@ -187,7 +184,6 @@ except Exception as e:
 #' # Convert all installed models in pliman_model_dir()
 #' summary <- model_to_int8()
 #' print(summary)
-#' }
 model_to_int8 <- function(model = NULL,
                           dir = pliman_model_dir(),
                           weight_type = c("QUInt8", "QInt8"),

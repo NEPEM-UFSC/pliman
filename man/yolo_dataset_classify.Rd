@@ -88,7 +88,7 @@ The resulting directory structure conforms to the official YOLO classification f
 }\if{html}{\out{</div>}}
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Organize flower photos into train (70\%), val (20\%), test (10\%)
@@ -108,7 +108,7 @@ model <- yolo_train(
   model = "yolo11n-cls",
   epochs = 50
 )
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

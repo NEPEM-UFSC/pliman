@@ -20,12 +20,11 @@ A list with the contour lines.
 Smooth Contour Line Detection
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 conts <- image_contour_line(img, index = "B")
 plot(img)
 plot_contour(conts, col = "black")
-}
-
+\dontshow{\}) # examplesIf}
 }

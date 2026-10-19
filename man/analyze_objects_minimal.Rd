@@ -178,15 +178,14 @@ are recognized.}
 A lighter option to \code{\link[=analyze_objects]{analyze_objects()}}
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
 obj$statistics
 
-}
-
-if (interactive()) {
+\dontshow{\}) # examplesIf}
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")
@@ -199,7 +198,7 @@ plot(rgb)
 
 # histogram of area
 plot(rgb, type = "histogram") # or 'hist'
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

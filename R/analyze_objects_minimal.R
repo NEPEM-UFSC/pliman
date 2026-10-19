@@ -8,14 +8,12 @@
 #' @param r,g,b,re,nir The red, green, blue, red-edge, and near-infrared bands, respectively.
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' obj <- analyze_objects(img)
 #' obj$statistics
 #'
-#' }
 #'
 analyze_objects_minimal <- function(img,
                                     segment_objects = TRUE,
@@ -519,8 +517,6 @@ analyze_objects_minimal <- function(img,
         as.integer(workers)
       }
       eff_workers <- min(nworkers, length(names_plant))
-      pkg_root <- tryCatch(rprojroot::find_package_root_file(), error = function(e) getwd())
-      is_dev_mode <- file.exists(file.path(pkg_root, "DESCRIPTION")) && requireNamespace("pkgload", quietly = TRUE)
 
       st <- tryCatch(mirai::status()$daemons, error = function(e) 0L)
       existing_daemons <- if (is.numeric(st)) st else 0L
@@ -541,24 +537,13 @@ analyze_objects_minimal <- function(img,
           if (existing_daemons == 0L) {
             on.exit(mirai::daemons(0), add = TRUE)
           }
-          if (is_dev_mode) {
-            mirai::everywhere(
-              {
-                .libPaths(lp)
-                pkgload::load_all(p_dir, quiet = TRUE, helpers = FALSE)
-              },
-              lp = .libPaths(),
-              p_dir = pkg_root
-            )
-          } else {
-            mirai::everywhere(
-              {
-                .libPaths(lp)
-                library(pliman)
-              },
-              lp = .libPaths()
-            )
-          }
+          mirai::everywhere(
+            {
+              .libPaths(lp)
+              library(pliman)
+            },
+            lp = .libPaths()
+          )
         }
         TRUE
       }, error = function(e) {
@@ -788,8 +773,7 @@ analyze_objects_minimal <- function(img,
 #' @method plot anal_obj_minimal
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' img <- image_pliman("soy_green.jpg")
@@ -802,7 +786,6 @@ analyze_objects_minimal <- function(img,
 #'
 #' # histogram of area
 #' plot(rgb, type = "histogram") # or 'hist'
-#' }
 plot.anal_obj_minimal <- function(x,
                                   which = "measure",
                                   measure = "area",

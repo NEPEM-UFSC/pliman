@@ -103,7 +103,7 @@ Import images from files and URLs and write images to files, possibly with
 batch processing.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 folder <- image_pliman()
 full_path <- paste0(folder, "/sev_leaf.jpg")
@@ -111,7 +111,7 @@ full_path <- paste0(folder, "/sev_leaf.jpg")
 (file <- basename(full_path))
 image_import(img = full_path)
 image_import(img = file, path = path)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

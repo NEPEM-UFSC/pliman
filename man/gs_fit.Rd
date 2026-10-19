@@ -83,7 +83,7 @@ Can run with high-performance GPU hardware acceleration via CUDA/PyTorch/CuPy NV
 (up to 200x faster than CPU) or fallback to native multithreaded OpenMP C++.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Import cameras and sparse tie points exported from Metashape/COLMAP
@@ -101,5 +101,5 @@ trained_splat <- gs_fit(
 
 # 3. Open interactive WebGL viewer in Google Chrome
 gs_viewer(trained_splat)
-}
+\dontshow{\}) # examplesIf}
 }

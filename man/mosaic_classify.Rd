@@ -28,7 +28,7 @@ It provides an option to calculate the frequency and area of each class, as
 well as plot the classified mosaic.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 library(terra)
 
@@ -41,6 +41,5 @@ result <- mosaic_classify(r, breaks = c(0.3, 0.6))
 # View results
 result$classified
 result$class_freq
-}
-
+\dontshow{\}) # examplesIf}
 }

@@ -35,14 +35,13 @@ number of decimal places (default 2).
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 iris2 <- iris |> rownames_to_column()
 head(iris2)
 iris2$rowname <- paste0("r", iris2$rowname)
 iris2 |> column_to_rownames("rowname") |> head()
-}
-
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

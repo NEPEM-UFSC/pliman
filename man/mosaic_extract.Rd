@@ -74,7 +74,7 @@ For rasters on disk, it dynamically monitors available system RAM via native C++
 full in-memory processing and memory-safe spatial block processing (when raster size exceeds 80\% of available RAM).
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 shp <- shapefile_input( paste0(image_pliman(), "/soy_shape.rds"))
 mosaic <- mosaic_input( paste0(image_pliman(), "/soy_ortho.tif"))
@@ -84,5 +84,5 @@ mosaic_extract(mosaic, shp, fun = "mean", return = "shapefile")
 
 # Extract mean and quantiles with plot area coverage metrics
 mosaic_extract(mosaic, shp, fun = c("mean", "quantiles"), coverage_area = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -160,7 +160,7 @@ where \eqn{\eta_0 = \text{lr0}} and \eqn{\eta_{\text{final}} = \text{lr0} \times
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Train a custom coffee grain segmentation model
@@ -183,5 +183,5 @@ plot(model_res, which = "metrics")
 # Run inference with your new model directly in pliman!
 img <- image_import("cafe.jpeg")
 seg <- image_segment_dl(img, model = model_res$model_file, type = "highlight")
-}
+\dontshow{\}) # examplesIf}
 }

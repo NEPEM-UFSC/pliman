@@ -97,11 +97,11 @@ Performs real-time human pose estimation and 17 keypoint detection using YOLO26
 anatomical skeleton visualization.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("person.png")
   res <- image_pose_dl(img)
   res$boxes
   res$keypoints[[1]]
-}
+\dontshow{\}) # examplesIf}
 }

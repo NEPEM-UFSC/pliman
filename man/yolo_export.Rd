@@ -32,8 +32,8 @@ into a standalone ONNX model ready for instant C++ execution in \code{\link[=ima
 or \code{\link[=image_detect_dl]{image_detect_dl()}}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 yolo_export("best.pt", output_name = "custom_model.onnx")
-}
+\dontshow{\}) # examplesIf}
 }

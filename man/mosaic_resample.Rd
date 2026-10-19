@@ -21,7 +21,7 @@ Transfers values between SpatRaster objects that do not align (have a
 different origin and/or resolution). See \code{\link[terra:resample]{terra::resample()}} for more details
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 library(terra)
 r <- rast(nrows=3, ncols=3, xmin=0, xmax=10, ymin=0, ymax=10)
@@ -33,5 +33,5 @@ par(mfrow=c(1,2))
 plot(r)
 plot(x)
 par(opar)
-}
+\dontshow{\}) # examplesIf}
 }

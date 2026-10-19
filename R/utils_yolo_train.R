@@ -320,8 +320,7 @@
 #'   * `review_dir`: Path to the review directory containing visual previews (if `review = TRUE`).
 #'   * `n_objects`: Total number of annotated objects across the dataset.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Semi-Automated 1-Click Labeling with PerSAM:
@@ -352,7 +351,6 @@
 #'   index = "B",
 #'   watershed = TRUE
 #' )
-#' }
 yolo_dataset_export <- function(img,
                                 model = NULL,
                                 annotations = "auto",
@@ -1442,12 +1440,10 @@ yolo_export <- yolo_dataset_export
 #'
 #' @return An invisible list of the sampled image file paths.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' dataset <- yolo_dataset_export(img, dir = "dataset_cafe", model = "persam")
 #' yolo_dataset_preview(dataset, n = 4, random = TRUE)
 #' plot(dataset, n = 6)
-#' }
 yolo_dataset_preview <- function(dir = "yolo_dataset",
                                  split = c("train", "val", "test"),
                                  bbox = TRUE,
@@ -2003,15 +1999,13 @@ print.yolo_dataset <- function(x, ...) {
 #'
 #' @return Invisible list with summary of added files.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' # Using a local NDJSON downloaded from Ultralytics Hub:
 #' yolo_dataset_add_background(
 #'   dir = "yolo_toras",
 #'   source = "african-wildlife.ndjson",
 #'   n = 20
 #' )
-#' }
 yolo_dataset_add_background <- function(dir = "yolo_dataset",
                                         source,
                                         n = 20L,
@@ -2435,8 +2429,7 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
 #' @return If `dir = NULL`, a list of pliman `Image` objects. If `dir` is specified,
 #'   an invisible list with paths of generated training and validation images: `list(train = ..., val = ...)`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Generate 6 wavy background images in memory and preview them
@@ -2444,7 +2437,6 @@ yolo_dataset_add_background <- function(dir = "yolo_dataset",
 #'
 #' # 2. Generate and inject 20 synthetic background images into a YOLO dataset
 #' yolo_background_synth(dir = "my_dataset", n = 20, pattern = "random")
-#' }
 yolo_background_synth <- function(dir = NULL,
                                   n = 10L,
                                   width = 640L,
@@ -2724,8 +2716,7 @@ yolo_dataset_synth_background <- yolo_background_synth
 #'
 #' @return An invisible `yolo_dataset` object pointing to the cleaned dataset, or an invisible list with removal counts.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Inject synthetic backgrounds into a YOLO dataset
@@ -2733,7 +2724,6 @@ yolo_dataset_synth_background <- yolo_background_synth
 #'
 #' # 2. Clean up synthetic backgrounds and return to original state
 #' yolo_background_synth_clean("my_dataset")
-#' }
 yolo_background_synth_clean <- function(data,
                                         prefix = "synth_bg_",
                                         pattern = NULL,
@@ -2914,8 +2904,7 @@ yolo_dataset_background_clean <- yolo_background_synth_clean
 #'
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Organize flower photos into train (70%), val (20%), test (10%)
@@ -2935,7 +2924,6 @@ yolo_dataset_background_clean <- yolo_background_synth_clean
 #'   model = "yolo11n-cls",
 #'   epochs = 50
 #' )
-#' }
 yolo_dataset_classify <- function(src_dir,
                                   out_dir = "yolo_cls_dataset",
                                   split = c(train = 0.70, val = 0.20, test = 0.10),
@@ -3310,15 +3298,13 @@ plot.yolo_dataset_cls <- function(x, n_per_class = 2, max_images = 12, ...) {
 #'
 #' @return An object of class `yolo_dataset` with dataset directory paths and classes.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' # Download and export the entire dataset permanently before URLs expire:
 #' ds <- yolo_dataset_from_ndjson(
 #'   file = "african-wildlife.ndjson",
 #'   zip = TRUE
 #' )
 #' yolo_dataset_preview(ds)
-#' }
 yolo_dataset_from_ndjson <- function(file,
                                      dir = NULL,
                                      splits = c("train", "val", "test"),
@@ -3841,11 +3827,9 @@ yolo_dataset_import_ndjson <- yolo_dataset_from_ndjson
 #'
 #' @return The full path to the exported `.onnx` model.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' yolo_export("best.pt", output_name = "custom_model.onnx")
-#' }
 yolo_export <- function(model,
                         output_dir = pliman_model_dir(),
                         output_name = NULL,
@@ -4051,8 +4035,7 @@ yolo_export <- function(model,
 #'   * `task`: Task type (`"segment"` or `"detect"`).
 #'   * `call`: Matched function call.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Train a custom coffee grain segmentation model
@@ -4075,7 +4058,6 @@ yolo_export <- function(model,
 #' # Run inference with your new model directly in pliman!
 #' img <- image_import("cafe.jpeg")
 #' seg <- image_segment_dl(img, model = model_res$model_file, type = "highlight")
-#' }
 yolo_train <- function(data = "yolo_dataset",
                        model = "yolo26n-seg",
                        epochs = 50,
@@ -4847,8 +4829,7 @@ yolo_train <- function(data = "yolo_dataset",
 #' @return An object of class `c("yolo_train", "list")`.
 #' @export
 #' @seealso [plot.yolo_train()], [yolo_plot()], [yolo_train()]
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Load diagnostics from a previously trained model
@@ -4859,7 +4840,6 @@ yolo_train <- function(data = "yolo_dataset",
 #' plot(res)
 #' plot(res, which = "confusion_matrix")
 #' plot(res, which = "pr_curve")
-#' }
 yolo_results <- function(model = NULL,
                          results_dir = NULL,
                          output_dir = pliman_model_dir()) {
@@ -5721,8 +5701,7 @@ print.yolo_train <- function(x, ...) {
 #' @return Invisibly returns `x` or plotted data frame.
 #' @export
 #' @seealso [yolo_plot()], [yolo_results()], [yolo_train()]
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Load diagnostics from a previously trained model
@@ -5738,7 +5717,6 @@ print.yolo_train <- function(x, ...) {
 #' plot(res, which = "pr_curve")
 #' plot(res, which = "f1_curve")
 #' plot(res, which = "metrics")
-#' }
 #' @export
 plot.yolo_train <- function(x,
                             which = c("all", "metrics", "confusion_matrix_norm",
@@ -5910,8 +5888,7 @@ plot.yolo_train <- function(x,
 #' @return Invisibly returns the `yolo_train` object or plotted data frame.
 #' @export
 #' @seealso [plot.yolo_train()], [yolo_results()], [yolo_train()]
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Plot full 2x2 vector diagnostic dashboard directly by model name
@@ -5923,7 +5900,6 @@ plot.yolo_train <- function(x,
 #' yolo_plot("capsulas_det", which = "pr_curve")
 #' yolo_plot("capsulas_det", which = "f1_curve")
 #' yolo_plot("capsulas_det", which = "metrics")
-#' }
 yolo_plot <- function(x, ...) {
   if (is.character(x)) {
     x <- yolo_results(x)
@@ -6005,8 +5981,7 @@ yolo_plot <- function(x, ...) {
 #'   * `workflow`: Summary list of workflow parameters and metadata.
 #'   * Plus all metrics, diagnostic plots, and summaries from [yolo_train()].
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # 1. Run bootstrap workflow: label 4 sample images with PerSAM, augment to 30, tile 640, train YOLO
@@ -6026,7 +6001,6 @@ yolo_plot <- function(x, ...) {
 #'
 #' # 2. Automatically propagate trained model across ALL hundreds of images in the folder!
 #' ds_full <- yolo_dataset_autolabel("dataset_complex", model = wf, output_dir = "dataset_full")
-#' }
 yolo_train_workflow <- function(data,
                                 sample_n = 4L,
                                 sample_images = NULL,

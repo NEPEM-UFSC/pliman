@@ -21,8 +21,8 @@ persistent user data directory of \code{pliman}, and injects the executable and
 library directories into the session \code{PATH}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 install_colmap()
-}
+\dontshow{\}) # examplesIf}
 }

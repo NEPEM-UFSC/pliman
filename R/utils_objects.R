@@ -75,8 +75,7 @@
 #' * `object_isolate()` An image of class `"Image"` containing the isolated
 #' object.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' # Get the object's (leaves) identification
@@ -89,7 +88,6 @@
 #' isolated <- object_isolate(img, id = 3)
 #' plot(isolated)
 #'
-#' }
 object_coord <- function(img,
                          id =  NULL,
                          index = "NB",
@@ -556,12 +554,10 @@ object_id <- function(img,
 #' @export
 #' @seealso [analyze_objects()], [image_binary()]
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' imgs <- object_split(img) # set to NULL to use 50% of the cores
-#' }
 #'
 object_split <- function(img,
                          index = "NB",
@@ -659,13 +655,11 @@ object_split <- function(img,
 #'   a list of augmented images is returned.
 #'
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' imgs <- image_augment(img, type = "return", times = 4)
 #' image_combine(imgs)
-#' }
 #'
 image_augment <- function(img,
                           pattern = NULL,
@@ -903,13 +897,11 @@ image_augment <- function(img,
 #' @return A `NULL` object.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg")
 #' object_export(img,
 #'               remove_bg = TRUE)
-#' }
 object_export <- function(img,
                           pattern = NULL,
                           dir_original = NULL,
@@ -1205,8 +1197,7 @@ object_export <- function(img,
 #'  * `B`: the value for the green band;
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' # segment the objects using the "B" (blue) band (default)
@@ -1214,7 +1205,6 @@ object_export <- function(img,
 #' labs <- object_label(img, watershed = TRUE)
 #' rgb <- object_rgb(img, labs[[1]])
 #' head(rgb)
-#' }
 object_rgb <- function(img, labels){
   dd <- help_get_rgb(img[,,1], img[,,2], img[,,3], labels)
   df2 <- data.frame(do.call(rbind,  lapply(dd, function(x){
@@ -1254,13 +1244,11 @@ object_rgb <- function(img, labels){
 #' @return An object of class `image`
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("la_leaves.jpg")
 #' img2 <- object_to_color(img, index = "G-R")
 #' image_combine(img, img2)
-#' }
 #'
 object_to_color <- function(img,
                             pick_palettes = FALSE,
@@ -1358,8 +1346,7 @@ object_to_color <- function(img,
 #' @return A list of bounding boxes, where each bounding box is represented as a
 #'   list with `x_min`, `y_min`, `x_max`, and `y_max` values.
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' contours <- list(
 #'   matrix(c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
 #'            110, 120, 130, 140, 150, 160, 170, 180, 190, 200),
@@ -1367,7 +1354,6 @@ object_to_color <- function(img,
 #' )
 #' bbox_list <- object_bbox(contours)
 #' print(bbox_list)
-#' }
 #'
 #' @export
 object_bbox <- function(contours) {
@@ -1385,8 +1371,7 @@ object_bbox <- function(contours) {
 #' @param col The color for the bounding boxes. Defaults to `"red"`.
 #' @return None (adds bounding boxes to an existing plot).
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' plot(NA,
 #'     xlim = c(0, 200),
 #'     ylim = c(0, 200),
@@ -1398,7 +1383,6 @@ object_bbox <- function(contours) {
 #' )
 #' bbox_list <- object_bbox(contours)
 #' plot_bbox(bbox_list)
-#' }
 #'
 #' @export
 plot_bbox <- function(bbox_list, col = "red") {
@@ -1458,8 +1442,7 @@ plot_bbox <- function(bbox_list, col = "red") {
 #' @importFrom grDevices as.raster rgb extendrange
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' img <- image_pliman("potato_leaves.jpg")
 #' plot(img)
 #' res <- object_scatter(
@@ -1474,7 +1457,6 @@ plot_bbox <- function(bbox_list, col = "red") {
 #'
 #' # remove cached data
 #' clear_pliman_cache()
-#' }
 #'
 
 object_scatter <- function(img,

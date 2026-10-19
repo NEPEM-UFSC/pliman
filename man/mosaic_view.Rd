@@ -95,7 +95,7 @@ an image index that can be either an RGB-based index or a multispectral
 index, if a multispectral mosaic is provided.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 # Load a raster showing the elevation of Luxembourg
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -105,7 +105,6 @@ mosaic_view(mosaic)
 
 # Generate a static plot using 'base'
 mosaic_view(mosaic, viewer = "base")
-}
 
-
+\dontshow{\}) # examplesIf}
 }

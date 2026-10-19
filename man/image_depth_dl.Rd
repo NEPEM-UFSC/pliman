@@ -51,9 +51,9 @@ Estimates a metric-aligned relative 3D depth map from any 2D RGB image using
 the state-of-the-art Depth Anything V2 foundation model running purely via ONNX Runtime.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
   depth <- image_depth_dl(img)
-}
+\dontshow{\}) # examplesIf}
 }

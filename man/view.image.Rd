@@ -23,8 +23,8 @@ users can interactively zoom in (selecting a bounding rectangle), zoom out, rese
 or finish viewing.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image_import(image_pliman("sev_leaf.jpg"))
 view(img)
-}
+\dontshow{\}) # examplesIf}
 }

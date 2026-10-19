@@ -39,7 +39,7 @@ across differing \code{data.yaml} definitions (with optional custom class renami
 updates label files on-the-fly, and generates a unified master \code{data.yaml}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Merge two datasets collected from different seasons
@@ -47,5 +47,5 @@ ds_total <- yolo_dataset_merge(
   datasets = list("dataset_2024", "dataset_2025"),
   out_dir  = "dataset_unificado"
 )
-}
+\dontshow{\}) # examplesIf}
 }

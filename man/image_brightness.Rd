@@ -38,12 +38,12 @@ An \code{Image} object or a list of \code{Image} objects.
 the resulting values to \verb{[0, 1]}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 # 20\% brighter
 image_brightness(img, factor = 1.2, plot = TRUE)
 # 30\% darker
 image_brightness(img, factor = 0.7, plot = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

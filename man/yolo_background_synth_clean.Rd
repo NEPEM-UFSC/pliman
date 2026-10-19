@@ -38,7 +38,7 @@ It automatically invalidates stale YOLO cache files (\code{train.cache}, \code{v
 to ensure subsequent YOLO training or validation does not reference deleted files.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Inject synthetic backgrounds into a YOLO dataset
@@ -46,5 +46,5 @@ yolo_background_synth(dir = "my_dataset", n = 15, pattern = "waves")
 
 # 2. Clean up synthetic backgrounds and return to original state
 yolo_background_synth_clean("my_dataset")
-}
+\dontshow{\}) # examplesIf}
 }

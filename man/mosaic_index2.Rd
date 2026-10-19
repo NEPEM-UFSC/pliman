@@ -48,7 +48,7 @@ gdal_calc.py (https://gdal.org/programs/gdal_calc.html). This requires a
 Python and GDAL installation.
 }
 \examples{
-if(interactive() & (Sys.which('python.exe') != '' ) & (Sys.which('gdal_calc.py') != '' )){
+\dontshow{if (interactive() && (Sys.which('python.exe') != '' ) && (Sys.which('gdal_calc.py') != '' )) withAutoprint(\{ # examplesIf}
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 names(mosaic) <- "R"
@@ -57,5 +57,5 @@ oldpar <- par(no.readonly=TRUE)
 mosaic_plot(mosaic)
 mosaic_plot(elev2)
 par(mfrow=c(1,2))
-}
+\dontshow{\}) # examplesIf}
 }

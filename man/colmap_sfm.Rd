@@ -141,7 +141,7 @@ Executes the complete photogrammetric Structure-from-Motion (SfM) pipeline using
 Automatically detects and adapts CLI arguments between COLMAP 4.x (v4.2.1+) and COLMAP 3.x.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 # Fast sparse reconstruction with SIFT & OpenCV camera model
 sfm_res <- colmap_sfm("my_photos/", camera_model = "OPENCV")
@@ -152,5 +152,5 @@ sfm_seq <- colmap_sfm("frames/", matching = "sequential", sequential_overlap = 1
 
 # Full dense point cloud (PatchMatch MVS with GPU CUDA)
 dense_res <- colmap_sfm("my_photos/", camera_model = "OPENCV", dense = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

@@ -47,7 +47,7 @@ When \code{model = NULL} (default), \code{model_to_int8()} scans the pliman mode
 Existing INT8 models are skipped unless \code{overwrite = TRUE}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Convert a specific installed model
@@ -56,5 +56,5 @@ model_to_int8("capsulas_det.onnx")
 # Convert all installed models in pliman_model_dir()
 summary <- model_to_int8()
 print(summary)
-}
+\dontshow{\}) # examplesIf}
 }

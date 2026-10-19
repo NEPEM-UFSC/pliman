@@ -75,7 +75,7 @@ objects and with empty \code{.txt} annotation files) is a recommended practice (
 to drastically minimize False Positive (FP) detections on complex, non-target backgrounds.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Generate 6 wavy background images in memory and preview them
@@ -83,5 +83,5 @@ bgs <- yolo_background_synth(n = 6, pattern = "waves", colors = "earth", preview
 
 # 2. Generate and inject 20 synthetic background images into a YOLO dataset
 yolo_background_synth(dir = "my_dataset", n = 20, pattern = "random")
-}
+\dontshow{\}) # examplesIf}
 }

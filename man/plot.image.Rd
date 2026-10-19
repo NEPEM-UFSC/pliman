@@ -59,9 +59,9 @@ Render an \code{image} object using native base R graphics, with support for tit
 custom bounding limits (\code{xlim}, \code{ylim}), and axes.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image(array(as.raw(sample(0:255, 30000)), dim = c(100, 100, 3)))
 plot(img, main = "Sample Image")
 plot(img, xlim = c(20, 80), ylim = c(20, 80), main = "Zoomed Region")
-}
+\dontshow{\}) # examplesIf}
 }

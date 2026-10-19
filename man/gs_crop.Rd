@@ -40,7 +40,7 @@ Crops a \code{gaussian_splat}, \code{colmap_sfm}, or 3D point matrix to retain o
 located inside a specified 3D Oriented Bounding Box (OBB) or Axis-Aligned Bounding Box (AABB).
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Crop around plant subject
@@ -49,5 +49,5 @@ splat_cropped <- gs_crop(sfm_completo,
                          ylim = c(-0.5, 0.5),
                          zlim = c(-0.2, 0.8))
 plot(splat_cropped)
-}
+\dontshow{\}) # examplesIf}
 }

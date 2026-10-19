@@ -43,10 +43,10 @@ of the smallest class (or a specified \code{target_count}).
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Oversample minority classes to achieve equal sample sizes
 ds_balanced <- yolo_dataset_balance("dataset_flores_yolo", strategy = "oversample")
-}
+\dontshow{\}) # examplesIf}
 }

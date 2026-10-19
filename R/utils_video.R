@@ -50,8 +50,7 @@
 #'
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' # Extract 1 frame per second
 #' video_split("my_video.mp4", dir = "frames_fps", fps = 1)
 #'
@@ -60,7 +59,6 @@
 #'
 #' # Extract all frames as PNG
 #' video_to_frames("my_video.mp4", dir = "all_frames", format = "png")
-#' }
 video_split <- function(video,
                         dir = "frames",
                         fps = NULL,

@@ -107,10 +107,10 @@ set to an unique increasing integer, starting from 1. Hence, max(x) gives the
 number of connected objects in \code{x}.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image_pliman("soybean_touch.jpg")
 # segment the objects using the "B" (blue) band.
 object_label(img, index = "B")
 object_label(img, index = "B", watershed = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

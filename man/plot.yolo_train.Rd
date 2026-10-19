@@ -119,7 +119,7 @@ High counts in the bottom row indicate excessive false positive background detec
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Load diagnostics from a previously trained model
@@ -135,7 +135,7 @@ plot(res, which = "confusion_matrix_norm")
 plot(res, which = "pr_curve")
 plot(res, which = "f1_curve")
 plot(res, which = "metrics")
-}
+\dontshow{\}) # examplesIf}
 }
 \seealso{
 \code{\link[=yolo_plot]{yolo_plot()}}, \code{\link[=yolo_results]{yolo_results()}}, \code{\link[=yolo_train]{yolo_train()}}

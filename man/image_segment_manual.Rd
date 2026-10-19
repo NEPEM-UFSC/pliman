@@ -57,10 +57,9 @@ the shape is "rectangle", it allows the user to select two points to define
 the area.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image_pliman("la_leaves.jpg")
 seg <- image_segment_manual(img)
 plot(seg$mask)
-
-}
+\dontshow{\}) # examplesIf}
 }

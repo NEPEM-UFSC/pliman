@@ -38,8 +38,8 @@ This function:
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   pliman_configure_dl()
   pliman_configure_dl(engine = "gpu")
-}
+\dontshow{\}) # examplesIf}
 }

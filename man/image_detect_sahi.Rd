@@ -106,10 +106,10 @@ This prevents small objects (seeds, aphids, stomata, seedlings) from vanishing w
 and seamlessly unifies objects that cross tile seams.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Run SAHI on a 4000x3000 drone orthophoto
 res <- image_detect_sahi("drone_field.jpg", model = "seedlings.onnx", slice_width = 640)
-}
+\dontshow{\}) # examplesIf}
 }
