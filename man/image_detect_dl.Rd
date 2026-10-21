@@ -7,15 +7,16 @@
 image_detect_dl(
   img,
   model = "yolo26n",
-  conf_threshold = 0.4,
+  conf_threshold = 0.25,
   iou_threshold = 0.4,
   classes = NULL,
   labels = NULL,
   col = NULL,
   rainbow = TRUE,
   lwd = 2,
-  cex = 1,
-  pad = 1,
+  cex = 1.5,
+  pad = 0,
+  bbox = TRUE,
   show_text = TRUE,
   show_conf = TRUE,
   show_class = TRUE,
@@ -26,9 +27,11 @@ image_detect_dl(
   point_pch = 16,
   point_col = NULL,
   badge = TRUE,
+  badge_pad = 1,
   return_features = FALSE,
   feature_model = c("yolo", "clip-vit-b32", "dinov2"),
   plot_features = FALSE,
+  filter_nested = TRUE,
   threads = 0,
   engine = c("gpu", "cpu"),
   device_id = -1,
@@ -44,7 +47,7 @@ image_detect_dl(
 \item{model}{Model name or path to a custom ONNX file. Defaults to \code{"yolo26n"}.
 Options include \code{"yolo26n"}, \code{"yolo26s"}, \code{"yolo26m"}, \code{"yolo26l"}, \code{"yolo26x"}.}
 
-\item{conf_threshold}{Minimum confidence score for candidate boxes (default 0.40).}
+\item{conf_threshold}{Minimum confidence score for candidate boxes (default 0.25).}
 
 \item{iou_threshold}{IoU threshold for Non-Maximum Suppression (default 0.40).}
 
@@ -59,11 +62,14 @@ If \code{FALSE} (the default), objects of the same class share the exact same co
 
 \item{lwd}{Line width for bounding boxes (default 2).}
 
-\item{cex}{Size factor for label text (default \code{1.0}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
+\item{cex}{Size factor for label text (default \code{1.5}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
 to reduce text size for dense scenes or many objects.}
 
-\item{pad}{Padding multiplier controlling the area/background badge size around label text (default \code{1.0}).
-Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad = 0} or smaller values for a compact area.}
+\item{pad}{Padding added to expand bounding boxes around detected objects (default \code{0}).
+Can be an absolute number of pixels (e.g., \code{pad = 10}), a relative expansion fraction when
+between 0 and 1 (e.g., \code{pad = 0.05} for 5\% margin), or a length-2 vector \code{c(pad_x, pad_y)}.}
+
+\item{bbox}{Logical. Whether to draw bounding boxes (default \code{TRUE}).}
 
 \item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
 
@@ -86,6 +92,9 @@ Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad
 \item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
 If \code{FALSE}, only the text is drawn directly.}
 
+\item{badge_pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).
+Use \code{badge_pad = 0} for a badge fitting tightly to the text.}
+
 \item{return_features}{Logical. If \code{TRUE}, extracts deep feature representations for detected
 bounding boxes and the global image. Attaches \code{"features"} (an \eqn{N \times D} matrix of per-object
 deep embeddings, 512-D for CLIP or 384-D for DINOv2) and \code{"feature_map"} (dense spatial 3-component PCA false-color \code{Image})
@@ -96,6 +105,9 @@ Options are \code{"clip-vit-b32"} (default, OpenAI CLIP ViT-B/32 producing 512-D
 \code{"dinov2"} (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).}
 
 \item{plot_features}{Logical. If \code{TRUE} and \code{return_features = TRUE}, visualizes the dense spatial PCA feature map. Defaults to \code{FALSE}.}
+
+\item{filter_nested}{Logical. If \code{TRUE} (the default), removes larger container bounding boxes
+that enclose smaller boxes of the same class.}
 
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 

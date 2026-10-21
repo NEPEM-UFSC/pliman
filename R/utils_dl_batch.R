@@ -3,6 +3,16 @@
 # pliman: Plant Image Analysis in R
 # ==============================================================================
 
+.extract_boxes <- function(x) {
+  if (is.null(x)) return(NULL)
+  if (is.data.frame(x)) return(x)
+  if (is.list(x)) {
+    if (!is.null(x$boxes) && is.data.frame(x$boxes)) return(x$boxes)
+    if (!is.null(attr(x, "boxes")) && is.data.frame(attr(x, "boxes"))) return(attr(x, "boxes"))
+  }
+  NULL
+}
+
 #' Batch Object Detection with Deep Learning
 #'
 #' Runs deep learning object detection (e.g., YOLO models) on a batch of images
@@ -63,7 +73,6 @@
 #'   parallel = TRUE,
 #'   workers = 4
 #' )
-#' res_par$class_summary
 image_detect_dl_batch <- function(data,
                                   pattern = NULL,
                                   path = NULL,
@@ -231,59 +240,73 @@ image_detect_dl_batch <- function(data,
     }
     for (i in seq_len(n_items)) {
       res_i <- results[[i]]
-      im_obj <- attr(res_i, "image")
-      if (is.null(im_obj) && is.character(items[[i]])) {
-        im_obj <- tryCatch(image_import(items[[i]]), error = function(e) NULL)
+      im_obj <- if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else if (inherits(items[[i]], c("Image", "image"))) {
+        items[[i]]
+      } else if (is.character(items[[i]])) {
+        tryCatch(image_import(items[[i]]), error = function(e) NULL)
+      } else {
+        NULL
       }
       if (!is.null(im_obj)) {
-        out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".jpg" else ""))
+        out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
         tryCatch({
           dims <- dim(image_data(im_obj))
-          grDevices::png(out_file, width = dims[1], height = dims[2])
-          on.exit(grDevices::dev.off(), add = TRUE)
-          plot(im_obj)
-          if (is.data.frame(res_i) && nrow(res_i) > 0) {
-            pal <- .get_class_palette(
-              labels = res_i$label,
-              n = nrow(res_i),
-              rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
-              user_col = dots_args$col
-            )
-            .plot_yolo_bboxes(
-              boxes = res_i,
-              palette_colors = pal,
-              lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
-              cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
-              pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
-              show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
-              show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
-              show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
-              show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
-              show_box = dots_args$show_box,
-              show_point = show_point,
-              point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
-              point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
-              point_col = dots_args$point_col,
-              badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
-            )
+          is_jpg <- grepl("\\.jpe?g$", out_file, ignore.case = TRUE)
+          if (is_jpg) {
+            grDevices::jpeg(out_file, width = dims[1], height = dims[2], quality = 95)
+          } else {
+            grDevices::png(out_file, width = dims[1], height = dims[2])
           }
-          grDevices::dev.off()
-        }, error = function(e) NULL)
+          dev_num <- grDevices::dev.cur()
+          tryCatch({
+            graphics::plot(im_obj)
+            bx <- .extract_boxes(res_i)
+            if (is.data.frame(bx) && nrow(bx) > 0) {
+              pal <- .get_class_palette(
+                labels = bx$label,
+                n = nrow(bx),
+                rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
+                user_col = dots_args$col
+              )
+              .plot_yolo_bboxes(
+                boxes = bx,
+                palette_colors = pal,
+                lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
+                cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
+                pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
+                show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
+                show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
+                show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
+                show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
+                show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else TRUE),
+                show_point = show_point,
+                point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
+                point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
+                point_col = dots_args$point_col,
+                badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
+              )
+            }
+          }, finally = {
+            if (grDevices::dev.cur() == dev_num) {
+              grDevices::dev.off(dev_num)
+            }
+          })
+        }, error = function(e) {
+          cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
+        })
         rm(im_obj)
         if (i %% 50L == 0L) gc(verbose = FALSE)
       }
-    }
-    if (!isTRUE(keep_images)) {
-      for (i in seq_len(n_items)) {
-        if (!is.null(results[[i]])) attr(results[[i]], "image") <- NULL
-      }
-      gc(verbose = FALSE)
     }
   }
 
   # 4. Consolidate predictions
   pred_list <- lapply(seq_len(n_items), function(i) {
-    df <- results[[i]]
+    df <- .extract_boxes(results[[i]])
     if (is.data.frame(df) && nrow(df) > 0) {
       data.frame(img = names_items[i], df, stringsAsFactors = FALSE)
     } else {
@@ -300,16 +323,16 @@ image_detect_dl_batch <- function(data,
   }
 
   # 5. Build per-image summary
-  all_classes <- if (nrow(predictions) > 0) sort(unique(predictions$label)) else character(0)
+  all_classes <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) sort(unique(predictions$label)) else character(0)
   summary_list <- lapply(seq_len(n_items), function(i) {
     im_name <- names_items[i]
-    df <- results[[i]]
+    df <- .extract_boxes(results[[i]])
     n_obj <- if (is.data.frame(df)) nrow(df) else 0L
     mean_sc <- if (n_obj > 0 && "score" %in% names(df)) round(mean(df$score, na.rm = TRUE), 4) else NA_real_
 
     row_data <- list(img = im_name, num_objects = n_obj, mean_score = mean_sc)
     if (length(all_classes) > 0) {
-      if (n_obj > 0) {
+      if (n_obj > 0 && "label" %in% names(df)) {
         cls_tab <- table(factor(df$label, levels = all_classes))
         for (cl in all_classes) {
           row_data[[paste0("count_", cl)]] <- as.integer(cls_tab[[cl]])
@@ -325,7 +348,7 @@ image_detect_dl_batch <- function(data,
   summary_df <- do.call(rbind, summary_list)
 
   # 6. Overall class summary
-  class_summary <- if (nrow(predictions) > 0) {
+  class_summary <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) {
     tab <- table(predictions$label)
     cls_df <- data.frame(
       label = names(tab),
@@ -334,8 +357,10 @@ image_detect_dl_batch <- function(data,
       pct = round(as.integer(tab) / nrow(predictions) * 100, 2),
       stringsAsFactors = FALSE
     )
-    sc_means <- tapply(predictions$score, predictions$label, mean, na.rm = TRUE)
-    cls_df$mean_score <- round(as.numeric(sc_means[cls_df$label]), 4)
+    if ("score" %in% names(predictions)) {
+      sc_means <- tapply(predictions$score, predictions$label, mean, na.rm = TRUE)
+      cls_df$mean_score <- round(as.numeric(sc_means[cls_df$label]), 4)
+    }
     cls_df[order(cls_df$total_count, decreasing = TRUE), , drop = FALSE]
   } else {
     data.frame(
@@ -345,6 +370,17 @@ image_detect_dl_batch <- function(data,
     )
   }
   rownames(class_summary) <- NULL
+
+  # Strip heavy image matrices if keep_images is FALSE (default)
+  if (!isTRUE(keep_images)) {
+    for (i in seq_len(n_items)) {
+      if (!is.null(results[[i]])) {
+        attr(results[[i]], "image") <- NULL
+        attr(results[[i]], "similarity_map") <- NULL
+      }
+    }
+    gc(verbose = FALSE)
+  }
 
   elapsed_sec <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
 
@@ -371,7 +407,7 @@ image_detect_dl_batch <- function(data,
 #' @export
 print.dl_detect_batch <- function(x, ...) {
   cli::cli_rule(
-    left = cli::col_green("✔ pliman Deep Learning Batch Detection Finished"),
+    left = cli::col_green("\u2714 pliman Deep Learning Batch Detection Finished"),
     right = cli::col_blue(paste0(x$elapsed, "s"))
   )
   cli::cli_alert_success(
@@ -467,7 +503,9 @@ image_segment_dl_batch <- function(data,
     cli::cli_abort("No valid images found for batch segmentation.")
   }
 
-  dots_args <- list(...)
+  user_dots <- list(...)
+  dots_args <- user_dots
+  user_wants_plot <- if ("plot" %in% names(user_dots)) isTRUE(user_dots$plot) else FALSE
   dots_args$plot <- FALSE
   dots_args$verbose <- FALSE
   dots_args$show_point <- show_point
@@ -595,6 +633,59 @@ image_segment_dl_batch <- function(data,
     for (i in seq_len(n_items)) {
       if (isTRUE(verbose)) cli::cli_progress_update()
       res_i <- worker_seg_fn(items[[i]], dots_args)
+      if (user_wants_plot) {
+        tryCatch({
+          cur_im <- if (inherits(items[[i]], c("Image", "image"))) items[[i]] else image_import(items[[i]])
+          graphics::plot(cur_im)
+          bx_p <- .extract_boxes(res_i)
+          num_inst_p <- if (is.data.frame(bx_p)) nrow(bx_p) else 0L
+          if (num_inst_p > 0L) {
+            pal_p <- .get_class_palette(
+              labels = bx_p$label,
+              n = num_inst_p,
+              rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
+              user_col = dots_args$col
+            )
+            conts_p <- if (!is.null(attr(res_i, "contours"))) attr(res_i, "contours") else res_i$contours
+            draw_m <- if (!is.null(dots_args$mask)) isTRUE(dots_args$mask) else TRUE
+            if (draw_m && is.list(conts_p) && length(conts_p) > 0L) {
+              alpha_v <- if (!is.null(dots_args$alpha)) dots_args$alpha else 0.4
+              border_v <- if (!is.null(dots_args$border)) dots_args$border else NA
+              for (kp in seq_len(min(num_inst_p, length(conts_p)))) {
+                ckp <- conts_p[[kp]]
+                if (is.null(ckp) || length(ckp) == 0L) next
+                k_colp <- pal_p[((kp - 1) %% length(pal_p)) + 1]
+                c_rgbp <- tryCatch(grDevices::col2rgb(k_colp) / 255.0, error = function(e) c(0, 1, 0))
+                poly_colp <- grDevices::rgb(c_rgbp[1], c_rgbp[2], c_rgbp[3], alpha = alpha_v)
+                cur_borderp <- if (is.na(border_v)) NA else k_colp
+                p_listp <- if (is.matrix(ckp)) list(ckp) else if (is.list(ckp)) ckp else list()
+                for (pp in p_listp) {
+                  if (is.matrix(pp) && nrow(pp) >= 3) {
+                    graphics::polygon(pp[, 1], pp[, 2], col = poly_colp, border = cur_borderp, lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 1)
+                  }
+                }
+              }
+            }
+            .plot_yolo_bboxes(
+              boxes = bx_p,
+              palette_colors = pal_p,
+              lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
+              cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
+              pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
+              show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
+              show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
+              show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
+              show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
+              show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else FALSE),
+              show_point = show_point,
+              point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
+              point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
+              point_col = dots_args$point_col,
+              badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
+            )
+          }
+        }, error = function(e) NULL)
+      }
       if (!isTRUE(keep_images) && !is.null(res_i)) {
         attr(res_i, "image") <- NULL
         attr(res_i, "similarity_map") <- NULL
@@ -620,89 +711,101 @@ image_segment_dl_batch <- function(data,
     }
     for (i in seq_len(n_items)) {
       res_i <- results[[i]]
-      out_img <- if (inherits(res_i, c("Image", "image"))) res_i else attr(res_i, "image")
-      if (is.null(out_img) && is.character(items[[i]])) {
-        out_img <- tryCatch(image_import(items[[i]]), error = function(e) NULL)
+      out_img <- if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else if (inherits(items[[i]], c("Image", "image"))) {
+        items[[i]]
+      } else if (is.character(items[[i]])) {
+        tryCatch(image_import(items[[i]]), error = function(e) NULL)
+      } else {
+        NULL
       }
       if (!is.null(out_img)) {
         out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
         tryCatch({
-          # If res_i is a highlight list or show_point is requested, render onto png canvas
           is_highlight_res <- !inherits(res_i, c("Image", "image")) && is.list(res_i)
-          if (is_highlight_res || isTRUE(show_point)) {
+          draw_canvas <- is_highlight_res || isTRUE(show_point) || isTRUE(dots_args$bbox) || !is.null(dots_args$show_box) || isTRUE(dots_args$show_id)
+          if (draw_canvas) {
             dims <- dim(image_data(out_img))
-            grDevices::png(out_file, width = dims[1], height = dims[2])
-            on.exit(grDevices::dev.off(), add = TRUE)
-            plot(out_img)
-            bx <- if (is.data.frame(res_i)) res_i else if (!is.null(attr(res_i, "boxes"))) attr(res_i, "boxes") else res_i$boxes
-            num_inst <- if (is.data.frame(bx)) nrow(bx) else 0L
-            if (num_inst > 0L) {
-              pal <- .get_class_palette(
-                labels = bx$label,
-                n = num_inst,
-                rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
-                user_col = dots_args$col
-              )
-              conts <- if (!is.null(attr(res_i, "contours"))) attr(res_i, "contours") else res_i$contours
-              draw_mask <- if (!is.null(dots_args$mask)) isTRUE(dots_args$mask) else TRUE
-              if (draw_mask && is.list(conts) && length(conts) > 0L) {
-                alpha_val <- if (!is.null(dots_args$alpha)) dots_args$alpha else 0.4
-                for (k in seq_len(min(num_inst, length(conts)))) {
-                  ck <- conts[[k]]
-                  if (is.null(ck) || length(ck) == 0L) next
-                  k_col <- pal[((k - 1) %% length(pal)) + 1]
-                  c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
-                  poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha_val)
-                  p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
-                  for (p in p_list) {
-                    if (is.matrix(p) && nrow(p) >= 3) {
-                      graphics::polygon(p[, 1], p[, 2], col = poly_col, border = NA)
+            is_jpg <- grepl("\\.jpe?g$", out_file, ignore.case = TRUE)
+            if (is_jpg) {
+              grDevices::jpeg(out_file, width = dims[1], height = dims[2], quality = 95)
+            } else {
+              grDevices::png(out_file, width = dims[1], height = dims[2])
+            }
+            dev_num <- grDevices::dev.cur()
+            tryCatch({
+              graphics::plot(out_img)
+              bx <- .extract_boxes(res_i)
+              num_inst <- if (is.data.frame(bx)) nrow(bx) else 0L
+              if (num_inst > 0L) {
+                pal <- .get_class_palette(
+                  labels = bx$label,
+                  n = num_inst,
+                  rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
+                  user_col = dots_args$col
+                )
+                conts <- if (!is.null(attr(res_i, "contours"))) attr(res_i, "contours") else res_i$contours
+                draw_mask <- if (!is.null(dots_args$mask)) isTRUE(dots_args$mask) else TRUE
+                if (draw_mask && is.list(conts) && length(conts) > 0L) {
+                  alpha_val <- if (!is.null(dots_args$alpha)) dots_args$alpha else 0.4
+                  border_val <- if (!is.null(dots_args$border)) dots_args$border else NA
+                  for (k in seq_len(min(num_inst, length(conts)))) {
+                    ck <- conts[[k]]
+                    if (is.null(ck) || length(ck) == 0L) next
+                    k_col <- pal[((k - 1) %% length(pal)) + 1]
+                    c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
+                    poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha_val)
+                    cur_border <- if (is.na(border_val)) NA else k_col
+                    p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+                    for (p in p_list) {
+                      if (is.matrix(p) && nrow(p) >= 3) {
+                        graphics::polygon(p[, 1], p[, 2], col = poly_col, border = cur_border, lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 1)
+                      }
                     }
                   }
                 }
+                .plot_yolo_bboxes(
+                  boxes = bx,
+                  palette_colors = pal,
+                  lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
+                  cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
+                  pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
+                  show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
+                  show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
+                  show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
+                  show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
+                  show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else FALSE),
+                  show_point = show_point,
+                  point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
+                  point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
+                  point_col = dots_args$point_col,
+                  badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
+                )
               }
-              .plot_yolo_bboxes(
-                boxes = bx,
-                palette_colors = pal,
-                lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
-                cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
-                pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
-                show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
-                show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
-                show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
-                show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
-                show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else FALSE),
-                show_point = show_point,
-                point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
-                point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
-                point_col = dots_args$point_col,
-                badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
-              )
-            }
-            grDevices::dev.off()
+            }, finally = {
+              if (grDevices::dev.cur() == dev_num) {
+                grDevices::dev.off(dev_num)
+              }
+            })
           } else {
             image_export(out_img, out_file)
           }
-        }, error = function(e) NULL)
+        }, error = function(e) {
+          cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
+        })
         rm(out_img)
         if (i %% 50L == 0L) gc(verbose = FALSE)
       }
-    }
-    if (!isTRUE(keep_images)) {
-      for (i in seq_len(n_items)) {
-        if (!is.null(results[[i]])) {
-          attr(results[[i]], "image") <- NULL
-          attr(results[[i]], "similarity_map") <- NULL
-        }
-      }
-      gc(verbose = FALSE)
     }
   }
 
   # 4. Consolidate bounding boxes / predictions
   pred_list <- lapply(seq_len(n_items), function(i) {
     res_i <- results[[i]]
-    bx <- if (is.data.frame(res_i)) res_i else attr(res_i, "boxes")
+    bx <- .extract_boxes(res_i)
     if (is.data.frame(bx) && nrow(bx) > 0) {
       data.frame(img = names_items[i], bx, stringsAsFactors = FALSE)
     } else {
@@ -740,29 +843,94 @@ image_segment_dl_batch <- function(data,
   }
   phenotypes <- if (length(pheno_list) > 0) do.call(rbind, pheno_list) else NULL
 
-  # 6. Build per-image summary
+  # 6. Build per-image summary & overall class summary
+  all_classes <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) sort(unique(predictions$label)) else character(0)
   summary_list <- lapply(seq_len(n_items), function(i) {
     im_name <- names_items[i]
     res_i <- results[[i]]
-    bx <- if (is.data.frame(res_i)) res_i else attr(res_i, "boxes")
+    bx <- .extract_boxes(res_i)
     n_obj <- if (is.data.frame(bx)) nrow(bx) else 0L
+    mean_sc <- if (n_obj > 0 && "score" %in% names(bx)) round(mean(bx$score, na.rm = TRUE), 4) else NA_real_
 
-    ph_i <- if (length(pheno_list) >= i && !is.null(pheno_list[[i]])) pheno_list[[i]] else NULL
-    tot_area <- if (!is.null(ph_i) && "area" %in% names(ph_i)) round(sum(ph_i$area, na.rm = TRUE), 2) else NA_real_
-    mean_area <- if (!is.null(ph_i) && "area" %in% names(ph_i) && nrow(ph_i) > 0) round(mean(ph_i$area, na.rm = TRUE), 2) else NA_real_
+    feat_i <- if (is.list(res_i) && !is.null(res_i$features) && is.data.frame(res_i$features)) {
+      res_i$features
+    } else if (length(pheno_list) >= i && !is.null(pheno_list[[i]])) {
+      pheno_list[[i]]
+    } else {
+      NULL
+    }
+    tot_area <- if (!is.null(feat_i) && "area" %in% names(feat_i)) round(sum(feat_i$area, na.rm = TRUE), 2) else NA_real_
+    mean_area <- if (!is.null(feat_i) && "area" %in% names(feat_i) && nrow(feat_i) > 0) round(mean(feat_i$area, na.rm = TRUE), 2) else NA_real_
 
-    row_data <- list(img = im_name, num_objects = n_obj, total_area = tot_area, mean_area = mean_area)
+    row_data <- list(img = im_name, num_objects = n_obj, mean_score = mean_sc, total_area = tot_area, mean_area = mean_area)
+    if (length(all_classes) > 0) {
+      if (n_obj > 0 && "label" %in% names(bx)) {
+        cls_tab <- table(factor(bx$label, levels = all_classes))
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- as.integer(cls_tab[[cl]])
+        }
+      } else {
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- 0L
+        }
+      }
+    }
     as.data.frame(row_data, stringsAsFactors = FALSE)
   })
   summary_df <- do.call(rbind, summary_list)
 
+  class_summary <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) {
+    tab <- table(predictions$label)
+    cls_df <- data.frame(
+      label = names(tab),
+      total_count = as.integer(tab),
+      mean_per_img = round(as.integer(tab) / n_items, 2),
+      pct = round(as.integer(tab) / nrow(predictions) * 100, 2),
+      stringsAsFactors = FALSE
+    )
+    if ("score" %in% names(predictions)) {
+      sc_means <- tapply(predictions$score, predictions$label, mean, na.rm = TRUE)
+      cls_df$mean_score <- round(as.numeric(sc_means[cls_df$label]), 4)
+    }
+    cls_df[order(cls_df$total_count, decreasing = TRUE), , drop = FALSE]
+  } else {
+    data.frame(
+      label = character(0), total_count = integer(0),
+      mean_per_img = numeric(0), pct = numeric(0), mean_score = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+  rownames(class_summary) <- NULL
+
+  # Strip heavy image matrices if keep_images is FALSE (default), but keep lightweight contours & boxes
+  if (!isTRUE(keep_images)) {
+    for (i in seq_len(n_items)) {
+      if (!is.null(results[[i]])) {
+        attr(results[[i]], "image") <- NULL
+        attr(results[[i]], "similarity_map") <- NULL
+        if (is.list(results[[i]]) && !inherits(results[[i]], c("Image", "image"))) {
+          results[[i]]$labels <- NULL
+          results[[i]]$mask <- NULL
+        }
+      }
+    }
+    gc(verbose = FALSE)
+  }
+
+  if (nrow(predictions) > 0) {
+    features <- purrr::map_dfr(results, function(x){x[["features"]]}, .id = "img")
+    predictions <- predictions |> dplyr::left_join(features) |> dplyr::select(-any_of(c("x", "y")))
+  }
   elapsed_sec <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+
+
 
   out <- structure(
     list(
       predictions = predictions,
-      phenotypes = phenotypes,
       summary = summary_df,
+      class_summary = class_summary,
+      phenotypes = phenotypes,
       results = results,
       n_images = n_items,
       elapsed = elapsed_sec,
@@ -781,16 +949,23 @@ image_segment_dl_batch <- function(data,
 #' @export
 print.dl_segment_batch <- function(x, ...) {
   cli::cli_rule(
-    left = cli::col_green("✔ pliman Deep Learning Batch Segmentation Finished"),
+    left = cli::col_green("\u2714 pliman Deep Learning Batch Segmentation Finished"),
     right = cli::col_blue(paste0(x$elapsed, "s"))
   )
+  n_inst <- nrow(x$predictions)
+  n_cls <- if (!is.null(x$class_summary)) nrow(x$class_summary) else 0L
+  cls_txt <- if (n_cls > 0) paste0(" across ", n_cls, " class", if (n_cls > 1) "es" else "") else ""
   cli::cli_alert_success(
-    "Processed {.val {x$n_images}} image{?s} | Segmented {.val {nrow(x$predictions)}} object instance{?s}."
+    "Processed {.val {x$n_images}} image{?s} | Segmented {.val {n_inst}} object instance{?s}{cls_txt}."
   )
+  if (!is.null(x$class_summary) && nrow(x$class_summary) > 0) {
+    cli::cli_h3("Class Summary:")
+    print(x$class_summary, row.names = FALSE)
+  }
   if (!is.null(x$phenotypes) && nrow(x$phenotypes) > 0) {
     cli::cli_alert_info("Extracted {.val {ncol(x$phenotypes) - 1L}} phenotypic traits per object in {.code $phenotypes}.")
   }
-  cli::cli_alert_info("Per-image area and counts available in {.code $summary}.")
+  cli::cli_alert_info("Per-image area and counts available in {.code $summary} and box coordinates in {.code $predictions}.")
   invisible(x)
 }
 

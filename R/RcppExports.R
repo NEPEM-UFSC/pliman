@@ -524,6 +524,10 @@ read_image_cpp <- function(filename) {
     .Call(`_pliman_read_image_cpp`, filename)
 }
 
+rgb_buffer_to_image_cpp <- function(raw_buf, w, h) {
+    .Call(`_pliman_rgb_buffer_to_image_cpp`, raw_buf, w, h)
+}
+
 write_image_cpp <- function(img_sexp, filename, quality = 95L) {
     .Call(`_pliman_write_image_cpp`, img_sexp, filename, quality)
 }
@@ -532,8 +536,8 @@ preprocess_yolo_file_cpp <- function(filename, target_size = 640L) {
     .Call(`_pliman_preprocess_yolo_file_cpp`, filename, target_size)
 }
 
-draw_yolo_detections_bgr_cpp <- function(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd = 2L, hud_text = "", font_scale = 1.0, keypoints = NULL, kpt_threshold = 0.3, kpt_radius = 4L, draw_skeleton = TRUE, draw_boxes = TRUE, track_ids = NULL, flash = NULL, history_x = NULL, history_y = NULL, roi = NULL, roi_label = "", count_line = NULL, count_line_label = "", counted = NULL, hide_outside_roi = TRUE, hide_counted = TRUE, flash_counted = TRUE, show_text = TRUE, show_conf = TRUE, show_class = TRUE, show_id = FALSE, badge = TRUE, pad_scale = 1.0, mask_labels = NULL, mask_alpha = 0.4, mask_offset_x = 0L, mask_offset_y = 0L, draw_masks = TRUE, mask_ids = NULL, hud_pos = "top-right", hud_layout = "vertical") {
-    .Call(`_pliman_draw_yolo_detections_bgr_cpp`, bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, badge, pad_scale, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout)
+draw_yolo_detections_bgr_cpp <- function(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd = 2L, hud_text = "", font_scale = 1.0, keypoints = NULL, kpt_threshold = 0.3, kpt_radius = 4L, draw_skeleton = TRUE, draw_boxes = TRUE, track_ids = NULL, flash = NULL, history_x = NULL, history_y = NULL, roi = NULL, roi_label = "", count_line = NULL, count_line_label = "", counted = NULL, hide_outside_roi = TRUE, hide_counted = TRUE, flash_counted = TRUE, show_text = TRUE, show_conf = TRUE, show_class = TRUE, show_id = FALSE, badge = TRUE, pad_scale = 1.0, mask_labels = NULL, mask_alpha = 0.4, mask_offset_x = 0L, mask_offset_y = 0L, draw_masks = TRUE, mask_ids = NULL, hud_pos = "top-right", hud_layout = "vertical", font_scale_hud = -1.0, font_scale_roi = 1) {
+    .Call(`_pliman_draw_yolo_detections_bgr_cpp`, bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, badge, pad_scale, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout, font_scale_hud, font_scale_roi)
 }
 
 crop_bgr_cpp <- function(bm, x1, y1, x2, y2) {
@@ -732,6 +736,46 @@ get_native_video_info_cpp <- function(video_path) {
 
 split_video_native_cpp <- function(video_path, output_dir, prefix = "frame_", digits = 6L, format = "jpg", quality = 95L, target_fps = 0.0, target_n = 0L, verbose = TRUE, callback = NULL) {
     .Call(`_pliman_split_video_native_cpp`, video_path, output_dir, prefix, digits, format, quality, target_fps, target_n, verbose, callback)
+}
+
+has_native_video_reader_cpp <- function() {
+    .Call(`_pliman_has_native_video_reader_cpp`)
+}
+
+open_native_video_reader_cpp <- function(video_path) {
+    .Call(`_pliman_open_native_video_reader_cpp`, video_path)
+}
+
+get_video_reader_info_cpp <- function(reader_ptr) {
+    .Call(`_pliman_get_video_reader_info_cpp`, reader_ptr)
+}
+
+read_native_video_frame_cpp <- function(reader_ptr, out_bm) {
+    .Call(`_pliman_read_native_video_frame_cpp`, reader_ptr, out_bm)
+}
+
+extract_native_frame_to_image_cpp <- function(reader_ptr, target_frame) {
+    .Call(`_pliman_extract_native_frame_to_image_cpp`, reader_ptr, target_frame)
+}
+
+close_native_video_reader_cpp <- function(reader_ptr) {
+    .Call(`_pliman_close_native_video_reader_cpp`, reader_ptr)
+}
+
+has_native_video_writer_cpp <- function() {
+    .Call(`_pliman_has_native_video_writer_cpp`)
+}
+
+open_native_video_writer_cpp <- function(video_path, width, height, fps = 30.0, bitrate = 0L) {
+    .Call(`_pliman_open_native_video_writer_cpp`, video_path, width, height, fps, bitrate)
+}
+
+write_native_video_frame_cpp <- function(writer_ptr, bm) {
+    .Call(`_pliman_write_native_video_frame_cpp`, writer_ptr, bm)
+}
+
+close_native_video_writer_cpp <- function(writer_ptr) {
+    .Call(`_pliman_close_native_video_writer_cpp`, writer_ptr)
 }
 
 extract_contours_cpp <- function(labels) {

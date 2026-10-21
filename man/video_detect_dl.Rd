@@ -27,6 +27,9 @@ video_detect_dl(
   show_class = TRUE,
   show_id = FALSE,
   text_size = 1,
+  text_size_telemetry = NULL,
+  text_size_objects = NULL,
+  text_size_roi = NULL,
   count_line = NULL,
   count_line_orientation = c("vertical", "horizontal"),
   count_line_label = NULL,
@@ -89,6 +92,9 @@ video_detect(
   show_class = TRUE,
   show_id = FALSE,
   text_size = 1,
+  text_size_telemetry = NULL,
+  text_size_objects = NULL,
+  text_size_roi = NULL,
   count_line = NULL,
   count_line_orientation = c("vertical", "horizontal"),
   count_line_label = NULL,
@@ -181,7 +187,17 @@ If \code{FALSE}, only the text is drawn directly.}
 
 \item{show_id}{Logical. Whether to display persistent tracking IDs (\verb{#1}, \verb{#2}) in badges when \code{track = TRUE} (default \code{FALSE}).}
 
-\item{text_size}{Numeric font scale for bounding box text labels and badges (alias for \code{cex}, default \code{1.0}).}
+\item{text_size}{Numeric font scale for bounding box text labels and/or telemetry HUD (alias for \code{cex}, default \code{1.0}).
+Can be a single numeric value (applied to both objects and telemetry HUD) or a numeric vector of length 2
+\code{c(objects, telemetry)} to scale them independently (e.g. \code{text_size = c(1, 3)}).}
+
+\item{text_size_telemetry}{Numeric font scale specifically for the telemetry HUD overlay (e.g., \code{text_size_telemetry = 3}).
+If provided, overrides the telemetry component of \code{text_size}. Set to \code{0} to hide telemetry text.}
+
+\item{text_size_objects}{Numeric font scale specifically for detected object bounding box labels and badges (e.g., \code{text_size_objects = 1}).
+If provided, overrides the object component of \code{text_size}.}
+
+\item{text_size_roi}{Numeric font scale specifically for Region of Interest (ROI).}
 
 \item{count_line}{Optional virtual counting tripwire line. Can be specified as a single numeric
 value between \code{0} and \code{1} (indicating relative position along the axis, e.g. \code{0.5} for center)
@@ -240,8 +256,10 @@ Default is \code{interactive()}.}
 
 \item{show_fps}{Logical. Whether to overlay a real-time FPS and detection counter badge (default \code{TRUE}).}
 
-\item{hud_pos}{Screen position of the telemetry HUD card: \code{"top-right"} (default, avoids top-left ROI zone),
-\code{"top-left"}, \code{"bottom-left"}, \code{"bottom-right"}, \code{"top"}, or \code{"bottom"}.}
+\item{hud_pos}{Screen position of the telemetry HUD card: either a preset string
+(\code{"top-right"} (default, avoids top-left ROI zone), \code{"top-left"}, \code{"bottom-left"},
+\code{"bottom-right"}, \code{"top"}, or \code{"bottom"}), or a numeric vector of length 2 \code{c(x, y)}
+specifying relative coordinates in range 0 to 1 across frame width and height (e.g., \code{c(0.2, 0.5)}).}
 
 \item{hud_layout}{Layout style of the telemetry HUD: \code{"vertical"} (default modern multi-row glassmorphic card)
 or \code{"horizontal"} (sleek capsule pill bar).}

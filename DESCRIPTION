@@ -4,17 +4,21 @@ Version: 3.2.0
 Authors@R: 
     person("Tiago", "Olivoto", , "tiagoolivoto@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-0241-9636"))
-Description: Tools for both single and batch image manipulation and
-    analysis (Olivoto, 2022 <doi:10.1111/2041-210X.13803>) and
-    phytopathometry (Olivoto et al., 2022 <doi:10.1007/S40858-021-00487-5>).
-    The tools can be used for the quantification of leaf area, object
-    counting, extraction of image indexes, shape measurement, object
-    landmark identification, and Elliptical Fourier Analysis of object
-    outlines (Claude (2008) <doi:10.1007/978-0-387-77789-4>). The package
-    also provides a comprehensive pipeline for generating shapefiles with
-    complex layouts and supports high-throughput phenotyping of RGB,
-    multispectral, and hyperspectral orthomosaics. This functionality
-    facilitates field phenotyping using UAV- or satellite-based imagery.
+Description: An all-in-one computer vision and machine learning ecosystem for
+    plant phenomics, digital agriculture, and phytopathometry (Olivoto, 2022
+    <doi:10.1111/2041-210X.13803>; Olivoto et al., 2022
+    <doi:10.1007/s40858-021-00487-5>). Provides high-throughput single-
+    and batch-image workflows for leaf area quantification, seed and grain
+    counting, disease severity scoring, color indexes, shape analysis,
+    landmark identification, and Elliptical Fourier Analysis of outlines
+    (Claude, 2008 <doi:10.1007/978-0-387-77789-4>). Supports field-scale
+    phenotyping from UAV and satellite RGB, multispectral, and hyperspectral
+    orthomosaics with automated plot-grid shapefile layout design. Integrates
+    state-of-the-art deep learning architectures (YOLO, Segment Anything,
+    Grounded-SAM, PerSAM, StarDist, CLIP) for zero-shot and custom object
+    detection, instance segmentation, SAHI high-resolution tiling, automated
+    labeling, dataset curation, model training, and asynchronous parallel 
+    batch inference.
 License: GPL (>= 3)
 URL: https://nepem-ufsc.github.io/pliman/, https://github.com/nepem-ufsc/pliman
 BugReports: https://github.com/nepem-ufsc/pliman/issues

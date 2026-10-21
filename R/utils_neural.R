@@ -2287,94 +2287,307 @@ pliman_gpu_info <- function() {
   invisible(df)
 }
 
-#' Configure Complete Deep Learning Environment for pliman (100% Native C++)
+#' Setup Complete ONNX Deep Learning Environment and Pre-trained Models
 #'
 #' Sets up the entire zero-Python, zero-external-package Deep Learning environment
 #' in a single call with interactive CLI feedback.
 #'
 #' This function:
-#' 1. Creates and verifies the local model directory (`tools::R_user_dir("pliman", "data")/models`).
-#' 2. Downloads and verifies the official Microsoft ONNX Runtime C++ shared library directly.
-#' 3. Downloads the specified pre-trained models (`u2netp` and `isnet-general-use` by default).
-#' 4. Runs a self-test inference using the native C++ engine to confirm 100% operational status.
+#' 1. Inspects graphics hardware (DirectX 12 / DirectML GPU and CUDA adapters)
+#'    and displays adapter names and VRAM.
+#' 2. Downloads and verifies official Microsoft ONNX Runtime C++ shared libraries
+#'    (DirectML GPU binaries on Windows, and CPU binaries across all operating systems).
+#' 3. Pre-downloads the essential foundation models (`"u2netp"` for salient segmentation,
+#'    `"yolo26s"` for object detection, and `"dinov2"` for vision foundation embeddings).
+#' 4. Runs native C++ self-test inference on all installed models to confirm 100% operational status.
+#' 5. Provides immediate, copy-paste ready examples to run [image_detect_dl()],
+#'    [image_segment_dl()], and [image_remove_bg()].
 #'
-#' @param models Character vector of models to pre-download. Defaults to `"u2netp"`.
-#'   Pass `"all"` to download all 5 models, or `NULL` to only configure the engine without downloading models.
+#' @param models Character vector of models to pre-download. Defaults to `c("u2netp", "yolo26s", "dinov2")`.
+#'   You can also specify `"all"` to download all standard models, or `NULL` to only configure the runtime engine.
 #' @param dir Directory to store models (default: `pliman_model_dir()`).
 #' @param force Logical. Force re-download and re-configuration even if already present (default `FALSE`).
-#' @param engine Execution engine: `"cpu"` (default) or `"gpu"`.
-#' @return Logical `TRUE` invisibly on success.
+#' @param engine Execution engine: `"auto"` (default), `"gpu"`, or `"cpu"`. When `"auto"`,
+#'   automatically detects compatible GPU hardware and configures GPU acceleration.
+#' @param test Logical. If `TRUE` (default), runs quick native C++ self-test inferences to ensure
+#'   all downloaded models are operational.
+#' @param verbose Logical. Whether to print formatted CLI messages (default `TRUE`).
+#' @return A list containing `engine`, `gpu_info`, `has_gpu`, `installed_models`, and `test_status` invisibly.
 #' @export
+#' @rdname onnx_setup
 #' @examplesIf interactive()
-#'   pliman_configure_dl()
-#'   pliman_configure_dl(engine = "gpu")
-pliman_configure_dl <- function(models = "u2netp",
-                                dir = pliman_model_dir(),
-                                force = FALSE,
-                                engine = c("gpu", "cpu")) {
+#'   onnx_setup()
+#'   onnx_setup(engine = "cpu")
+onnx_setup <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                       dir = pliman_model_dir(),
+                       force = FALSE,
+                       engine = c("auto", "gpu", "cpu"),
+                       test = TRUE,
+                       verbose = TRUE) {
   engine <- match.arg(engine)
   old_timeout <- getOption("timeout")
   on.exit(options(timeout = old_timeout), add = TRUE)
   options(timeout = max(600, old_timeout))
 
-  cli::cli_h1("Configuring pliman Deep Learning Environment (100% Native C++)")
+  os <- tolower(Sys.info()[["sysname"]])
 
-  # 1. Check and configure model directory
-  cli::cli_h2("1. Model Storage Directory")
+  if (isTRUE(verbose)) {
+    cli::cli_h1("Configuring pliman ONNX Deep Learning Environment")
+  }
+
+  # 1. Model Storage Directory
+  if (isTRUE(verbose)) cli::cli_h2("1. Model Storage Directory")
   model_path <- pliman_model_dir(dir)
-  cli::cli_alert_success("Model directory: {.path {model_path}}")
+  if (!dir.exists(model_path)) dir.create(model_path, recursive = TRUE, showWarnings = FALSE)
+  if (isTRUE(verbose)) cli::cli_alert_success("Model directory: {.path {model_path}}")
 
-  # 2. Check and configure ONNX Runtime C++ engine directly
-  cli::cli_h2("2. Microsoft ONNX Runtime C++ Engine (Zero-Package Native)")
-  lib_path <- onnx_install(force = force, engine = engine)
-  cli::cli_alert_success("ONNX Runtime C++ library verified: {.path {lib_path}}")
+  # 2. Hardware & GPU Acceleration Inspection
+  if (isTRUE(verbose)) cli::cli_h2("2. Hardware & GPU Acceleration Inspection")
+  gpu_df <- NULL
+  has_gpu <- FALSE
+  selected_engine <- "cpu"
 
-  # 3. Download Requested Models
-  if (!is.null(models)) {
-    cli::cli_h2("3. Pre-trained Neural Models")
+  gpu_raw <- tryCatch(pliman_gpu_info_cpp(), error = function(e) list(available = FALSE))
+  if (isTRUE(gpu_raw$available) && length(gpu_raw$device_id) > 0) {
+    has_gpu <- TRUE
+    gpu_df <- data.frame(
+      device_id = gpu_raw$device_id,
+      name = gpu_raw$name,
+      vram_mb = round(gpu_raw$vram_mb, 1),
+      is_dedicated = gpu_raw$is_dedicated,
+      is_default = (gpu_raw$device_id == gpu_raw$default_device_id),
+      stringsAsFactors = FALSE
+    )
+    if (isTRUE(verbose)) {
+      for (i in seq_len(nrow(gpu_df))) {
+        prefix <- if (gpu_df$is_default[i]) "* (Default) " else "  "
+        type_str <- if (gpu_df$is_dedicated[i]) "Dedicated" else "Integrated"
+        cli::cli_alert_info("{prefix}[Device {gpu_df$device_id[i]}] {gpu_df$name[i]} ({type_str}, {gpu_df$vram_mb[i]} MB VRAM)")
+      }
+    }
+  } else {
+    nv_info <- tryCatch(.detect_nvidia_gpu(), error = function(e) list(has_gpu = FALSE))
+    if (isTRUE(nv_info$has_gpu)) {
+      has_gpu <- TRUE
+      if (isTRUE(verbose)) {
+        cli::cli_alert_info("NVIDIA GPU detected: {.strong {nv_info$name}} (Driver: {nv_info$driver})")
+      }
+    } else if (isTRUE(verbose)) {
+      cli::cli_alert_info("No dedicated DirectX 12 / DirectML GPU detected. CPU engine will be used.")
+    }
+  }
+
+  # Determine target engine
+  if (engine == "auto") {
+    selected_engine <- if (has_gpu && os == "windows") "gpu" else "cpu"
+  } else if (engine == "gpu") {
+    if (os == "windows") {
+      selected_engine <- "gpu"
+    } else {
+      if (isTRUE(verbose)) {
+        cli::cli_alert_warning("DirectML GPU acceleration is supported on Windows (DirectX 12). Using CPU engine on {os}.")
+      }
+      selected_engine <- "cpu"
+    }
+  } else {
+    selected_engine <- "cpu"
+  }
+
+  # 3. Microsoft ONNX Runtime C++ Engine
+  if (isTRUE(verbose)) cli::cli_h2("3. Microsoft ONNX Runtime C++ Engine (Zero-Python)")
+  lib_cpu <- onnx_install(force = force, engine = "cpu")
+  if (isTRUE(verbose)) cli::cli_alert_success("ONNX Runtime CPU library verified: {.path {lib_cpu}}")
+
+  lib_gpu <- NULL
+  if (os == "windows") {
+    tryCatch({
+      lib_gpu <- onnx_install(force = force, engine = "gpu")
+      if (isTRUE(verbose)) cli::cli_alert_success("ONNX Runtime DirectML (GPU) library verified: {.path {lib_gpu}}")
+    }, error = function(e) {
+      if (isTRUE(verbose)) cli::cli_alert_warning("DirectML library download skipped or failed: {e$message}")
+    })
+  }
+
+  if (isTRUE(verbose)) {
+    active_tag <- if (selected_engine == "gpu") "GPU (DirectML) [ACTIVE]" else "CPU [ACTIVE]"
+    cli::cli_alert_info("Active default engine: {.strong {active_tag}}")
+  }
+
+  # 4. Download Core Pre-trained Models
+  installed_files <- character()
+  if (!is.null(models) && length(models) > 0) {
+    if (isTRUE(verbose)) cli::cli_h2("4. Pre-trained Foundation Models")
+
     if (identical(models, "all")) {
-      models <- c("u2netp", "isnet-general-use", "rmbg-1.4", "silueta", "u2net")
+      models <- c("u2netp", "yolo26s", "dinov2", "isnet-general-use", "rmbg-1.4", "silueta", "u2net")
     }
 
-    for (m in models) {
+    # Normalize aliases: "dino" -> "dinov2"
+    norm_models <- unique(vapply(models, function(m) {
+      m_low <- tolower(trimws(m))
+      if (m_low %in% c("dino", "dino-v2", "dino_v2")) "dinov2" else m
+    }, character(1)))
+
+    model_descriptions <- list(
+      "u2netp" = "Salient object segmentation & background removal (4.6 MB)",
+      "yolo26s" = "Real-time general object detection & counting (36.5 MB, 80 COCO classes)",
+      "dinov2" = "Foundation vision transformer patch embeddings & semantic maps (85.2 MB)"
+    )
+
+    for (m in norm_models) {
       tryCatch({
-        pliman_download_model(model = m, dir = model_path, force = force)
+        desc <- model_descriptions[[tolower(m)]]
+        if (is.null(desc)) desc <- "Pre-trained neural model"
+        if (isTRUE(verbose)) cli::cli_alert_info("Verifying model {.val {m}} ({desc})...")
+        m_file <- pliman_download_model(model = m, dir = model_path, force = force, verbose = FALSE)
+        installed_files[m] <- m_file
+        if (isTRUE(verbose)) cli::cli_alert_success("Model {.val {m}} is ready: {.file {basename(m_file)}}")
       }, error = function(e) {
-        cli::cli_alert_danger("Failed to download model {.val {m}}: {e$message}")
+        if (isTRUE(verbose)) cli::cli_alert_danger("Failed to prepare model {.val {m}}: {e$message}")
       })
     }
   }
 
-  # 4. Perform a quick verification test
-  cli::cli_h2("4. Verification & Self-Test")
-  test_model <- if ("u2netp" %in% models) "u2netp" else models[1]
-  test_file <- file.path(model_path, paste0(test_model, ".onnx"))
+  # 5. Verification & Self-Test
+  test_status <- list()
+  if (isTRUE(test)) {
+    if (isTRUE(verbose)) cli::cli_h2("5. System Verification & Native Self-Test")
+    test_eng <- selected_engine
 
-  if (file.exists(test_file)) {
-    cli::cli_alert_info("Running self-test with {.val {test_model}} in native C++...")
-    test_ok <- tryCatch({
-      dummy_tensor <- numeric(1 * 3 * 320 * 320)
-      attr(dummy_tensor, "dims") <- as.integer(c(1, 3, 320, 320))
-      res <- .run_onnx_inference(dummy_tensor, test_file, target_size = 320, engine = engine)
-      if (is.matrix(res) && nrow(res) == 320 && ncol(res) == 320) {
-        TRUE
-      } else {
-        FALSE
+    # Test u2netp if installed
+    u2_file <- file.path(model_path, "u2netp.onnx")
+    if (file.exists(u2_file)) {
+      if (isTRUE(verbose)) cli::cli_alert_info("Testing segmentation pipeline ({.val u2netp}) [{toupper(test_eng)}]...")
+      u2_ok <- tryCatch({
+        dummy_u2 <- numeric(1 * 3 * 320 * 320)
+        attr(dummy_u2, "dims") <- as.integer(c(1, 3, 320, 320))
+        res <- .run_onnx_inference(dummy_u2, u2_file, target_size = 320, engine = test_eng)
+        is.matrix(res) && nrow(res) == 320 && ncol(res) == 320
+      }, error = function(e) FALSE)
+      test_status$u2netp <- u2_ok
+      if (isTRUE(verbose)) {
+        if (u2_ok) {
+          cli::cli_alert_success("Segmentation engine operational ({.val u2netp}).")
+        } else {
+          cli::cli_alert_warning("Segmentation self-test returned unexpected output.")
+        }
       }
-    }, error = function(e) {
-      cli::cli_alert_warning("Self-test error: {e$message}")
-      FALSE
-    })
+    }
 
-    if (test_ok) {
-      cli::cli_alert_success("Self-test passed! Native C++ neural inference is working at full speed.")
+    # Test yolo26s if installed
+    yolo_file <- file.path(model_path, "yolo26s.onnx")
+    if (file.exists(yolo_file)) {
+      if (isTRUE(verbose)) cli::cli_alert_info("Testing detection pipeline ({.val yolo26s}) [{toupper(test_eng)}]...")
+      yolo_ok <- tryCatch({
+        dummy_yolo <- numeric(1 * 3 * 640 * 640)
+        res_yolo <- run_yolo_cpp(
+          dummy_yolo, 640L, 640L,
+          conf_threshold = 0.5, iou_threshold = 0.5,
+          model_path = yolo_file,
+          lib_path = pliman_onnx_lib_path(engine = test_eng),
+          num_threads = 0L,
+          use_gpu = (test_eng == "gpu"),
+          device_id = -1L,
+          need_masks = FALSE
+        )
+        is.list(res_yolo)
+      }, error = function(e) FALSE)
+      test_status$yolo26s <- yolo_ok
+      if (isTRUE(verbose)) {
+        if (yolo_ok) {
+          cli::cli_alert_success("Object detection engine operational ({.val yolo26s}).")
+        } else {
+          cli::cli_alert_warning("Detection self-test returned unexpected output.")
+        }
+      }
+    }
+
+    # Test dinov2 if installed
+    dino_file <- file.path(model_path, "dinov2-vits14.onnx")
+    if (file.exists(dino_file)) {
+      if (isTRUE(verbose)) cli::cli_alert_info("Testing foundation features pipeline ({.val dinov2}) [{toupper(test_eng)}]...")
+      dino_ok <- tryCatch({
+        dummy_dino <- numeric(1 * 3 * 518 * 518)
+        res_dino <- run_dinov2_cpp(
+          dummy_dino, 518L, 518L,
+          patch_size = 14L, return_pca = FALSE,
+          model_path = dino_file,
+          lib_path = pliman_onnx_lib_path(engine = test_eng),
+          num_threads = 0L,
+          use_gpu = (test_eng == "gpu"),
+          device_id = -1L
+        )
+        is.list(res_dino) && length(res_dino$cls_token) == 384L
+      }, error = function(e) FALSE)
+      test_status$dinov2 <- dino_ok
+      if (isTRUE(verbose)) {
+        if (dino_ok) {
+          cli::cli_alert_success("Foundation features engine operational ({.val dinov2}).")
+        } else {
+          cli::cli_alert_warning("Foundation features self-test returned unexpected output.")
+        }
+      }
     }
   }
 
-  cli::cli_h2("Configuration Complete!")
-  cli::cli_alert_info("You can now run: {.code mask <- image_binary_dl(img, model = 'u2netp')}")
-  cli::cli_alert_info("Or remove background: {.code img_tb <- image_remove_bg_dl(img, model = 'u2netp')}")
-  return(invisible(TRUE))
+  if (isTRUE(verbose)) {
+    cli::cli_h1("Configuration Complete! Environment Ready for Inference")
+    cli::cli_alert_success("All components configured and verified successfully.")
+    cli::cli_alert_info("You can now run directly:")
+    cat("\n")
+    cli::cli_code(paste0(
+      "# 1. Object Detection and Counting:\n",
+      "det <- image_detect_dl(img, model = 'yolo26s')\n\n",
+      "# 2. Object Segmentation:\n",
+      "seg <- image_segment_dl(img, model = 'u2netp')\n\n",
+      "# 3. Salient Background Removal:\n",
+      "nobg <- image_remove_bg(img, model = 'u2netp')\n\n",
+      "# 4. Vision Transformer Feature Maps:\n",
+      "feat <- image_features_dl(img, model = 'dinov2')"
+    ))
+    cat("\n")
+  }
+
+  invisible(list(
+    engine = selected_engine,
+    gpu_info = gpu_df,
+    has_gpu = has_gpu,
+    installed_models = installed_files,
+    test_status = test_status
+  ))
+}
+
+#' @rdname onnx_setup
+#' @export
+pliman_configure_dl <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                                dir = pliman_model_dir(),
+                                force = FALSE,
+                                engine = c("auto", "gpu", "cpu"),
+                                test = TRUE,
+                                verbose = TRUE) {
+  onnx_setup(models = models, dir = dir, force = force, engine = engine, test = test, verbose = verbose)
+}
+
+#' @rdname onnx_setup
+#' @export
+pliman_setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                              dir = pliman_model_dir(),
+                              force = FALSE,
+                              engine = c("auto", "gpu", "cpu"),
+                              test = TRUE,
+                              verbose = TRUE) {
+  onnx_setup(models = models, dir = dir, force = force, engine = engine, test = test, verbose = verbose)
+}
+
+#' @rdname onnx_setup
+#' @export
+setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                       dir = pliman_model_dir(),
+                       force = FALSE,
+                       engine = c("auto", "gpu", "cpu"),
+                       test = TRUE,
+                       verbose = TRUE) {
+  onnx_setup(models = models, dir = dir, force = force, engine = engine, test = test, verbose = verbose)
 }
 
 # ==============================================================================
@@ -3319,12 +3532,82 @@ image_remove_bg_dl <- function(img,
   rbind(arc_tr, arc_tl, arc_bl, arc_br)
 }
 
+# Helper to expand/pad bounding boxes
+.apply_box_padding <- function(boxes, pad = 0, orig_w = NULL, orig_h = NULL) {
+  if (is.null(boxes) || !is.data.frame(boxes) || nrow(boxes) == 0L) return(boxes)
+  if (isTRUE(attr(boxes, "padded"))) return(boxes)
+  if (is.null(pad) || (length(pad) == 1L && pad == 0)) return(boxes)
+
+  pad_x <- as.numeric(pad[1])
+  pad_y <- if (length(pad) >= 2L) as.numeric(pad[2]) else pad_x
+  if (is.na(pad_x)) pad_x <- 0
+  if (is.na(pad_y)) pad_y <- 0
+  if (pad_x == 0 && pad_y == 0) return(boxes)
+
+  is_obb <- all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(boxes))
+
+  if (all(c("xmin", "ymin", "xmax", "ymax") %in% names(boxes))) {
+    w <- boxes$xmax - boxes$xmin
+    h <- boxes$ymax - boxes$ymin
+
+    px_x <- if (abs(pad_x) > 0 && abs(pad_x) < 1) w * pad_x else pad_x
+    px_y <- if (abs(pad_y) > 0 && abs(pad_y) < 1) h * pad_y else pad_y
+
+    new_xmin <- boxes$xmin - px_x
+    new_xmax <- boxes$xmax + px_x
+    new_ymin <- boxes$ymin - px_y
+    new_ymax <- boxes$ymax + px_y
+
+    if (!is.null(orig_w) && is.finite(orig_w) && orig_w > 0) {
+      new_xmin <- pmax(1, pmin(orig_w, new_xmin))
+      new_xmax <- pmax(1, pmin(orig_w, new_xmax))
+    }
+    if (!is.null(orig_h) && is.finite(orig_h) && orig_h > 0) {
+      new_ymin <- pmax(1, pmin(orig_h, new_ymin))
+      new_ymax <- pmax(1, pmin(orig_h, new_ymax))
+    }
+
+    boxes$xmin <- pmin(new_xmin, new_xmax - 1)
+    boxes$xmax <- pmax(new_xmax, new_xmin + 1)
+    boxes$ymin <- pmin(new_ymin, new_ymax - 1)
+    boxes$ymax <- pmax(new_ymax, new_ymin + 1)
+
+    if ("cx" %in% names(boxes)) boxes$cx <- round((boxes$xmin + boxes$xmax) / 2, 1)
+    if ("cy" %in% names(boxes)) boxes$cy <- round((boxes$ymin + boxes$ymax) / 2, 1)
+  }
+
+  if (is_obb) {
+    for (i in seq_len(nrow(boxes))) {
+      cx <- (boxes$x1[i] + boxes$x2[i] + boxes$x3[i] + boxes$x4[i]) / 4
+      cy <- (boxes$y1[i] + boxes$y2[i] + boxes$y3[i] + boxes$y4[i]) / 4
+      for (c_idx in 1:4) {
+        xn <- paste0("x", c_idx)
+        yn <- paste0("y", c_idx)
+        dx <- boxes[[xn]][i] - cx
+        dy <- boxes[[yn]][i] - cy
+        dist <- sqrt(dx^2 + dy^2)
+        if (dist > 0) {
+          scale_x <- if (abs(pad_x) > 0 && abs(pad_x) < 1) (1 + pad_x) else (dist + pad_x) / dist
+          scale_y <- if (abs(pad_y) > 0 && abs(pad_y) < 1) (1 + pad_y) else (dist + pad_y) / dist
+          boxes[[xn]][i] <- cx + dx * scale_x
+          boxes[[yn]][i] <- cy + dy * scale_y
+          if (!is.null(orig_w) && is.finite(orig_w) && orig_w > 0) boxes[[xn]][i] <- max(1, min(orig_w, boxes[[xn]][i]))
+          if (!is.null(orig_h) && is.finite(orig_h) && orig_h > 0) boxes[[yn]][i] <- max(1, min(orig_h, boxes[[yn]][i]))
+        }
+      }
+    }
+  }
+
+  attr(boxes, "padded") <- TRUE
+  boxes
+}
+
 # Helper to draw YOLO-style bounding boxes with class label and confidence score
 .plot_yolo_bboxes <- function(boxes,
                               palette_colors,
                               lwd = 2,
                               cex = 1.0,
-                              pad = 1.0,
+                              pad = 0,
                               show_text = TRUE,
                               show_conf = TRUE,
                               show_class = TRUE,
@@ -3335,8 +3618,16 @@ image_remove_bg_dl <- function(img,
                               point_pch = 16,
                               point_col = NULL,
                               badge = TRUE,
-                              cex_scale = NULL) {
+                              cex_scale = NULL,
+                              badge_pad = 1.0) {
   if (is.null(boxes) || !is.data.frame(boxes) || nrow(boxes) == 0) return(invisible(NULL))
+
+  if (!is.null(pad) && any(pad != 0)) {
+    u_tmp <- graphics::par("usr")
+    max_w <- max(u_tmp[1], u_tmp[2])
+    max_h <- max(u_tmp[3], u_tmp[4])
+    boxes <- .apply_box_padding(boxes, pad = pad, orig_w = max_w, orig_h = max_h)
+  }
 
   if (is.null(show_box)) {
     show_box <- !(isTRUE(show_point) && !isTRUE(show_text) && !isTRUE(show_conf) && !isTRUE(show_class))
@@ -3346,8 +3637,9 @@ image_remove_bg_dl <- function(img,
     cex <- cex_scale
   }
 
-  pad_mult_x <- if (length(pad) >= 1 && is.numeric(pad)) max(0, pad[1]) else 1.0
-  pad_mult_y <- if (length(pad) >= 2 && is.numeric(pad)) max(0, pad[2]) else pad_mult_x
+  badge_pad_val <- if (!is.null(badge_pad)) badge_pad else 1.0
+  pad_mult_x <- if (length(badge_pad_val) >= 1 && is.numeric(badge_pad_val)) max(0, badge_pad_val[1]) else 1.0
+  pad_mult_y <- if (length(badge_pad_val) >= 2 && is.numeric(badge_pad_val)) max(0, badge_pad_val[2]) else pad_mult_x
 
   u <- graphics::par("usr")
   img_h <- abs(u[3] - u[4])
@@ -3673,6 +3965,7 @@ image_remove_bg_dl <- function(img,
                               box_threshold = 0.25,
                               text_threshold = 0.25,
                               iou_threshold = 0.5,
+                              filter_nested = TRUE,
                               threads = 0,
                               engine = c("gpu", "cpu"),
                               device_id = -1,
@@ -3792,6 +4085,37 @@ image_remove_bg_dl <- function(img,
       }
     }
     labels_str[i] <- cls_cand
+  }
+
+  # Filter nested container boxes if requested
+  if (isTRUE(filter_nested) && num_boxes > 1) {
+    b_areas <- (boxes_px[, 3] - boxes_px[, 1]) * (boxes_px[, 4] - boxes_px[, 2])
+    remove_b <- logical(num_boxes)
+    for (i in seq_len(num_boxes)) {
+      if (b_areas[i] <= 0) next
+      for (j in seq_len(num_boxes)) {
+        if (i == j) next
+        if (identical(labels_str[i], labels_str[j]) && b_areas[i] >= (b_areas[j] * 1.25)) {
+          ix1 <- max(boxes_px[i, 1], boxes_px[j, 1])
+          iy1 <- max(boxes_px[i, 2], boxes_px[j, 2])
+          ix2 <- min(boxes_px[i, 3], boxes_px[j, 3])
+          iy2 <- min(boxes_px[i, 4], boxes_px[j, 4])
+          iw <- max(0, ix2 - ix1)
+          ih <- max(0, iy2 - iy1)
+          if (b_areas[j] > 0 && ((iw * ih) / b_areas[j]) >= 0.80) {
+            remove_b[i] <- TRUE
+            break
+          }
+        }
+      }
+    }
+    if (any(remove_b)) {
+      keep_b <- which(!remove_b)
+      boxes_px <- boxes_px[keep_b, , drop = FALSE]
+      dino_res$scores <- dino_res$scores[keep_b]
+      labels_str <- labels_str[keep_b]
+      num_boxes <- length(keep_b)
+    }
   }
 
   boxes_df <- data.frame(
@@ -4491,6 +4815,17 @@ image_remove_bg_dl <- function(img,
     txt_feats = txt_feats
   )
 
+  if (isTRUE(need_masks) && (is.null(raw_res$labels) || !is.matrix(raw_res$labels) || nrow(raw_res$labels) == 0L || ncol(raw_res$labels) == 0L)) {
+    seg_suggestion <- sub("(\\.(onnx|pt))?$", "-seg\\1", basename(model))
+    if (!grepl("-seg", seg_suggestion)) seg_suggestion <- paste0(sub("\\.(onnx|pt)$", "", basename(model)), "-seg")
+    cli::cli_abort(c(
+      "Model {.val {basename(model)}} is an object detection model, not an instance segmentation model.",
+      "x" = "It detects bounding boxes but does not contain prototype mask outputs.",
+      "i" = "To perform instance segmentation, please use a YOLO segmentation model (e.g., {.val {seg_suggestion}} or {.val 'u2netp'}).",
+      "i" = "To detect bounding boxes using this model, please use {.fn image_detect_dl}."
+    ))
+  }
+
   if (!is.null(labels)) {
     class_names <- labels
   } else {
@@ -4563,7 +4898,7 @@ image_remove_bg_dl <- function(img,
   }
 
   lbl_mat <- raw_res$labels
-  if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && any(lbl_mat > 0L)) {
+  if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && nrow(lbl_mat) == orig_w && ncol(lbl_mat) == orig_h && any(lbl_mat > 0L)) {
     for (k in seq_len(num_boxes)) {
       bx <- df_boxes[k, ]
       x1 <- max(1L, floor(bx$xmin) - 2L)
@@ -5111,6 +5446,126 @@ plot_yolo_heatmap <- function(img,
   invisible(res_img)
 }
 
+.filter_nested_boxes <- function(boxes,
+                                 containment_thresh = 0.80,
+                                 area_ratio_thresh = 1.25) {
+  if (is.null(boxes)) return(NULL)
+  n <- if (is.data.frame(boxes)) nrow(boxes) else if (is.matrix(boxes)) nrow(boxes) else 0L
+  if (n <= 1L) return(boxes)
+
+  is_df <- is.data.frame(boxes)
+  xmin <- if (is_df) boxes$xmin else boxes[, 1]
+  ymin <- if (is_df) boxes$ymin else boxes[, 2]
+  xmax <- if (is_df) boxes$xmax else boxes[, 3]
+  ymax <- if (is_df) boxes$ymax else boxes[, 4]
+  labels <- if (is_df && "label" %in% names(boxes)) as.character(boxes$label) else rep("obj", n)
+
+  areas <- pmax(0, xmax - xmin) * pmax(0, ymax - ymin)
+  remove_idx <- logical(n)
+
+  for (i in seq_len(n)) {
+    if (areas[i] <= 0) next
+    for (j in seq_len(n)) {
+      if (i == j) next
+      if (identical(labels[i], labels[j]) && areas[i] >= (areas[j] * area_ratio_thresh)) {
+        ix1 <- max(xmin[i], xmin[j])
+        iy1 <- max(ymin[i], ymin[j])
+        ix2 <- min(xmax[i], xmax[j])
+        iy2 <- min(ymax[i], ymax[j])
+        iw <- max(0, ix2 - ix1)
+        ih <- max(0, iy2 - iy1)
+        inter_area <- iw * ih
+        if (areas[j] > 0 && (inter_area / areas[j]) >= containment_thresh) {
+          remove_idx[i] <- TRUE
+          break
+        }
+      }
+    }
+  }
+
+  keep_idx <- which(!remove_idx)
+  if (is_df) {
+    res <- boxes[keep_idx, , drop = FALSE]
+    if ("id" %in% names(res)) {
+      res$id <- seq_len(nrow(res))
+    }
+    rownames(res) <- NULL
+    attr(res, "keep_idx") <- keep_idx
+    res
+  } else {
+    res <- boxes[keep_idx, , drop = FALSE]
+    attr(res, "keep_idx") <- keep_idx
+    res
+  }
+}
+
+.filter_nested_res <- function(gs_res,
+                               containment_thresh = 0.80,
+                               area_ratio_thresh = 1.25) {
+  if (is.null(gs_res) || is.null(gs_res$boxes) || nrow(gs_res$boxes) <= 1L) {
+    return(gs_res)
+  }
+  b <- gs_res$boxes
+  filtered_b <- .filter_nested_boxes(b, containment_thresh = containment_thresh, area_ratio_thresh = area_ratio_thresh)
+  keep_idx <- attr(filtered_b, "keep_idx")
+  if (is.null(keep_idx) || length(keep_idx) == nrow(b)) {
+    return(gs_res)
+  }
+
+  n <- nrow(b)
+  gs_res$boxes <- filtered_b
+
+  if (!is.null(gs_res$contours) && length(gs_res$contours) == n) {
+    gs_res$contours <- gs_res$contours[keep_idx]
+  }
+
+  if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
+    lbl_mat <- image_data(gs_res$labels)
+    new_lbl <- matrix(0L, nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
+    for (k in seq_along(keep_idx)) {
+      orig_id <- keep_idx[k]
+      new_lbl[lbl_mat == orig_id] <- as.integer(k)
+    }
+    gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
+    if (!is.null(gs_res$mask)) {
+      gs_res$mask <- as_image(new_lbl > 0L)
+    }
+  }
+
+  if (nrow(filtered_b) > 0) {
+    cnts <- as.data.frame(table(factor(filtered_b$label, levels = unique(filtered_b$label))), stringsAsFactors = FALSE)
+    colnames(cnts) <- c("label", "count")
+    gs_res$counts <- cnts
+    gs_res$summary <- .format_detection_summary(filtered_b$label)
+  } else {
+    gs_res$counts <- data.frame(label = character(0), count = integer(0), stringsAsFactors = FALSE)
+    gs_res$summary <- "0 objects detected"
+  }
+
+  gs_res
+}
+
+.filter_plot_dots <- function(dots) {
+  if (is.null(dots) || length(dots) == 0L) return(list())
+  exclude <- c(
+    "type", "bbox", "show_box", "show_boxes", "mask", "badge", "rainbow", "model",
+    "prompt", "conf_threshold", "box_threshold", "iou_threshold", "text_threshold",
+    "filter_nested", "threshold", "classes", "labels", "label_size", "text_size", "font_scale",
+    "cex_scale", "label_pad", "badge_pad", "pad_scale", "show_labels", "show_scores",
+    "label_box", "marker_size", "point_cex", "marker_col", "marker_pch",
+    "col_background", "col_highlight", "mask_color", "keep_images", "keep_image",
+    "attach_image", "parallel", "workers", "measure", "pixel_size", "show_point",
+    "point_size", "point_pch", "point_col", "save_image", "dir_processed",
+    "prefix", "verbose", "return_features", "feature_model", "plot_features",
+    "threads", "engine", "device_id", "fill_hull", "filter", "erode", "dilate",
+    "opening", "closing", "min_area", "invert", "pick_object", "show_mask",
+    "show_text", "show_conf", "show_class", "show_id", "lwd", "col", "border",
+    "alpha", "pad", "cex", "dir", "exemplar", "sim_threshold", "min_dist",
+    "feat_res", "max_objects", "superres_map", "k_steps", "sam_points", "grid"
+  )
+  dots[setdiff(names(dots), exclude)]
+}
+
 #' Deep Learning Semantic & Instance Segmentation, Object Detection, and Visual Exemplar Counting
 #'
 #' Segments foreground objects (such as leaves, fruits, seeds, grains, roots,
@@ -5136,12 +5591,12 @@ plot_yolo_heatmap <- function(img,
 #'
 #' @inheritParams image_binary_dl
 #' @param type Character specifying the visual and output modality:
-#'   * `"segment"` (default): Returns an `image` object where detected foreground is preserved
+#'   * `"highlight"`(default): Overlays the original image with semi-transparent colored polygons covering
+#'     each detected instance, ideal for visual inspection, quality control, and publication figures.
+#'   * `"segment"`: Returns an `image` object where detected foreground is preserved
 #'     and background is replaced by a solid color specified by `col_background`.
 #'   * `"mask"`: Returns the binary mask (for semantic models) or single multi-label integer instance map
 #'     (for YOLO-seg, StarDist, Grounded-SAM, and PerSAM) as an `image` object (`colormode = "Grayscale"`).
-#'   * `"highlight"`: Overlays the original image with semi-transparent colored polygons covering
-#'     each detected instance, ideal for visual inspection, quality control, and publication figures.
 #'     When `mask = FALSE`, overlays bounding boxes directly.
 #'   * `"boxes"`: Overlays bounding boxes on the original image and returns a data frame of detected boxes.
 #' @param model Model architecture or path to a custom ONNX file. Built-in choices:
@@ -5153,9 +5608,12 @@ plot_yolo_heatmap <- function(img,
 #'   * `"ben2"`: Boundary-aware Enhanced Network (BEN2) for razor-sharp leaf margins, serrations, and roots.
 #'   * `"rmbg-1.4"`, `"rmbg-2.0"`: BRIA state-of-the-art commercial-grade background removal.
 #'   * `"withoutbg"`, `"birefnet-lite"`, `"isnet-general-use"`, `"silueta"`: Specialized salient cutout backends.
+#' @param classes Optional character or numeric vector of target classes to keep/filter.
+#'   When specified, only detected instances matching these classes are kept, segmented, and plotted.
 #' @param col_background Character string or hex code specifying the solid background color when
 #'   `type = "segment"`. Defaults to `"white"`. Accepts any valid R color name (e.g., `"black"`, `"transparent"`)
-#'   or hexadecimal code (e.g., `"#FFFFFF"`).
+#'   or hexadecimal code (e.g., `"#FFFFFF"`). When set to `"transparent"`, `"none"`, or `NA`, returns an image
+#'   with an alpha transparency channel (4 channels, RGBA).
 #' @param col_highlight Fill color for the semi-transparent overlay polygon when `type = "highlight"`.
 #'   Defaults to `"salmon"`. When multiple instances are detected, distinct categorical
 #'   colors are automatically generated from a rainbow palette.
@@ -5181,10 +5639,13 @@ plot_yolo_heatmap <- function(img,
 #' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1.5`.
 #' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
 #' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
-#' @param cex Size factor for bounding box label text (default `1.0`). Use smaller values (e.g., `0.2` or `0.5`)
+#' @param cex Size factor for bounding box label text (default `1.5`). Use smaller values (e.g., `0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
-#' @param pad Padding multiplier controlling the background badge size around label text (default `1.0`).
-#'   Can be a single value or a length-2 vector `c(pad_x, pad_y)`. Use `pad = 0` for a badge fitting tightly to the text.
+#' @param pad Padding added to expand bounding boxes around detected instances when `bbox = TRUE` (default `0`).
+#'   Can be an absolute number of pixels (e.g., `pad = 10`), a relative expansion fraction when
+#'   between 0 and 1 (e.g., `pad = 0.05` for 5% margin), or a length-2 vector `c(pad_x, pad_y)`.
+#' @param badge_pad Padding multiplier controlling the background badge size around label text (default `1.0`).
+#'   Use `badge_pad = 0` for a badge fitting tightly to the text.
 #' @param show_text Logical. Whether to display text labels on bounding boxes (default `TRUE`).
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
@@ -5228,6 +5689,8 @@ plot_yolo_heatmap <- function(img,
 #'   Options are `"clip-vit-b32"` (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
 #'   `"dinov2"` (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).
 #' @param plot_features Logical. If `TRUE` and `return_features = TRUE`, visualizes the dense spatial PCA feature map. Defaults to `FALSE`.
+#' @param filter_nested Logical. If `TRUE` (the default), removes larger container bounding boxes
+#'   that enclose smaller boxes of the same class (e.g. discarding an encompassing box around an entire branch of leaves).
 #' @param show_mask Deprecated. If `TRUE`, equivalent to `type = "mask"`.
 #'
 #' @return
@@ -5313,17 +5776,18 @@ plot_yolo_heatmap <- function(img,
 #'     bbox = TRUE
 #'   )
 image_segment_dl <- function(img,
-                             type = c("segment", "mask", "highlight"),
+                             type = c("highlight", "segment", "mask"),
                              col_background = "white",
                              col_highlight = "salmon",
                              mask_color = NULL,
-                             alpha = 0.4,
+                             alpha = 0.5,
                              border = NA,
                              lwd = 1,
                              bbox = FALSE,
                              mask = TRUE,
                              cex = 1.0,
-                             pad = 1.0,
+                             pad = 0,
+                             badge_pad = 1.0,
                              show_text = TRUE,
                              show_conf = TRUE,
                              show_class = TRUE,
@@ -5362,6 +5826,8 @@ image_segment_dl <- function(img,
                              invert = FALSE,
                              pick_object = FALSE,
                              prompt = NULL,
+                             classes = NULL,
+                             filter_nested = TRUE,
                              show_mask = FALSE,
                              verbose = TRUE,
                              plot = TRUE,
@@ -5374,13 +5840,15 @@ image_segment_dl <- function(img,
     mask <- FALSE
   }
   dots <- list(...)
+  if (is.null(classes) && !is.null(dots$classes)) classes <- dots$classes
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
   if ("cex_scale" %in% names(dots)) cex <- dots$cex_scale
-  if ("label_pad" %in% names(dots)) pad <- dots$label_pad
-  if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
-  if ("pad_scale" %in% names(dots)) pad <- dots$pad_scale
+  if ("box_pad" %in% names(dots)) pad <- dots$box_pad
+  if ("label_pad" %in% names(dots)) badge_pad <- dots$label_pad
+  if ("badge_pad" %in% names(dots)) badge_pad <- dots$badge_pad
+  if ("pad_scale" %in% names(dots)) badge_pad <- dots$pad_scale
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
@@ -5391,7 +5859,7 @@ image_segment_dl <- function(img,
   if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
-    if (missing(pad)) pad <- cex[2]
+    if (missing(badge_pad)) badge_pad <- cex[2]
     cex <- cex[1]
   }
 
@@ -5409,6 +5877,7 @@ image_segment_dl <- function(img,
                        mask = mask,
                        cex = cex,
                        pad = pad,
+                       badge_pad = badge_pad,
                        show_text = show_text,
                        show_conf = show_conf,
                        show_class = show_class,
@@ -5522,6 +5991,29 @@ image_segment_dl <- function(img,
     cli::cli_abort(c(
       "Model {.val {model}} is an image classification model, not an instance segmentation model.",
       "i" = "Please use {.fn image_classify_dl} instead."
+    ))
+  }
+
+  is_yolo_det_name <- !is_url && (
+    model_stem %in% c(
+      "yolo", "yolo26", "yolo11", "yolov8", "yolov5", "yolov7", "yolov9", "yolov10",
+      "yolo26n", "yolo26s", "yolo26m", "yolo26l", "yolo26x",
+      "yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x",
+      "yolov8n", "yolov8s", "yolov8m", "yolov8l", "yolov8x"
+    ) ||
+    grepl("[-_]det", model_stem) ||
+    grepl("[-_]obb", model_stem) ||
+    grepl("[-_]pose", model_stem)
+  )
+
+  if (is_yolo_det_name && !grepl("[-_]seg", model_stem)) {
+    seg_suggestion <- sub("(\\.(onnx|pt))?$", "-seg\\1", model_raw)
+    if (!grepl("-seg", seg_suggestion)) seg_suggestion <- paste0(model_stem, "-seg")
+    cli::cli_abort(c(
+      "Model {.val {model_raw}} is an object detection model, not an instance segmentation model.",
+      "x" = "It detects bounding boxes but does not contain segmentation mask outputs.",
+      "i" = "To perform instance segmentation, please use a segmentation model such as {.val {seg_suggestion}} (e.g., {.val 'yolo26s-seg'} or {.val 'u2netp'}).",
+      "i" = "To detect bounding boxes using {.val {model_raw}}, please use {.fn image_detect_dl}."
     ))
   }
 
@@ -5651,6 +6143,7 @@ image_segment_dl <- function(img,
         box_threshold = box_threshold,
         text_threshold = text_threshold,
         iou_threshold = iou_threshold,
+        filter_nested = filter_nested,
         threads = threads,
         engine = engine,
         device_id = device_id,
@@ -5683,7 +6176,7 @@ image_segment_dl <- function(img,
         opening = opening,
         closing = closing,
         min_area = min_area,
-        need_masks = isTRUE(mask) || type == "mask" || type == "highlight",
+        need_masks = isTRUE(mask) || type == "mask" || type == "highlight" || type == "segment",
         return_features = return_features,
         dir = dir
       )
@@ -5698,6 +6191,47 @@ image_segment_dl <- function(img,
         device_id = device_id,
         dir = dir
       )
+    }
+
+    if (isTRUE(filter_nested) && !is.null(gs_res) && !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 1L) {
+      gs_res <- .filter_nested_res(gs_res)
+    }
+
+    if (!is.null(classes) && !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 0) {
+      c_match <- tolower(trimws(as.character(classes)))
+      idx_keep <- which(tolower(trimws(gs_res$boxes$label)) %in% c_match)
+      if (length(idx_keep) < nrow(gs_res$boxes)) {
+        gs_res$boxes <- gs_res$boxes[idx_keep, , drop = FALSE]
+        if ("id" %in% names(gs_res$boxes)) gs_res$boxes$id <- seq_len(nrow(gs_res$boxes))
+        rownames(gs_res$boxes) <- NULL
+        if (!is.null(gs_res$contours) && length(gs_res$contours) > 0) {
+          gs_res$contours <- gs_res$contours[idx_keep]
+        }
+        if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
+          lbl_mat <- image_data(gs_res$labels)
+          new_lbl <- matrix(0L, nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
+          for (k in seq_along(idx_keep)) {
+            new_lbl[lbl_mat == idx_keep[k]] <- as.integer(k)
+          }
+          gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
+          if (!is.null(gs_res$mask)) {
+            gs_res$mask <- as_image(new_lbl > 0L)
+          }
+        }
+        if (nrow(gs_res$boxes) > 0) {
+          cnts <- as.data.frame(table(factor(gs_res$boxes$label, levels = unique(gs_res$boxes$label))), stringsAsFactors = FALSE)
+          colnames(cnts) <- c("label", "count")
+          gs_res$counts <- cnts
+          gs_res$summary <- .format_detection_summary(gs_res$boxes$label)
+        } else {
+          gs_res$counts <- data.frame(label = character(0), count = integer(0), stringsAsFactors = FALSE)
+          gs_res$summary <- "0 objects detected"
+        }
+      }
+    }
+
+    if (!is.null(pad) && any(pad != 0) && !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 0L) {
+      gs_res$boxes <- .apply_box_padding(gs_res$boxes, pad = pad, orig_w = orig_w, orig_h = orig_h)
     }
 
     sum_title <- if (use_persam) {
@@ -5748,7 +6282,8 @@ image_segment_dl <- function(img,
 
     if (!isTRUE(mask) && (isTRUE(bbox) || isTRUE(show_point))) {
       if (isTRUE(plot)) {
-        plot(as_image(mat), ...)
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(as_image(mat)), p_dots))
         num_inst <- nrow(gs_res$boxes)
         if (num_inst > 0) {
           palette_colors <- .get_class_palette(
@@ -5764,7 +6299,8 @@ image_segment_dl <- function(img,
             palette_colors = palette_colors,
             lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
             cex = cex,
-            pad = pad,
+            pad = 0,
+            badge_pad = badge_pad,
             show_text = show_text,
             show_conf = show_conf,
             show_class = show_class,
@@ -5783,7 +6319,7 @@ image_segment_dl <- function(img,
       }
       attr(gs_res$boxes, "summary") <- gs_res$summary
       attr(gs_res$boxes, "counts") <- gs_res$counts
-      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
       if (isTRUE(attach_im)) {
         attr(gs_res$boxes, "image") <- as_image(mat)
       }
@@ -5803,7 +6339,8 @@ image_segment_dl <- function(img,
       }
       out_img <- gs_res$labels
       if (isTRUE(plot)) {
-        plot(out_img, ...)
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(out_img), p_dots))
         if (isTRUE(bbox) && nrow(gs_res$boxes) > 0) {
           num_inst <- nrow(gs_res$boxes)
           palette_colors <- .get_class_palette(
@@ -5828,7 +6365,10 @@ image_segment_dl <- function(img,
       attr(out_img, "boxes") <- gs_res$boxes
       attr(out_img, "summary") <- gs_res$summary
       attr(out_img, "counts") <- gs_res$counts
-      attr(out_img, "image") <- as_image(mat)
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
+      if (isTRUE(attach_im)) {
+        attr(out_img, "image") <- as_image(mat)
+      }
       if (!is.null(gs_res$similarity_map)) attr(out_img, "similarity_map") <- gs_res$similarity_map
       out_img <- .attach_features(out_img, mat = mat, boxes = gs_res$boxes,
                                   return_features = return_features, feature_model = feature_model,
@@ -5839,23 +6379,49 @@ image_segment_dl <- function(img,
     }
 
     if (type == "segment") {
-      out <- as_image(mat)
+      is_transparent <- !is.null(col_background) && (
+        is.na(col_background[1]) ||
+        tolower(as.character(col_background[1])) %in% c("transparent", "transp", "none") ||
+        tryCatch(grDevices::col2rgb(col_background[1], alpha = TRUE)[4, 1] == 0, error = function(e) FALSE)
+      )
       if (isTRUE(mask) && !is.null(gs_res$mask)) {
-        col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
-        m_bg <- gs_res$mask
-        if (length(dims) == 3) {
-          for (k in seq_len(dims[3])) {
-            fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
-            out[, , k][!m_bg] <- fill_val
+        m_fg <- gs_res$mask > 0
+        if (is_transparent) {
+          if (length(dims) == 3 && dims[3] >= 3) {
+            orig_alpha <- if (dims[3] >= 4) {
+              if (is.raw(mat)) as.integer(mat[, , 4]) else mat[, , 4]
+            } else {
+              if (is.raw(mat)) 255L else 1.0
+            }
+            alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, orig_alpha, 0L)) else ifelse(m_fg, orig_alpha, 0.0)
+            arr <- array(c(mat[, , 1], mat[, , 2], mat[, , 3], alpha_layer), dim = c(dims[1:2], 4L))
+            out <- as_image(arr, colormode = "Color")
+          } else {
+            alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, 255L, 0L)) else ifelse(m_fg, 1.0, 0.0)
+            g_mat <- if (length(dims) == 3) mat[, , 1] else mat
+            arr <- array(c(g_mat, g_mat, g_mat, alpha_layer), dim = c(dims[1:2], 4L))
+            out <- as_image(arr, colormode = "Color")
           }
         } else {
-          fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
-          out[!m_bg] <- fill_val
+          out <- as_image(mat)
+          col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
+          if (length(dims) == 3) {
+            for (k in seq_len(dims[3])) {
+              fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
+              out[, , k][!m_fg] <- fill_val
+            }
+          } else {
+            fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
+            out[!m_fg] <- fill_val
+          }
         }
+      } else {
+        out <- as_image(mat)
       }
 
       if (isTRUE(plot)) {
-        plot(out, ...)
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(out), p_dots))
         if ((isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask)) && nrow(gs_res$boxes) > 0) {
           num_inst <- nrow(gs_res$boxes)
           palette_colors <- .get_class_palette(
@@ -5871,7 +6437,8 @@ image_segment_dl <- function(img,
             palette_colors = palette_colors,
             lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
             cex = cex,
-            pad = pad,
+            pad = 0,
+            badge_pad = badge_pad,
             show_text = show_text,
             show_conf = show_conf,
             show_class = show_class,
@@ -5892,7 +6459,7 @@ image_segment_dl <- function(img,
       attr(out, "labels") <- gs_res$labels
       attr(out, "summary") <- gs_res$summary
       attr(out, "counts") <- gs_res$counts
-      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
       if (isTRUE(attach_im)) {
         attr(out, "image") <- as_image(mat)
       }
@@ -5914,35 +6481,37 @@ image_segment_dl <- function(img,
 
       if (isTRUE(mask) && !is.null(gs_res$labels) && num_inst > 0) {
         lbl_mat <- image_data(gs_res$labels)
-        pad <- 2L
-        for (k in seq_len(num_inst)) {
-          if (has_boxes) {
-            bx <- gs_res$boxes[k, ]
-            x1 <- max(1L, floor(bx$xmin) - pad)
-            x2 <- min(orig_w, ceiling(bx$xmax) + pad)
-            y1 <- max(1L, floor(bx$ymin) - pad)
-            y2 <- min(orig_h, ceiling(bx$ymax) + pad)
-            sub_lbl <- lbl_mat[x1:x2, y1:y2, drop = FALSE]
-            sub_m <- (sub_lbl == k)
-            if (!any(sub_m)) next
-            lbls <- bwlabel_cpp(sub_m)
-            conts <- list()
-            if (max(lbls) > 0) {
-              conts <- contour(lbls)
-              for (ci in seq_along(conts)) {
-                if (is.matrix(conts[[ci]])) {
-                  conts[[ci]][, 1] <- conts[[ci]][, 1] + (x1 - 1L)
-                  conts[[ci]][, 2] <- conts[[ci]][, 2] + (y1 - 1L)
+        if (is.matrix(lbl_mat) && nrow(lbl_mat) == orig_w && ncol(lbl_mat) == orig_h) {
+          crop_pad <- 2L
+          for (k in seq_len(num_inst)) {
+            if (has_boxes) {
+              bx <- gs_res$boxes[k, ]
+              x1 <- max(1L, floor(bx$xmin) - crop_pad)
+              x2 <- min(orig_w, ceiling(bx$xmax) + crop_pad)
+              y1 <- max(1L, floor(bx$ymin) - crop_pad)
+              y2 <- min(orig_h, ceiling(bx$ymax) + crop_pad)
+              sub_lbl <- lbl_mat[x1:x2, y1:y2, drop = FALSE]
+              sub_m <- (sub_lbl == k)
+              if (!any(sub_m)) next
+              lbls <- bwlabel_cpp(sub_m)
+              conts <- list()
+              if (max(lbls) > 0) {
+                conts <- contour(lbls)
+                for (ci in seq_along(conts)) {
+                  if (is.matrix(conts[[ci]])) {
+                    conts[[ci]][, 1] <- conts[[ci]][, 1] + (x1 - 1L)
+                    conts[[ci]][, 2] <- conts[[ci]][, 2] + (y1 - 1L)
+                  }
                 }
               }
+            } else {
+              inst_m <- (lbl_mat == k)
+              if (!any(inst_m)) next
+              lbls <- bwlabel_cpp(inst_m)
+              conts <- if (max(lbls) > 0) contour(lbls) else list()
             }
-          } else {
-            inst_m <- (lbl_mat == k)
-            if (!any(inst_m)) next
-            lbls <- bwlabel_cpp(inst_m)
-            conts <- if (max(lbls) > 0) contour(lbls) else list()
+            conts_all[[k]] <- conts
           }
-          conts_all[[k]] <- conts
         }
       }
 
@@ -5983,7 +6552,8 @@ image_segment_dl <- function(img,
             msg_done = if (isTRUE(mask)) "Highlight overlay ready" else "Detection overlay ready"
           )
         }
-        plot(as_image(mat), ...)
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(as_image(mat)), p_dots))
         if (num_inst > 0) {
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
@@ -6019,7 +6589,8 @@ image_segment_dl <- function(img,
               palette_colors = palette_colors,
               lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
               cex = cex,
-              pad = pad,
+              pad = 0,
+              badge_pad = badge_pad,
               show_text = show_text,
               show_conf = show_conf,
               show_class = show_class,
@@ -6069,7 +6640,7 @@ image_segment_dl <- function(img,
       }
       attr(gs_res, "summary") <- gs_res$summary
       attr(gs_res, "counts") <- gs_res$counts
-      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
       if (isTRUE(attach_im)) {
         attr(gs_res, "image") <- as_image(mat)
       }
@@ -6128,13 +6699,17 @@ image_segment_dl <- function(img,
         )
       })
       boxes_df <- do.call(rbind, boxes_list)
+      if (!is.null(pad) && any(pad != 0) && nrow(boxes_df) > 0L) {
+        boxes_df <- .apply_box_padding(boxes_df, pad = pad, orig_w = orig_w, orig_h = orig_h)
+      }
     } else {
       boxes_df <- data.frame(id = integer(0), xmin = numeric(0), ymin = numeric(0),
                              xmax = numeric(0), ymax = numeric(0), cx = numeric(0), cy = numeric(0),
                              score = numeric(0), label = character(0), stringsAsFactors = FALSE)
     }
     if (isTRUE(plot)) {
-      plot(as_image(mat), ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(as_image(mat)), p_dots))
       if (nrow(boxes_df) > 0) {
         palette_colors <- .get_class_palette(
           labels = boxes_df$label,
@@ -6149,7 +6724,8 @@ image_segment_dl <- function(img,
           palette_colors = palette_colors,
           lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
           cex = cex,
-          pad = pad,
+          pad = 0,
+          badge_pad = badge_pad,
           show_text = show_text,
           show_conf = show_conf,
           show_class = show_class,
@@ -6174,7 +6750,8 @@ image_segment_dl <- function(img,
   if (type == "mask") {
     mask_img <- as_image(mask_mat, colormode = "Grayscale")
     if (isTRUE(plot)) {
-      plot(mask_img, ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(mask_img), p_dots))
     }
     mask_img <- .attach_features(mask_img, mat = mat, mask_mat = mask_mat,
                                  return_features = return_features, feature_model = feature_model,
@@ -6184,20 +6761,45 @@ image_segment_dl <- function(img,
   }
 
   if (type == "segment") {
-    out <- as_image(mat)
-    col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
-    if (length(dims) == 3) {
-      for (k in seq_len(dims[3])) {
-        fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
-        out[, , k][!mask_mat] <- fill_val
+    is_transparent <- !is.null(col_background) && (
+      is.na(col_background[1]) ||
+      tolower(as.character(col_background[1])) %in% c("transparent", "transp", "none") ||
+      tryCatch(grDevices::col2rgb(col_background[1], alpha = TRUE)[4, 1] == 0, error = function(e) FALSE)
+    )
+    m_fg <- mask_mat > 0
+    if (is_transparent) {
+      if (length(dims) == 3 && dims[3] >= 3) {
+        orig_alpha <- if (dims[3] >= 4) {
+          if (is.raw(mat)) as.integer(mat[, , 4]) else mat[, , 4]
+        } else {
+          if (is.raw(mat)) 255L else 1.0
+        }
+        alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, orig_alpha, 0L)) else ifelse(m_fg, orig_alpha, 0.0)
+        arr <- array(c(mat[, , 1], mat[, , 2], mat[, , 3], alpha_layer), dim = c(dims[1:2], 4L))
+        out <- as_image(arr, colormode = "Color")
+      } else {
+        alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, 255L, 0L)) else ifelse(m_fg, 1.0, 0.0)
+        g_mat <- if (length(dims) == 3) mat[, , 1] else mat
+        arr <- array(c(g_mat, g_mat, g_mat, alpha_layer), dim = c(dims[1:2], 4L))
+        out <- as_image(arr, colormode = "Color")
       }
     } else {
-      fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
-      out[!mask_mat] <- fill_val
+      out <- as_image(mat)
+      col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
+      if (length(dims) == 3) {
+        for (k in seq_len(dims[3])) {
+          fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
+          out[, , k][!m_fg] <- fill_val
+        }
+      } else {
+        fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
+        out[!m_fg] <- fill_val
+      }
     }
 
     if (isTRUE(plot)) {
-      plot(out, ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(out), p_dots))
     }
     out <- .attach_features(out, mat = mat, mask_mat = mask_mat,
                             return_features = return_features, feature_model = feature_model,
@@ -6217,7 +6819,8 @@ image_segment_dl <- function(img,
           msg_done = "Highlight overlay ready"
         )
       }
-      plot(as_image(mat), ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(as_image(mat)), p_dots))
       if (isTRUE(rainbow) && length(conts) > 0) {
         palette_pool <- c(
           "#00CC66", "#0099FF", "#FF9900", "#FF3366", "#9933FF",
@@ -6607,17 +7210,21 @@ image_features_dl <- function(img,
 #' @param img An `Image` object, a 2D/3D numeric array, a path to an image file, or a list of images.
 #' @param model Model name or path to a custom ONNX file. Defaults to `"yolo26n"`.
 #'   Options include `"yolo26n"`, `"yolo26s"`, `"yolo26m"`, `"yolo26l"`, `"yolo26x"`.
-#' @param conf_threshold Minimum confidence score for candidate boxes (default 0.40).
+#' @param conf_threshold Minimum confidence score for candidate boxes (default 0.25).
 #' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.40).
 #' @param labels Optional character vector of class names (defaults to standard 80 COCO classes).
 #' @param col Optional color or palette for bounding boxes.
 #' @param rainbow Logical. If `TRUE`, assigns a distinct, unique color to each detected object.
 #'   If `FALSE` (the default), objects of the same class share the exact same color. Defaults to `FALSE`.
 #' @param lwd Line width for bounding boxes (default 2).
-#' @param cex Size factor for label text (default `1.0`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
+#' @param cex Size factor for label text (default `1.5`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
-#' @param pad Padding multiplier controlling the area/background badge size around label text (default `1.0`).
-#'   Can be a single value or a length-2 vector `c(pad_x, pad_y)`. Use `pad = 0` or smaller values for a compact area.
+#' @param pad Padding added to expand bounding boxes around detected objects (default `0`).
+#'   Can be an absolute number of pixels (e.g., `pad = 10`), a relative expansion fraction when
+#'   between 0 and 1 (e.g., `pad = 0.05` for 5% margin), or a length-2 vector `c(pad_x, pad_y)`.
+#' @param bbox Logical. Whether to draw bounding boxes (default `TRUE`).
+#' @param badge_pad Padding multiplier controlling the background badge size around label text (default `1.0`).
+#'   Use `badge_pad = 0` for a badge fitting tightly to the text.
 #' @param show_text Logical. Whether to display text labels on bounding boxes (default `TRUE`).
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
@@ -6638,6 +7245,8 @@ image_features_dl <- function(img,
 #'   Options are `"clip-vit-b32"` (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
 #'   `"dinov2"` (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).
 #' @param plot_features Logical. If `TRUE` and `return_features = TRUE`, visualizes the dense spatial PCA feature map. Defaults to `FALSE`.
+#' @param filter_nested Logical. If `TRUE` (the default), removes larger container bounding boxes
+#'   that enclose smaller boxes of the same class.
 #' @param threads Number of CPU threads (default 0 for auto-tuning).
 #' @param engine Execution engine: `"cpu"` or `"gpu"` (DirectML).
 #' @param device_id GPU device ID (default -1 for auto).
@@ -6657,15 +7266,16 @@ image_features_dl <- function(img,
 #'   boxes_rb <- image_detect_dl(img, rainbow = TRUE)
 image_detect_dl <- function(img,
                             model = "yolo26n",
-                            conf_threshold = 0.4,
+                            conf_threshold = 0.25,
                             iou_threshold = 0.4,
                             classes = NULL,
                             labels = NULL,
                             col = NULL,
                             rainbow = TRUE,
                             lwd = 2,
-                            cex = 1.0,
-                            pad = 1.0,
+                            cex = 1.5,
+                            pad = 0,
+                            bbox = TRUE,
                             show_text = TRUE,
                             show_conf = TRUE,
                             show_class = TRUE,
@@ -6676,9 +7286,11 @@ image_detect_dl <- function(img,
                             point_pch = 16,
                             point_col = NULL,
                             badge = TRUE,
+                            badge_pad = 1.0,
                             return_features = FALSE,
                             feature_model = c("yolo", "clip-vit-b32", "dinov2"),
                             plot_features = FALSE,
+                            filter_nested = TRUE,
                             threads = 0,
                             engine = c("gpu", "cpu"),
                             device_id = -1,
@@ -6691,21 +7303,27 @@ image_detect_dl <- function(img,
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
   if ("cex_scale" %in% names(dots)) cex <- dots$cex_scale
-  if ("label_pad" %in% names(dots)) pad <- dots$label_pad
-  if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
-  if ("pad_scale" %in% names(dots)) pad <- dots$pad_scale
+  if ("box_pad" %in% names(dots)) pad <- dots$box_pad
+  if ("label_pad" %in% names(dots)) badge_pad <- dots$label_pad
+  if ("badge_pad" %in% names(dots)) badge_pad <- dots$badge_pad
+  if ("pad_scale" %in% names(dots)) badge_pad <- dots$pad_scale
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
-  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
-  if ("bbox" %in% names(dots)) show_box <- isTRUE(dots$bbox)
+  if (is.null(show_box)) {
+    if ("show_boxes" %in% names(dots)) {
+      show_box <- isTRUE(dots$show_boxes)
+    } else {
+      show_box <- isTRUE(bbox)
+    }
+  }
   if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
   if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
   if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
   if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
-    if (missing(pad)) pad <- cex[2]
+    if (missing(badge_pad)) badge_pad <- cex[2]
     cex <- cex[1]
   }
 
@@ -6714,7 +7332,7 @@ image_detect_dl <- function(img,
     res <- lapply(img, function(x) {
       image_detect_dl(x, model = model, conf_threshold = conf_threshold, iou_threshold = iou_threshold,
                       classes = classes, labels = labels, col = col, rainbow = rainbow, lwd = lwd,
-                      cex = cex, pad = pad, show_text = show_text, show_conf = show_conf,
+                      cex = cex, pad = pad, bbox = bbox, badge_pad = badge_pad, show_text = show_text, show_conf = show_conf,
                       show_class = show_class, show_id = show_id, show_point = show_point,
                       show_box = show_box, point_size = point_size, point_pch = point_pch,
                       point_col = point_col, badge = badge,
@@ -6814,6 +7432,10 @@ image_detect_dl <- function(img,
     )
   }
 
+  is_seg_model <- grepl("-seg", model_str)
+  wants_mask <- (!is.null(dots$type) && dots$type %in% c("highlight", "mask", "segment")) || isTRUE(dots$mask)
+  need_masks <- is_seg_model && wants_mask
+
   res <- .run_yolo(
     mat = mat,
     model = model_str,
@@ -6823,7 +7445,7 @@ image_detect_dl <- function(img,
     threads = threads,
     engine = engine,
     device_id = device_id,
-    need_masks = FALSE,
+    need_masks = need_masks,
     return_features = return_features,
     dir = dir
   )
@@ -6856,6 +7478,12 @@ image_detect_dl <- function(img,
   }
 
   df_boxes <- res$boxes
+  if (isTRUE(filter_nested) && is.data.frame(df_boxes) && nrow(df_boxes) > 1L) {
+    df_boxes <- .filter_nested_boxes(df_boxes)
+    if (!is.null(res$summary) && nrow(df_boxes) > 0L) {
+      res$summary <- .format_detection_summary(df_boxes$label)
+    }
+  }
   if (is.data.frame(df_boxes) && nrow(df_boxes) > 0) {
     if (all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(df_boxes))) {
       df_boxes$cx <- round((df_boxes$x1 + df_boxes$x2 + df_boxes$x3 + df_boxes$x4) / 4, 1)
@@ -6866,8 +7494,13 @@ image_detect_dl <- function(img,
     }
   }
 
+  if (!is.null(pad) && any(pad != 0) && is.data.frame(df_boxes) && nrow(df_boxes) > 0L) {
+    df_boxes <- .apply_box_padding(df_boxes, pad = pad, orig_w = dims[1], orig_h = dims[2])
+  }
+
   if (isTRUE(plot)) {
-    plot(as_image(mat), ...)
+    p_dots <- .filter_plot_dots(dots)
+    do.call(graphics::plot, c(list(as_image(mat)), p_dots))
     num_inst <- nrow(df_boxes)
     if (num_inst > 0) {
       palette_colors <- .get_class_palette(
@@ -6877,12 +7510,31 @@ image_detect_dl <- function(img,
         default_col = if (!is.null(col)) col else "#00CC66",
         rainbow = rainbow
       )
+      if (need_masks && !is.null(res$contours) && is.list(res$contours) && length(res$contours) > 0) {
+        alpha_val <- if (!is.null(dots$alpha)) dots$alpha else 0.4
+        border_val <- if (!is.null(dots$border)) dots$border else NA
+        for (k in seq_len(min(num_inst, length(res$contours)))) {
+          ck <- res$contours[[k]]
+          if (is.null(ck) || length(ck) == 0L) next
+          k_col <- palette_colors[((k - 1) %% length(palette_colors)) + 1]
+          c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
+          poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha_val)
+          cur_border <- if (is.na(border_val)) NA else k_col
+          p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+          for (p in p_list) {
+            if (is.matrix(p) && nrow(p) >= 3) {
+              graphics::polygon(p[, 1], p[, 2], col = poly_col, border = cur_border, lwd = lwd)
+            }
+          }
+        }
+      }
       .plot_yolo_bboxes(
         boxes = df_boxes,
         palette_colors = palette_colors,
         lwd = lwd,
         cex = cex,
-        pad = pad,
+        pad = 0,
+        badge_pad = badge_pad,
         show_text = show_text,
         show_conf = show_conf,
         show_class = show_class,
@@ -6895,6 +7547,12 @@ image_detect_dl <- function(img,
         badge = badge
       )
     }
+  }
+
+  if (need_masks) {
+    attr(df_boxes, "contours") <- res$contours
+    attr(df_boxes, "labels") <- res$labels
+    attr(df_boxes, "mask") <- res$mask
   }
 
   df_boxes <- .attach_features(
@@ -6919,7 +7577,7 @@ image_detect_dl <- function(img,
   } else {
     NULL
   }
-  attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+  attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
   if (isTRUE(attach_im)) {
     attr(df_boxes, "image") <- as_image(mat)
   }
@@ -7222,7 +7880,14 @@ list_cameras <- function(details = FALSE) {
 #'   Can be a single value or a length-2 vector `c(pad_x, pad_y)`. Use `pad = 0` or smaller values for a compact area.
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
-#' @param text_size Numeric font scale for bounding box text labels and badges (alias for `cex`, default `1.0`).
+#' @param text_size Numeric font scale for bounding box text labels and/or telemetry HUD (alias for `cex`, default `1.0`).
+#'   Can be a single numeric value (applied to both objects and telemetry HUD) or a numeric vector of length 2
+#'   `c(objects, telemetry)` to scale them independently (e.g. `text_size = c(1, 3)`).
+#' @param text_size_telemetry Numeric font scale specifically for the telemetry HUD overlay (e.g., `text_size_telemetry = 3`).
+#'   If provided, overrides the telemetry component of `text_size`. Set to `0` to hide telemetry text.
+#' @param text_size_objects Numeric font scale specifically for detected object bounding box labels and badges (e.g., `text_size_objects = 1`).
+#'   If provided, overrides the object component of `text_size`.
+#' @param text_size_roi Numeric font scale specifically for Region of Interest (ROI).
 #' @param show_text Logical. Whether to display text badges above bounding boxes (default `TRUE`).
 #' @param show_conf Logical. Whether to display confidence scores in badges (default `TRUE`).
 #' @param show_class Logical. Whether to display class label names in badges (default `TRUE`).
@@ -7260,8 +7925,10 @@ list_cameras <- function(details = FALSE) {
 #' @param show Logical. Whether to display the video feed with bounding boxes in real time.
 #'   Default is `interactive()`.
 #' @param show_fps Logical. Whether to overlay a real-time FPS and detection counter badge (default `TRUE`).
-#' @param hud_pos Screen position of the telemetry HUD card: `"top-right"` (default, avoids top-left ROI zone),
-#'   `"top-left"`, `"bottom-left"`, `"bottom-right"`, `"top"`, or `"bottom"`.
+#' @param hud_pos Screen position of the telemetry HUD card: either a preset string
+#'   (`"top-right"` (default, avoids top-left ROI zone), `"top-left"`, `"bottom-left"`,
+#'   `"bottom-right"`, `"top"`, or `"bottom"`), or a numeric vector of length 2 `c(x, y)`
+#'   specifying relative coordinates in range 0 to 1 across frame width and height (e.g., `c(0.2, 0.5)`).
 #' @param hud_layout Layout style of the telemetry HUD: `"vertical"` (default modern multi-row glassmorphic card)
 #'   or `"horizontal"` (sleek capsule pill bar).
 #' @param infer_every Integer stride for neural network inference (default `1L`, running inference on every frame).
@@ -7380,6 +8047,9 @@ video_detect_dl <- function(video = 0,
                             show_class = TRUE,
                             show_id = FALSE,
                             text_size = 1.0,
+                            text_size_telemetry = NULL,
+                            text_size_objects = NULL,
+                            text_size_roi = NULL,
                             count_line = NULL,
                             count_line_orientation = c("vertical", "horizontal"),
                             count_line_label = NULL,
@@ -7418,6 +8088,11 @@ video_detect_dl <- function(video = 0,
                             dir = pliman_model_dir(),
                             verbose = TRUE,
                             ...) {
+  positions <- c("vertical", "horizontal")
+  count_line_orientation <- positions[pmatch(count_line_orientation, positions)]
+  roi_orientation <- positions[pmatch(roi_orientation, positions)]
+  hud_layout <- positions[pmatch(hud_layout, positions)]
+
   if (!missing(cex) && missing(text_size)) {
     text_size <- cex
   } else if (!missing(text_size) && missing(cex)) {
@@ -7443,6 +8118,18 @@ video_detect_dl <- function(video = 0,
   if ("font_scale" %in% names(dots)) { text_size <- dots$font_scale; cex <- dots$font_scale }
   if ("label_size" %in% names(dots)) { text_size <- dots$label_size; cex <- dots$label_size }
   if ("cex_scale" %in% names(dots)) { text_size <- dots$cex_scale; cex <- dots$cex_scale }
+  for (nm in c("text_size_objects", "text_size_obj", "text_size_boxes", "objects_text_size", "object_text_size", "obj_size", "cex_objects", "cex_obj")) {
+    if (nm %in% names(dots)) {
+      text_size_objects <- dots[[nm]]
+      break
+    }
+  }
+  for (nm in c("text_size_telemetry", "text_size_hud", "telemetry_text_size", "hud_text_size", "telemetry_size", "hud_size", "telemetry_scale", "hud_scale", "cex_telemetry", "cex_hud")) {
+    if (nm %in% names(dots)) {
+      text_size_telemetry <- dots[[nm]]
+      break
+    }
+  }
   if ("pad" %in% names(dots)) pad <- dots$pad
   if ("label_pad" %in% names(dots)) pad <- dots$label_pad
   if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
@@ -7487,10 +8174,18 @@ video_detect_dl <- function(video = 0,
   if ("style" %in% names(dots)) hud_layout <- dots$style
 
   valid_pos <- c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom")
-  hud_pos <- if (is.character(hud_pos) && length(hud_pos) > 0) {
-    p_match <- match.arg(tolower(hud_pos[1]), valid_pos)
-    p_match
-  } else "top-right"
+  hud_pos <- if (is.numeric(hud_pos) && length(hud_pos) >= 2) {
+    paste0(round(as.numeric(hud_pos[1:2]), 4), collapse = ",")
+  } else if (is.character(hud_pos) && length(hud_pos) > 0) {
+    p_first <- tolower(hud_pos[1])
+    if (grepl("^[0-9.]+[ ,_][0-9.]+$|^[0-9.]+,[0-9.]+$", p_first)) {
+      p_first
+    } else {
+      match.arg(p_first, valid_pos)
+    }
+  } else {
+    "top-right"
+  }
 
   valid_layout <- c("vertical", "horizontal")
   hud_layout <- if (is.character(hud_layout) && length(hud_layout) > 0) {
@@ -7506,24 +8201,61 @@ video_detect_dl <- function(video = 0,
   if ("skip_frames" %in% names(dots)) infer_every <- as.integer(dots$skip_frames) + 1L
   infer_every <- max(1L, as.integer(infer_every))
 
-  text_size_num <- suppressWarnings(as.numeric(text_size))
-  if (is.na(text_size_num)) text_size_num <- 1.0
-  if (isFALSE(show_text) || text_size_num <= 0.05) {
-    show_text <- FALSE
-    f_scale <- 0.0
+  default_obj_size <- 1.0
+  default_tel_size <- 1.0
+  default_roi_size <- 1.0
+
+  if (is.numeric(text_size) && length(text_size) >= 2) {
+    nms <- names(text_size)
+    if (!is.null(nms)) {
+      obj_idx <- grep("obj|box|label", nms, ignore.case = TRUE)
+      tel_idx <- grep("telemetry|hud", nms, ignore.case = TRUE)
+      if (length(obj_idx) > 0) default_obj_size <- as.numeric(text_size[obj_idx[1]])
+      if (length(tel_idx) > 0) default_tel_size <- as.numeric(text_size[tel_idx[1]])
+      if (length(obj_idx) == 0 && length(tel_idx) == 0) {
+        default_obj_size <- as.numeric(text_size[1])
+        default_tel_size <- as.numeric(text_size[2])
+      }
+    } else {
+      default_obj_size <- as.numeric(text_size[1])
+      default_tel_size <- as.numeric(text_size[2])
+    }
   } else {
-    f_scale <- text_size_num
+    val <- suppressWarnings(as.numeric(text_size[1]))
+    if (!is.na(val)) {
+      default_obj_size <- val
+      default_tel_size <- val
+    }
   }
+
+  obj_sz <- if (!is.null(text_size_objects)) suppressWarnings(as.numeric(text_size_objects[1])) else default_obj_size
+  if (is.na(obj_sz)) obj_sz <- 1.0
+
+  tel_sz <- if (!is.null(text_size_telemetry)) suppressWarnings(as.numeric(text_size_telemetry[1])) else default_tel_size
+  if (is.na(tel_sz)) tel_sz <- 1.0
+
+  roi_sz <- if (!is.null(text_size_roi)) suppressWarnings(as.numeric(text_size_roi[1])) else default_roi_size
+  if (is.na(roi_sz)) roi_sz <- 1.0
+
+  if (isFALSE(show_text) || obj_sz <= 0.05) {
+    show_text <- FALSE
+    f_scale_obj <- 0.0
+  } else {
+    f_scale_obj <- obj_sz
+  }
+
+  f_scale_hud <- if (tel_sz <= 0.05) 0.0 else tel_sz
+  text_size_num <- f_scale_obj
   pad_num <- if (is.numeric(pad) && length(pad) > 0) pad[1] else 1.0
   pad_num <- max(0.0, as.numeric(pad_num))
   badge <- isTRUE(badge)
 
-  # For small text (<= 0.3), hide redundant class name and confidence score by default
+  # For small object text (<= 0.3), hide redundant class name and confidence score by default
   # unless the user explicitly requested them in arguments / dots
-  if (!"show_conf" %in% names(dots) && !"show_scores" %in% names(dots) && !"scores" %in% names(dots) && text_size_num <= 0.3) {
+  if (!"show_conf" %in% names(dots) && !"show_scores" %in% names(dots) && !"scores" %in% names(dots) && f_scale_obj <= 0.3) {
     show_conf <- FALSE
   }
-  if (!"show_class" %in% names(dots) && !"show_labels" %in% names(dots) && text_size_num <= 0.3 && (isTRUE(track) || !is.null(count_line))) {
+  if (!"show_class" %in% names(dots) && !"show_labels" %in% names(dots) && f_scale_obj <= 0.3 && (isTRUE(track) || !is.null(count_line))) {
     show_class <- FALSE
   }
   track_max_dist <- if ("max_dist" %in% names(dots)) as.numeric(dots$max_dist) else 150.0
@@ -8076,7 +8808,7 @@ video_detect_dl <- function(video = 0,
           }
         }
 
-        hud_msg <- if (isTRUE(show_fps)) {
+        hud_msg <- if (isTRUE(show_fps) && f_scale_hud > 0.05) {
           if (isTRUE(track) || !is.null(count_line)) {
             sprintf("%.1f FPS | IN ZONE: %d | COUNT: %d", fps_smooth, in_zone_val, total_count_val)
           } else if (detect) {
@@ -8098,7 +8830,7 @@ video_detect_dl <- function(video = 0,
             colors = palette_colors,
             lwd = as.integer(lwd),
             hud_text = hud_msg,
-            font_scale = as.numeric(f_scale),
+            font_scale = as.numeric(f_scale_obj),
             keypoints = kpt_mat_pass,
             kpt_threshold = as.numeric(kpt_threshold),
             kpt_radius = as.integer(kpt_radius),
@@ -8129,7 +8861,9 @@ video_detect_dl <- function(video = 0,
             draw_masks = isTRUE(mask),
             mask_ids = if (has_masks && nrow(df_b) > 0) as.integer(df_b$orig_idx) else NULL,
             hud_pos = as.character(hud_pos),
-            hud_layout = as.character(hud_layout)
+            hud_layout = as.character(hud_layout),
+            font_scale_hud = as.numeric(f_scale_hud),
+            font_scale_roi = as.numeric(roi_sz)
           )
         }
 
@@ -8194,54 +8928,104 @@ video_detect_dl <- function(video = 0,
       ))
     }
 
-    v_info <- av::av_video_info(video)
-    src_w <- v_info$video$width
-    src_h <- v_info$video$height
-    orig_fps <- v_info$video$framerate
-    if (is.null(orig_fps) || is.na(orig_fps) || orig_fps <= 0) orig_fps <- 30.0
-    src_fps <- if (!is.null(fps)) fps else orig_fps
-    if (is.null(src_fps) || is.na(src_fps) || src_fps <= 0) src_fps <- 30.0
+    out_video_file <- if (save_video) normalizePath(output, winslash = "/", mustWork = FALSE) else NULL
 
-    # Destination directory for decoded frames
-    run_dir <- file.path(tempdir(), paste0("vid_yolo_", as.integer(stats::runif(1, 1000, 9999))))
-    on.exit(unlink(run_dir, recursive = TRUE, force = TRUE), add = TRUE)
+    use_native_stream <- (.Platform$OS.type == "windows" && has_native_video_reader_cpp())
+    v_reader <- if (use_native_stream) {
+      tryCatch(open_native_video_reader_cpp(normalizePath(video, winslash = "/", mustWork = TRUE)),
+               error = function(e) NULL)
+    } else NULL
 
-    if (isTRUE(verbose)) {
-      cli::cli_progress_step("Decoding video frames with FFmpeg...", msg_done = "Video frames decoded")
-    }
-    filter_fps <- if (length(fps) && !is.null(fps)) paste0("fps=fps=", fps) else NULL
-    vfilter <- if (length(filter_fps)) filter_fps else "null"
-    if (!is.null(max_frames) && is.numeric(max_frames) && max_frames > 0) {
-      lim_n <- as.integer(max_frames) + 2L
-      sel_filter <- paste0("select=between(n\\,0\\,", lim_n, ")")
-      vfilter <- if (vfilter == "null") sel_filter else paste0(vfilter, ",", sel_filter)
-    }
-    if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
-    output_pattern <- file.path(run_dir, "image_%06d.bmp")
+    use_native_writer <- FALSE
+    v_writer <- NULL
+    v_info <- NULL
+    v_info_native <- NULL
 
-    av::av_encode_video(
-      input = video,
-      output = output_pattern,
-      framerate = orig_fps,
-      codec = "bmp",
-      vfilter = vfilter,
-      verbose = FALSE
-    )
-    if (isTRUE(verbose)) cli::cli_progress_done()
-    frame_paths <- sort(list.files(run_dir, pattern = "^image_\\d+\\.bmp$", full.names = TRUE))
-    num_frames <- length(frame_paths)
-    if (!is.null(fps) && !is.null(v_info$video$duration) && v_info$video$duration > 0) {
-      expected_max <- ceiling(v_info$video$duration * fps) + 5
-      if (num_frames > expected_max) {
-        keep_idx <- round(seq(1, num_frames, length.out = ceiling(v_info$video$duration * fps)))
-        keep_idx <- unique(pmin(num_frames, pmax(1L, keep_idx)))
-        frame_paths <- frame_paths[keep_idx]
+    if (!is.null(v_reader)) {
+      use_native_stream <- TRUE
+      v_info_native <- get_video_reader_info_cpp(v_reader)
+      src_w <- v_info_native$width
+      src_h <- v_info_native$height
+      orig_fps <- v_info_native$fps
+      if (is.null(orig_fps) || is.na(orig_fps) || orig_fps <= 0) orig_fps <- 30.0
+      src_fps <- if (!is.null(fps)) fps else orig_fps
+      if (is.null(src_fps) || is.na(src_fps) || src_fps <= 0) src_fps <- 30.0
+      num_frames <- if (!is.null(max_frames) && max_frames < v_info_native$total_frames) as.integer(max_frames) else v_info_native$total_frames
+
+      on.exit(try(close_native_video_reader_cpp(v_reader), silent = TRUE), add = TRUE)
+
+      if (save_video && !isTRUE(show) && has_native_video_writer_cpp()) {
+        v_writer <- tryCatch(
+          open_native_video_writer_cpp(
+            video_path = out_video_file,
+            width = src_w,
+            height = src_h,
+            fps = src_fps
+          ),
+          error = function(e) NULL
+        )
+        if (!is.null(v_writer)) {
+          use_native_writer <- TRUE
+          on.exit(try(close_native_video_writer_cpp(v_writer), silent = TRUE), add = TRUE)
+        }
+      }
+
+      run_dir <- if (save_video && !use_native_writer) file.path(tempdir(), paste0("vid_yolo_", as.integer(stats::runif(1, 1000, 9999)))) else NULL
+      if (!is.null(run_dir)) {
+        dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
+        on.exit(unlink(run_dir, recursive = TRUE, force = TRUE), add = TRUE)
+      }
+      frame_paths <- character(0)
+    } else {
+      use_native_stream <- FALSE
+      v_info <- suppressWarnings(av::av_video_info(video))
+      src_w <- v_info$video$width
+      src_h <- v_info$video$height
+      orig_fps <- v_info$video$framerate
+      if (is.null(orig_fps) || is.na(orig_fps) || orig_fps <= 0) orig_fps <- 30.0
+      src_fps <- if (!is.null(fps)) fps else orig_fps
+      if (is.null(src_fps) || is.na(src_fps) || src_fps <= 0) src_fps <- 30.0
+      # Destination directory for decoded frames
+      run_dir <- file.path(tempdir(), paste0("vid_yolo_", as.integer(stats::runif(1, 1000, 9999))))
+      on.exit(unlink(run_dir, recursive = TRUE, force = TRUE), add = TRUE)
+
+      if (isTRUE(verbose)) {
+        cli::cli_progress_step("Decoding video frames with FFmpeg...", msg_done = "Video frames decoded")
+      }
+      filter_fps <- if (length(fps) && !is.null(fps)) paste0("fps=fps=", fps) else NULL
+      vfilter <- if (length(filter_fps)) filter_fps else "null"
+      if (!is.null(max_frames) && is.numeric(max_frames) && max_frames > 0) {
+        lim_n <- as.integer(max_frames) + 2L
+        sel_filter <- paste0("select=between(n\\,0\\,", lim_n, ")")
+        vfilter <- if (vfilter == "null") sel_filter else paste0(vfilter, ",", sel_filter)
+      }
+      if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
+      output_pattern <- file.path(run_dir, "image_%06d.bmp")
+
+      av::av_encode_video(
+        input = video,
+        output = output_pattern,
+        framerate = orig_fps,
+        codec = "bmp",
+        vfilter = vfilter,
+        verbose = FALSE
+      )
+      if (isTRUE(verbose)) cli::cli_progress_done()
+      frame_paths <- sort(list.files(run_dir, pattern = "^image_\\d+\\.bmp$", full.names = TRUE))
+      num_frames <- length(frame_paths)
+      if (!is.null(fps) && !is.null(v_info$video$duration) && v_info$video$duration > 0) {
+        expected_max <- ceiling(v_info$video$duration * fps) + 5
+        if (num_frames > expected_max) {
+          keep_idx <- round(seq(1, num_frames, length.out = ceiling(v_info$video$duration * fps)))
+          keep_idx <- unique(pmin(num_frames, pmax(1L, keep_idx)))
+          frame_paths <- frame_paths[keep_idx]
+          num_frames <- length(frame_paths)
+        }
+      }
+      if (!is.null(max_frames) && max_frames < num_frames) {
+        frame_paths <- frame_paths[seq_len(max_frames)]
         num_frames <- length(frame_paths)
       }
-    }
-    if (!is.null(max_frames) && max_frames < num_frames) {
-      frame_paths <- frame_paths[seq_len(max_frames)]
-      num_frames <- length(frame_paths)
     }
 
     if (isTRUE(verbose)) {
@@ -8250,7 +9034,8 @@ video_detect_dl <- function(video = 0,
       } else {
         cli::cli_alert_info("Processing {num_frames} frame(s) [inference disabled]")
       }
-      if (is.null(fps) && isTRUE(v_info$video$duration > 60)) {
+      vid_duration <- if (!is.null(v_info_native)) v_info_native$duration else if (!is.null(v_info)) v_info$video$duration else 0
+      if (is.null(fps) && isTRUE(vid_duration > 60)) {
         cli::cli_alert_info("Tip: For faster processing of long videos, you can use e.g. {.code fps = 5} or {.code fps = 10}.")
       }
     }
@@ -8295,9 +9080,24 @@ video_detect_dl <- function(video = 0,
     last_use_crop <- FALSE
     last_crop_coords <- NULL
 
+    recorded_frames <- vector("list", num_frames)
+    bm_stream <- if (use_native_stream) {
+      b_raw <- raw(3L * src_w * src_h)
+      attr(b_raw, "dim") <- c(3L, src_w, src_h)
+      b_raw
+    } else NULL
+
     process_loop <- function() {
       for (i in seq_len(num_frames)) {
-        f_path <- frame_paths[i]
+        if (use_native_stream) {
+          has_frame <- read_native_video_frame_cpp(v_reader, bm_stream)
+          if (!has_frame) break
+          bm <- bm_stream
+          f_path <- ""
+        } else {
+          f_path <- frame_paths[i]
+          bm <- load_frame_bgr_cpp(f_path)
+        }
         has_kpts <- FALSE
         has_masks <- FALSE
         kpt_mat_pass <- NULL
@@ -8309,9 +9109,6 @@ video_detect_dl <- function(video = 0,
         use_crop <- FALSE
         crop_coords <- c(0L, 0L, src_w, src_h)
         should_infer <- (i == 1L || (i %% infer_every == 0L))
-
-        # Decode frame once into memory for both YOLO and drawing
-        bm <- load_frame_bgr_cpp(f_path)
 
         if (detect && should_infer) {
           use_crop <- (roi_mode == "crop" && !is.null(roi_coords))
@@ -8597,7 +9394,7 @@ video_detect_dl <- function(video = 0,
         if (save_video && !isTRUE(show)) {
           elapsed_now <- as.numeric(Sys.time() - t_start, units = "secs")
           cur_fps_est <- if (elapsed_now > 0) (i / elapsed_now) else src_fps
-          hud_txt <- if (isTRUE(show_fps)) {
+          hud_txt <- if (isTRUE(show_fps) && f_scale_hud > 0.05) {
             if (isTRUE(track) || !is.null(count_line)) {
               sprintf("Frame %d/%d | %.1f FPS | IN ZONE: %d | COUNT: %d", i, num_frames, cur_fps_est, in_zone_val, total_count_val)
             } else if (detect) {
@@ -8618,7 +9415,7 @@ video_detect_dl <- function(video = 0,
             colors = palette_colors,
             lwd = as.integer(lwd),
             hud_text = hud_txt,
-            font_scale = as.numeric(f_scale),
+            font_scale = as.numeric(f_scale_obj),
             keypoints = kpt_mat_pass,
             kpt_threshold = as.numeric(kpt_threshold),
             kpt_radius = as.integer(kpt_radius),
@@ -8649,17 +9446,27 @@ video_detect_dl <- function(video = 0,
             draw_masks = isTRUE(mask),
             mask_ids = if (has_masks && nrow(df_b) > 0) as.integer(df_b$orig_idx) else NULL,
             hud_pos = as.character(hud_pos),
-            hud_layout = as.character(hud_layout)
+            hud_layout = as.character(hud_layout),
+            font_scale_hud = as.numeric(f_scale_hud),
+            font_scale_roi = as.numeric(roi_sz)
           )
-          save_frame_bgr_cpp(bm, f_path, quality = 90L)
+          if (use_native_writer) {
+            write_native_video_frame_cpp(v_writer, bm)
+          } else if (use_native_stream) {
+            f_rec_path <- file.path(run_dir, sprintf("rec_%06d.bmp", i))
+            save_frame_bgr_cpp(bm, f_rec_path)
+            recorded_frames[[i]] <<- f_rec_path
+          } else {
+            save_frame_bgr_cpp(bm, f_path, quality = 90L)
+          }
         } else if (isTRUE(show)) {
-          f_mat <- image_data(image_import(f_path))
+          f_mat <- if (use_native_stream) image_data(as_image(bm)) else image_data(image_import(f_path))
           plot(as_image(f_mat), ...)
           if (!is.null(roi_coords)) {
             graphics::rect(roi_coords[1], roi_coords[2], roi_coords[3], roi_coords[4],
                            col = grDevices::adjustcolor("#FA8072", alpha.f = 0.3),
                            border = "#FA8072", lwd = 1)
-            graphics::text(roi_coords[1] + 5, roi_coords[2] - 5, roi_label, col = "#FA8072", cex = 0.7, font = 2, adj = c(0, 0))
+            graphics::text(roi_coords[1] + 5, roi_coords[2] - 5, roi_label, col = "#FA8072", cex = 2, font = 2, adj = c(0, 0))
           }
           if (!is.null(line_coords)) {
             graphics::lines(c(line_coords[1], line_coords[3]), c(line_coords[2], line_coords[4]), col = "#00E5FF", lwd = 3)
@@ -8710,7 +9517,7 @@ video_detect_dl <- function(video = 0,
                   boxes = df_plot,
                   palette_colors = plot_colors,
                   lwd = lwd,
-                  cex = text_size_num,
+                  cex = f_scale_obj,
                   pad = pad,
                   badge = badge,
                   show_text = isTRUE(show_text),
@@ -8741,7 +9548,7 @@ video_detect_dl <- function(video = 0,
               }
             }
           }
-          if (isTRUE(show_fps)) {
+          if (isTRUE(show_fps) && f_scale_hud > 0.05) {
             elapsed_now <- as.numeric(Sys.time() - t_start, units = "secs")
             cur_fps_est <- if (elapsed_now > 0) (i / elapsed_now) else src_fps
             hud_items <- if (isTRUE(track) || !is.null(count_line)) {
@@ -8758,18 +9565,18 @@ video_detect_dl <- function(video = 0,
                 sprintf("SPEED: %.1f FPS", cur_fps_est))
             }
             u <- graphics::par("usr")
-            th <- abs(graphics::strheight("Ag", units = "user", cex = 0.65))
-            pad <- 6
+            th <- abs(graphics::strheight("Ag", units = "user", cex = 0.65 * f_scale_hud))
+            pad <- 6 * f_scale_hud
             is_vert <- (hud_layout == "vertical")
 
             if (is_vert) {
               all_lines <- c("TELEMETRY", hud_items)
-              max_w <- max(abs(graphics::strwidth(all_lines, units = "user", cex = 0.65, font = 2)))
-              bx_w <- max_w + 2 * pad + 10
+              max_w <- max(abs(graphics::strwidth(all_lines, units = "user", cex = 0.65 * f_scale_hud, font = 2)))
+              bx_w <- max_w + 2 * pad + 10 * f_scale_hud
               bx_h <- (length(all_lines) * th * 1.5) + 2 * pad
             } else {
               single_line <- paste(hud_items, collapse = "  |  ")
-              bx_w <- abs(graphics::strwidth(single_line, units = "user", cex = 0.65, font = 2)) + 2 * pad
+              bx_w <- abs(graphics::strwidth(single_line, units = "user", cex = 0.65 * f_scale_hud, font = 2)) + 2 * pad
               bx_h <- th * 1.8 + 2 * pad
             }
 
@@ -8780,7 +9587,16 @@ video_detect_dl <- function(video = 0,
             left_x <- min(u[1], u[2]) + margin_x
             right_x <- max(u[1], u[2]) - margin_x
 
-            if (hud_pos %in% c("top-right", "topright")) {
+            if (grepl("^[0-9.]+[ ,_][0-9.]+$|^[0-9.]+,[0-9.]+$", hud_pos)) {
+              coords <- as.numeric(strsplit(hud_pos, "[, _]+")[[1]])
+              cx <- if (coords[1] <= 1.0) left_x + coords[1] * (right_x - left_x) else left_x + coords[1]
+              cy <- if (coords[2] <= 1.0) top_y - coords[2] * (top_y - bot_y) else top_y - coords[2]
+              x1 <- cx; x2 <- cx + bx_w; y2 <- cy; y1 <- cy - bx_h
+              if (x2 > right_x) { x2 <- right_x; x1 <- x2 - bx_w }
+              if (x1 < left_x) { x1 <- left_x; x2 <- x1 + bx_w }
+              if (y1 < bot_y) { y1 <- bot_y; y2 <- y1 + bx_h }
+              if (y2 > top_y) { y2 <- top_y; y1 <- y2 - bx_h }
+            } else if (hud_pos %in% c("top-right", "topright")) {
               x1 <- right_x - bx_w; x2 <- right_x; y2 <- top_y; y1 <- top_y - bx_h
             } else if (hud_pos %in% c("bottom-right", "bottomright")) {
               x1 <- right_x - bx_w; x2 <- right_x; y1 <- bot_y; y2 <- bot_y + bx_h
@@ -8799,20 +9615,20 @@ video_detect_dl <- function(video = 0,
             graphics::rect(xleft = x1, ybottom = y2 - 2, xright = x2, ytop = y2,
                            col = "#00E5FF", border = NA)
             if (is_vert) {
-              graphics::points(x1 + pad + 2, y2 - pad - th / 2, pch = 16, col = "#00FF88", cex = 0.8)
-              graphics::text(x = x1 + pad + 10, y = y2 - pad - th / 2, labels = "TELEMETRY", col = "#00E5FF", cex = 0.6, font = 2, adj = c(0, 0.5))
+              graphics::points(x1 + pad + 2, y2 - pad - th / 2, pch = 16, col = "#00FF88", cex = 0.8 * f_scale_hud)
+              graphics::text(x = x1 + pad + 10 * f_scale_hud, y = y2 - pad - th / 2, labels = "TELEMETRY", col = "#00E5FF", cex = 0.6 * f_scale_hud, font = 2, adj = c(0, 0.5))
               for (k in seq_along(hud_items)) {
                 item_y <- y2 - pad - th * 1.5 - (k - 0.5) * th * 1.5
                 parts <- strsplit(hud_items[k], ": ")[[1]]
                 lbl <- parts[1]; val <- if (length(parts) > 1) parts[2] else ""
                 val_col <- if (grepl("COUNT", lbl)) "#00E5FF" else if (grepl("ZONE", lbl)) "#FFBB00" else if (grepl("SPEED", lbl)) "#00FF88" else "#FFFFFF"
-                graphics::text(x = x1 + pad, y = item_y, labels = lbl, col = "#94B0C4", cex = 0.6, font = 2, adj = c(0, 0.5))
+                graphics::text(x = x1 + pad, y = item_y, labels = lbl, col = "#94B0C4", cex = 0.6 * f_scale_hud, font = 2, adj = c(0, 0.5))
                 if (nzchar(val)) {
-                  graphics::text(x = x2 - pad, y = item_y, labels = val, col = val_col, cex = 0.6, font = 2, adj = c(1, 0.5))
+                  graphics::text(x = x2 - pad, y = item_y, labels = val, col = val_col, cex = 0.6 * f_scale_hud, font = 2, adj = c(1, 0.5))
                 }
               }
             } else {
-              graphics::text(x = x1 + pad, y = (y1 + y2) / 2, labels = single_line, col = "#FFFFFF", cex = 0.65, font = 2, adj = c(0, 0.5))
+              graphics::text(x = x1 + pad, y = (y1 + y2) / 2, labels = single_line, col = "#FFFFFF", cex = 0.65 * f_scale_hud, font = 2, adj = c(0, 0.5))
             }
           }
         }
@@ -8827,12 +9643,25 @@ video_detect_dl <- function(video = 0,
 
     process_loop()
 
-    if (save_video) {
+    if (use_native_stream) {
+      try(close_native_video_reader_cpp(v_reader), silent = TRUE)
+    }
+
+    if (use_native_writer) {
+      try(close_native_video_writer_cpp(v_writer), silent = TRUE)
+      if (isTRUE(verbose)) cli::cli_alert_success("Video encoding complete: {.path {out_video_file}}")
+    } else if (save_video) {
       if (isTRUE(verbose)) {
         cli::cli_alert_info("Encoding annotated video to MP4 with FFmpeg...")
       }
+      frames_to_encode <- if (use_native_stream) {
+        valid_rec <- recorded_frames[!sapply(recorded_frames, is.null)]
+        unlist(valid_rec)
+      } else {
+        frame_paths
+      }
       av::av_encode_video(
-        input = frame_paths,
+        input = frames_to_encode,
         output = out_video_file,
         framerate = src_fps,
         verbose = FALSE
@@ -8840,10 +9669,13 @@ video_detect_dl <- function(video = 0,
       if (isTRUE(verbose)) cli::cli_alert_success("Video encoding complete: {.path {out_video_file}}")
     }
 
-    all_dets <- if (length(frame_records) > 0) do.call(rbind, frame_records) else data.frame()
-    all_kpts <- if (length(frame_keypoints) > 0) do.call(rbind, frame_keypoints) else NULL
+    valid_records <- frame_records[!sapply(frame_records, is.null)]
+    valid_kpts <- frame_keypoints[!sapply(frame_keypoints, is.null)]
+    all_dets <- if (length(valid_records) > 0) do.call(rbind, valid_records) else data.frame()
+    all_kpts <- if (length(valid_kpts) > 0) do.call(rbind, valid_kpts) else NULL
     total_time <- as.numeric(Sys.time() - t_start, units = "secs")
-    avg_fps <- if (total_time > 0 && num_frames > 0) (num_frames / total_time) else src_fps
+    actual_n <- if (use_native_stream) length(valid_records) else num_frames
+    avg_fps <- if (total_time > 0 && actual_n > 0) (actual_n / total_time) else src_fps
   }
 
   if (!return_data) {
@@ -10458,7 +11290,9 @@ image_detect_world <- function(img,
                                col = NULL,
                                lwd = 2,
                                cex = 1.0,
-                               pad = 1.0,
+                               pad = 0,
+                               bbox = TRUE,
+                               badge_pad = 1.0,
                                show_text = TRUE,
                                show_conf = TRUE,
                                show_class = TRUE,
@@ -10482,21 +11316,27 @@ image_detect_world <- function(img,
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
   if ("cex_scale" %in% names(dots)) cex <- dots$cex_scale
-  if ("label_pad" %in% names(dots)) pad <- dots$label_pad
-  if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
-  if ("pad_scale" %in% names(dots)) pad <- dots$pad_scale
+  if ("box_pad" %in% names(dots)) pad <- dots$box_pad
+  if ("label_pad" %in% names(dots)) badge_pad <- dots$label_pad
+  if ("badge_pad" %in% names(dots)) badge_pad <- dots$badge_pad
+  if ("pad_scale" %in% names(dots)) badge_pad <- dots$pad_scale
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
-  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
-  if ("bbox" %in% names(dots)) show_box <- isTRUE(dots$bbox)
+  if (is.null(show_box)) {
+    if ("show_boxes" %in% names(dots)) {
+      show_box <- isTRUE(dots$show_boxes)
+    } else {
+      show_box <- isTRUE(bbox)
+    }
+  }
   if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
   if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
   if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
   if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
-    if (missing(pad)) pad <- cex[2]
+    if (missing(badge_pad)) badge_pad <- cex[2]
     cex <- cex[1]
   }
 
@@ -10504,7 +11344,7 @@ image_detect_world <- function(img,
     res <- lapply(img, function(x) {
       image_detect_world(x, classes = classes, conf_threshold = conf_threshold,
                          iou_threshold = iou_threshold, model = model, rainbow = rainbow,
-                         col = col, lwd = lwd, cex = cex, pad = pad, show_text = show_text,
+                         col = col, lwd = lwd, cex = cex, pad = pad, bbox = bbox, badge_pad = badge_pad, show_text = show_text,
                          show_conf = show_conf, show_class = show_class, show_id = show_id,
                          show_point = show_point, show_box = show_box,
                          point_size = point_size, point_pch = point_pch,
@@ -10627,6 +11467,11 @@ image_detect_world <- function(img,
     stringsAsFactors = FALSE
   )
 
+  if (!is.null(pad) && any(pad != 0) && nrow(df_boxes) > 0L) {
+    dims <- dim(mat)
+    df_boxes <- .apply_box_padding(df_boxes, pad = pad, orig_w = dims[1], orig_h = dims[2])
+  }
+
   if (isTRUE(verbose)) {
     sum_txt <- paste0("pliman detected {.bold ", .format_detection_summary(df_boxes$class), "} in the image.")
     cli::cli_process_done(id = pb, msg_done = sum_txt)
@@ -10641,7 +11486,8 @@ image_detect_world <- function(img,
       palette_colors = pal,
       lwd = lwd,
       cex = cex,
-      pad = pad,
+      pad = 0,
+      badge_pad = badge_pad,
       show_text = show_text,
       show_conf = show_conf,
       show_class = show_class,

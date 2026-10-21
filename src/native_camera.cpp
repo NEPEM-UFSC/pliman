@@ -311,6 +311,77 @@ static void window_finalizer(SEXP ptr) {
     R_ClearExternalPtr(ptr);
   }
 }
+
+struct NativeVideoReader {
+  IMFSourceReader* pReader = nullptr;
+  UINT32 width = 0;
+  UINT32 height = 0;
+  INT32 stride = 0;
+  int abs_stride = 0;
+  bool is_bottom_up = false;
+  double fps = 30.0;
+  double duration = 0.0;
+  int total_frames = 0;
+  LONGLONG last_timestamp = 0;
+  int current_frame = 0;
+  bool is_open = false;
+
+  ~NativeVideoReader() {
+    close();
+  }
+
+  void close() {
+    if (pReader) {
+      pReader->Release();
+      pReader = nullptr;
+    }
+    is_open = false;
+  }
+};
+
+static void video_reader_finalizer(SEXP ptr) {
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(ptr);
+  if (reader) {
+    delete reader;
+    R_ClearExternalPtr(ptr);
+  }
+}
+
+struct NativeVideoWriter {
+  IMFSinkWriter* pWriter = nullptr;
+  DWORD streamIndex = 0;
+  int width = 0;
+  int height = 0;
+  double fps = 30.0;
+  LONGLONG frame_duration = 0;
+  LONGLONG current_time = 0;
+  bool is_open = false;
+
+  void close() {
+    if (pWriter) {
+      if (is_open) {
+        pWriter->Finalize();
+      }
+      pWriter->Release();
+      pWriter = nullptr;
+    }
+    is_open = false;
+  }
+
+  ~NativeVideoWriter() {
+    close();
+  }
+};
+
+static void video_writer_finalizer(SEXP ptr) {
+  if (TYPEOF(ptr) == EXTPTRSXP) {
+    NativeVideoWriter* writer = (NativeVideoWriter*)R_ExternalPtrAddr(ptr);
+    if (writer) {
+      delete writer;
+      R_ClearExternalPtr(ptr);
+    }
+  }
+}
 #endif
 
 // [[Rcpp::export]]
@@ -1213,3 +1284,567 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
   return Rcpp::DataFrame::create();
 #endif
 }
+
+// [[Rcpp::export]]
+bool has_native_video_reader_cpp() {
+#ifdef _WIN32
+  return true;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+SEXP open_native_video_reader_cpp(std::string video_path) {
+#ifdef _WIN32
+  ensure_mf_started();
+
+  int wlen = MultiByteToWideChar(CP_UTF8, 0, video_path.c_str(), -1, NULL, 0);
+  if (wlen <= 0) return R_NilValue;
+  std::wstring wpath(wlen, 0);
+  MultiByteToWideChar(CP_UTF8, 0, video_path.c_str(), -1, &wpath[0], wlen);
+
+  IMFAttributes* pAttributes = nullptr;
+  HRESULT hr = MFCreateAttributes(&pAttributes, 2);
+  if (SUCCEEDED(hr) && pAttributes) {
+    pAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+    pAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+  }
+
+  IMFSourceReader* pReader = nullptr;
+  hr = MFCreateSourceReaderFromURL(wpath.c_str(), pAttributes, &pReader);
+  if (pAttributes) pAttributes->Release();
+  if (FAILED(hr) || !pReader) return R_NilValue;
+
+  pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_ALL_STREAMS, FALSE);
+  pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+
+  IMFMediaType* pMediaType = nullptr;
+  hr = MFCreateMediaType(&pMediaType);
+  if (SUCCEEDED(hr) && pMediaType) {
+    pMediaType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+    pMediaType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+    hr = pReader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, pMediaType);
+    pMediaType->Release();
+  }
+  if (FAILED(hr)) {
+    pReader->Release();
+    return R_NilValue;
+  }
+
+  IMFMediaType* pActualType = nullptr;
+  hr = pReader->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &pActualType);
+  UINT32 width = 0, height = 0;
+  INT32 stride = 0;
+  UINT32 fps_num = 0, fps_den = 1;
+  if (SUCCEEDED(hr) && pActualType) {
+    MFGetAttributeSize(pActualType, MF_MT_FRAME_SIZE, &width, &height);
+    pActualType->GetUINT32(MF_MT_DEFAULT_STRIDE, (UINT32*)&stride);
+    MFGetAttributeRatio(pActualType, MF_MT_FRAME_RATE, &fps_num, &fps_den);
+    pActualType->Release();
+  }
+  if (stride == 0) stride = (INT32)(width * 4);
+  int abs_stride = std::abs((int)stride);
+  bool is_bottom_up = (stride < 0);
+  double native_fps = (fps_den > 0 && fps_num > 0) ? ((double)fps_num / (double)fps_den) : 30.0;
+
+  PROPVARIANT var;
+  PropVariantInit(&var);
+  hr = pReader->GetPresentationAttribute((DWORD)MF_SOURCE_READER_MEDIASOURCE, MF_PD_DURATION, &var);
+  LONGLONG duration_100ns = 0;
+  if (SUCCEEDED(hr) && var.vt == VT_UI8) {
+    duration_100ns = var.uhVal.QuadPart;
+  }
+  PropVariantClear(&var);
+
+  double dur_s = (double)duration_100ns / 10000000.0;
+  int tot_frames = (int)std::max(1.0, std::round(dur_s * native_fps));
+
+  NativeVideoReader* reader = new NativeVideoReader();
+  reader->pReader = pReader;
+  reader->width = width;
+  reader->height = height;
+  reader->stride = stride;
+  reader->abs_stride = abs_stride;
+  reader->is_bottom_up = is_bottom_up;
+  reader->fps = native_fps;
+  reader->duration = dur_s;
+  reader->total_frames = tot_frames;
+  reader->is_open = true;
+
+  SEXP ptr = PROTECT(R_MakeExternalPtr(reader, R_NilValue, R_NilValue));
+  R_RegisterCFinalizerEx(ptr, video_reader_finalizer, (Rboolean)TRUE);
+  UNPROTECT(1);
+  return ptr;
+#else
+  return R_NilValue;
+#endif
+}
+
+// [[Rcpp::export]]
+Rcpp::List get_video_reader_info_cpp(SEXP reader_ptr) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return Rcpp::List::create();
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader || !reader->is_open) return Rcpp::List::create();
+  return Rcpp::List::create(
+    Rcpp::Named("width") = (int)reader->width,
+    Rcpp::Named("height") = (int)reader->height,
+    Rcpp::Named("fps") = reader->fps,
+    Rcpp::Named("duration") = reader->duration,
+    Rcpp::Named("total_frames") = reader->total_frames
+  );
+#else
+  return Rcpp::List::create();
+#endif
+}
+
+// [[Rcpp::export]]
+bool read_native_video_frame_cpp(SEXP reader_ptr, Rcpp::RawVector out_bm) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return false;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader || !reader->is_open || !reader->pReader) return false;
+
+  int w = (int)reader->width;
+  int h = (int)reader->height;
+  int abs_stride = reader->abs_stride;
+  bool is_bottom_up = reader->is_bottom_up;
+  unsigned char* dst = RAW(out_bm);
+
+  while (true) {
+    DWORD streamIndex = 0, flags = 0;
+    LONGLONG timestamp = 0;
+    IMFSample* pSample = nullptr;
+
+    HRESULT hr = reader->pReader->ReadSample(
+      (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+      0,
+      &streamIndex,
+      &flags,
+      &timestamp,
+      &pSample
+    );
+
+    if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
+      if (pSample) pSample->Release();
+      return false; // EOF
+    }
+
+    if (!pSample) {
+      continue;
+    }
+
+    reader->last_timestamp = timestamp;
+    reader->current_frame++;
+
+    IMFMediaBuffer* pBuffer = nullptr;
+    // Prefer the direct buffer from the sample (which implements IMF2DBuffer)
+    HRESULT hrBuf = pSample->GetBufferByIndex(0, &pBuffer);
+    if (FAILED(hrBuf) || !pBuffer) {
+      hrBuf = pSample->ConvertToContiguousBuffer(&pBuffer);
+    }
+
+    if (SUCCEEDED(hrBuf) && pBuffer) {
+      BYTE* pData = nullptr;
+      DWORD maxLen = 0, curLen = 0;
+      if (SUCCEEDED(pBuffer->Lock(&pData, &maxLen, &curLen)) && pData) {
+        int actual_stride = abs_stride;
+        int min_stride = w * 4;
+        int align64 = ((min_stride + 63) / 64) * 64;
+        int align128 = ((min_stride + 127) / 128) * 128;
+
+        if (h > 0 && (curLen % h == 0) && (int)(curLen / h) >= min_stride) {
+          actual_stride = (int)(curLen / h);
+        } else if (abs_stride >= min_stride && (abs_stride % 64 == 0) && (DWORD)(abs_stride * h) <= curLen) {
+          actual_stride = abs_stride;
+        } else if ((DWORD)(align64 * h) <= curLen) {
+          actual_stride = align64;
+        } else if ((DWORD)(align128 * h) <= curLen) {
+          actual_stride = align128;
+        } else if (abs_stride >= min_stride) {
+          actual_stride = abs_stride;
+        } else {
+          actual_stride = min_stride;
+        }
+        if (curLen >= (DWORD)(actual_stride * h)) {
+          #pragma omp parallel for schedule(static) if(h > 100)
+          for (int y = 0; y < h; ++y) {
+            int src_y = is_bottom_up ? (h - 1 - y) : y;
+            const unsigned char* src_row = pData + (size_t)src_y * actual_stride;
+            unsigned char* dst_row = dst + (size_t)y * ((size_t)w * 3);
+            for (int x = 0; x < w; ++x) {
+              size_t src_idx = (size_t)x * 4;
+              size_t dst_idx = (size_t)x * 3;
+              dst_row[dst_idx + 0] = src_row[src_idx + 2]; // R
+              dst_row[dst_idx + 1] = src_row[src_idx + 1]; // G
+              dst_row[dst_idx + 2] = src_row[src_idx + 0]; // B
+            }
+          }
+          pBuffer->Unlock();
+          pBuffer->Release();
+          pSample->Release();
+          return true;
+        }
+        pBuffer->Unlock();
+      }
+
+      pBuffer->Release();
+      pSample->Release();
+    } else {
+      pSample->Release();
+    }
+  }
+  return false;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+SEXP extract_native_frame_to_image_cpp(SEXP reader_ptr, int target_frame) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return R_NilValue;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader || !reader->is_open || !reader->pReader) return R_NilValue;
+
+  double fps = (reader->fps > 0) ? reader->fps : 30.0;
+  double target_sec = (double)(target_frame - 1) / fps;
+  LONGLONG target_100ns = (LONGLONG)(target_sec * 10000000.0);
+  LONGLONG half_frame_100ns = (LONGLONG)((0.5 / fps) * 10000000.0);
+
+  double cur_sec = (double)reader->last_timestamp / 10000000.0;
+  int cur_frame = (int)std::round(cur_sec * fps) + 1;
+
+  // Seek if target frame is behind current position or more than 20 frames ahead
+  if (target_frame < cur_frame || target_frame > cur_frame + 20) {
+    static const GUID k_guid_null = { 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0 } };
+    PROPVARIANT var;
+    PropVariantInit(&var);
+    var.vt = VT_I8;
+    var.hVal.QuadPart = target_100ns;
+    reader->pReader->SetCurrentPosition(k_guid_null, var);
+    PropVariantClear(&var);
+  }
+
+  int w = (int)reader->width;
+  int h = (int)reader->height;
+  int abs_stride = reader->abs_stride;
+  bool is_bottom_up = reader->is_bottom_up;
+
+  while (true) {
+    DWORD streamIndex = 0, flags = 0;
+    LONGLONG ts = 0;
+    IMFSample* pSample = nullptr;
+
+    HRESULT hr = reader->pReader->ReadSample(
+      (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+      0,
+      &streamIndex,
+      &flags,
+      &ts,
+      &pSample
+    );
+
+    if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
+      if (pSample) pSample->Release();
+      return R_NilValue;
+    }
+    if (!pSample) continue;
+
+    reader->last_timestamp = ts;
+    reader->current_frame = (int)std::round(((double)ts / 10000000.0) * fps) + 1;
+
+    // If before target timestamp, discard sample immediately (zero copy overhead)
+    if (ts < target_100ns - half_frame_100ns) {
+      pSample->Release();
+      continue;
+    }
+
+    // Found target frame: unpack directly into Image layout
+    IMFMediaBuffer* pBuffer = nullptr;
+    HRESULT hrBuf = pSample->GetBufferByIndex(0, &pBuffer);
+    if (FAILED(hrBuf) || !pBuffer) {
+      hrBuf = pSample->ConvertToContiguousBuffer(&pBuffer);
+    }
+
+    if (SUCCEEDED(hrBuf) && pBuffer) {
+      BYTE* pData = nullptr;
+      DWORD maxLen = 0, curLen = 0;
+      if (SUCCEEDED(pBuffer->Lock(&pData, &maxLen, &curLen)) && pData) {
+        int actual_stride = abs_stride;
+        int min_stride = w * 4;
+        int align64 = ((min_stride + 63) / 64) * 64;
+        int align128 = ((min_stride + 127) / 128) * 128;
+
+        if (h > 0 && (curLen % h == 0) && (int)(curLen / h) >= min_stride) {
+          actual_stride = (int)(curLen / h);
+        } else if (abs_stride >= min_stride && (abs_stride % 64 == 0) && (DWORD)(abs_stride * h) <= curLen) {
+          actual_stride = abs_stride;
+        } else if ((DWORD)(align64 * h) <= curLen) {
+          actual_stride = align64;
+        } else if ((DWORD)(align128 * h) <= curLen) {
+          actual_stride = align128;
+        } else if (abs_stride >= min_stride) {
+          actual_stride = abs_stride;
+        } else {
+          actual_stride = min_stride;
+        }
+
+        std::size_t total_pixels = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+        Rcpp::RawVector out(total_pixels * 3);
+        unsigned char* dst = RAW(out);
+
+        #pragma omp parallel for schedule(static) if(h > 100)
+        for (int y = 0; y < h; ++y) {
+          int src_y = is_bottom_up ? (h - 1 - y) : y;
+          const unsigned char* src_row = pData + (size_t)src_y * actual_stride;
+          for (int x = 0; x < w; ++x) {
+            size_t src_idx = (size_t)x * 4;
+            // R channel in Image (c=0)
+            dst[x + (size_t)w * (y + (size_t)h * 0)] = src_row[src_idx + 2];
+            // G channel in Image (c=1)
+            dst[x + (size_t)w * (y + (size_t)h * 1)] = src_row[src_idx + 1];
+            // B channel in Image (c=2)
+            dst[x + (size_t)w * (y + (size_t)h * 2)] = src_row[src_idx + 0];
+          }
+        }
+
+        pBuffer->Unlock();
+        pBuffer->Release();
+        pSample->Release();
+
+        out.attr("dim") = Rcpp::IntegerVector::create(w, h, 3);
+        out.attr("class") = Rcpp::CharacterVector::create("image", "array");
+        out.attr("colormode") = "Color";
+        return out;
+      }
+      pBuffer->Release();
+    }
+    pSample->Release();
+    return R_NilValue;
+  }
+#else
+  return R_NilValue;
+#endif
+}
+
+// [[Rcpp::export]]
+bool close_native_video_reader_cpp(SEXP reader_ptr) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return false;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (reader) {
+    reader->close();
+    return true;
+  }
+  return false;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+bool has_native_video_writer_cpp() {
+#ifdef _WIN32
+  return true;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+SEXP open_native_video_writer_cpp(std::string video_path, int width, int height, double fps = 30.0, int bitrate = 0) {
+#ifdef _WIN32
+  ensure_mf_started();
+
+  IMFAttributes* pAttributes = nullptr;
+  MFCreateAttributes(&pAttributes, 2);
+  if (pAttributes) {
+    pAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+    pAttributes->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING, TRUE);
+  }
+
+  std::wstring wpath(video_path.begin(), video_path.end());
+  IMFSinkWriter* pWriter = nullptr;
+  HRESULT hr = MFCreateSinkWriterFromURL(wpath.c_str(), NULL, pAttributes, &pWriter);
+  if (pAttributes) pAttributes->Release();
+  if (FAILED(hr) || !pWriter) return R_NilValue;
+
+  int out_w = width - (width % 2);
+  int out_h = height - (height % 2);
+  if (out_w <= 0 || out_h <= 0) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  if (fps <= 0.0) fps = 30.0;
+  UINT32 fps_num = (UINT32)std::round(fps * 1000.0);
+  UINT32 fps_den = 1000;
+
+  if (bitrate <= 0) {
+    bitrate = (int)std::round((double)out_w * out_h * fps * 0.15);
+    if (bitrate < 1000000) bitrate = 1000000;
+    if (bitrate > 20000000) bitrate = 20000000;
+  }
+
+  // Output MediaType (H.264 / MP4)
+  IMFMediaType* pOutType = nullptr;
+  MFCreateMediaType(&pOutType);
+  pOutType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+  pOutType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
+  pOutType->SetUINT32(MF_MT_AVG_BITRATE, (UINT32)bitrate);
+  MFSetAttributeSize(pOutType, MF_MT_FRAME_SIZE, out_w, out_h);
+  MFSetAttributeRatio(pOutType, MF_MT_FRAME_RATE, fps_num, fps_den);
+  MFSetAttributeRatio(pOutType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+  pOutType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+
+  DWORD streamIndex = 0;
+  hr = pWriter->AddStream(pOutType, &streamIndex);
+  pOutType->Release();
+  if (FAILED(hr)) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  // Input MediaType (RGB32)
+  IMFMediaType* pInType = nullptr;
+  MFCreateMediaType(&pInType);
+  pInType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+  pInType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+  MFSetAttributeSize(pInType, MF_MT_FRAME_SIZE, out_w, out_h);
+  MFSetAttributeRatio(pInType, MF_MT_FRAME_RATE, fps_num, fps_den);
+  MFSetAttributeRatio(pInType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+  pInType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+
+  hr = pWriter->SetInputMediaType(streamIndex, pInType, NULL);
+  pInType->Release();
+  if (FAILED(hr)) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  hr = pWriter->BeginWriting();
+  if (FAILED(hr)) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  NativeVideoWriter* writer = new NativeVideoWriter();
+  writer->pWriter = pWriter;
+  writer->streamIndex = streamIndex;
+  writer->width = out_w;
+  writer->height = out_h;
+  writer->fps = fps;
+  writer->frame_duration = (LONGLONG)(10000000.0 / fps);
+  writer->current_time = 0;
+  writer->is_open = true;
+
+  SEXP ptr = PROTECT(R_MakeExternalPtr(writer, R_NilValue, R_NilValue));
+  R_RegisterCFinalizerEx(ptr, video_writer_finalizer, (Rboolean)TRUE);
+  UNPROTECT(1);
+  return ptr;
+#else
+  return R_NilValue;
+#endif
+}
+
+// [[Rcpp::export]]
+bool write_native_video_frame_cpp(SEXP writer_ptr, Rcpp::RawVector bm) {
+#ifdef _WIN32
+  if (TYPEOF(writer_ptr) != EXTPTRSXP) return false;
+  NativeVideoWriter* writer = (NativeVideoWriter*)R_ExternalPtrAddr(writer_ptr);
+  if (!writer || !writer->is_open || !writer->pWriter) return false;
+
+  SEXP dim_attr = Rf_getAttrib(bm, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 3) return false;
+  int* dims = INTEGER(dim_attr);
+  int w = dims[1];
+  int h = dims[2];
+
+  int out_w = writer->width;
+  int out_h = writer->height;
+  DWORD cbBuffer = (DWORD)(out_w * out_h * 4);
+
+  IMFMediaBuffer* pBuffer = nullptr;
+  HRESULT hr = MFCreateMemoryBuffer(cbBuffer, &pBuffer);
+  if (FAILED(hr) || !pBuffer) return false;
+
+  BYTE* pData = nullptr;
+  hr = pBuffer->Lock(&pData, NULL, NULL);
+  if (SUCCEEDED(hr) && pData) {
+    const unsigned char* src = RAW(bm);
+    int copy_w = std::min(w, out_w);
+    int copy_h = std::min(h, out_h);
+
+    #pragma omp parallel for schedule(static) if(out_h > 100)
+    for (int y = 0; y < out_h; ++y) {
+      // Media Foundation H.264 encoder expects bottom-up RGB32:
+      // Row 0 of pData is the bottom of the video, so map to (out_h - 1 - y) in src
+      int src_y = out_h - 1 - y;
+      unsigned char* dst_row = pData + (size_t)y * ((size_t)out_w * 4);
+      if (src_y >= 0 && src_y < copy_h) {
+        const unsigned char* src_row = src + (size_t)src_y * ((size_t)w * 3);
+        for (int x = 0; x < copy_w; ++x) {
+          size_t s_idx = (size_t)x * 3;
+          size_t d_idx = (size_t)x * 4;
+          dst_row[d_idx + 0] = src_row[s_idx + 2]; // B
+          dst_row[d_idx + 1] = src_row[s_idx + 1]; // G
+          dst_row[d_idx + 2] = src_row[s_idx + 0]; // R
+          dst_row[d_idx + 3] = 0;
+        }
+        for (int x = copy_w; x < out_w; ++x) {
+          size_t d_idx = (size_t)x * 4;
+          dst_row[d_idx + 0] = 0;
+          dst_row[d_idx + 1] = 0;
+          dst_row[d_idx + 2] = 0;
+          dst_row[d_idx + 3] = 0;
+        }
+      } else {
+        std::memset(dst_row, 0, (size_t)out_w * 4);
+      }
+    }
+    pBuffer->Unlock();
+  } else {
+    pBuffer->Release();
+    return false;
+  }
+
+  pBuffer->SetCurrentLength(cbBuffer);
+
+  IMFSample* pSample = nullptr;
+  hr = MFCreateSample(&pSample);
+  if (SUCCEEDED(hr) && pSample) {
+    pSample->AddBuffer(pBuffer);
+    pSample->SetSampleTime(writer->current_time);
+    pSample->SetSampleDuration(writer->frame_duration);
+
+    hr = writer->pWriter->WriteSample(writer->streamIndex, pSample);
+    writer->current_time += writer->frame_duration;
+
+    pSample->Release();
+  }
+  pBuffer->Release();
+
+  return SUCCEEDED(hr);
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+bool close_native_video_writer_cpp(SEXP writer_ptr) {
+#ifdef _WIN32
+  if (TYPEOF(writer_ptr) != EXTPTRSXP) return false;
+  NativeVideoWriter* writer = (NativeVideoWriter*)R_ExternalPtrAddr(writer_ptr);
+  if (writer) {
+    writer->close();
+    return true;
+  }
+  return false;
+#else
+  return false;
+#endif
+}
+
+

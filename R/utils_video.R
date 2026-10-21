@@ -322,3 +322,191 @@ print.pliman_video_frames <- function(x, ...) {
   }
   invisible(x)
 }
+
+#' Extract video frames directly into Image objects
+#'
+#' @description
+#' `frame_to_img()` extracts one or more frames from a saved video file directly
+#' into memory as an object of class `image` (or a named list of `image` objects
+#' if multiple frames are requested).
+#'
+#' On Windows, decoding runs with zero disk overhead via high-speed native
+#' Media Foundation C++ integration. On other operating systems (or when native
+#' reader is unavailable), it seamlessly falls back to `av`.
+#'
+#' @param video Character. Path to the video file (e.g., `"video.mp4"`).
+#' @param frames Frame index or indices to extract (1-indexed). Can be:
+#'   * A single integer (e.g., `1` for the first frame, `50` for frame 50).
+#'   * A vector of integers (e.g., `c(1, 15, 30)` or `1:5`).
+#'   * `"first"` for the first frame (`1L`).
+#'   * `"last"` for the last frame of the video.
+#'   * `"all"` for all frames in the video.
+#'   Defaults to `1L`. Mutually exclusive with `time`.
+#' @param time Numeric. Video timestamp(s) in seconds from which to extract frames
+#'   (e.g., `time = 1.5` or `c(0.5, 2.0)`). Mutually exclusive with `frames`.
+#' @param show Logical. If `TRUE`, plots the extracted image(s). Default is `FALSE`.
+#' @param output_dir Optional character. Directory where extracted images should
+#'   be saved to disk. If `NULL` (default), images are kept in memory only.
+#' @param verbose Logical. If `TRUE`, prints informative messages. Default is `FALSE`.
+#' @param ... Additional arguments passed to [plot.image()] or [image_combine()]
+#'   when `show = TRUE`.
+#'
+#' @return An object of class `image` (if a single frame is requested) or a named
+#'   list of `image` objects (if multiple frames are requested, named
+#'   `"frame_1"`, `"frame_2"`, etc.).
+#'
+#' @export
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#' @examplesIf interactive()
+#' # Extract the first frame of a video
+#' img <- frame_to_img("my_video.mp4")
+#' plot(img)
+#'
+#' # Extract frame at 2.5 seconds
+#' img <- frame_to_img("my_video.mp4", time = 2.5)
+#'
+#' # Extract multiple frames as a list of images
+#' imgs <- frame_to_img("my_video.mp4", frames = c(10, 30, 50))
+#' image_combine(imgs)
+frame_to_img <- function(video,
+                         frames = 1L,
+                         time = NULL,
+                         show = FALSE,
+                         output_dir = NULL,
+                         verbose = FALSE,
+                         ...) {
+  if (!is.character(video) || length(video) != 1L || !file.exists(video)) {
+    cli::cli_abort("Video file {.path {video}} does not exist.")
+  }
+
+  video_full <- normalizePath(video, winslash = "/", mustWork = TRUE)
+  is_windows <- tolower(Sys.info()[["sysname"]]) == "windows"
+  can_native <- is_windows && isTRUE(has_native_video_cpp())
+
+  reader <- if (can_native) tryCatch(open_native_video_reader_cpp(video_full), error = function(e) NULL) else NULL
+  use_native <- !is.null(reader)
+
+  # Determine total frames and fps
+  fps_val <- 30.0
+  tot_val <- 1000000L
+
+  if (use_native) {
+    r_info <- get_video_reader_info_cpp(reader)
+    if (!is.null(r_info$fps) && r_info$fps > 0) fps_val <- as.numeric(r_info$fps)
+    if (!is.null(r_info$total_frames) && r_info$total_frames > 0) tot_val <- as.integer(r_info$total_frames)
+    w_val <- as.integer(r_info$width)
+    h_val <- as.integer(r_info$height)
+  } else {
+    v_info <- tryCatch(suppressWarnings(av::av_video_info(video_full)), error = function(e) NULL)
+    if (!is.null(v_info)) {
+      if (!is.null(v_info$video$framerate) && v_info$video$framerate[1] > 0) fps_val <- as.numeric(v_info$video$framerate[1])
+      if (!is.null(v_info$video$frames) && v_info$video$frames[1] > 0) tot_val <- as.integer(v_info$video$frames[1])
+      w_val <- if (!is.null(v_info$video$width)) as.integer(v_info$video$width[1]) else 0L
+      h_val <- if (!is.null(v_info$video$height)) as.integer(v_info$video$height[1]) else 0L
+    }
+  }
+
+  # Parse requested frames
+  if (!is.null(time)) {
+    if (!is.numeric(time) || any(time < 0)) {
+      if (use_native) close_native_video_reader_cpp(reader)
+      cli::cli_abort("{.arg time} must be a positive numeric value in seconds.")
+    }
+    raw_frames <- as.integer(pmax(1L, round(as.numeric(time) * fps_val) + 1L))
+  } else if (is.character(frames) && length(frames) == 1L) {
+    f_mode <- tolower(frames)
+    raw_frames <- switch(f_mode,
+      "first" = 1L,
+      "last" = if (tot_val < 1000000L) tot_val else 1L,
+      "all" = if (tot_val < 1000000L) seq_len(tot_val) else seq_len(100L),
+      {
+        val <- suppressWarnings(as.integer(frames))
+        if (is.na(val)) 1L else val
+      }
+    )
+  } else {
+    raw_frames <- as.integer(frames)
+  }
+
+  is_single <- (length(raw_frames) == 1L)
+  target_unique <- sort(unique(raw_frames[raw_frames >= 1L]))
+
+  if (length(target_unique) == 0L) {
+    if (use_native) close_native_video_reader_cpp(reader)
+    cli::cli_abort("No valid frame indices requested (indices must be >= 1).")
+  }
+
+  imgs_map <- list()
+
+  if (use_native) {
+    for (f_idx in target_unique) {
+      img <- extract_native_frame_to_image_cpp(reader, as.integer(f_idx))
+      if (!is.null(img)) {
+        imgs_map[[as.character(f_idx)]] <- img
+      }
+    }
+    close_native_video_reader_cpp(reader)
+  } else {
+    # Cross-platform fallback via av
+    tmp_dir <- file.path(tempdir(), paste0("pliman_frame_to_img_", as.integer(stats::runif(1, 100000, 999999))))
+    dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
+    on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+    suppressWarnings(av::av_video_images(video_full, destdir = tmp_dir, format = "jpg"))
+    img_files <- list.files(tmp_dir, pattern = "\\.jpe?g$", full.names = TRUE)
+
+    for (f_idx in target_unique) {
+      if (f_idx <= length(img_files)) {
+        imgs_map[[as.character(f_idx)]] <- image_import(img_files[f_idx])
+      }
+    }
+  }
+
+  if (length(imgs_map) == 0L) {
+    cli::cli_abort("Failed to extract any frames from {.path {video}}.")
+  }
+
+  # Preserve requested ordering
+  result_list <- list()
+  for (rf in raw_frames) {
+    key <- as.character(rf)
+    if (!is.null(imgs_map[[key]])) {
+      result_list[[paste0("frame_", rf)]] <- imgs_map[[key]]
+    }
+  }
+
+  # Optional export to disk
+  if (!is.null(output_dir) && is.character(output_dir) && nzchar(output_dir)) {
+    if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+    for (nm in names(result_list)) {
+      out_f <- file.path(output_dir, paste0(nm, ".jpg"))
+      image_export(result_list[[nm]], out_f, verbose = FALSE)
+    }
+    if (isTRUE(verbose)) {
+      cli::cli_alert_success("Saved {length(result_list)} frame{?s} to {.path {output_dir}}.")
+    }
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_success("Extracted {length(result_list)} frame{?s} from {.file {basename(video)}}.")
+  }
+
+  # Return single image or list of images
+  if (is_single && length(result_list) == 1L) {
+    out_obj <- result_list[[1L]]
+    if (isTRUE(show)) {
+      plot(out_obj, ...)
+    }
+    return(out_obj)
+  }
+
+  if (isTRUE(show)) {
+    tryCatch({
+      image_combine(result_list, ...)
+    }, error = function(e) {
+      plot(result_list[[1L]], ...)
+    })
+  }
+
+  return(result_list)
+}

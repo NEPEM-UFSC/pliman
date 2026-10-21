@@ -113,15 +113,23 @@ plot.image <- function(x,
     )
   }
 
-  graphics::rasterImage(
-    rst,
-    xleft = xlim[1] - 0.5,
-    ybottom = ylim[2] + 0.5,
-    xright = xlim[2] + 0.5,
-    ytop = ylim[1] - 0.5,
-    interpolate = interpolate,
-    ...
+  dots <- list(...)
+  valid_pars <- tryCatch(names(graphics::par(no.readonly = FALSE)), error = function(e) character(0))
+  allowed_args <- setdiff(unique(c("angle", valid_pars)), c("type", "pch", "lty", "lwd", "col", "cex", "font", "bty", "ann", "axes"))
+  dots <- dots[names(dots) %in% allowed_args]
+
+  raster_args <- c(
+    list(
+      rst,
+      xleft = xlim[1] - 0.5,
+      ybottom = ylim[2] + 0.5,
+      xright = xlim[2] + 0.5,
+      ytop = ylim[1] - 0.5,
+      interpolate = interpolate
+    ),
+    dots
   )
+  do.call(graphics::rasterImage, raster_args)
 
   if (isTRUE(axes)) {
     graphics::axis(1)

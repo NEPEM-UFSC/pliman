@@ -6,17 +6,18 @@
 \usage{
 image_segment_dl(
   img,
-  type = c("segment", "mask", "highlight"),
+  type = c("highlight", "segment", "mask"),
   col_background = "white",
   col_highlight = "salmon",
   mask_color = NULL,
-  alpha = 0.4,
+  alpha = 0.5,
   border = NA,
   lwd = 1,
   bbox = FALSE,
   mask = TRUE,
   cex = 1,
-  pad = 1,
+  pad = 0,
+  badge_pad = 1,
   show_text = TRUE,
   show_conf = TRUE,
   show_class = TRUE,
@@ -57,6 +58,8 @@ image_segment_dl(
   invert = FALSE,
   pick_object = FALSE,
   prompt = NULL,
+  classes = NULL,
+  filter_nested = TRUE,
   show_mask = FALSE,
   verbose = TRUE,
   plot = TRUE,
@@ -71,19 +74,20 @@ returning a corresponding list of binary masks.}
 
 \item{type}{Character specifying the visual and output modality:
 \itemize{
-\item \code{"segment"} (default): Returns an \code{image} object where detected foreground is preserved
+\item \code{"highlight"}(default): Overlays the original image with semi-transparent colored polygons covering
+each detected instance, ideal for visual inspection, quality control, and publication figures.
+\item \code{"segment"}: Returns an \code{image} object where detected foreground is preserved
 and background is replaced by a solid color specified by \code{col_background}.
 \item \code{"mask"}: Returns the binary mask (for semantic models) or single multi-label integer instance map
 (for YOLO-seg, StarDist, Grounded-SAM, and PerSAM) as an \code{image} object (\code{colormode = "Grayscale"}).
-\item \code{"highlight"}: Overlays the original image with semi-transparent colored polygons covering
-each detected instance, ideal for visual inspection, quality control, and publication figures.
 When \code{mask = FALSE}, overlays bounding boxes directly.
 \item \code{"boxes"}: Overlays bounding boxes on the original image and returns a data frame of detected boxes.
 }}
 
 \item{col_background}{Character string or hex code specifying the solid background color when
 \code{type = "segment"}. Defaults to \code{"white"}. Accepts any valid R color name (e.g., \code{"black"}, \code{"transparent"})
-or hexadecimal code (e.g., \code{"#FFFFFF"}).}
+or hexadecimal code (e.g., \code{"#FFFFFF"}). When set to \code{"transparent"}, \code{"none"}, or \code{NA}, returns an image
+with an alpha transparency channel (4 channels, RGBA).}
 
 \item{col_highlight}{Fill color for the semi-transparent overlay polygon when \code{type = "highlight"}.
 Defaults to \code{"salmon"}. When multiple instances are detected, distinct categorical
@@ -109,11 +113,15 @@ around detected instances. Defaults to \code{FALSE}.}
 When \code{mask = FALSE} and \code{bbox = TRUE}, skips the mask decoder step and returns only the detected
 bounding box coordinates (fast object detection). Defaults to \code{TRUE}.}
 
-\item{cex}{Size factor for bounding box label text (default \code{1.0}). Use smaller values (e.g., \code{0.2} or \code{0.5})
+\item{cex}{Size factor for bounding box label text (default \code{1.5}). Use smaller values (e.g., \code{0.2} or \code{0.5})
 to reduce text size for dense scenes or many objects.}
 
-\item{pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).
-Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad = 0} for a badge fitting tightly to the text.}
+\item{pad}{Padding added to expand bounding boxes around detected instances when \code{bbox = TRUE} (default \code{0}).
+Can be an absolute number of pixels (e.g., \code{pad = 10}), a relative expansion fraction when
+between 0 and 1 (e.g., \code{pad = 0.05} for 5\% margin), or a length-2 vector \code{c(pad_x, pad_y)}.}
+
+\item{badge_pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).
+Use \code{badge_pad = 0} for a badge fitting tightly to the text.}
 
 \item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
 
@@ -262,6 +270,12 @@ Press \verb{<Esc>} or right-click when finished. Default is \code{FALSE}.}
 \item \code{"center"}: Uses the image center coordinates \code{c(width / 2, height / 2)}.
 \item \code{"box"}: Uses a bounding box spanning the full image canvas.
 }}
+
+\item{classes}{Optional character or numeric vector of target classes to keep/filter.
+When specified, only detected instances matching these classes are kept, segmented, and plotted.}
+
+\item{filter_nested}{Logical. If \code{TRUE} (the default), removes larger container bounding boxes
+that enclose smaller boxes of the same class (e.g. discarding an encompassing box around an entire branch of leaves).}
 
 \item{show_mask}{Deprecated. If \code{TRUE}, equivalent to \code{type = "mask"}.}
 

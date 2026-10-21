@@ -11,7 +11,7 @@ yolo_dataset_export(
   dir = NULL,
   task = c("detect", "segment"),
   class_names = c("object"),
-  class_id = 0L,
+  class_id = NULL,
   prompt = NULL,
   prompt_mode = c("first", "each"),
   interactive = is.null(prompt) && !is.null(model) && is.character(model) &&
@@ -74,7 +74,8 @@ for polygon instance segmentation.}
 \item{class_names}{Character vector of class names (e.g. \code{c("capsula")} or \code{c("grain", "defect")}).
 Defaults to \code{c("object")}.}
 
-\item{class_id}{Numeric class ID assigned to the annotations. Defaults to \code{0L}.}
+\item{class_id}{Numeric class ID or vector of IDs. Defaults to \code{NULL}, which automatically
+assigns sequential IDs (0, 1, ...) matching \code{class_names}.}
 
 \item{prompt}{Prompt specification for deep learning models:
 \itemize{

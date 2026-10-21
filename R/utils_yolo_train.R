@@ -263,7 +263,8 @@
 #'   for polygon instance segmentation.
 #' @param class_names Character vector of class names (e.g. `c("capsula")` or `c("grain", "defect")`).
 #'   Defaults to `c("object")`.
-#' @param class_id Numeric class ID assigned to the annotations. Defaults to `0L`.
+#' @param class_id Numeric class ID or vector of IDs. Defaults to `NULL`, which automatically
+#'   assigns sequential IDs (0, 1, ...) matching `class_names`.
 #' @param prompt Prompt specification for deep learning models:
 #'   * For `model = "persam"`: Exemplar coordinates (`c(x, y)` or matrix). If `NULL` and `interactive = TRUE`,
 #'     prompts for clicks on the image.
@@ -357,7 +358,7 @@ yolo_dataset_export <- function(img,
                                 dir = NULL,
                                 task = c("detect", "segment"),
                                 class_names = c("object"),
-                                class_id = 0L,
+                                class_id = NULL,
                                 prompt = NULL,
                                 prompt_mode = c("first", "each"),
                                 interactive = is.null(prompt) && !is.null(model) && is.character(model) && identical(tolower(model[1]), "persam") && base::interactive(),
@@ -438,6 +439,14 @@ yolo_dataset_export <- function(img,
     if (length(clean_tokens) > 0L) {
       class_names <- unique(clean_tokens)
     }
+  }
+
+  if (is.null(class_id) || length(class_id) == 0L) {
+    class_id <- seq_along(class_names) - 1L
+  } else if (length(class_id) == 1L && length(class_names) > 1L) {
+    class_id <- seq_along(class_names) - 1L
+  } else if (length(class_id) < length(class_names)) {
+    class_id <- c(class_id, seq(from = max(class_id) + 1L, length.out = length(class_names) - length(class_id)))
   }
 
   m_lower <- if (!is.null(model) && is.character(model)) tolower(model[1]) else ""
@@ -577,10 +586,23 @@ yolo_dataset_export <- function(img,
     ))
   }
 
-  accumulated_prototypes <- NULL
-  cached_pts <- NULL
-  if (!is.null(prompt) && (is.numeric(prompt) || is.matrix(prompt) || is.data.frame(prompt))) {
-    cached_pts <- prompt
+  accumulated_prototypes_list <- vector("list", length(class_names))
+  names(accumulated_prototypes_list) <- class_names
+  cached_pts_list <- vector("list", length(class_names))
+  names(cached_pts_list) <- class_names
+  if (!is.null(prompt)) {
+    if (is.list(prompt) && !is.data.frame(prompt)) {
+      for (cl_i in seq_along(class_names)) {
+        c_name <- class_names[cl_i]
+        if (c_name %in% names(prompt)) {
+          cached_pts_list[[cl_i]] <- prompt[[c_name]]
+        } else if (length(prompt) >= cl_i) {
+          cached_pts_list[[cl_i]] <- prompt[[cl_i]]
+        }
+      }
+    } else if (is.numeric(prompt) || is.matrix(prompt) || is.data.frame(prompt)) {
+      cached_pts_list[[1]] <- prompt
+    }
   }
 
   stop_early <- FALSE
@@ -607,86 +629,306 @@ yolo_dataset_export <- function(img,
     # MODEL 1: PerSAM (One-shot Visual Exemplar)
     # --------------------------------------------------------------------------
     if (is_persam) {
-      if (isTRUE(interactive)) {
-        accepted <- FALSE
-        curr_sim_thresh <- sim_threshold
-        curr_min_dist <- min_dist
+      img_boxes_list <- list()
+      img_polys_list <- list()
 
-        while (!accepted) {
-          # Prompt for exemplars on image 1 OR if prompt_mode == "each" OR if no prototypes yet
-          need_prompt <- (is.null(accumulated_prototypes) && is.null(cached_pts)) ||
-                         (identical(prompt_mode, "each") && !accepted)
+      for (cl_idx in seq_along(class_names)) {
+        curr_cl_name <- class_names[cl_idx]
+        curr_cl_id <- class_id[cl_idx]
+        cached_pts <- cached_pts_list[[cl_idx]]
 
-          curr_pts <- NULL
-          if (need_prompt) {
-            if (isTRUE(verbose)) {
-              if (i == 1L || is.null(accumulated_prototypes)) {
-                cli::cli_alert_info("Image {i}/{num_imgs} ({base_name}): Click on 2 to 5 exemplar instances of {.val {class_names[1]}} in the plot window.")
-                cli::cli_alert_info("Press <Esc> or right-click when finished.")
-              } else {
-                cli::cli_alert_info("Image {i}/{num_imgs} ({base_name}): Click on exemplar instances of {.val {class_names[1]}}, or press <Esc> to autolabel using learned prototypes.")
-              }
-            }
+        if (isTRUE(interactive)) {
+          accepted <- FALSE
+          curr_sim_thresh <- sim_threshold
+          curr_min_dist <- min_dist
 
-            plot(curr_img)
-            title(main = sprintf("Image [%d/%d]: Click on 2 to 5 exemplars of '%s' (Esc when done)",
-                                 i, num_imgs, class_names[1]),
-                  col.main = "#0066cc", font.main = 2)
+          while (!accepted) {
+            # Prompt for exemplars on image 1 OR if prompt_mode == "each" OR if no prototypes yet
+            need_prompt <- (is.null(accumulated_prototypes_list[[cl_idx]]) && is.null(cached_pts)) ||
+                           (identical(prompt_mode, "each") && !accepted)
 
-            pts <- tryCatch(graphics::locator(n = 64, type = "p", col = "#FFFF00", pch = 19, cex = 1.3), error = function(e) NULL)
-
-            if (is.null(pts) || length(pts$x) == 0L) {
-              if (i == 1L && is.null(accumulated_prototypes) && is.null(cached_pts)) {
-                cli::cli_alert_warning("No point clicked on image {.val {base_name}} (<Esc> pressed).")
-                cli::cli_bullets(c(
-                  "*" = "{.bold [r] / retry}: Retry clicking exemplar objects on this image",
-                  "*" = "{.bold [s] / stop}: Abort dataset export"
-                ))
-                ans_esc <- tolower(trimws(readline("Select action [r = retry / s = stop, default: r]: ")))
-                if (ans_esc %in% c("s", "stop", "abort", "a", "q", "quit")) {
-                  cli::cli_alert_info("Dataset export cancelled by user.")
-                  stop_early <- TRUE
-                  break
+            curr_pts <- NULL
+            if (need_prompt) {
+              if (isTRUE(verbose)) {
+                if (is.null(accumulated_prototypes_list[[cl_idx]])) {
+                  cli::cli_alert_info("Image {i}/{num_imgs} ({base_name}) - Class {cl_idx}/{length(class_names)} ({.val {curr_cl_name}}): Click on 2 to 5 exemplar instances in the plot window.")
+                  cli::cli_alert_info("Press <Esc> or right-click when finished (or to skip this class if absent in this image).")
                 } else {
-                  next
+                  cli::cli_alert_info("Image {i}/{num_imgs} ({base_name}) - Class {cl_idx}/{length(class_names)} ({.val {curr_cl_name}}): Click exemplar instances, or press <Esc> to autolabel using learned prototypes.")
+                }
+              }
+
+              plot(curr_img)
+
+              # Overlay any previously annotated classes on this image
+              if (length(img_boxes_list) > 0L) {
+                prev_bx_df <- do.call(rbind, img_boxes_list)
+                prev_conts <- unlist(img_polys_list, recursive = FALSE)
+                .render_overlay_annotations(
+                  boxes = prev_bx_df,
+                  polygons = prev_conts,
+                  cw = img_w,
+                  ch = img_h,
+                  alpha = 0.25,
+                  lwd = 1.5
+                )
+              }
+
+              title_str <- sprintf("Image [%d/%d] (%s) - Class [%d/%d] ('%s'): Click exemplars (<Esc> if none/done)",
+                                   i, num_imgs, base_name, cl_idx, length(class_names), curr_cl_name)
+              graphics::title(main = title_str, col.main = "#0066cc", font.main = 2, cex.main = 1.05)
+
+              pts <- tryCatch(graphics::locator(n = 64, type = "p", col = "#FFFF00", pch = 19, cex = 1.3), error = function(e) NULL)
+
+              if (is.null(pts) || length(pts$x) == 0L) {
+                if (is.null(accumulated_prototypes_list[[cl_idx]]) && is.null(cached_pts)) {
+                  cli::cli_alert_warning("No point clicked for class {.val {curr_cl_name}} on image {.val {base_name}} (<Esc> pressed).")
+                  cli::cli_bullets(c(
+                    "*" = "{.bold [s] / skip}: Skip class {.val {curr_cl_name}} for this image (default)",
+                    "*" = "{.bold [r] / retry}: Retry clicking exemplar objects for this class",
+                    "*" = "{.bold [q] / quit}: Abort dataset export"
+                  ))
+                  ans_esc <- tryCatch(
+                    tolower(trimws(readline("Select action [s = skip / r = retry / q = quit, default: s]: "))),
+                    interrupt = function(e) "s"
+                  )
+                  if (ans_esc %in% c("q", "quit", "abort")) {
+                    cli::cli_alert_info("Dataset export cancelled by user.")
+                    stop_early <- TRUE
+                    break
+                  } else if (ans_esc %in% c("r", "retry")) {
+                    next
+                  } else {
+                    accepted <- TRUE
+                    break
+                  }
+                } else {
+                  if (identical(prompt_mode, "each")) {
+                    cli::cli_alert_info("No point clicked for class {.val {curr_cl_name}} (<Esc> pressed).")
+                    cli::cli_bullets(c(
+                      "*" = "{.bold [a] / autolabel}: Autolabel from visual memory (default)",
+                      "*" = "{.bold [s] / skip}: Skip class {.val {curr_cl_name}} for this image",
+                      "*" = "{.bold [r] / retry}: Retry clicking exemplar objects"
+                    ))
+                    ans_esc <- tryCatch(
+                      tolower(trimws(readline("Select action [a = autolabel / s = skip / r = retry, default: a]: "))),
+                      interrupt = function(e) "a"
+                    )
+                    if (ans_esc %in% c("s", "skip")) {
+                      accepted <- TRUE
+                      break
+                    } else if (ans_esc %in% c("r", "retry")) {
+                      next
+                    } else {
+                      curr_pts <- NULL
+                    }
+                  } else {
+                    curr_pts <- NULL
+                  }
                 }
               } else {
-                # If Esc pressed on subsequent image, proceed with accumulated prototypes!
-                curr_pts <- NULL
+                graphics::points(pts$x, pts$y, col = "#000000", pch = 1, cex = 1.3, lwd = 1.5)
+                curr_pts <- cbind(x = pts$x, y = pts$y)
               }
+            } else if (!is.null(cached_pts) && i == 1L) {
+              curr_pts <- cached_pts
             } else {
-              graphics::points(pts$x, pts$y, col = "#000000", pch = 1, cex = 1.3, lwd = 1.5)
-              curr_pts <- cbind(x = pts$x, y = pts$y)
+              curr_pts <- NULL
             }
-          } else if (!is.null(cached_pts) && i == 1L) {
-            curr_pts <- cached_pts
-          } else {
-            # Subsequent images: pure autolabel from accumulated prototypes
-            curr_pts <- NULL
-          }
+
+            if (isTRUE(stop_early)) break
+
+            if (isTRUE(verbose)) {
+              if (!is.null(accumulated_prototypes_list[[cl_idx]]) && is.null(curr_pts)) {
+                n_proto <- length(accumulated_prototypes_list[[cl_idx]]$semantic)
+                cli::cli_alert_info("Autolabeling {.val {curr_cl_name}} using {n_proto} accumulated prototype{?s}...")
+              }
+              cli::cli_progress_step(
+                msg = "Running SAM 2.1 inference on {.val {base_name}} [{curr_cl_name}] [{toupper(engine)}]... ",
+                msg_done = "SAM 2.1 inference complete for {.val {curr_cl_name}}"
+              )
+            }
+
+            c_num_arr <- image_data(curr_img, type = "numeric")
+
+            p_res <- tryCatch({
+              .run_persam(
+                mat = c_num_arr,
+                exemplar_points = curr_pts,
+                precomputed_prototypes = accumulated_prototypes_list[[cl_idx]],
+                sim_threshold = curr_sim_thresh,
+                min_dist = curr_min_dist,
+                iou_threshold = iou_threshold,
+                max_objects = max_objects,
+                feat_res = feat_res,
+                superres_map = superres_map,
+                engine = engine,
+                device_id = device_id,
+                verbose = FALSE,
+                mask = (task == "segment")
+              )
+            }, error = function(e) {
+              cli::cli_alert_warning("Exemplar matching error on image {i} for class '{curr_cl_name}': {e$message}")
+              NULL
+            })
+
+            if (isTRUE(verbose)) {
+              cli::cli_progress_done()
+            }
+
+            r_boxes <- data.frame()
+            r_polys <- list()
+
+            if (!is.null(p_res) && !is.null(p_res$boxes) && nrow(p_res$boxes) > 0L) {
+              r_boxes <- data.frame(
+                xmin = as.numeric(p_res$boxes$xmin),
+                ymin = as.numeric(p_res$boxes$ymin),
+                xmax = as.numeric(p_res$boxes$xmax),
+                ymax = as.numeric(p_res$boxes$ymax),
+                conf = round(as.numeric(p_res$boxes$score), 3),
+                class_id = curr_cl_id,
+                class_name = curr_cl_name,
+                label = curr_cl_name,
+                stringsAsFactors = FALSE
+              )
+
+              # Filter edge artifacts
+              if (isTRUE(filter_edge) && nrow(r_boxes) > 0L) {
+                bw_px <- r_boxes$xmax - r_boxes$xmin
+                bh_px <- r_boxes$ymax - r_boxes$ymin
+                aspect <- pmax(bw_px, bh_px) / pmax(1.0, pmin(bw_px, bh_px))
+                is_border <- (r_boxes$xmin <= 4 | r_boxes$xmax >= (img_w - 4) | r_boxes$ymin <= 4 | r_boxes$ymax >= (img_h - 4))
+                keep <- !(is_border & (aspect > 3.5 | bw_px < 15 | bh_px < 15))
+                r_boxes <- r_boxes[keep, , drop = FALSE]
+                if (!is.null(p_res$contours) && length(p_res$contours) > 0L) {
+                  p_res$contours <- p_res$contours[keep[seq_along(p_res$contours)]]
+                }
+              }
+
+              if (!is.null(p_res$contours)) {
+                for (ci in seq_along(p_res$contours)) {
+                  cnt <- p_res$contours[[ci]]
+                  if (is.matrix(cnt) && nrow(cnt) >= 3L) {
+                    gx <- cnt[, 1] / img_w; gy <- cnt[, 2] / img_h
+                    if (length(gx) > 32L) {
+                      idx <- round(seq(1, length(gx), length.out = 32))
+                      gx <- gx[idx]; gy <- gy[idx]
+                    }
+                    r_polys[[ci]] <- as.vector(rbind(gx, gy))
+                  }
+                }
+              }
+            }
+
+            prev_bxs <- if (length(img_boxes_list) > 0L) do.call(rbind, img_boxes_list) else NULL
+            prev_pls <- if (length(img_polys_list) > 0L) unlist(img_polys_list, recursive = FALSE) else NULL
+            next_cl_name <- if (cl_idx < length(class_names)) class_names[cl_idx + 1L] else NULL
+
+            # Interactive Review Step
+            rev <- .interactive_fewshot_review_step(
+              curr_im = curr_img,
+              r_boxes = r_boxes,
+              r_polys = r_polys,
+              curr_points = curr_pts,
+              c_num_arr = c_num_arr,
+              cw = img_w,
+              ch = img_h,
+              pre_proto = accumulated_prototypes_list[[cl_idx]],
+              latest_proto = if (!is.null(p_res) && !is.null(p_res$prototypes)) p_res$prototypes else NULL,
+              task = task,
+              label = curr_cl_name,
+              class_id = curr_cl_id,
+              conf_threshold = curr_sim_thresh,
+              radius = NULL,
+              min_dist = curr_min_dist,
+              max_objects = max_objects,
+              method = "sam",
+              engine = engine,
+              device_id = device_id,
+              rainbow = rainbow,
+              show_class = show_class,
+              show_conf = show_conf,
+              badge = badge,
+              img_name = base_name,
+              img_idx = i,
+              total_imgs = num_imgs,
+              class_idx = cl_idx,
+              total_classes = length(class_names),
+              next_class_name = next_cl_name,
+              prior_boxes = prev_bxs,
+              prior_polygons = prev_pls
+            )
+
+            if (identical(rev$action, "resample")) {
+              accumulated_prototypes_list[[cl_idx]] <- NULL
+              cached_pts_list[[cl_idx]] <- NULL
+              curr_pts <- NULL
+              next
+            } else if (identical(rev$action, "stop")) {
+              if (nrow(rev$boxes) > 0L) {
+                img_boxes_list[[length(img_boxes_list) + 1L]] <- rev$boxes
+                img_polys_list[[length(img_polys_list) + 1L]] <- rev$polygons
+              }
+              accepted <- TRUE
+              stop_early <- TRUE
+              break
+            } else {
+              if (nrow(rev$boxes) > 0L) {
+                img_boxes_list[[length(img_boxes_list) + 1L]] <- rev$boxes
+                img_polys_list[[length(img_polys_list) + 1L]] <- rev$polygons
+              }
+              accepted <- TRUE
+
+              new_protos <- if (!is.null(rev$prototypes)) rev$prototypes else if (!is.null(p_res$prototypes)) p_res$prototypes else NULL
+              if (!is.null(new_protos)) {
+                if (is.null(accumulated_prototypes_list[[cl_idx]])) {
+                  accumulated_prototypes_list[[cl_idx]] <- new_protos
+                } else if (!identical(new_protos, accumulated_prototypes_list[[cl_idx]])) {
+                  accumulated_prototypes_list[[cl_idx]] <- new_protos
+                } else if (is.null(curr_pts) && nrow(rev$boxes) > 0L && length(accumulated_prototypes_list[[cl_idx]]$semantic) < 25L) {
+                  tryCatch({
+                    top_idx <- order(rev$boxes$conf, decreasing = TRUE)[1:min(2L, nrow(rev$boxes))]
+                    top_x <- (rev$boxes$xmin[top_idx] + rev$boxes$xmax[top_idx]) / 2
+                    top_y <- (rev$boxes$ymin[top_idx] + rev$boxes$ymax[top_idx]) / 2
+                    adapt_res <- .run_persam(
+                      mat = c_num_arr,
+                      exemplar_points = cbind(top_x, top_y),
+                      precomputed_prototypes = accumulated_prototypes_list[[cl_idx]],
+                      sim_threshold = curr_sim_thresh,
+                      max_objects = 1L,
+                      feat_res = 256L,
+                      engine = engine,
+                      device_id = device_id,
+                      verbose = FALSE,
+                      mask = FALSE
+                    )
+                    if (!is.null(adapt_res) && !is.null(adapt_res$prototypes)) {
+                      accumulated_prototypes_list[[cl_idx]] <- adapt_res$prototypes
+                    }
+                  }, error = function(e) NULL)
+                }
+                if (isTRUE(verbose)) {
+                  cli::cli_alert_success("Visual prototype memory for {.val {curr_cl_name}}: {length(accumulated_prototypes_list[[cl_idx]]$semantic)} prototype{?s} active.")
+                }
+              }
+            }
+          } # while (!accepted)
 
           if (isTRUE(stop_early)) break
 
-          if (isTRUE(verbose)) {
-            if (!is.null(accumulated_prototypes) && is.null(curr_pts)) {
-              n_proto <- length(accumulated_prototypes$semantic)
-              cli::cli_alert_info("Autolabeling {.val {base_name}} using {n_proto} accumulated visual prototype{?s}...")
-            }
-            cli::cli_progress_step(
-              msg = "Running SAM 2.1 inference on {.val {base_name}} [{toupper(engine)}]... ",
-              msg_done = "SAM 2.1 inference complete on {.val {base_name}}"
-            )
-          }
-
+        } else {
+          # Non-interactive / batch mode for class cl_idx
           c_num_arr <- image_data(curr_img, type = "numeric")
-
-          p_res <- tryCatch({
-            .run_persam(
+          p_res <- NULL
+          if (i == 1L && is.null(accumulated_prototypes_list[[cl_idx]])) {
+            if (is.null(cached_pts)) {
+              cli::cli_abort("In non-interactive mode with {.val persam}, please provide {.arg prompt} for class {.val {curr_cl_name}}.")
+            }
+            p_res <- .run_persam(
               mat = c_num_arr,
-              exemplar_points = curr_pts,
-              precomputed_prototypes = accumulated_prototypes,
-              sim_threshold = curr_sim_thresh,
-              min_dist = curr_min_dist,
+              exemplar_points = cached_pts,
+              sim_threshold = sim_threshold,
+              min_dist = min_dist,
               iou_threshold = iou_threshold,
               max_objects = max_objects,
               feat_res = feat_res,
@@ -696,43 +938,38 @@ yolo_dataset_export <- function(img,
               verbose = FALSE,
               mask = (task == "segment")
             )
-          }, error = function(e) {
-            cli::cli_alert_warning("Exemplar matching error on image {i}: {e$message}")
-            NULL
-          })
-
-          if (isTRUE(verbose)) {
-            cli::cli_progress_done()
+            if (!is.null(p_res$prototypes)) accumulated_prototypes_list[[cl_idx]] <- p_res$prototypes
+          } else {
+            p_res <- .run_persam(
+              mat = c_num_arr,
+              exemplar_points = NULL,
+              precomputed_prototypes = accumulated_prototypes_list[[cl_idx]],
+              sim_threshold = sim_threshold,
+              min_dist = min_dist,
+              iou_threshold = iou_threshold,
+              max_objects = max_objects,
+              feat_res = feat_res,
+              superres_map = superres_map,
+              engine = engine,
+              device_id = device_id,
+              verbose = FALSE,
+              mask = (task == "segment")
+            )
           }
 
-          r_boxes <- data.frame()
-          r_polys <- list()
-
           if (!is.null(p_res) && !is.null(p_res$boxes) && nrow(p_res$boxes) > 0L) {
-            r_boxes <- data.frame(
+            cl_bx <- data.frame(
               xmin = as.numeric(p_res$boxes$xmin),
               ymin = as.numeric(p_res$boxes$ymin),
               xmax = as.numeric(p_res$boxes$xmax),
               ymax = as.numeric(p_res$boxes$ymax),
               conf = round(as.numeric(p_res$boxes$score), 3),
-              class_id = class_id[1],
-              class_name = class_names[1],
+              class_id = curr_cl_id,
+              class_name = curr_cl_name,
+              label = curr_cl_name,
               stringsAsFactors = FALSE
             )
-
-            # Filter edge artifacts
-            if (isTRUE(filter_edge) && nrow(r_boxes) > 0L) {
-              bw_px <- r_boxes$xmax - r_boxes$xmin
-              bh_px <- r_boxes$ymax - r_boxes$ymin
-              aspect <- pmax(bw_px, bh_px) / pmax(1.0, pmin(bw_px, bh_px))
-              is_border <- (r_boxes$xmin <= 4 | r_boxes$xmax >= (img_w - 4) | r_boxes$ymin <= 4 | r_boxes$ymax >= (img_h - 4))
-              keep <- !(is_border & (aspect > 3.5 | bw_px < 15 | bh_px < 15))
-              r_boxes <- r_boxes[keep, , drop = FALSE]
-              if (!is.null(p_res$contours) && length(p_res$contours) > 0L) {
-                p_res$contours <- p_res$contours[keep[seq_along(p_res$contours)]]
-              }
-            }
-
+            cl_pl <- list()
             if (!is.null(p_res$contours)) {
               for (ci in seq_along(p_res$contours)) {
                 cnt <- p_res$contours[[ci]]
@@ -742,155 +979,38 @@ yolo_dataset_export <- function(img,
                     idx <- round(seq(1, length(gx), length.out = 32))
                     gx <- gx[idx]; gy <- gy[idx]
                   }
-                  r_polys[[ci]] <- as.vector(rbind(gx, gy))
+                  cl_pl[[ci]] <- as.vector(rbind(gx, gy))
                 }
               }
             }
-          }
-
-          # Interactive Review Step (exact same as yolo_fewshot_fit!)
-          rev <- .interactive_fewshot_review_step(
-            curr_im = curr_img,
-            r_boxes = r_boxes,
-            r_polys = r_polys,
-            curr_points = curr_pts,
-            c_num_arr = c_num_arr,
-            cw = img_w,
-            ch = img_h,
-            pre_proto = accumulated_prototypes,
-            latest_proto = if (!is.null(p_res) && !is.null(p_res$prototypes)) p_res$prototypes else NULL,
-            task = task,
-            label = class_names[1],
-            conf_threshold = curr_sim_thresh,
-            radius = NULL,
-            min_dist = curr_min_dist,
-            max_objects = max_objects,
-            method = "sam",
-            engine = engine,
-            device_id = device_id,
-            rainbow = rainbow,
-            show_class = show_class,
-            show_conf = show_conf,
-            badge = badge,
-            img_name = base_name,
-            img_idx = i,
-            total_imgs = num_imgs
-          )
-
-          if (identical(rev$action, "resample")) {
-            accumulated_prototypes <- NULL
-            cached_pts <- NULL
-            curr_pts <- NULL
-            next
-          } else if (identical(rev$action, "stop")) {
-            bx_df <- rev$boxes
-            conts_list <- rev$polygons
-            accepted <- TRUE
-            stop_early <- TRUE
-            break
-          } else {
-            # Accepted and continue
-            bx_df <- rev$boxes
-            conts_list <- rev$polygons
-            curr_sim_thresh <- if (!is.null(rev$conf)) rev$conf else curr_sim_thresh
-            accepted <- TRUE
-
-            # Accumulate and update prototype history bank!
-            new_protos <- if (!is.null(rev$prototypes)) rev$prototypes else if (!is.null(p_res$prototypes)) p_res$prototypes else NULL
-            if (!is.null(new_protos)) {
-              if (is.null(accumulated_prototypes)) {
-                accumulated_prototypes <- new_protos
-              } else if (!identical(new_protos, accumulated_prototypes)) {
-                # New prototypes were added during review (e.g. action 'a')
-                accumulated_prototypes <- new_protos
-              } else if (is.null(curr_pts) && nrow(bx_df) > 0L && length(accumulated_prototypes$semantic) < 25L) {
-                # Pure autolabel on image > 1: adaptively learn 1-2 exemplar embeddings from top detected objects
-                tryCatch({
-                  top_idx <- order(bx_df$conf, decreasing = TRUE)[1:min(2L, nrow(bx_df))]
-                  top_x <- (bx_df$xmin[top_idx] + bx_df$xmax[top_idx]) / 2
-                  top_y <- (bx_df$ymin[top_idx] + bx_df$ymax[top_idx]) / 2
-                  adapt_res <- .run_persam(
-                    mat = c_num_arr,
-                    exemplar_points = cbind(top_x, top_y),
-                    precomputed_prototypes = accumulated_prototypes,
-                    sim_threshold = curr_sim_thresh,
-                    max_objects = 1L,
-                    feat_res = 256L,
-                    engine = engine,
-                    device_id = device_id,
-                    verbose = FALSE,
-                    mask = FALSE
-                  )
-                  if (!is.null(adapt_res) && !is.null(adapt_res$prototypes)) {
-                    accumulated_prototypes <- adapt_res$prototypes
-                  }
-                }, error = function(e) NULL)
-              }
-              if (isTRUE(verbose)) {
-                cli::cli_alert_success("Visual prototype memory: {length(accumulated_prototypes$semantic)} prototype{?s} active for subsequent images.")
-              }
+            if (isTRUE(filter_edge) && nrow(cl_bx) > 0L) {
+              bw_px <- cl_bx$xmax - cl_bx$xmin
+              bh_px <- cl_bx$ymax - cl_bx$ymin
+              aspect <- pmax(bw_px, bh_px) / pmax(1.0, pmin(bw_px, bh_px))
+              is_border <- (cl_bx$xmin <= 4 | cl_bx$xmax >= (img_w - 4) | cl_bx$ymin <= 4 | cl_bx$ymax >= (img_h - 4))
+              keep <- !(is_border & (aspect > 3.5 | bw_px < 15 | bh_px < 15))
+              cl_bx <- cl_bx[keep, , drop = FALSE]
+              if (length(cl_pl) > 0L) cl_pl <- cl_pl[keep[seq_along(cl_pl)]]
+            }
+            if (nrow(cl_bx) > 0L) {
+              img_boxes_list[[length(img_boxes_list) + 1L]] <- cl_bx
+              img_polys_list[[length(img_polys_list) + 1L]] <- cl_pl
             }
           }
         }
+      } # for (cl_idx in seq_along(class_names))
 
-        if (stop_early) break
-        if (!accepted) next
-
+      # Combine annotations across all classes for image i
+      if (length(img_boxes_list) > 0L) {
+        bx_df <- do.call(rbind, img_boxes_list)
+        rownames(bx_df) <- NULL
       } else {
-        # Non-interactive / Batch mode
-        c_num_arr <- image_data(curr_img, type = "numeric")
-        if (i == 1L && is.null(accumulated_prototypes)) {
-          if (is.null(cached_pts)) {
-            cli::cli_abort("In non-interactive mode with {.val persam}, please provide {.arg prompt} (exemplar coordinates).")
-          }
-          p_res <- .run_persam(
-            mat = c_num_arr,
-            exemplar_points = cached_pts,
-            sim_threshold = sim_threshold,
-            min_dist = min_dist,
-            iou_threshold = iou_threshold,
-            max_objects = max_objects,
-            feat_res = feat_res,
-            superres_map = superres_map,
-            engine = engine,
-            device_id = device_id,
-            verbose = FALSE,
-            mask = (task == "segment")
-          )
-          if (!is.null(p_res$prototypes)) accumulated_prototypes <- p_res$prototypes
-        } else {
-          p_res <- .run_persam(
-            mat = c_num_arr,
-            exemplar_points = NULL,
-            precomputed_prototypes = accumulated_prototypes,
-            sim_threshold = sim_threshold,
-            min_dist = min_dist,
-            iou_threshold = iou_threshold,
-            max_objects = max_objects,
-            feat_res = feat_res,
-            superres_map = superres_map,
-            engine = engine,
-            device_id = device_id,
-            verbose = FALSE,
-            mask = (task == "segment")
-          )
-        }
-
-        bx_df <- p_res$boxes
-        conts_list <- p_res$contours
-
-        if (isTRUE(filter_edge) && !is.null(bx_df) && nrow(bx_df) > 0L) {
-          bw_px <- bx_df$xmax - bx_df$xmin
-          bh_px <- bx_df$ymax - bx_df$ymin
-          aspect <- pmax(bw_px, bh_px) / pmax(1.0, pmin(bw_px, bh_px))
-          is_border <- (bx_df$xmin <= 4 | bx_df$xmax >= (img_w - 4) | bx_df$ymin <= 4 | bx_df$ymax >= (img_h - 4))
-          keep <- !(is_border & (aspect > 3.5 | bw_px < 15 | bh_px < 15))
-          bx_df <- bx_df[keep, , drop = FALSE]
-          if (length(conts_list) > 0L) {
-            conts_list <- conts_list[keep[seq_along(conts_list)]]
-          }
-        }
+        bx_df <- data.frame()
       }
+      conts_list <- unlist(img_polys_list, recursive = FALSE)
+      if (is.null(conts_list)) conts_list <- list()
+
+      if (isTRUE(stop_early)) break
 
     # --------------------------------------------------------------------------
     # MODEL 2: Grounded-SAM (Open-Vocabulary Text Prompt)
@@ -1043,12 +1163,16 @@ yolo_dataset_export <- function(img,
 
         for (k in seq_along(cx)) {
           if ((bw[k] * img_w * bh[k] * img_h) < min_area) next
-          cid <- if (!is.null(bx_df$class_id) && length(bx_df$class_id) >= k) {
+          cid <- if (!is.null(bx_df$class_id) && length(bx_df$class_id) >= k && !is.na(bx_df$class_id[k])) {
             as.integer(bx_df$class_id[k])
-          } else if (!is.null(bx_df$label) && length(bx_df$label) >= k) {
+          } else if (!is.null(bx_df$class_name) && length(bx_df$class_name) >= k && !is.na(bx_df$class_name[k])) {
+            lbl <- tolower(trimws(bx_df$class_name[k]))
+            m_idx <- match(lbl, tolower(trimws(class_names)))
+            if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
+          } else if (!is.null(bx_df$label) && length(bx_df$label) >= k && !is.na(bx_df$label[k])) {
             lbl <- tolower(trimws(bx_df$label[k]))
             m_idx <- match(lbl, tolower(trimws(class_names)))
-            if (!is.na(m_idx)) m_idx - 1L else class_id[1]
+            if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
           } else {
             class_id[1]
           }
@@ -1082,12 +1206,16 @@ yolo_dataset_export <- function(img,
           if (is.null(c_mat)) next
 
           if (is.vector(c_mat) && length(c_mat) >= 6L && !is.matrix(c_mat)) {
-            cid <- if (!is.null(bx_df$class_id) && length(bx_df$class_id) >= k) {
+            cid <- if (!is.null(bx_df$class_id) && length(bx_df$class_id) >= k && !is.na(bx_df$class_id[k])) {
               as.integer(bx_df$class_id[k])
-            } else if (!is.null(bx_df$label) && length(bx_df$label) >= k) {
+            } else if (!is.null(bx_df$class_name) && length(bx_df$class_name) >= k && !is.na(bx_df$class_name[k])) {
+              lbl <- tolower(trimws(bx_df$class_name[k]))
+              m_idx <- match(lbl, tolower(trimws(class_names)))
+              if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
+            } else if (!is.null(bx_df$label) && length(bx_df$label) >= k && !is.na(bx_df$label[k])) {
               lbl <- tolower(trimws(bx_df$label[k]))
               m_idx <- match(lbl, tolower(trimws(class_names)))
-              if (!is.na(m_idx)) m_idx - 1L else class_id[1]
+              if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
             } else if (length(class_id) == length(conts_list)) {
               class_id[k]
             } else {
@@ -1113,10 +1241,16 @@ yolo_dataset_export <- function(img,
           x_norm <- pmin(pmax(c_mat[, 1] / img_w, 0.0), 1.0)
           y_norm <- pmin(pmax(c_mat[, 2] / img_h, 0.0), 1.0)
 
-          cid <- if (!is.null(bx_df$label) && length(bx_df$label) >= k) {
+          cid <- if (!is.null(bx_df$class_id) && length(bx_df$class_id) >= k && !is.na(bx_df$class_id[k])) {
+            as.integer(bx_df$class_id[k])
+          } else if (!is.null(bx_df$class_name) && length(bx_df$class_name) >= k && !is.na(bx_df$class_name[k])) {
+            lbl <- tolower(trimws(bx_df$class_name[k]))
+            m_idx <- match(lbl, tolower(trimws(class_names)))
+            if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
+          } else if (!is.null(bx_df$label) && length(bx_df$label) >= k && !is.na(bx_df$label[k])) {
             lbl <- tolower(trimws(bx_df$label[k]))
             m_idx <- match(lbl, tolower(trimws(class_names)))
-            if (!is.na(m_idx)) m_idx - 1L else class_id[1]
+            if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
           } else if (length(class_id) == length(conts_list)) {
             class_id[k]
           } else {
@@ -1134,10 +1268,16 @@ yolo_dataset_export <- function(img,
           if (((bx$xmax - bx$xmin) * (bx$ymax - bx$ymin)) < min_area) next
           x1 <- pmin(pmax(bx$xmin / img_w, 0.0), 1.0); x2 <- pmin(pmax(bx$xmax / img_w, 0.0), 1.0)
           y1 <- pmin(pmax(bx$ymin / img_h, 0.0), 1.0); y2 <- pmin(pmax(bx$ymax / img_h, 0.0), 1.0)
-          cid <- if (!is.null(bx$label)) {
+          cid <- if (!is.null(bx$class_id) && !is.na(bx$class_id)) {
+            as.integer(bx$class_id)
+          } else if (!is.null(bx$class_name) && !is.na(bx$class_name)) {
+            lbl <- tolower(trimws(bx$class_name))
+            m_idx <- match(lbl, tolower(trimws(class_names)))
+            if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
+          } else if (!is.null(bx$label) && !is.na(bx$label)) {
             lbl <- tolower(trimws(bx$label))
             m_idx <- match(lbl, tolower(trimws(class_names)))
-            if (!is.na(m_idx)) m_idx - 1L else class_id[1]
+            if (!is.na(m_idx)) class_id[m_idx] else class_id[1]
           } else {
             class_id[1]
           }
@@ -1286,7 +1426,8 @@ yolo_dataset_export <- function(img,
                 col_b <- rev_border[((r - 1L) %% length(rev_border)) + 1L]
                 lbl_parts <- character(0)
                 if (isTRUE(show_class)) {
-                  cur_lbl <- if (length(class_names) > obj$cls_id) class_names[obj$cls_id + 1L] else as.character(obj$cls_id)
+                  m_idx <- match(obj$cls_id, class_id)
+                  cur_lbl <- if (!is.na(m_idx) && m_idx <= length(class_names)) class_names[m_idx] else if (length(class_names) > obj$cls_id) class_names[obj$cls_id + 1L] else as.character(obj$cls_id)
                   if (nzchar(cur_lbl)) lbl_parts <- c(lbl_parts, cur_lbl)
                 }
                 if (isTRUE(show_conf)) {
@@ -1350,7 +1491,8 @@ yolo_dataset_export <- function(img,
   }
   yaml_content <- c(yaml_content, "", "names:")
   for (idx in seq_along(class_names)) {
-    yaml_content <- c(yaml_content, paste0("  ", idx - 1L, ": ", class_names[idx]))
+    cid <- if (length(class_id) >= idx) class_id[idx] else (idx - 1L)
+    yaml_content <- c(yaml_content, paste0("  ", cid, ": ", class_names[idx]))
   }
 
   writeLines(yaml_content, yaml_path)
