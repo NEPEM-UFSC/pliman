@@ -320,11 +320,8 @@ SEXP cpp_binary_threshold(SEXP img_sexp, double threshold, int op = 1, bool retu
   int thresh_raw = (threshold <= 1.0 && threshold >= 0) ? (int)std::round(threshold * 255.0) : (int)std::round(threshold);
   thresh_raw = std::max(0, std::min(255, thresh_raw));
 
-  int r_h = (!Rf_isNull(dims_sexp) && Rf_length(dims_sexp) >= 1) ? INTEGER(dims_sexp)[0] : npix;
-  int r_w = (!Rf_isNull(dims_sexp) && Rf_length(dims_sexp) >= 2) ? INTEGER(dims_sexp)[1] : 1;
-
   if (return_raw) {
-    SEXP res = PROTECT(Rf_allocMatrix(RAWSXP, r_h, r_w));
+    SEXP res = PROTECT(Rf_allocVector(RAWSXP, npix));
     if (!Rf_isNull(dims_sexp)) {
       Rf_setAttrib(res, R_DimSymbol, dims_sexp);
     }
@@ -427,7 +424,7 @@ SEXP cpp_binary_threshold(SEXP img_sexp, double threshold, int op = 1, bool retu
     UNPROTECT(1);
     return res;
   } else {
-    SEXP res = PROTECT(Rf_allocMatrix(LGLSXP, r_h, r_w));
+    SEXP res = PROTECT(Rf_allocVector(LGLSXP, npix));
     if (!Rf_isNull(dims_sexp)) {
       Rf_setAttrib(res, R_DimSymbol, dims_sexp);
     }

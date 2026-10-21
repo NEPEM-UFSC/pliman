@@ -1255,6 +1255,19 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// rgb_buffer_to_image_cpp
+SEXP rgb_buffer_to_image_cpp(Rcpp::RawVector raw_buf, int w, int h);
+RcppExport SEXP _pliman_rgb_buffer_to_image_cpp(SEXP raw_bufSEXP, SEXP wSEXP, SEXP hSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::RawVector >::type raw_buf(raw_bufSEXP);
+    Rcpp::traits::input_parameter< int >::type w(wSEXP);
+    Rcpp::traits::input_parameter< int >::type h(hSEXP);
+    rcpp_result_gen = Rcpp::wrap(rgb_buffer_to_image_cpp(raw_buf, w, h));
+    return rcpp_result_gen;
+END_RCPP
+}
 // write_image_cpp
 bool write_image_cpp(SEXP img_sexp, std::string filename, int quality);
 RcppExport SEXP _pliman_write_image_cpp(SEXP img_sexpSEXP, SEXP filenameSEXP, SEXP qualitySEXP) {
@@ -1281,8 +1294,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // draw_yolo_detections_bgr_cpp
-bool draw_yolo_detections_bgr_cpp(Rcpp::RawVector bm, Rcpp::NumericVector xmin, Rcpp::NumericVector ymin, Rcpp::NumericVector xmax, Rcpp::NumericVector ymax, Rcpp::CharacterVector labels, Rcpp::NumericVector scores, Rcpp::CharacterVector colors, int lwd, std::string hud_text, double font_scale, Rcpp::Nullable<Rcpp::NumericMatrix> keypoints, double kpt_threshold, int kpt_radius, bool draw_skeleton, bool draw_boxes, Rcpp::Nullable<Rcpp::IntegerVector> track_ids, Rcpp::Nullable<Rcpp::IntegerVector> flash, Rcpp::Nullable<Rcpp::List> history_x, Rcpp::Nullable<Rcpp::List> history_y, Rcpp::Nullable<Rcpp::NumericVector> roi, std::string roi_label, Rcpp::Nullable<Rcpp::NumericVector> count_line, std::string count_line_label, Rcpp::Nullable<Rcpp::LogicalVector> counted, bool hide_outside_roi, bool hide_counted, bool flash_counted, bool show_text, bool show_conf, bool show_class, bool show_id, bool badge, double pad_scale, Rcpp::Nullable<Rcpp::IntegerMatrix> mask_labels, double mask_alpha, int mask_offset_x, int mask_offset_y, bool draw_masks, Rcpp::Nullable<Rcpp::IntegerVector> mask_ids, std::string hud_pos, std::string hud_layout);
-RcppExport SEXP _pliman_draw_yolo_detections_bgr_cpp(SEXP bmSEXP, SEXP xminSEXP, SEXP yminSEXP, SEXP xmaxSEXP, SEXP ymaxSEXP, SEXP labelsSEXP, SEXP scoresSEXP, SEXP colorsSEXP, SEXP lwdSEXP, SEXP hud_textSEXP, SEXP font_scaleSEXP, SEXP keypointsSEXP, SEXP kpt_thresholdSEXP, SEXP kpt_radiusSEXP, SEXP draw_skeletonSEXP, SEXP draw_boxesSEXP, SEXP track_idsSEXP, SEXP flashSEXP, SEXP history_xSEXP, SEXP history_ySEXP, SEXP roiSEXP, SEXP roi_labelSEXP, SEXP count_lineSEXP, SEXP count_line_labelSEXP, SEXP countedSEXP, SEXP hide_outside_roiSEXP, SEXP hide_countedSEXP, SEXP flash_countedSEXP, SEXP show_textSEXP, SEXP show_confSEXP, SEXP show_classSEXP, SEXP show_idSEXP, SEXP badgeSEXP, SEXP pad_scaleSEXP, SEXP mask_labelsSEXP, SEXP mask_alphaSEXP, SEXP mask_offset_xSEXP, SEXP mask_offset_ySEXP, SEXP draw_masksSEXP, SEXP mask_idsSEXP, SEXP hud_posSEXP, SEXP hud_layoutSEXP) {
+bool draw_yolo_detections_bgr_cpp(Rcpp::RawVector bm, Rcpp::NumericVector xmin, Rcpp::NumericVector ymin, Rcpp::NumericVector xmax, Rcpp::NumericVector ymax, Rcpp::CharacterVector labels, Rcpp::NumericVector scores, Rcpp::CharacterVector colors, int lwd, std::string hud_text, double font_scale, Rcpp::Nullable<Rcpp::NumericMatrix> keypoints, double kpt_threshold, int kpt_radius, bool draw_skeleton, bool draw_boxes, Rcpp::Nullable<Rcpp::IntegerVector> track_ids, Rcpp::Nullable<Rcpp::IntegerVector> flash, Rcpp::Nullable<Rcpp::List> history_x, Rcpp::Nullable<Rcpp::List> history_y, Rcpp::Nullable<Rcpp::NumericVector> roi, std::string roi_label, Rcpp::Nullable<Rcpp::NumericVector> count_line, std::string count_line_label, Rcpp::Nullable<Rcpp::LogicalVector> counted, bool hide_outside_roi, bool hide_counted, bool flash_counted, bool show_text, bool show_conf, bool show_class, bool show_id, bool badge, double pad_scale, Rcpp::Nullable<Rcpp::IntegerMatrix> mask_labels, double mask_alpha, int mask_offset_x, int mask_offset_y, bool draw_masks, Rcpp::Nullable<Rcpp::IntegerVector> mask_ids, std::string hud_pos, std::string hud_layout, double font_scale_hud, double font_scale_roi);
+RcppExport SEXP _pliman_draw_yolo_detections_bgr_cpp(SEXP bmSEXP, SEXP xminSEXP, SEXP yminSEXP, SEXP xmaxSEXP, SEXP ymaxSEXP, SEXP labelsSEXP, SEXP scoresSEXP, SEXP colorsSEXP, SEXP lwdSEXP, SEXP hud_textSEXP, SEXP font_scaleSEXP, SEXP keypointsSEXP, SEXP kpt_thresholdSEXP, SEXP kpt_radiusSEXP, SEXP draw_skeletonSEXP, SEXP draw_boxesSEXP, SEXP track_idsSEXP, SEXP flashSEXP, SEXP history_xSEXP, SEXP history_ySEXP, SEXP roiSEXP, SEXP roi_labelSEXP, SEXP count_lineSEXP, SEXP count_line_labelSEXP, SEXP countedSEXP, SEXP hide_outside_roiSEXP, SEXP hide_countedSEXP, SEXP flash_countedSEXP, SEXP show_textSEXP, SEXP show_confSEXP, SEXP show_classSEXP, SEXP show_idSEXP, SEXP badgeSEXP, SEXP pad_scaleSEXP, SEXP mask_labelsSEXP, SEXP mask_alphaSEXP, SEXP mask_offset_xSEXP, SEXP mask_offset_ySEXP, SEXP draw_masksSEXP, SEXP mask_idsSEXP, SEXP hud_posSEXP, SEXP hud_layoutSEXP, SEXP font_scale_hudSEXP, SEXP font_scale_roiSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -1328,7 +1341,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::IntegerVector> >::type mask_ids(mask_idsSEXP);
     Rcpp::traits::input_parameter< std::string >::type hud_pos(hud_posSEXP);
     Rcpp::traits::input_parameter< std::string >::type hud_layout(hud_layoutSEXP);
-    rcpp_result_gen = Rcpp::wrap(draw_yolo_detections_bgr_cpp(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, badge, pad_scale, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout));
+    Rcpp::traits::input_parameter< double >::type font_scale_hud(font_scale_hudSEXP);
+    Rcpp::traits::input_parameter< double >::type font_scale_roi(font_scale_roiSEXP);
+    rcpp_result_gen = Rcpp::wrap(draw_yolo_detections_bgr_cpp(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, badge, pad_scale, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout, font_scale_hud, font_scale_roi));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -1855,6 +1870,121 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::Function> >::type callback(callbackSEXP);
     rcpp_result_gen = Rcpp::wrap(split_video_native_cpp(video_path, output_dir, prefix, digits, format, quality, target_fps, target_n, verbose, callback));
+    return rcpp_result_gen;
+END_RCPP
+}
+// has_native_video_reader_cpp
+bool has_native_video_reader_cpp();
+RcppExport SEXP _pliman_has_native_video_reader_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(has_native_video_reader_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
+// open_native_video_reader_cpp
+SEXP open_native_video_reader_cpp(std::string video_path);
+RcppExport SEXP _pliman_open_native_video_reader_cpp(SEXP video_pathSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type video_path(video_pathSEXP);
+    rcpp_result_gen = Rcpp::wrap(open_native_video_reader_cpp(video_path));
+    return rcpp_result_gen;
+END_RCPP
+}
+// get_video_reader_info_cpp
+Rcpp::List get_video_reader_info_cpp(SEXP reader_ptr);
+RcppExport SEXP _pliman_get_video_reader_info_cpp(SEXP reader_ptrSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type reader_ptr(reader_ptrSEXP);
+    rcpp_result_gen = Rcpp::wrap(get_video_reader_info_cpp(reader_ptr));
+    return rcpp_result_gen;
+END_RCPP
+}
+// read_native_video_frame_cpp
+bool read_native_video_frame_cpp(SEXP reader_ptr, Rcpp::RawVector out_bm);
+RcppExport SEXP _pliman_read_native_video_frame_cpp(SEXP reader_ptrSEXP, SEXP out_bmSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type reader_ptr(reader_ptrSEXP);
+    Rcpp::traits::input_parameter< Rcpp::RawVector >::type out_bm(out_bmSEXP);
+    rcpp_result_gen = Rcpp::wrap(read_native_video_frame_cpp(reader_ptr, out_bm));
+    return rcpp_result_gen;
+END_RCPP
+}
+// extract_native_frame_to_image_cpp
+SEXP extract_native_frame_to_image_cpp(SEXP reader_ptr, int target_frame);
+RcppExport SEXP _pliman_extract_native_frame_to_image_cpp(SEXP reader_ptrSEXP, SEXP target_frameSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type reader_ptr(reader_ptrSEXP);
+    Rcpp::traits::input_parameter< int >::type target_frame(target_frameSEXP);
+    rcpp_result_gen = Rcpp::wrap(extract_native_frame_to_image_cpp(reader_ptr, target_frame));
+    return rcpp_result_gen;
+END_RCPP
+}
+// close_native_video_reader_cpp
+bool close_native_video_reader_cpp(SEXP reader_ptr);
+RcppExport SEXP _pliman_close_native_video_reader_cpp(SEXP reader_ptrSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type reader_ptr(reader_ptrSEXP);
+    rcpp_result_gen = Rcpp::wrap(close_native_video_reader_cpp(reader_ptr));
+    return rcpp_result_gen;
+END_RCPP
+}
+// has_native_video_writer_cpp
+bool has_native_video_writer_cpp();
+RcppExport SEXP _pliman_has_native_video_writer_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(has_native_video_writer_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
+// open_native_video_writer_cpp
+SEXP open_native_video_writer_cpp(std::string video_path, int width, int height, double fps, int bitrate);
+RcppExport SEXP _pliman_open_native_video_writer_cpp(SEXP video_pathSEXP, SEXP widthSEXP, SEXP heightSEXP, SEXP fpsSEXP, SEXP bitrateSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type video_path(video_pathSEXP);
+    Rcpp::traits::input_parameter< int >::type width(widthSEXP);
+    Rcpp::traits::input_parameter< int >::type height(heightSEXP);
+    Rcpp::traits::input_parameter< double >::type fps(fpsSEXP);
+    Rcpp::traits::input_parameter< int >::type bitrate(bitrateSEXP);
+    rcpp_result_gen = Rcpp::wrap(open_native_video_writer_cpp(video_path, width, height, fps, bitrate));
+    return rcpp_result_gen;
+END_RCPP
+}
+// write_native_video_frame_cpp
+bool write_native_video_frame_cpp(SEXP writer_ptr, Rcpp::RawVector bm);
+RcppExport SEXP _pliman_write_native_video_frame_cpp(SEXP writer_ptrSEXP, SEXP bmSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type writer_ptr(writer_ptrSEXP);
+    Rcpp::traits::input_parameter< Rcpp::RawVector >::type bm(bmSEXP);
+    rcpp_result_gen = Rcpp::wrap(write_native_video_frame_cpp(writer_ptr, bm));
+    return rcpp_result_gen;
+END_RCPP
+}
+// close_native_video_writer_cpp
+bool close_native_video_writer_cpp(SEXP writer_ptr);
+RcppExport SEXP _pliman_close_native_video_writer_cpp(SEXP writer_ptrSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type writer_ptr(writer_ptrSEXP);
+    rcpp_result_gen = Rcpp::wrap(close_native_video_writer_cpp(writer_ptr));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -2455,9 +2585,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_align_stack_cpp", (DL_FUNC) &_pliman_align_stack_cpp, 8},
     {"_pliman_fuse_laplacian_cpp", (DL_FUNC) &_pliman_fuse_laplacian_cpp, 4},
     {"_pliman_read_image_cpp", (DL_FUNC) &_pliman_read_image_cpp, 1},
+    {"_pliman_rgb_buffer_to_image_cpp", (DL_FUNC) &_pliman_rgb_buffer_to_image_cpp, 3},
     {"_pliman_write_image_cpp", (DL_FUNC) &_pliman_write_image_cpp, 3},
     {"_pliman_preprocess_yolo_file_cpp", (DL_FUNC) &_pliman_preprocess_yolo_file_cpp, 2},
-    {"_pliman_draw_yolo_detections_bgr_cpp", (DL_FUNC) &_pliman_draw_yolo_detections_bgr_cpp, 42},
+    {"_pliman_draw_yolo_detections_bgr_cpp", (DL_FUNC) &_pliman_draw_yolo_detections_bgr_cpp, 44},
     {"_pliman_crop_bgr_cpp", (DL_FUNC) &_pliman_crop_bgr_cpp, 5},
     {"_pliman_save_frame_bgr_cpp", (DL_FUNC) &_pliman_save_frame_bgr_cpp, 3},
     {"_pliman_swap_rgb_bgr_inplace_cpp", (DL_FUNC) &_pliman_swap_rgb_bgr_inplace_cpp, 1},
@@ -2497,6 +2628,16 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_has_native_video_cpp", (DL_FUNC) &_pliman_has_native_video_cpp, 0},
     {"_pliman_get_native_video_info_cpp", (DL_FUNC) &_pliman_get_native_video_info_cpp, 1},
     {"_pliman_split_video_native_cpp", (DL_FUNC) &_pliman_split_video_native_cpp, 10},
+    {"_pliman_has_native_video_reader_cpp", (DL_FUNC) &_pliman_has_native_video_reader_cpp, 0},
+    {"_pliman_open_native_video_reader_cpp", (DL_FUNC) &_pliman_open_native_video_reader_cpp, 1},
+    {"_pliman_get_video_reader_info_cpp", (DL_FUNC) &_pliman_get_video_reader_info_cpp, 1},
+    {"_pliman_read_native_video_frame_cpp", (DL_FUNC) &_pliman_read_native_video_frame_cpp, 2},
+    {"_pliman_extract_native_frame_to_image_cpp", (DL_FUNC) &_pliman_extract_native_frame_to_image_cpp, 2},
+    {"_pliman_close_native_video_reader_cpp", (DL_FUNC) &_pliman_close_native_video_reader_cpp, 1},
+    {"_pliman_has_native_video_writer_cpp", (DL_FUNC) &_pliman_has_native_video_writer_cpp, 0},
+    {"_pliman_open_native_video_writer_cpp", (DL_FUNC) &_pliman_open_native_video_writer_cpp, 5},
+    {"_pliman_write_native_video_frame_cpp", (DL_FUNC) &_pliman_write_native_video_frame_cpp, 2},
+    {"_pliman_close_native_video_writer_cpp", (DL_FUNC) &_pliman_close_native_video_writer_cpp, 1},
     {"_pliman_extract_contours_cpp", (DL_FUNC) &_pliman_extract_contours_cpp, 1},
     {"_pliman_pliman_gpu_info_cpp", (DL_FUNC) &_pliman_pliman_gpu_info_cpp, 0},
     {"_pliman_clear_onnx_sessions_cpp", (DL_FUNC) &_pliman_clear_onnx_sessions_cpp, 0},

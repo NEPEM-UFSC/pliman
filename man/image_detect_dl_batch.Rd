@@ -96,6 +96,5 @@ res_par <- image_detect_dl_batch(
   parallel = TRUE,
   workers = 4
 )
-res_par$class_summary
 \dontshow{\}) # examplesIf}
 }

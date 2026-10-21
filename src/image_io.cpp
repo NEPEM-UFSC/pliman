@@ -164,16 +164,16 @@ SEXP read_image_cpp(std::string filename) {
     Rcpp::stop("Failed to read image '" + filename + "': " + err_msg);
   }
 
-  int n_channels = (channels >= 3) ? 3 : 1;
+  int n_channels = (channels >= 4) ? 4 : ((channels == 3) ? 3 : 1);
   std::size_t total_pixels = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
   std::size_t total_size = total_pixels * n_channels;
 
   RawVector out(total_size);
   unsigned char* p_out = reinterpret_cast<unsigned char*>(out.begin());
 
-  if (n_channels == 3) {
+  if (n_channels >= 3) {
     #pragma omp parallel for collapse(2) if(total_pixels > 50000)
-    for (int c = 0; c < 3; ++c) {
+    for (int c = 0; c < n_channels; ++c) {
       for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
           std::size_t r_idx = x + static_cast<std::size_t>(w) * (y + static_cast<std::size_t>(h) * c);
@@ -197,14 +197,38 @@ SEXP read_image_cpp(std::string filename) {
     stbi_image_free(data);
   }
 
-  if (n_channels == 3) {
-    out.attr("dim") = IntegerVector::create(w, h, 3);
+  if (n_channels >= 3) {
+    out.attr("dim") = IntegerVector::create(w, h, n_channels);
   } else {
     out.attr("dim") = IntegerVector::create(w, h);
   }
   out.attr("class") = CharacterVector::create("image", "array");
-  out.attr("colormode") = (n_channels == 3) ? "Color" : "Grayscale";
+  out.attr("colormode") = (n_channels >= 3) ? "Color" : "Grayscale";
 
+  return out;
+}
+
+// [[Rcpp::export]]
+SEXP rgb_buffer_to_image_cpp(Rcpp::RawVector raw_buf, int w, int h) {
+  std::size_t total_pixels = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+  Rcpp::RawVector out(total_pixels * 3);
+  const unsigned char* src = RAW(raw_buf);
+  unsigned char* dst = RAW(out);
+
+  #pragma omp parallel for collapse(2) if(total_pixels > 50000)
+  for (int c = 0; c < 3; ++c) {
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        std::size_t src_idx = (static_cast<std::size_t>(y) * w + x) * 3 + c;
+        std::size_t dst_idx = x + static_cast<std::size_t>(w) * (y + static_cast<std::size_t>(h) * c);
+        dst[dst_idx] = src[src_idx];
+      }
+    }
+  }
+
+  out.attr("dim") = Rcpp::IntegerVector::create(w, h, 3);
+  out.attr("class") = Rcpp::CharacterVector::create("image", "array");
+  out.attr("colormode") = "Color";
   return out;
 }
 
@@ -242,13 +266,24 @@ bool write_image_cpp(SEXP img_sexp, std::string filename, int quality = 95) {
   int w = dims[0];
   int h = dims[1];
   int channels = (dims.size() >= 3) ? dims[2] : 1;
-  int out_channels = (channels >= 3) ? 3 : 1;
+  int out_channels = (channels >= 4) ? 4 : ((channels == 3) ? 3 : 1);
 
   std::size_t total_pixels = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
   std::vector<unsigned char> interleaved(total_pixels * out_channels);
   const unsigned char* p_in = reinterpret_cast<const unsigned char*>(raw_vec.begin());
 
-  if (out_channels == 3) {
+  if (out_channels == 4) {
+    #pragma omp parallel for collapse(2) if(total_pixels > 50000)
+    for (int y = 0; y < h; ++y) {
+      for (int x = 0; x < w; ++x) {
+        std::size_t stb_idx = (static_cast<std::size_t>(y) * w + x) * 4;
+        for (int c = 0; c < 4; ++c) {
+          std::size_t r_idx = x + static_cast<std::size_t>(w) * (y + static_cast<std::size_t>(h) * c);
+          interleaved[stb_idx + c] = p_in[r_idx];
+        }
+      }
+    }
+  } else if (out_channels == 3) {
     #pragma omp parallel for collapse(2) if(total_pixels > 50000)
     for (int y = 0; y < h; ++y) {
       for (int x = 0; x < w; ++x) {
@@ -276,7 +311,17 @@ bool write_image_cpp(SEXP img_sexp, std::string filename, int quality = 95) {
 
   int ret = 0;
   if (ext == "jpg" || ext == "jpeg") {
-    ret = stbi_write_jpg(filename.c_str(), w, h, out_channels, interleaved.data(), quality);
+    if (out_channels == 4) {
+      std::vector<unsigned char> rgb(total_pixels * 3);
+      for (std::size_t i = 0; i < total_pixels; ++i) {
+        rgb[i * 3 + 0] = interleaved[i * 4 + 0];
+        rgb[i * 3 + 1] = interleaved[i * 4 + 1];
+        rgb[i * 3 + 2] = interleaved[i * 4 + 2];
+      }
+      ret = stbi_write_jpg(filename.c_str(), w, h, 3, rgb.data(), quality);
+    } else {
+      ret = stbi_write_jpg(filename.c_str(), w, h, out_channels, interleaved.data(), quality);
+    }
   } else if (ext == "png") {
     ret = stbi_write_png(filename.c_str(), w, h, out_channels, interleaved.data(), w * out_channels);
   } else if (ext == "bmp") {
@@ -680,7 +725,7 @@ static void draw_hud_modern(
     const std::string& hud_layout,
     double font_scale = 1.0
 ) {
-  if (hud_text.empty()) return;
+  if (hud_text.empty() || font_scale <= 0.05) return;
 
   // 1. Split tokens by '|' or '\n'
   std::vector<HudTelemetryItem> items;
@@ -771,7 +816,33 @@ static void draw_hud_modern(
   for (size_t k = 0; k < pos_str.size(); ++k) pos_str[k] = (char)::tolower(pos_str[k]);
 
   int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
-  if (pos_str == "top-left" || pos_str == "topleft") {
+  double custom_x = 0.0, custom_y = 0.0;
+  if (sscanf(pos_str.c_str(), "%lf,%lf", &custom_x, &custom_y) == 2 ||
+      sscanf(pos_str.c_str(), "%lf_%lf", &custom_x, &custom_y) == 2 ||
+      sscanf(pos_str.c_str(), "%lf %lf", &custom_x, &custom_y) == 2) {
+    int target_x = (custom_x <= 1.0) ? (int)std::round(custom_x * orig_w) : (int)std::round(custom_x);
+    int target_y = (custom_y <= 1.0) ? (int)std::round(custom_y * orig_h) : (int)std::round(custom_y);
+    x1 = target_x;
+    y1 = target_y;
+    x2 = x1 + card_w;
+    y2 = y1 + card_h;
+    if (x2 > orig_w - margin) {
+      x2 = orig_w - margin;
+      x1 = x2 - card_w;
+    }
+    if (x1 < margin) {
+      x1 = margin;
+      x2 = x1 + card_w;
+    }
+    if (y2 > orig_h - margin) {
+      y2 = orig_h - margin;
+      y1 = y2 - card_h;
+    }
+    if (y1 < margin) {
+      y1 = margin;
+      y2 = y1 + card_h;
+    }
+  } else if (pos_str == "top-left" || pos_str == "topleft") {
     x1 = margin;
     y1 = margin;
     x2 = x1 + card_w;
@@ -875,6 +946,42 @@ static const uint8_t LIMB_COLORS[16][3] = {
   {255, 0, 255},   {255, 0, 255}                                      // right leg (magenta)
 };
 
+static bool clip_line_to_rect(double& x0, double& y0, double& x1, double& y1, double rx1, double ry1, double rx2, double ry2) {
+  double dx = x1 - x0;
+  double dy = y1 - y0;
+  double p[4] = {-dx, dx, -dy, dy};
+  double q[4] = {x0 - rx1, rx2 - x0, y0 - ry1, ry2 - y0};
+  double u1 = 0.0, u2 = 1.0;
+
+  for (int i = 0; i < 4; ++i) {
+    if (p[i] == 0.0) {
+      if (q[i] < 0.0) return false;
+    } else {
+      double t = q[i] / p[i];
+      if (p[i] < 0.0) {
+        if (t > u2) return false;
+        if (t > u1) u1 = t;
+      } else {
+        if (t < u1) return false;
+        if (t < u2) u2 = t;
+      }
+    }
+  }
+
+  if (u1 > u2) return false;
+
+  double nx0 = x0 + u1 * dx;
+  double ny0 = y0 + u1 * dy;
+  double nx1 = x0 + u2 * dx;
+  double ny1 = y0 + u2 * dy;
+
+  x0 = nx0;
+  y0 = ny0;
+  x1 = nx1;
+  y1 = ny1;
+  return true;
+}
+
 // [[Rcpp::export]]
 bool draw_yolo_detections_bgr_cpp(
     Rcpp::RawVector bm,
@@ -918,7 +1025,9 @@ bool draw_yolo_detections_bgr_cpp(
     bool draw_masks = true,
     Rcpp::Nullable<Rcpp::IntegerVector> mask_ids = R_NilValue,
     std::string hud_pos = "top-right",
-    std::string hud_layout = "vertical"
+    std::string hud_layout = "vertical",
+    double font_scale_hud = -1.0,
+    double font_scale_roi = 1
 ) {
   SEXP dim_attr = Rf_getAttrib(bm, R_DimSymbol);
   if (dim_attr == R_NilValue || Rf_length(dim_attr) < 3) return false;
@@ -951,11 +1060,11 @@ bool draw_yolo_detections_bgr_cpp(
       if (ry1 < 16) {
         fill_rect_rgb(p, orig_w, orig_h, rx1, ry1, rx1 + rw + 8, ry1 + 16, 25, 25, 25);
         draw_box_rgb(p, orig_w, orig_h, rx1, ry1, rx1 + rw + 8, ry1 + 16, 1, 250, 128, 114);
-        draw_text_rgb(p, orig_w, orig_h, rx1 + 4, ry1 + 4, rlabel, 1, 250, 128, 114);
+        draw_text_rgb(p, orig_w, orig_h, rx1 + 4, ry1 + 4, rlabel, font_scale_roi, 250, 128, 114);
       } else {
         fill_rect_rgb(p, orig_w, orig_h, rx1, r_y, rx1 + rw + 8, ry1, 25, 25, 25);
         draw_box_rgb(p, orig_w, orig_h, rx1, r_y, rx1 + rw + 8, ry1, 1, 250, 128, 114);
-        draw_text_rgb(p, orig_w, orig_h, rx1 + 4, r_y + 4, rlabel, 1, 250, 128, 114);
+        draw_text_rgb(p, orig_w, orig_h, rx1 + 4, r_y + 4, rlabel, font_scale_roi, 250, 128, 114);
       }
     }
   }
@@ -1149,16 +1258,25 @@ bool draw_yolo_detections_bgr_cpp(
       Rcpp::NumericVector hy = hy_list[i];
       int h_len = hx.size();
       for (int h = 0; h < h_len - 1; ++h) {
-        int px0 = (int)std::round(hx[h]);
-        int py0 = (int)std::round(hy[h]);
-        int px1 = (int)std::round(hx[h + 1]);
-        int py1 = (int)std::round(hy[h + 1]);
-        draw_line_rgb(p, orig_w, orig_h, px0, py0, px1, py1, std::max(1, lwd - 1), r, g, b);
+        double px0 = hx[h];
+        double py0 = hy[h];
+        double px1 = hx[h + 1];
+        double py1 = hy[h + 1];
+        if (hide_outside_roi && has_roi_bounds) {
+          if (!clip_line_to_rect(px0, py0, px1, py1, rx1, ry1, rx2, ry2)) continue;
+        }
+        draw_line_rgb(p, orig_w, orig_h, (int)std::round(px0), (int)std::round(py0), (int)std::round(px1), (int)std::round(py1), std::max(1, lwd - 1), r, g, b);
       }
       if (h_len > 0) {
         int cx = (int)std::round(hx[h_len - 1]);
         int cy = (int)std::round(hy[h_len - 1]);
-        draw_circle_rgb(p, orig_w, orig_h, cx, cy, 3, r, g, b);
+        bool draw_dot = true;
+        if (hide_outside_roi && has_roi_bounds) {
+          if (cx < rx1 || cx > rx2 || cy < ry1 || cy > ry2) draw_dot = false;
+        }
+        if (draw_dot) {
+          draw_circle_rgb(p, orig_w, orig_h, cx, cy, 3, r, g, b);
+        }
       }
     }
 
@@ -1274,7 +1392,10 @@ bool draw_yolo_detections_bgr_cpp(
 
   // 4. Draw Modern Telemetry HUD badge if requested
   if (!hud_text.empty()) {
-    draw_hud_modern(p, orig_w, orig_h, hud_text, hud_pos, hud_layout, font_scale);
+    double eff_hud_scale = (font_scale_hud >= 0.0) ? font_scale_hud : font_scale;
+    if (eff_hud_scale > 0.05) {
+      draw_hud_modern(p, orig_w, orig_h, hud_text, hud_pos, hud_layout, eff_hud_scale);
+    }
   }
 
   return true;

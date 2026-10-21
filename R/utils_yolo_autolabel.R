@@ -21,6 +21,37 @@
   inside
 }
 
+.render_overlay_annotations <- function(boxes = NULL, polygons = NULL, cw, ch, alpha = 0.25, lwd = 1.5) {
+  if (!is.null(polygons) && length(polygons) > 0L) {
+    for (pi in seq_along(polygons)) {
+      poly <- polygons[[pi]]
+      if (is.vector(poly) && length(poly) >= 6L && !is.matrix(poly)) {
+        px <- poly[c(TRUE, FALSE)] * cw
+        py <- poly[c(FALSE, TRUE)] * ch
+        graphics::polygon(px, py, col = grDevices::adjustcolor("#888888", alpha.f = alpha),
+                          border = "#555555", lwd = lwd, lty = "dotted")
+      } else if (is.matrix(poly) && nrow(poly) >= 3L) {
+        graphics::polygon(poly[, 1], poly[, 2], col = grDevices::adjustcolor("#888888", alpha.f = alpha),
+                          border = "#555555", lwd = lwd, lty = "dotted")
+      }
+    }
+  }
+  if (!is.null(boxes) && is.data.frame(boxes) && nrow(boxes) > 0L) {
+    for (bi in seq_len(nrow(boxes))) {
+      bx <- boxes[bi, ]
+      graphics::rect(bx$xmin, bx$ymin, bx$xmax, bx$ymax, border = "#555555", lwd = lwd, lty = "dotted")
+      lbl_txt <- if (!is.null(bx$class_name) && nzchar(bx$class_name)) bx$class_name else if (!is.null(bx$label)) bx$label else ""
+      if (nzchar(lbl_txt)) {
+        tw <- graphics::strwidth(lbl_txt, cex = 0.7)
+        th <- graphics::strheight(lbl_txt, cex = 0.7)
+        y_top <- max(th + 6, bx$ymin)
+        graphics::rect(bx$xmin, y_top - th - 4, bx$xmin + tw + 4, y_top, col = grDevices::adjustcolor("#444444", alpha.f = 0.75), border = NA)
+        graphics::text(bx$xmin + 2, y_top - 2, labels = lbl_txt, col = "#FFFFFF", cex = 0.65, font = 2, adj = c(0, 1))
+      }
+    }
+  }
+}
+
 .render_fewshot_review_plot <- function(im,
                                         boxes = data.frame(),
                                         polygons = list(),
@@ -34,7 +65,11 @@
                                         badge = TRUE,
                                         img_name = "",
                                         img_idx = 1L,
-                                        total_imgs = 1L) {
+                                        total_imgs = 1L,
+                                        class_idx = 1L,
+                                        total_classes = 1L,
+                                        prior_boxes = NULL,
+                                        prior_polygons = NULL) {
   w <- dim(im)[1]
   h <- dim(im)[2]
   n_b <- if (is.data.frame(boxes)) nrow(boxes) else 0L
@@ -42,6 +77,12 @@
   n_inst <- if (task == "segment" && n_p > 0L) n_p else n_b
 
   plot(im)
+
+  # Draw prior annotations from earlier classes if present
+  if ((!is.null(prior_boxes) && is.data.frame(prior_boxes) && nrow(prior_boxes) > 0L) ||
+      (!is.null(prior_polygons) && length(prior_polygons) > 0L)) {
+    .render_overlay_annotations(boxes = prior_boxes, polygons = prior_polygons, cw = w, ch = h, alpha = 0.25, lwd = 1.5)
+  }
 
   if (isTRUE(rainbow) && n_inst > 0L) {
     cols_border <- grDevices::rainbow(n_inst, s = 0.85, v = 0.95)
@@ -113,8 +154,13 @@
   }
 
   # Title with metadata
-  title_str <- sprintf("Image [%d/%d] (%s): %d %s [%s, conf >= %.2f]",
-                       img_idx, total_imgs, img_name, n_inst, label, task, conf_threshold)
+  if (total_classes > 1L) {
+    title_str <- sprintf("Image [%d/%d] (%s) - Class [%d/%d] ('%s'): %d %s [%s, conf >= %.2f]",
+                         img_idx, total_imgs, img_name, class_idx, total_classes, label, n_inst, label, task, conf_threshold)
+  } else {
+    title_str <- sprintf("Image [%d/%d] (%s): %d %s [%s, conf >= %.2f]",
+                         img_idx, total_imgs, img_name, n_inst, label, task, conf_threshold)
+  }
   graphics::title(main = title_str, font.main = 2, col.main = "#006622", cex.main = 1.05)
 }
 
@@ -129,6 +175,7 @@
                                              latest_proto = NULL,
                                              task = "segment",
                                              label = "object",
+                                             class_id = 0L,
                                              conf_threshold = 0.50,
                                              radius = NULL,
                                              min_dist = 12,
@@ -142,7 +189,12 @@
                                              badge = TRUE,
                                              img_name = "",
                                              img_idx = 1L,
-                                             total_imgs = 1L) {
+                                             total_imgs = 1L,
+                                             class_idx = 1L,
+                                             total_classes = 1L,
+                                             next_class_name = NULL,
+                                             prior_boxes = NULL,
+                                             prior_polygons = NULL) {
   if (is.null(pre_proto) && !is.null(latest_proto)) {
     pre_proto <- latest_proto
   }
@@ -161,7 +213,11 @@
     badge = badge,
     img_name = img_name,
     img_idx = img_idx,
-    total_imgs = total_imgs
+    total_imgs = total_imgs,
+    class_idx = class_idx,
+    total_classes = total_classes,
+    prior_boxes = prior_boxes,
+    prior_polygons = prior_polygons
   )
 
   deleted_centers <- list()
@@ -170,25 +226,60 @@
   repeat {
     n_inst <- if (identical(task, "segment") && length(r_polys) > 0L) length(r_polys) else nrow(r_boxes)
     cat("\n")
-    cli::cli_rule(left = paste0("Few-Shot Review [", img_name, "]"))
+    rule_title <- if (total_classes > 1L) {
+      paste0("Few-Shot Review [", img_name, " | Class ", class_idx, "/", total_classes, ": '", label, "']")
+    } else {
+      paste0("Few-Shot Review [", img_name, "]")
+    }
+    cli::cli_rule(left = rule_title)
     cli::cli_alert_success("{n_inst} instance(s) detected [task: {.val {task}}, conf >= {curr_conf}].")
+
+    next_prompt <- if (total_classes > 1L && class_idx < total_classes) {
+      if (!is.null(next_class_name) && nzchar(next_class_name)) {
+        paste0("next class ('", next_class_name, "')")
+      } else {
+        "next class"
+      }
+    } else {
+      "next image"
+    }
+
     cli::cli_bullets(c(
-      "*" = "{.bold [Enter] / c}: Accept detections and proceed to next image",
+      "*" = "{.bold [Enter] / c}: Accept detections and proceed to {next_prompt}",
       "*" = "{.bold r}: Remove false positives (click on masks/boxes to delete, <Esc> when done)",
       "*" = "{.bold a}: Add missed objects (click on objects, <Esc> when done)",
       "*" = "{.bold t <val>}: Adjust confidence threshold (e.g. {.code t 0.70} or {.code t 0.50})",
-      "*" = "{.bold s}: Sample again (clear exemplars and re-click points for this image)",
+      "*" = "{.bold s}: Sample again (clear exemplars and re-click points for this class)",
+      "*" = "{.bold skip}: Skip / discard detections for this class and proceed to {next_prompt}",
       "*" = "{.bold q}: Quit / finish model fitting now with completed images"
     ))
 
-    ans <- tolower(trimws(readline("Select action [Enter to accept]: ")))
+    ans <- tryCatch(
+      tolower(trimws(readline(sprintf("Select action [Enter to proceed to %s]: ", next_prompt)))),
+      interrupt = function(e) "c"
+    )
 
-    if (ans == "" || ans %in% c("c", "continue", "y", "yes", "ok")) {
+    if (ans == "" || ans %in% c("c", "continue", "y", "yes", "ok", "esc")) {
       return(list(
         action = "continue",
         boxes = r_boxes,
         polygons = r_polys,
         points = curr_points,
+        conf = curr_conf,
+        prototypes = pre_proto
+      ))
+    }
+
+    if (ans %in% c("skip", "none", "0")) {
+      return(list(
+        action = "continue",
+        boxes = data.frame(
+          xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
+          conf = numeric(0), class_id = integer(0), class_name = character(0), label = character(0),
+          stringsAsFactors = FALSE
+        ),
+        polygons = list(),
+        points = NULL,
         conf = curr_conf,
         prototypes = pre_proto
       ))
@@ -304,7 +395,11 @@
             badge = badge,
             img_name = img_name,
             img_idx = img_idx,
-            total_imgs = total_imgs
+            total_imgs = total_imgs,
+            class_idx = class_idx,
+            total_classes = total_classes,
+            prior_boxes = prior_boxes,
+            prior_polygons = prior_polygons
           )
         } else {
           cli::cli_alert_warning("No instance was close to the clicked point(s).")
@@ -374,8 +469,9 @@
             xmax = as.numeric(new_pres$boxes$xmax),
             ymax = as.numeric(new_pres$boxes$ymax),
             conf = round(as.numeric(new_pres$boxes$score), 3),
-            class_id = 0L,
+            class_id = as.integer(class_id),
             class_name = label,
+            label = label,
             stringsAsFactors = FALSE
           )
           for (ci in seq_along(new_pres$contours)) {
@@ -430,8 +526,9 @@
               xmax = min(cw, px + def_w / 2),
               ymax = min(ch, py + def_h / 2),
               conf = 1.0,
-              class_id = 0L,
+              class_id = as.integer(class_id),
               class_name = label,
+              label = label,
               stringsAsFactors = FALSE
             )
             nbx <- rbind(nbx, fallback_row)
@@ -481,7 +578,11 @@
           badge = badge,
           img_name = img_name,
           img_idx = img_idx,
-          total_imgs = total_imgs
+          total_imgs = total_imgs,
+          class_idx = class_idx,
+          total_classes = total_classes,
+          prior_boxes = prior_boxes,
+          prior_polygons = prior_polygons
         )
       }
       next
@@ -526,8 +627,9 @@
             xmax = as.numeric(new_pres$boxes$xmax),
             ymax = as.numeric(new_pres$boxes$ymax),
             conf = round(as.numeric(new_pres$boxes$score), 3),
-            class_id = 0L,
+            class_id = as.integer(class_id),
             class_name = label,
+            label = label,
             stringsAsFactors = FALSE
           )
           npl <- list()
@@ -583,7 +685,11 @@
           badge = badge,
           img_name = img_name,
           img_idx = img_idx,
-          total_imgs = total_imgs
+          total_imgs = total_imgs,
+          class_idx = class_idx,
+          total_classes = total_classes,
+          prior_boxes = prior_boxes,
+          prior_polygons = prior_polygons
         )
       } else {
         cli::cli_alert_warning("Invalid threshold value. Must be between 0 and 1 (e.g. 't 0.70').")
@@ -591,7 +697,7 @@
       next
     }
 
-    cli::cli_alert_warning("Unrecognized option: {.val {ans}}. Please select [Enter], 'r', 'a', 't', 's', or 'q'.")
+    cli::cli_alert_warning("Unrecognized option: {.val {ans}}. Please select [Enter], 'r', 'a', 't', 's', 'skip', or 'q'.")
   }
 }
 

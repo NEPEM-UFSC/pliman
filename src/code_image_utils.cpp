@@ -862,14 +862,17 @@ IntegerMatrix cpp_as_native_raster(SEXP img_sexp, IntegerVector dims) {
     if (nch >= 3) {
       const int stride_g = npix;
       const int stride_b = npix * 2;
+      const bool has_alpha = (nch >= 4);
+      const int stride_a = has_alpha ? npix * 3 : 0;
 
       for (int i = 0; i < npix; i++) {
         uint32_t rv = (uint32_t)std::max(0, std::min(255, (int)(ptr[i] * scale)));
         uint32_t gv = (uint32_t)std::max(0, std::min(255, (int)(ptr[i + stride_g] * scale)));
         uint32_t bv = (uint32_t)std::max(0, std::min(255, (int)(ptr[i + stride_b] * scale)));
+        uint32_t av = has_alpha ? (uint32_t)std::max(0, std::min(255, (int)(ptr[i + stride_a] * scale))) : 255u;
 
         out[i] = static_cast<int>(
-          (255u << 24) | (bv << 16) | (gv << 8) | rv
+          (av << 24) | (bv << 16) | (gv << 8) | rv
         );
       }
     } else {
