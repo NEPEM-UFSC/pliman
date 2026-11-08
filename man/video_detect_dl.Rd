@@ -17,8 +17,10 @@ video_detect_dl(
   save_video = !is.null(output),
   return_data = TRUE,
   track = FALSE,
-  min_frames = 10L,
-  trail = TRUE,
+  min_frames = 20L,
+  interpolate_box = FALSE,
+  interpolate_mask = FALSE,
+  trail = FALSE,
   cex = 1,
   pad = 1,
   badge = TRUE,
@@ -50,10 +52,16 @@ video_detect_dl(
   kpt_threshold = 0.3,
   kpt_radius = 4,
   bbox = TRUE,
+  show_box = bbox,
+  show_point = FALSE,
+  point_radius = 4,
+  point_col = NULL,
   mask = TRUE,
   alpha = 0.4,
   show = NULL,
   show_fps = TRUE,
+  telemetry = c("detailed", "simple", "none"),
+  smoot_stat = 30,
   hud_pos = c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom"),
   hud_layout = c("vertical", "horizontal"),
   infer_every = 1L,
@@ -66,6 +74,8 @@ video_detect_dl(
   device_id = -1,
   threads = 0,
   dir = pliman_model_dir(),
+  imgsz = NULL,
+  as_job = FALSE,
   verbose = TRUE,
   ...
 )
@@ -82,8 +92,10 @@ video_detect(
   save_video = !is.null(output),
   return_data = TRUE,
   track = FALSE,
-  min_frames = 10L,
-  trail = TRUE,
+  min_frames = 20L,
+  interpolate_box = FALSE,
+  interpolate_mask = FALSE,
+  trail = FALSE,
   cex = 1,
   pad = 1,
   badge = TRUE,
@@ -115,10 +127,16 @@ video_detect(
   kpt_threshold = 0.3,
   kpt_radius = 4,
   bbox = TRUE,
+  show_box = bbox,
+  show_point = FALSE,
+  point_radius = 4,
+  point_col = NULL,
   mask = TRUE,
   alpha = 0.4,
   show = NULL,
   show_fps = TRUE,
+  telemetry = c("detailed", "simple", "none"),
+  smoot_stat = 30,
   hud_pos = c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom"),
   hud_layout = c("vertical", "horizontal"),
   infer_every = 1L,
@@ -131,6 +149,8 @@ video_detect(
   device_id = -1,
   threads = 0,
   dir = pliman_model_dir(),
+  imgsz = NULL,
+  as_job = FALSE,
   verbose = TRUE,
   ...
 )
@@ -166,9 +186,13 @@ fast real-time streaming and recording. Defaults to \code{TRUE}.}
 
 \item{track}{Logical. Whether to enable multi-object tracking and assign persistent IDs (\verb{#1}, \verb{#2}, etc.) across frames. Defaults to \code{FALSE}.}
 
-\item{min_frames}{Minimum number of frames an object must persist across the video to be retained in tracking statistics. Defaults to \code{10L}, discarding fleeting, transient noise artifacts (e.g. spurious false positives appearing in 10 or fewer frames). Set to \code{0} or \code{NULL} to retain all detections.}
+\item{min_frames}{Minimum number of consecutive/persistent frames an object must be tracked before rendering its bounding box or point (default \code{10L}). Suppresses transient false positives and noise from flickering on screen.}
 
-\item{trail}{Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when \code{track = TRUE}. Defaults to \code{TRUE}. Set to \code{FALSE} to maintain persistent IDs while hiding the trail.}
+\item{interpolate_box}{Logical. Whether to temporally interpolate bounding box positions for tracked objects across briefly lost or occluded frames using velocity motion vectors (default \code{FALSE}).}
+
+\item{interpolate_mask}{Logical. Whether to interpolate instance segmentation masks alongside interpolated bounding boxes (default \code{FALSE}).}
+
+\item{trail}{Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when \code{track = TRUE}. Defaults to \code{FALSE}.}
 
 \item{cex}{Size factor for label text (default \code{1.0}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
 to reduce text size for dense scenes or many objects.}
@@ -245,7 +269,13 @@ e.g. \code{c(1920, 1080)} or \code{c(1280, 720)}. Default is \code{NULL} (uses n
 
 \item{kpt_radius}{Integer radius of keypoint joint markers in pixels (default 4).}
 
-\item{bbox}{Logical. Whether to render bounding boxes around detected objects or people (default \code{TRUE}).}
+\item{bbox, show_box}{Logical. Whether to render bounding boxes around detected objects or people (default \code{TRUE}).}
+
+\item{show_point}{Logical. Whether to render centroid markers/points for detected objects (default \code{FALSE}).}
+
+\item{point_radius}{Integer radius of centroid markers in pixels (default 4).}
+
+\item{point_col}{Optional color for centroid markers. If \code{NULL} (default), matches the object's class/instance palette.}
 
 \item{mask}{Logical. Whether to render semi-transparent instance segmentation masks when using segmentation models (default \code{TRUE}).}
 
@@ -255,6 +285,14 @@ e.g. \code{c(1920, 1080)} or \code{c(1280, 720)}. Default is \code{NULL} (uses n
 Default is \code{interactive()}.}
 
 \item{show_fps}{Logical. Whether to overlay a real-time FPS and detection counter badge (default \code{TRUE}).}
+
+\item{telemetry}{Telemetry HUD display mode: \code{"detailed"} (default, glassmorphic diagnostic HUD card with real-time FPS, latency breakdown (inference, tracking, GUI), object counts, confidence statistics, flow rate, motion velocity, ROI occupancy, and 20-frame sparkline trend), \code{"simple"} (compact FPS, in-zone, and count badges), or \code{"none"} (disables HUD overlay).}
+
+\item{smoot_stat}{Window size (in frames) for moving average of telemetry statistics (default \code{30}).
+Internally, the moving average of metrics (SPEED, LATENCY, INF, TRK, GUI, CONF, FLOW, MOTION, SIZE, ROI OCC)
+is updated on every single frame, but displayed values on the telemetry HUD are refreshed every \code{smoot_stat} frames.
+Frame number, in-zone count, counted total, and active tracks are displayed instantaneously on every frame.
+Supported aliases: \code{smooth_stat}, \code{smooth_stats}, \code{smoot_stats}.}
 
 \item{hud_pos}{Screen position of the telemetry HUD card: either a preset string
 (\code{"top-right"} (default, avoids top-left ROI zone), \code{"top-left"}, \code{"bottom-left"},
@@ -286,6 +324,8 @@ and maximizing real-time video display smoothness up to the camera's physical fr
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 
 \item{dir}{Directory where pre-trained models are stored (default \code{pliman_model_dir()}).}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, dispatches the video processing task to an asynchronous RStudio Background Job, keeping the R console free. Default is \code{FALSE}.}
 
 \item{verbose}{Logical. Whether to show progress messages.}
 

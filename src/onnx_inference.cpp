@@ -9,6 +9,7 @@
 #include <cmath>
 #include <map>
 #include <chrono>
+#include <sys/stat.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -269,7 +270,30 @@ struct CachedSession {
   OrtSessionOptions* options = NULL;
   OrtEnv* env = NULL;
   OrtMemoryInfo* mem_info = NULL;
+  int64_t file_mtime = 0;
+  int64_t file_size = 0;
 };
+
+static void get_file_stat(const std::string& path, int64_t& out_mtime, int64_t& out_size) {
+  out_mtime = 0;
+  out_size = 0;
+#ifdef _WIN32
+  struct _stat64 st;
+  int size_needed = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), NULL, 0);
+  std::wstring wpath(size_needed, 0);
+  MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], size_needed);
+  if (_wstat64(wpath.c_str(), &st) == 0) {
+    out_mtime = (int64_t)st.st_mtime;
+    out_size = (int64_t)st.st_size;
+  }
+#else
+  struct stat st;
+  if (stat(path.c_str(), &st) == 0) {
+    out_mtime = (int64_t)st.st_mtime;
+    out_size = (int64_t)st.st_size;
+  }
+#endif
+}
 
 static std::map<std::string, CachedSession> g_session_cache;
 static std::vector<std::string> g_session_lru_order;
@@ -335,18 +359,25 @@ static CachedSession get_or_create_cached_session(
   }
 #endif
 
+  int64_t cur_mtime = 0, cur_size = 0;
+  get_file_stat(model_path, cur_mtime, cur_size);
+
   std::string key = model_path + "_th_" + std::to_string(num_threads) +
                     (use_gpu ? ("_gpu_" + std::to_string(actual_device_id)) : "_cpu");
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
-    for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
-      if (*it_lru == key) {
-        g_session_lru_order.erase(it_lru);
-        break;
+    if (cur_mtime != 0 && (it->second.file_mtime != cur_mtime || it->second.file_size != cur_size)) {
+      evict_cached_session_by_key(ort, key);
+    } else {
+      for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
+        if (*it_lru == key) {
+          g_session_lru_order.erase(it_lru);
+          break;
+        }
       }
+      g_session_lru_order.push_back(key);
+      return it->second;
     }
-    g_session_lru_order.push_back(key);
-    return it->second;
   }
 
   // Evict older variants of the exact same model_path (e.g. different thread count or device)
@@ -434,6 +465,8 @@ static CachedSession get_or_create_cached_session(
 
   (void)ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &cs.mem_info);
 
+  cs.file_mtime = cur_mtime;
+  cs.file_size = cur_size;
   g_session_cache[key] = cs;
   g_session_lru_order.push_back(key);
   return cs;
@@ -1025,7 +1058,8 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
                                   std::string lib_path,
                                   int num_threads = 0,
                                   bool use_gpu = false,
-                                  int device_id = -1) {
+                                  int device_id = -1,
+                                  int batch_size = 64) {
   const OrtApi* ort = get_ort_api(lib_path);
 
   CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, use_gpu, device_id);
@@ -1072,22 +1106,8 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
   // 2. Decoder Common Setup
   int mask_h = 256;
   int mask_w = 256;
-
-  int64_t mask_input_shape[4] = { 1, 1, 256, 256 };
-  std::vector<float> mask_input_vals(256 * 256, 0.0f);
-  OrtValue* mask_input_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, mask_input_vals.data(), mask_input_vals.size() * sizeof(float),
-    mask_input_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &mask_input_tensor
-  );
-
-  int64_t has_mask_shape[1] = { 1 };
-  float has_mask_val = 0.0f;
-  OrtValue* has_mask_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, &has_mask_val, sizeof(float),
-    has_mask_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &has_mask_tensor
-  );
+  int num_boxes = boxes.nrow();
+  Rcpp::List res_masks(num_boxes);
 
   const char* dec_in_names[] = {
     "image_embed", "high_res_feats_0", "high_res_feats_1",
@@ -1095,31 +1115,59 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
   };
   const char* dec_out_names[] = { "masks", "iou_predictions" };
 
-  int num_boxes = boxes.nrow();
-  Rcpp::List res_masks(num_boxes);
+  int b_size = std::max(1, batch_size);
 
-  for (int b = 0; b < num_boxes; ++b) {
-    float x1 = (float)(boxes(b, 0) / orig_w * 1024.0);
-    float y1 = (float)(boxes(b, 1) / orig_h * 1024.0);
-    float x2 = (float)(boxes(b, 2) / orig_w * 1024.0);
-    float y2 = (float)(boxes(b, 3) / orig_h * 1024.0);
+  for (int start_idx = 0; start_idx < num_boxes; start_idx += b_size) {
+    int cur_batch = std::min(b_size, num_boxes - start_idx);
 
-    float box_coords[4] = { x1, y1, x2, y2 };
-    float box_labels[2] = { 2.0f, 3.0f };
+    std::vector<float> box_coords((size_t)cur_batch * 4);
+    std::vector<float> box_labels((size_t)cur_batch * 2);
+    for (int k = 0; k < cur_batch; ++k) {
+      int b = start_idx + k;
+      float x1 = (float)(boxes(b, 0) / orig_w * 1024.0);
+      float y1 = (float)(boxes(b, 1) / orig_h * 1024.0);
+      float x2 = (float)(boxes(b, 2) / orig_w * 1024.0);
+      float y2 = (float)(boxes(b, 3) / orig_h * 1024.0);
 
-    int64_t pts_shape[3] = { 1, 2, 2 };
-    int64_t lbls_shape[2] = { 1, 2 };
+      box_coords[k * 4 + 0] = x1;
+      box_coords[k * 4 + 1] = y1;
+      box_coords[k * 4 + 2] = x2;
+      box_coords[k * 4 + 3] = y2;
+
+      box_labels[k * 2 + 0] = 2.0f;
+      box_labels[k * 2 + 1] = 3.0f;
+    }
+
+    int64_t pts_shape[3] = { (int64_t)cur_batch, 2, 2 };
+    int64_t lbls_shape[2] = { (int64_t)cur_batch, 2 };
+    int64_t mask_input_shape[4] = { (int64_t)cur_batch, 1, 256, 256 };
+    int64_t has_mask_shape[1] = { (int64_t)cur_batch };
+
+    std::vector<float> mask_input_vals((size_t)cur_batch * 256 * 256, 0.0f);
+    std::vector<float> has_mask_vals((size_t)cur_batch, 0.0f);
 
     OrtValue* pts_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, box_coords, 4 * sizeof(float),
+      memory_info, box_coords.data(), box_coords.size() * sizeof(float),
       pts_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pts_tensor
     );
 
     OrtValue* lbl_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, box_labels, 2 * sizeof(float),
+      memory_info, box_labels.data(), box_labels.size() * sizeof(float),
       lbls_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &lbl_tensor
+    );
+
+    OrtValue* mask_input_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, mask_input_vals.data(), mask_input_vals.size() * sizeof(float),
+      mask_input_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &mask_input_tensor
+    );
+
+    OrtValue* has_mask_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, has_mask_vals.data(), has_mask_vals.size() * sizeof(float),
+      has_mask_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &has_mask_tensor
     );
 
     const OrtValue* cur_dec_in_values[] = {
@@ -1132,13 +1180,6 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
       session_dec, run_options, dec_in_names, cur_dec_in_values, 7, dec_out_names, 2, cur_dec_outputs
     );
 
-    Rcpp::NumericMatrix inst_mat(mask_w, mask_h);
-    for (int i = 0; i < mask_w; ++i) {
-      for (int j = 0; j < mask_h; ++j) {
-        inst_mat(i, j) = 0.0;
-      }
-    }
-
     if (dec_status == NULL) {
       OrtTensorTypeAndShapeInfo* iou_shape_info = NULL;
       (void)ort->GetTensorTypeAndShape(cur_dec_outputs[1], &iou_shape_info);
@@ -1146,7 +1187,7 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
       (void)ort->GetDimensionsCount(iou_shape_info, &iou_dims_count);
       std::vector<int64_t> iou_dims(iou_dims_count);
       (void)ort->GetDimensions(iou_shape_info, iou_dims.data(), iou_dims_count);
-      int num_masks = (iou_dims_count >= 2) ? (int)iou_dims[1] : 1;
+      int num_masks = (iou_dims_count >= 2) ? (int)iou_dims[1] : 3;
 
       float* iou_data = NULL;
       (void)ort->GetTensorMutableData(cur_dec_outputs[1], (void**)&iou_data);
@@ -1154,22 +1195,27 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
       float* mask_data = NULL;
       (void)ort->GetTensorMutableData(cur_dec_outputs[0], (void**)&mask_data);
 
-      int best_idx = 0;
-      float best_score = -1e9f;
-      for (int m = 0; m < num_masks; ++m) {
-        if (iou_data[m] > best_score) {
-          best_score = iou_data[m];
-          best_idx = m;
+      for (int k = 0; k < cur_batch; ++k) {
+        int best_idx = 0;
+        float best_score = -1e9f;
+        for (int m = 0; m < num_masks; ++m) {
+          float score = iou_data[k * num_masks + m];
+          if (score > best_score) {
+            best_score = score;
+            best_idx = m;
+          }
         }
-      }
 
-      size_t slice_offset = (size_t)best_idx * mask_h * mask_w;
-      for (int r = 0; r < mask_h; ++r) {
-        for (int c = 0; c < mask_w; ++c) {
-          float logit = mask_data[slice_offset + r * mask_w + c];
-          double prob = 1.0 / (1.0 + std::exp(-(double)logit));
-          inst_mat(c, r) = prob;
+        Rcpp::NumericMatrix inst_mat(mask_w, mask_h);
+        size_t slice_offset = ((size_t)k * num_masks + (size_t)best_idx) * mask_h * mask_w;
+        for (int r = 0; r < mask_h; ++r) {
+          for (int c = 0; c < mask_w; ++c) {
+            float logit = mask_data[slice_offset + r * mask_w + c];
+            double prob = 1.0 / (1.0 + std::exp(-(double)logit));
+            inst_mat(c, r) = prob;
+          }
         }
+        res_masks[start_idx + k] = inst_mat;
       }
 
       ort->ReleaseTensorTypeAndShapeInfo(iou_shape_info);
@@ -1177,19 +1223,76 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
       ort->ReleaseValue(cur_dec_outputs[1]);
     } else {
       ort->ReleaseStatus(dec_status);
+      // Fallback: sequential single-box execution
+      for (int k = 0; k < cur_batch; ++k) {
+        int b = start_idx + k;
+        float x1 = (float)(boxes(b, 0) / orig_w * 1024.0);
+        float y1 = (float)(boxes(b, 1) / orig_h * 1024.0);
+        float x2 = (float)(boxes(b, 2) / orig_w * 1024.0);
+        float y2 = (float)(boxes(b, 3) / orig_h * 1024.0);
+
+        float s_coords[4] = { x1, y1, x2, y2 };
+        float s_labels[2] = { 2.0f, 3.0f };
+        int64_t s_pts_shape[3] = { 1, 2, 2 };
+        int64_t s_lbls_shape[2] = { 1, 2 };
+        int64_t s_mask_shape[4] = { 1, 1, 256, 256 };
+        int64_t s_has_mask_shape[1] = { 1 };
+        std::vector<float> s_mask_vals(256 * 256, 0.0f);
+        float s_has_val = 0.0f;
+
+        OrtValue* s_pts_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, s_coords, 4 * sizeof(float), s_pts_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_pts_t);
+        OrtValue* s_lbl_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, s_labels, 2 * sizeof(float), s_lbls_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_lbl_t);
+        OrtValue* s_mask_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, s_mask_vals.data(), s_mask_vals.size() * sizeof(float), s_mask_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_mask_t);
+        OrtValue* s_has_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, &s_has_val, sizeof(float), s_has_mask_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_has_t);
+
+        const OrtValue* s_in_values[] = { enc_outputs[2], enc_outputs[0], enc_outputs[1], s_pts_t, s_lbl_t, s_mask_t, s_has_t };
+        OrtValue* s_outputs[2] = { NULL, NULL };
+        OrtStatus* s_status = ort->Run(session_dec, run_options, dec_in_names, s_in_values, 7, dec_out_names, 2, s_outputs);
+
+        Rcpp::NumericMatrix inst_mat(mask_w, mask_h);
+        if (s_status == NULL) {
+          float* s_iou = NULL;
+          (void)ort->GetTensorMutableData(s_outputs[1], (void**)&s_iou);
+          float* s_mask = NULL;
+          (void)ort->GetTensorMutableData(s_outputs[0], (void**)&s_mask);
+          int best_m = 0;
+          float best_s = -1e9f;
+          for (int m = 0; m < 3; ++m) {
+            if (s_iou[m] > best_s) { best_s = s_iou[m]; best_m = m; }
+          }
+          size_t s_off = (size_t)best_m * mask_h * mask_w;
+          for (int r = 0; r < mask_h; ++r) {
+            for (int c = 0; c < mask_w; ++c) {
+              float logit = s_mask[s_off + r * mask_w + c];
+              inst_mat(c, r) = 1.0 / (1.0 + std::exp(-(double)logit));
+            }
+          }
+          ort->ReleaseValue(s_outputs[0]);
+          ort->ReleaseValue(s_outputs[1]);
+        } else {
+          ort->ReleaseStatus(s_status);
+        }
+        ort->ReleaseValue(s_pts_t);
+        ort->ReleaseValue(s_lbl_t);
+        ort->ReleaseValue(s_mask_t);
+        ort->ReleaseValue(s_has_t);
+        res_masks[b] = inst_mat;
+      }
     }
 
     ort->ReleaseValue(pts_tensor);
     ort->ReleaseValue(lbl_tensor);
-
-    res_masks[b] = inst_mat;
+    ort->ReleaseValue(mask_input_tensor);
+    ort->ReleaseValue(has_mask_tensor);
   }
 
   // Cleanup
   ort->ReleaseRunOptions(run_options);
   ort->ReleaseValue(input_img_tensor);
-  ort->ReleaseValue(mask_input_tensor);
-  ort->ReleaseValue(has_mask_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);
 
   return res_masks;
@@ -1374,7 +1477,8 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     Rcpp::List p_list(precomputed_prototypes.get());
     if (p_list.containsElementNamed("semantic")) {
       Rcpp::List sem_list = p_list["semantic"];
-      for (int i = 0; i < sem_list.size(); ++i) {
+      int max_to_load = std::min((int)sem_list.size(), 8);
+      for (int i = 0; i < max_to_load; ++i) {
         Rcpp::NumericVector sv = sem_list[i];
         std::vector<float> fv(sv.begin(), sv.end());
         exemplar_prototypes.push_back(fv);
@@ -1382,7 +1486,8 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     }
     if (p_list.containsElementNamed("hr0")) {
       Rcpp::List hr_list = p_list["hr0"];
-      for (int i = 0; i < hr_list.size(); ++i) {
+      int max_to_load = std::min((int)hr_list.size(), 8);
+      for (int i = 0; i < max_to_load; ++i) {
         Rcpp::NumericVector hv = hr_list[i];
         std::vector<float> fv(hv.begin(), hv.end());
         exemplar_prototypes_hr0.push_back(fv);
@@ -1728,6 +1833,13 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       proto_hr0[c] /= hr0_norm;
     }
     exemplar_prototypes_hr0.push_back(proto_hr0);
+  }
+
+  if (exemplar_prototypes.size() > 8) {
+    exemplar_prototypes.resize(8);
+  }
+  if (exemplar_prototypes_hr0.size() > 8) {
+    exemplar_prototypes_hr0.resize(8);
   }
 
     if (!exemplar_areas.empty()) {
@@ -2585,7 +2697,31 @@ Rcpp::NumericMatrix run_depth_anything_cpp(
   std::vector<const char*> in_names, out_names;
   get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
 
-  int64_t in_shape[4] = {1, 3, in_h, in_w};
+  size_t in_dim_count = 4;
+  OrtTypeInfo* type_info = NULL;
+  if (ort->SessionGetInputTypeInfo(session, 0, &type_info) == NULL && type_info != NULL) {
+    const OrtTensorTypeAndShapeInfo* tensor_info = NULL;
+    if (ort->CastTypeInfoToTensorInfo(type_info, &tensor_info) == NULL && tensor_info != NULL) {
+      ort->GetDimensionsCount(tensor_info, &in_dim_count);
+    }
+    ort->ReleaseTypeInfo(type_info);
+  }
+
+  int64_t in_shape[5];
+  size_t shape_len = (in_dim_count == 5) ? 5 : 4;
+  if (in_dim_count == 5) {
+    in_shape[0] = 1;
+    in_shape[1] = 1;
+    in_shape[2] = 3;
+    in_shape[3] = in_h;
+    in_shape[4] = in_w;
+  } else {
+    in_shape[0] = 1;
+    in_shape[1] = 3;
+    in_shape[2] = in_h;
+    in_shape[3] = in_w;
+  }
+
   size_t total_floats = (size_t)(3 * in_h * in_w);
   std::vector<float> input_vals(total_floats);
   for (size_t i = 0; i < total_floats; ++i) {
@@ -2595,7 +2731,7 @@ Rcpp::NumericMatrix run_depth_anything_cpp(
   OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, input_vals.data(), total_floats * sizeof(float),
-    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    in_shape, shape_len, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
   );
 
   OrtRunOptions* run_options = NULL;
@@ -2647,6 +2783,120 @@ Rcpp::NumericMatrix run_depth_anything_cpp(
   ort->ReleaseRunOptions(run_options);
 
   return depth_mat;
+}
+
+// [[Rcpp::export]]
+Rcpp::IntegerMatrix run_yolo_sem_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    int orig_w,
+    int orig_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int64_t in_shape[4] = {1, 3, in_h, in_w};
+  size_t total_floats = (size_t)(3 * in_h * in_w);
+  std::vector<float> input_vals(total_floats);
+  for (size_t i = 0; i < total_floats; ++i) {
+    input_vals[i] = (float)tensor_vec[i];
+  }
+
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, input_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    ort->ReleaseRunOptions(run_options);
+    ort->ReleaseValue(in_tensor);
+    Rcpp::stop("YOLO Semantic Segmentation run failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  ONNXTensorElementDataType elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
+  (void)ort->GetTensorElementType(shape_info, &elem_type);
+  ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+  void* raw_out = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, &raw_out);
+
+  float pad_x = 0.0f;
+  float pad_y = 0.0f;
+  float gain = 1.0f;
+  bool has_lb = false;
+  if (tensor_vec.hasAttribute("pad_x") && tensor_vec.hasAttribute("pad_y") && tensor_vec.hasAttribute("gain")) {
+    pad_x = (float)Rcpp::as<double>(tensor_vec.attr("pad_x"));
+    pad_y = (float)Rcpp::as<double>(tensor_vec.attr("pad_y"));
+    gain = (float)Rcpp::as<double>(tensor_vec.attr("gain"));
+    has_lb = true;
+  }
+
+  Rcpp::IntegerMatrix sem_mat(orig_w, orig_h);
+
+  for (int oy = 0; oy < orig_h; ++oy) {
+    int sy;
+    if (has_lb) {
+      float sy_f = (float)oy * gain + pad_y;
+      sy = std::min(in_h - 1, std::max(0, (int)std::round(sy_f)));
+    } else {
+      sy = std::min(in_h - 1, std::max(0, (int)std::floor((oy + 0.5f) / (float)orig_h * (float)in_h)));
+    }
+    size_t row_offset = (size_t)sy * in_w;
+    for (int ox = 0; ox < orig_w; ++ox) {
+      int sx;
+      if (has_lb) {
+        float sx_f = (float)ox * gain + pad_x;
+        sx = std::min(in_w - 1, std::max(0, (int)std::round(sx_f)));
+      } else {
+        sx = std::min(in_w - 1, std::max(0, (int)std::floor((ox + 0.5f) / (float)orig_w * (float)in_w)));
+      }
+      size_t idx = row_offset + sx;
+      int cid = 0;
+      if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8) {
+        cid = (int)((uint8_t*)raw_out)[idx];
+      } else if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+        cid = (int)((int64_t*)raw_out)[idx];
+      } else if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32) {
+        cid = ((int32_t*)raw_out)[idx];
+      } else if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+        cid = (int)((float*)raw_out)[idx];
+      }
+      sem_mat(ox, oy) = cid;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  ort->ReleaseValue(in_tensor);
+  ort->ReleaseRunOptions(run_options);
+
+  return sem_mat;
 }
 
 // [[Rcpp::export]]
@@ -2806,8 +3056,28 @@ Rcpp::List run_yolo_cpp(
   std::vector<const char*> in_names, out_names;
   get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
 
-  int64_t in_shape[4] = {1, 3, 640, 640};
-  size_t total_floats = 3 * 640 * 640;
+  size_t total_floats = tensor_vec.size();
+  int64_t in_w = 640;
+  int64_t in_h = 640;
+  if (tensor_vec.hasAttribute("target_size")) {
+    int ts = Rcpp::as<int>(tensor_vec.attr("target_size"));
+    in_w = ts;
+    in_h = ts;
+  } else if (tensor_vec.hasAttribute("dims")) {
+    Rcpp::IntegerVector d = tensor_vec.attr("dims");
+    if (d.size() >= 4) {
+      in_h = d[2];
+      in_w = d[3];
+    }
+  } else if (total_floats > 0) {
+    int64_t plane = (int64_t)(total_floats / 3);
+    int64_t side = (int64_t)std::round(std::sqrt((double)plane));
+    if (side * side == plane) {
+      in_w = side;
+      in_h = side;
+    }
+  }
+  int64_t in_shape[4] = {1, 3, in_h, in_w};
   std::vector<float> input_vals(total_floats);
   const double* t_ptr = REAL(tensor_vec);
   #pragma omp parallel for schedule(static) if(total_floats > 10000)
@@ -3125,9 +3395,18 @@ Rcpp::List run_yolo_cpp(
     }
   }
 
-  double gain = std::min(640.0 / orig_w, 640.0 / orig_h);
-  double pad_x = (640.0 - orig_w * gain) / 2.0;
-  double pad_y = (640.0 - orig_h * gain) / 2.0;
+  double gain = 1.0;
+  double pad_x = 0.0;
+  double pad_y = 0.0;
+  if (tensor_vec.hasAttribute("gain") && tensor_vec.hasAttribute("pad_x") && tensor_vec.hasAttribute("pad_y")) {
+    gain = Rcpp::as<double>(tensor_vec.attr("gain"));
+    pad_x = Rcpp::as<double>(tensor_vec.attr("pad_x"));
+    pad_y = Rcpp::as<double>(tensor_vec.attr("pad_y"));
+  } else {
+    gain = std::min((double)in_w / orig_w, (double)in_h / orig_h);
+    pad_x = ((double)in_w - orig_w * gain) / 2.0;
+    pad_y = ((double)in_h - orig_h * gain) / 2.0;
+  }
 
   int num_kept = (int)kept.size();
   Rcpp::NumericMatrix boxes(num_kept, 4);
@@ -3220,18 +3499,31 @@ Rcpp::List run_yolo_cpp(
     }
     float* proto_data = NULL;
     (void)ort->GetTensorMutableData(out_tensors[1], (void**)&proto_data);
-    const size_t proto_plane = 160 * 160;
+
+    OrtTensorTypeAndShapeInfo* shape_info1 = NULL;
+    (void)ort->GetTensorTypeAndShape(out_tensors[1], &shape_info1);
+    size_t dims1_cnt = 0;
+    (void)ort->GetDimensionsCount(shape_info1, &dims1_cnt);
+    std::vector<int64_t> dims1(dims1_cnt);
+    (void)ort->GetDimensions(shape_info1, dims1.data(), dims1_cnt);
+    ort->ReleaseTensorTypeAndShapeInfo(shape_info1);
+
+    int proto_h = (dims1_cnt >= 4) ? (int)dims1[2] : ((dims1_cnt >= 3) ? (int)dims1[1] : 160);
+    int proto_w = (dims1_cnt >= 4) ? (int)dims1[3] : ((dims1_cnt >= 3) ? (int)dims1[2] : 160);
+    const size_t proto_plane = (size_t)proto_w * proto_h;
     const size_t proto_total = 32 * proto_plane;
+    float scale_proto_y = (float)proto_h / (float)in_h;
+    float scale_proto_x = (float)proto_w / (float)in_w;
 
     if (return_features) {
-      // 1. Raw Proto-Feature Tensor [160, 160, 32]
+      // 1. Raw Proto-Feature Tensor [proto_w, proto_h, 32]
       raw_proto = Rcpp::NumericVector(proto_total);
       double* rp_ptr = REAL(raw_proto);
       #pragma omp parallel for schedule(static) if(proto_total > 10000)
       for (int p = 0; p < (int)proto_total; ++p) {
         rp_ptr[p] = (double)proto_data[p];
       }
-      raw_proto.attr("dim") = Rcpp::IntegerVector::create(160, 160, 32);
+      raw_proto.attr("dim") = Rcpp::IntegerVector::create(proto_w, proto_h, 32);
 
       // 2. Convolutional Prototype Energy Map [ow, oh] (L2 norm across 32 channels)
       std::vector<float> proto_energy(proto_plane, 0.0f);
@@ -3252,26 +3544,26 @@ Rcpp::List run_yolo_cpp(
       #pragma omp parallel for schedule(dynamic, 16) if(oh > 100)
       for (int oy = 0; oy < oh; ++oy) {
         float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
-        float proto_y = (can_y * 0.25f) - 0.5f;
+        float proto_y = (can_y * scale_proto_y) - 0.5f;
         int y0 = (int)std::floor(proto_y);
         int y1 = y0 + 1;
         float wy = proto_y - (float)y0;
-        int cy0 = std::max(0, std::min(159, y0));
-        int cy1 = std::max(0, std::min(159, y1));
+        int cy0 = std::max(0, std::min(proto_h - 1, y0));
+        int cy1 = std::max(0, std::min(proto_h - 1, y1));
 
         for (int ox = 0; ox < ow; ++ox) {
           float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
-          float proto_x = (can_x * 0.25f) - 0.5f;
+          float proto_x = (can_x * scale_proto_x) - 0.5f;
           int x0 = (int)std::floor(proto_x);
           int x1 = x0 + 1;
           float wx = proto_x - (float)x0;
-          int cx0 = std::max(0, std::min(159, x0));
-          int cx1 = std::max(0, std::min(159, x1));
+          int cx0 = std::max(0, std::min(proto_w - 1, x0));
+          int cx1 = std::max(0, std::min(proto_w - 1, x1));
 
-          float e00 = proto_energy[(size_t)cy0 * 160 + cx0];
-          float e10 = proto_energy[(size_t)cy0 * 160 + cx1];
-          float e01 = proto_energy[(size_t)cy1 * 160 + cx0];
-          float e11 = proto_energy[(size_t)cy1 * 160 + cx1];
+          float e00 = proto_energy[(size_t)cy0 * proto_w + cx0];
+          float e10 = proto_energy[(size_t)cy0 * proto_w + cx1];
+          float e01 = proto_energy[(size_t)cy1 * proto_w + cx0];
+          float e11 = proto_energy[(size_t)cy1 * proto_w + cx1];
 
           float eval = (1.0f - wx) * (1.0f - wy) * e00 +
                        wx * (1.0f - wy) * e10 +
@@ -3295,7 +3587,7 @@ Rcpp::List run_yolo_cpp(
         int oy2 = std::min(oh - 1, (int)std::ceil(boxes(i, 3)));
         if (ox1 > ox2 || oy1 > oy2) continue;
 
-        // 1. Precompute linear combination of 32 prototype channels for instance i (160x160)
+        // 1. Precompute linear combination of 32 prototype channels for instance i
         std::vector<float> inst_proto(proto_plane, 0.0f);
         for (int m = 0; m < 32; ++m) {
           float coeff = kept[i].mask_coeffs[m];
@@ -3309,26 +3601,26 @@ Rcpp::List run_yolo_cpp(
         // 2. High-resolution continuous bilinear interpolation on the original image grid
         for (int oy = oy1; oy <= oy2; ++oy) {
           float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
-          float proto_y = (can_y * 0.25f) - 0.5f;
+          float proto_y = (can_y * scale_proto_y) - 0.5f;
           int y0 = (int)std::floor(proto_y);
           int y1 = y0 + 1;
           float wy = proto_y - (float)y0;
-          int cy0 = std::max(0, std::min(159, y0));
-          int cy1 = std::max(0, std::min(159, y1));
+          int cy0 = std::max(0, std::min(proto_h - 1, y0));
+          int cy1 = std::max(0, std::min(proto_h - 1, y1));
 
           for (int ox = ox1; ox <= ox2; ++ox) {
             float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
-            float proto_x = (can_x * 0.25f) - 0.5f;
+            float proto_x = (can_x * scale_proto_x) - 0.5f;
             int x0 = (int)std::floor(proto_x);
             int x1 = x0 + 1;
             float wx = proto_x - (float)x0;
-            int cx0 = std::max(0, std::min(159, x0));
-            int cx1 = std::max(0, std::min(159, x1));
+            int cx0 = std::max(0, std::min(proto_w - 1, x0));
+            int cx1 = std::max(0, std::min(proto_w - 1, x1));
 
-            float v00 = inst_proto[(size_t)cy0 * 160 + cx0];
-            float v10 = inst_proto[(size_t)cy0 * 160 + cx1];
-            float v01 = inst_proto[(size_t)cy1 * 160 + cx0];
-            float v11 = inst_proto[(size_t)cy1 * 160 + cx1];
+            float v00 = inst_proto[(size_t)cy0 * proto_w + cx0];
+            float v10 = inst_proto[(size_t)cy0 * proto_w + cx1];
+            float v01 = inst_proto[(size_t)cy1 * proto_w + cx0];
+            float v11 = inst_proto[(size_t)cy1 * proto_w + cx1];
 
             float val = (1.0f - wx) * (1.0f - wy) * v00 +
                         wx * (1.0f - wy) * v10 +
@@ -4085,11 +4377,24 @@ Rcpp::NumericVector run_super_resolution_cpp(
   const double* tensor_data = tensor_vec.begin();
 
   if (in_w <= tile_size && in_h <= tile_size) {
-    int64_t shape[4] = {1, 3, in_h, in_w};
-    size_t floats = 3 * in_plane;
+    int pad_w = (in_w % 8 == 0) ? in_w : (in_w + 8 - (in_w % 8));
+    int pad_h = (in_h % 8 == 0) ? in_h : (in_h + 8 - (in_h % 8));
+    size_t pad_plane = (size_t)pad_h * pad_w;
+    size_t floats = 3 * pad_plane;
     std::vector<float> in_vals(floats);
-    for (size_t i = 0; i < floats; ++i) in_vals[i] = (float)tensor_data[i];
 
+    for (int c = 0; c < 3; ++c) {
+      for (int py = 0; py < pad_h; ++py) {
+        int src_y = std::min(py, in_h - 1);
+        for (int px = 0; px < pad_w; ++px) {
+          int src_x = std::min(px, in_w - 1);
+          in_vals[(size_t)c * pad_plane + (size_t)py * pad_w + px] =
+            (float)tensor_data[(size_t)c * in_plane + (size_t)src_y * in_w + src_x];
+        }
+      }
+    }
+
+    int64_t shape[4] = {1, 3, pad_h, pad_w};
     OrtValue* in_val = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info, in_vals.data(), floats * sizeof(float),
@@ -4099,10 +4404,38 @@ Rcpp::NumericVector run_super_resolution_cpp(
     OrtValue* out_val = NULL;
     OrtStatus* st = ort->Run(session, run_options, in_names.data(), (const OrtValue* const*)&in_val, 1, out_names.data(), 1, &out_val);
     if (st == NULL) {
+      OrtTensorTypeAndShapeInfo* shape_info = NULL;
+      (void)ort->GetTensorTypeAndShape(out_val, &shape_info);
+      size_t num_dims = 0;
+      (void)ort->GetDimensionsCount(shape_info, &num_dims);
+      std::vector<int64_t> out_dims(num_dims);
+      (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+      ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+      int pad_out_h = (int)out_dims[num_dims - 2];
+      int pad_out_w = (int)out_dims[num_dims - 1];
+      int actual_scale = pad_out_h / pad_h;
+      if (actual_scale <= 0) actual_scale = scale;
+
+      if (actual_scale != scale) {
+        scale = actual_scale;
+        out_w = in_w * scale;
+        out_h = in_h * scale;
+        out_plane = (size_t)out_h * out_w;
+        full_out.resize(3 * out_plane, 0.0f);
+      }
+
       float* out_f = NULL;
       (void)ort->GetTensorMutableData(out_val, (void**)&out_f);
-      for (size_t i = 0; i < 3 * out_plane; ++i) {
-        full_out[i] = std::max(0.0f, std::min(1.0f, out_f[i]));
+      size_t pad_out_plane = (size_t)pad_out_h * pad_out_w;
+
+      for (int c = 0; c < 3; ++c) {
+        for (int py = 0; py < out_h; ++py) {
+          for (int px = 0; px < out_w; ++px) {
+            float val = out_f[(size_t)c * pad_out_plane + (size_t)py * pad_out_w + px];
+            full_out[(size_t)c * out_plane + (size_t)py * out_w + px] = std::max(0.0f, std::min(1.0f, val));
+          }
+        }
       }
       ort->ReleaseValue(out_val);
     } else {
@@ -4116,9 +4449,11 @@ Rcpp::NumericVector run_super_resolution_cpp(
   } else {
     int step = tile_size - 2 * tile_pad;
     if (step < 16) step = 16;
+    bool scale_checked = false;
 
     for (int ty = 0; ty < in_h; ty += step) {
       for (int tx = 0; tx < in_w; tx += step) {
+        R_CheckUserInterrupt();
         int x1 = std::max(0, tx - tile_pad);
         int y1 = std::max(0, ty - tile_pad);
         int x2 = std::min(in_w, tx + step + tile_pad);
@@ -4126,21 +4461,25 @@ Rcpp::NumericVector run_super_resolution_cpp(
 
         int cur_w = x2 - x1;
         int cur_h = y2 - y1;
-        size_t cur_plane = (size_t)cur_w * cur_h;
 
-        int64_t cur_shape[4] = {1, 3, cur_h, cur_w};
-        size_t cur_floats = 3 * cur_plane;
+        int pad_w = (cur_w % 8 == 0) ? cur_w : (cur_w + 8 - (cur_w % 8));
+        int pad_h = (cur_h % 8 == 0) ? cur_h : (cur_h + 8 - (cur_h % 8));
+        size_t cur_pad_plane = (size_t)pad_w * pad_h;
+        size_t cur_floats = 3 * cur_pad_plane;
         std::vector<float> cur_in(cur_floats);
 
         for (int c = 0; c < 3; ++c) {
-          for (int py = 0; py < cur_h; ++py) {
-            for (int px = 0; px < cur_w; ++px) {
-              cur_in[(size_t)c * cur_plane + (size_t)py * cur_w + px] =
-                (float)tensor_data[(size_t)c * in_plane + (size_t)(y1 + py) * in_w + (x1 + px)];
+          for (int py = 0; py < pad_h; ++py) {
+            int src_y = y1 + std::min(py, cur_h - 1);
+            for (int px = 0; px < pad_w; ++px) {
+              int src_x = x1 + std::min(px, cur_w - 1);
+              cur_in[(size_t)c * cur_pad_plane + (size_t)py * pad_w + px] =
+                (float)tensor_data[(size_t)c * in_plane + (size_t)src_y * in_w + src_x];
             }
           }
         }
 
+        int64_t cur_shape[4] = {1, 3, pad_h, pad_w};
         OrtValue* in_val = NULL;
         (void)ort->CreateTensorWithDataAsOrtValue(
           memory_info, cur_in.data(), cur_floats * sizeof(float),
@@ -4150,12 +4489,37 @@ Rcpp::NumericVector run_super_resolution_cpp(
         OrtValue* out_val = NULL;
         OrtStatus* st = ort->Run(session, run_options, in_names.data(), (const OrtValue* const*)&in_val, 1, out_names.data(), 1, &out_val);
         if (st == NULL) {
+          OrtTensorTypeAndShapeInfo* shape_info = NULL;
+          (void)ort->GetTensorTypeAndShape(out_val, &shape_info);
+          size_t num_dims = 0;
+          (void)ort->GetDimensionsCount(shape_info, &num_dims);
+          std::vector<int64_t> out_dims(num_dims);
+          (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+          ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+          int pad_out_h = (int)out_dims[num_dims - 2];
+          int pad_out_w = (int)out_dims[num_dims - 1];
+          int actual_scale = pad_out_h / pad_h;
+          if (actual_scale <= 0) actual_scale = scale;
+
+          if (!scale_checked) {
+            scale_checked = true;
+            if (actual_scale != scale) {
+              scale = actual_scale;
+              out_w = in_w * scale;
+              out_h = in_h * scale;
+              out_plane = (size_t)out_h * out_w;
+              full_out.assign(3 * out_plane, 0.0f);
+              weight_map.assign(out_plane, 0.0f);
+            }
+          }
+
           float* out_f = NULL;
           (void)ort->GetTensorMutableData(out_val, (void**)&out_f);
 
           int cur_out_w = cur_w * scale;
           int cur_out_h = cur_h * scale;
-          size_t cur_out_plane = (size_t)cur_out_w * cur_out_h;
+          size_t cur_pad_out_plane = (size_t)pad_out_w * pad_out_h;
 
           int dst_x1 = x1 * scale;
           int dst_y1 = y1 * scale;
@@ -4182,17 +4546,21 @@ Rcpp::NumericVector run_super_resolution_cpp(
               if (w <= 0.0f) w = 1e-4f;
 
               size_t dst_idx = (size_t)gy * out_w + gx;
-              size_t src_idx = (size_t)py * cur_out_w + px;
+              size_t src_idx = (size_t)py * pad_out_w + px;
 
               weight_map[dst_idx] += w;
               for (int c = 0; c < 3; ++c) {
-                full_out[(size_t)c * out_plane + dst_idx] += w * out_f[(size_t)c * cur_out_plane + src_idx];
+                full_out[(size_t)c * out_plane + dst_idx] += w * out_f[(size_t)c * cur_pad_out_plane + src_idx];
               }
             }
           }
           ort->ReleaseValue(out_val);
         } else {
+          std::string msg = ort->GetErrorMessage(st);
           ort->ReleaseStatus(st);
+          ort->ReleaseValue(in_val);
+          ort->ReleaseRunOptions(run_options);
+          Rcpp::stop("Super resolution tile run failed: " + msg);
         }
         ort->ReleaseValue(in_val);
       }
@@ -4538,8 +4906,774 @@ Rcpp::NumericVector preprocess_yolo_cpp(
   out_tensor.attr("pad_y") = pad_y;
   out_tensor.attr("orig_w") = orig_w;
   out_tensor.attr("orig_h") = orig_h;
+  out_tensor.attr("target_size") = target_size;
 
   return out_tensor;
 }
+
+#include <fstream>
+
+// ==============================================================================
+// 3D POINT CLOUD BACK-PROJECTION & SURFACE NORMALS
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::DataFrame generate_pointcloud_cpp(
+    Rcpp::NumericMatrix depth_mat,
+    Rcpp::NumericMatrix r_mat,
+    Rcpp::NumericMatrix g_mat,
+    Rcpp::NumericMatrix b_mat,
+    Rcpp::Nullable<Rcpp::NumericMatrix> mask_mat = R_NilValue,
+    double fov_deg = 60.0,
+    int subsample = 1,
+    bool invert_depth = true,
+    double z_min = 0.0,
+    double z_max = 1000.0,
+    bool estimate_normals = true
+) {
+  int w = depth_mat.nrow();
+  int h = depth_mat.ncol();
+  bool has_mask = mask_mat.isNotNull();
+  Rcpp::NumericMatrix mask;
+  if (has_mask) {
+    mask = Rcpp::as<Rcpp::NumericMatrix>(mask_mat);
+  }
+
+  int step = std::max(1, subsample);
+  double cx = (double)w / 2.0;
+  double cy = (double)h / 2.0;
+  #ifndef M_PI
+  #define M_PI 3.14159265358979323846
+  #endif
+  double fov_rad = fov_deg * M_PI / 180.0;
+  double f = ((double)std::max(w, h) / 2.0) / std::tan(fov_rad / 2.0);
+
+  std::vector<double> out_x, out_y, out_z, out_r, out_g, out_b;
+  std::vector<double> out_nx, out_ny, out_nz, out_angle;
+  std::vector<int> out_u, out_v;
+
+  size_t est_pts = (size_t)(w / step) * (size_t)(h / step);
+  out_x.reserve(est_pts);
+  out_y.reserve(est_pts);
+  out_z.reserve(est_pts);
+  out_r.reserve(est_pts);
+  out_g.reserve(est_pts);
+  out_b.reserve(est_pts);
+  if (estimate_normals) {
+    out_nx.reserve(est_pts);
+    out_ny.reserve(est_pts);
+    out_nz.reserve(est_pts);
+    out_angle.reserve(est_pts);
+  }
+  out_u.reserve(est_pts);
+  out_v.reserve(est_pts);
+
+  for (int y = 0; y < h; y += step) {
+    for (int x = 0; x < w; x += step) {
+      if (has_mask && mask(x, y) <= 0.5) {
+        continue;
+      }
+      double d = depth_mat(x, y);
+      if (std::isnan(d) || std::isinf(d)) continue;
+
+      double Z = invert_depth ? (1.0 / std::max(d, 1e-4)) : d;
+      if (Z < z_min || Z > z_max) continue;
+
+      double X = ((double)x + 0.5 - cx) * Z / f;
+      double Y = ((double)y + 0.5 - cy) * Z / f;
+
+      double R_val = std::max(0.0, std::min(1.0, (double)r_mat(x, y)));
+      double G_val = std::max(0.0, std::min(1.0, (double)g_mat(x, y)));
+      double B_val = std::max(0.0, std::min(1.0, (double)b_mat(x, y)));
+
+      out_x.push_back(X);
+      out_y.push_back(Y);
+      out_z.push_back(Z);
+      out_r.push_back(R_val);
+      out_g.push_back(G_val);
+      out_b.push_back(B_val);
+      out_u.push_back(x + 1);
+      out_v.push_back(y + 1);
+
+      if (estimate_normals) {
+        int xl = std::max(0, x - 1);
+        int xr = std::min(w - 1, x + 1);
+        int yu = std::max(0, y - 1);
+        int yd = std::min(h - 1, y + 1);
+
+        double dl = depth_mat(xl, y);
+        double dr = depth_mat(xr, y);
+        double du = depth_mat(x, yu);
+        double dd = depth_mat(x, yd);
+
+        double zl = invert_depth ? (1.0 / std::max(dl, 1e-4)) : dl;
+        double zr = invert_depth ? (1.0 / std::max(dr, 1e-4)) : dr;
+        double zu = invert_depth ? (1.0 / std::max(du, 1e-4)) : du;
+        double zd = invert_depth ? (1.0 / std::max(dd, 1e-4)) : dd;
+
+        double Xr = ((double)xr + 0.5 - cx) * zr / f;
+        double Yr = ((double)y  + 0.5 - cy) * zr / f;
+        double Xl = ((double)xl + 0.5 - cx) * zl / f;
+        double Yl = ((double)y  + 0.5 - cy) * zl / f;
+        double Tux = Xr - Xl;
+        double Tuy = Yr - Yl;
+        double Tuz = zr - zl;
+
+        double Xd = ((double)x + 0.5 - cx) * zd / f;
+        double Yd = ((double)yd + 0.5 - cy) * zd / f;
+        double Xu = ((double)x + 0.5 - cx) * zu / f;
+        double Yu = ((double)yu + 0.5 - cy) * zu / f;
+        double Tvx = Xd - Xu;
+        double Tvy = Yd - Yu;
+        double Tvz = zd - zu;
+
+        double Nx = Tuy * Tvz - Tuz * Tvy;
+        double Ny = Tuz * Tvx - Tux * Tvz;
+        double Nz = Tux * Tvy - Tuy * Tvx;
+        double L = std::sqrt(Nx * Nx + Ny * Ny + Nz * Nz);
+
+        double nx = 0.0, ny = 0.0, nz = -1.0;
+        double angle = 0.0;
+        if (L > 1e-7) {
+          nx = Nx / L;
+          ny = Ny / L;
+          nz = Nz / L;
+          if (nz > 0.0) {
+            nx = -nx;
+            ny = -ny;
+            nz = -nz;
+          }
+          double cos_val = std::abs(nz);
+          if (cos_val > 1.0) cos_val = 1.0;
+          angle = std::acos(cos_val) * 180.0 / M_PI;
+        }
+        out_nx.push_back(nx);
+        out_ny.push_back(ny);
+        out_nz.push_back(nz);
+        out_angle.push_back(angle);
+      }
+    }
+  }
+
+  if (estimate_normals) {
+    return Rcpp::DataFrame::create(
+      Rcpp::Named("x") = out_x,
+      Rcpp::Named("y") = out_y,
+      Rcpp::Named("z") = out_z,
+      Rcpp::Named("r") = out_r,
+      Rcpp::Named("g") = out_g,
+      Rcpp::Named("b") = out_b,
+      Rcpp::Named("nx") = out_nx,
+      Rcpp::Named("ny") = out_ny,
+      Rcpp::Named("nz") = out_nz,
+      Rcpp::Named("angle") = out_angle,
+      Rcpp::Named("u") = out_u,
+      Rcpp::Named("v") = out_v,
+      Rcpp::Named("stringsAsFactors") = false
+    );
+  } else {
+    return Rcpp::DataFrame::create(
+      Rcpp::Named("x") = out_x,
+      Rcpp::Named("y") = out_y,
+      Rcpp::Named("z") = out_z,
+      Rcpp::Named("r") = out_r,
+      Rcpp::Named("g") = out_g,
+      Rcpp::Named("b") = out_b,
+      Rcpp::Named("u") = out_u,
+      Rcpp::Named("v") = out_v,
+      Rcpp::Named("stringsAsFactors") = false
+    );
+  }
+}
+
+// [[Rcpp::export]]
+bool export_ply_cpp(
+    std::string file_path,
+    Rcpp::NumericVector x,
+    Rcpp::NumericVector y,
+    Rcpp::NumericVector z,
+    Rcpp::NumericVector r,
+    Rcpp::NumericVector g,
+    Rcpp::NumericVector b,
+    Rcpp::Nullable<Rcpp::NumericVector> nx = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> ny = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> nz = R_NilValue,
+    bool binary = true
+) {
+  size_t n = (size_t)x.size();
+  bool has_normals = nx.isNotNull() && ny.isNotNull() && nz.isNotNull();
+  Rcpp::NumericVector n_x, n_y, n_z;
+  if (has_normals) {
+    n_x = Rcpp::as<Rcpp::NumericVector>(nx);
+    n_y = Rcpp::as<Rcpp::NumericVector>(ny);
+    n_z = Rcpp::as<Rcpp::NumericVector>(nz);
+  }
+
+  std::ofstream out;
+  if (binary) {
+    out.open(file_path.c_str(), std::ios::out | std::ios::binary);
+  } else {
+    out.open(file_path.c_str(), std::ios::out);
+  }
+  if (!out.is_open()) return false;
+
+  out << "ply\n";
+  if (binary) {
+    out << "format binary_little_endian 1.0\n";
+  } else {
+    out << "format ascii 1.0\n";
+  }
+  out << "comment Exported by pliman (Plant Image Analysis)\n";
+  out << "element vertex " << n << "\n";
+  out << "property float x\n";
+  out << "property float y\n";
+  out << "property float z\n";
+  out << "property uchar red\n";
+  out << "property uchar green\n";
+  out << "property uchar blue\n";
+  if (has_normals) {
+    out << "property float nx\n";
+    out << "property float ny\n";
+    out << "property float nz\n";
+  }
+  out << "end_header\n";
+
+  if (binary) {
+    for (size_t i = 0; i < n; ++i) {
+      float px = (float)x[i];
+      float py = (float)y[i];
+      float pz = (float)z[i];
+      uint8_t cr = (uint8_t)std::max(0, std::min(255, (int)std::round(r[i] * 255.0)));
+      uint8_t cg = (uint8_t)std::max(0, std::min(255, (int)std::round(g[i] * 255.0)));
+      uint8_t cb = (uint8_t)std::max(0, std::min(255, (int)std::round(b[i] * 255.0)));
+      out.write(reinterpret_cast<const char*>(&px), sizeof(float));
+      out.write(reinterpret_cast<const char*>(&py), sizeof(float));
+      out.write(reinterpret_cast<const char*>(&pz), sizeof(float));
+      out.write(reinterpret_cast<const char*>(&cr), sizeof(uint8_t));
+      out.write(reinterpret_cast<const char*>(&cg), sizeof(uint8_t));
+      out.write(reinterpret_cast<const char*>(&cb), sizeof(uint8_t));
+      if (has_normals) {
+        float pnx = (float)n_x[i];
+        float pny = (float)n_y[i];
+        float pnz = (float)n_z[i];
+        out.write(reinterpret_cast<const char*>(&pnx), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&pny), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&pnz), sizeof(float));
+      }
+    }
+  } else {
+    for (size_t i = 0; i < n; ++i) {
+      int cr = std::max(0, std::min(255, (int)std::round(r[i] * 255.0)));
+      int cg = std::max(0, std::min(255, (int)std::round(g[i] * 255.0)));
+      int cb = std::max(0, std::min(255, (int)std::round(b[i] * 255.0)));
+      out << x[i] << " " << y[i] << " " << z[i] << " "
+          << cr << " " << cg << " " << cb;
+      if (has_normals) {
+        out << " " << n_x[i] << " " << n_y[i] << " " << n_z[i];
+      }
+      out << "\n";
+    }
+  }
+  out.close();
+  return true;
+}
+
+// ==============================================================================
+// IMAGE RESTORATION (ZERO-DCE, NAFNET, RESTORMER)
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::NumericVector run_image_restore_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1,
+    int tile_size = 0,
+    int tile_pad = 16
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  size_t plane = (size_t)in_w * in_h;
+  size_t total_floats = 3 * plane;
+
+  if (tile_size <= 0 || (in_w <= tile_size && in_h <= tile_size)) {
+    int pad_w = (in_w % 32 == 0) ? in_w : (((in_w / 32) + 1) * 32);
+    int pad_h = (in_h % 32 == 0) ? in_h : (((in_h / 32) + 1) * 32);
+    size_t pad_plane = (size_t)pad_w * pad_h;
+    size_t pad_floats = 3 * pad_plane;
+
+    std::vector<float> in_vals(pad_floats, 0.0f);
+    for (int c = 0; c < 3; ++c) {
+      size_t c_src = (size_t)c * plane;
+      size_t c_dst = (size_t)c * pad_plane;
+      for (int y = 0; y < in_h; ++y) {
+        for (int x = 0; x < in_w; ++x) {
+          in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+        }
+        for (int x = in_w; x < pad_w; ++x) {
+          in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + (in_w - 1)];
+        }
+      }
+      for (int y = in_h; y < pad_h; ++y) {
+        for (int x = 0; x < pad_w; ++x) {
+          in_vals[c_dst + (size_t)y * pad_w + x] = in_vals[c_dst + (size_t)(in_h - 1) * pad_w + x];
+        }
+      }
+    }
+
+    int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+    OrtValue* in_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_vals.data(), pad_floats * sizeof(float),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    );
+
+    OrtRunOptions* run_options = NULL;
+    (void)ort->CreateRunOptions(&run_options);
+    (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+    OrtValue* out_tensor = NULL;
+    OrtStatus* status = ort->Run(
+      session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+      1, out_names.data(), 1, &out_tensor
+    );
+    ort->ReleaseRunOptions(run_options);
+    ort->ReleaseValue(in_tensor);
+
+    if (status != NULL) {
+      std::string msg = ort->GetErrorMessage(status);
+      ort->ReleaseStatus(status);
+      Rcpp::stop("Image restoration inference failed: " + msg);
+    }
+
+    float* out_data = NULL;
+    (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+    Rcpp::NumericVector result(total_floats);
+    for (int c = 0; c < 3; ++c) {
+      size_t c_src = (size_t)c * pad_plane;
+      size_t c_dst = (size_t)c * plane;
+      for (int y = 0; y < in_h; ++y) {
+        for (int x = 0; x < in_w; ++x) {
+          float v = out_data[c_src + (size_t)y * pad_w + x];
+          if (v < 0.0f) v = 0.0f;
+          if (v > 1.0f) v = 1.0f;
+          result[c_dst + (size_t)y * in_w + x] = (double)v;
+        }
+      }
+    }
+    ort->ReleaseValue(out_tensor);
+    return result;
+  }
+
+  int step = tile_size - 2 * tile_pad;
+  if (step < 16) step = 16;
+  std::vector<float> full_out(total_floats, 0.0f);
+  std::vector<float> weight_map(plane, 0.0f);
+
+  for (int y = 0; y < in_h; y += step) {
+    for (int x = 0; x < in_w; x += step) {
+      int x1 = std::max(0, x - tile_pad);
+      int y1 = std::max(0, y - tile_pad);
+      int x2 = std::min(in_w, x + step + tile_pad);
+      int y2 = std::min(in_h, y + step + tile_pad);
+      int tw = x2 - x1;
+      int th = y2 - y1;
+
+      int pad_tw = (tw % 32 == 0) ? tw : (((tw / 32) + 1) * 32);
+      int pad_th = (th % 32 == 0) ? th : (((th / 32) + 1) * 32);
+      size_t pad_tile_plane = (size_t)pad_tw * pad_th;
+
+      std::vector<float> tile_in(3 * pad_tile_plane, 0.0f);
+      for (int c = 0; c < 3; ++c) {
+        size_t c_src = (size_t)c * plane;
+        size_t c_dst = (size_t)c * pad_tile_plane;
+        for (int ty = 0; ty < th; ++ty) {
+          for (int tx = 0; tx < tw; ++tx) {
+            tile_in[c_dst + (size_t)ty * pad_tw + tx] = (float)tensor_vec[c_src + (size_t)(y1 + ty) * in_w + (x1 + tx)];
+          }
+          for (int tx = tw; tx < pad_tw; ++tx) {
+            tile_in[c_dst + (size_t)ty * pad_tw + tx] = (float)tensor_vec[c_src + (size_t)(y1 + ty) * in_w + (x1 + tw - 1)];
+          }
+        }
+        for (int ty = th; ty < pad_th; ++ty) {
+          for (int tx = 0; tx < pad_tw; ++tx) {
+            tile_in[c_dst + (size_t)ty * pad_tw + tx] = tile_in[c_dst + (size_t)(th - 1) * pad_tw + tx];
+          }
+        }
+      }
+
+      int64_t tile_shape[4] = {1, 3, pad_th, pad_tw};
+      OrtValue* in_tensor = NULL;
+      (void)ort->CreateTensorWithDataAsOrtValue(
+        memory_info, tile_in.data(), 3 * pad_tile_plane * sizeof(float),
+        tile_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+      );
+
+      OrtRunOptions* run_options = NULL;
+      (void)ort->CreateRunOptions(&run_options);
+      (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+      OrtValue* out_tensor = NULL;
+      OrtStatus* status = ort->Run(
+        session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+        1, out_names.data(), 1, &out_tensor
+      );
+      ort->ReleaseRunOptions(run_options);
+      ort->ReleaseValue(in_tensor);
+
+      if (status != NULL) {
+        ort->ReleaseStatus(status);
+        continue;
+      }
+
+      float* out_data = NULL;
+      (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+      for (int ty = 0; ty < th; ++ty) {
+        float wy = 1.0f;
+        if (tile_pad > 0) {
+          if (ty < tile_pad && y1 > 0) wy = (float)ty / (float)tile_pad;
+          if (ty >= th - tile_pad && y2 < in_h) wy = (float)(th - 1 - ty) / (float)tile_pad;
+        }
+        for (int tx = 0; tx < tw; ++tx) {
+          float wx = 1.0f;
+          if (tile_pad > 0) {
+            if (tx < tile_pad && x1 > 0) wx = (float)tx / (float)tile_pad;
+            if (tx >= tw - tile_pad && x2 < in_w) wx = (float)(tw - 1 - tx) / (float)tile_pad;
+          }
+          float w = wx * wy;
+          if (w <= 0.0f) w = 1e-4f;
+
+          int gy = y1 + ty;
+          int gx = x1 + tx;
+          size_t g_idx = (size_t)gy * in_w + gx;
+          size_t t_idx = (size_t)ty * pad_tw + tx;
+
+          weight_map[g_idx] += w;
+          for (int c = 0; c < 3; ++c) {
+            full_out[(size_t)c * plane + g_idx] += w * out_data[(size_t)c * pad_tile_plane + t_idx];
+          }
+        }
+      }
+      ort->ReleaseValue(out_tensor);
+    }
+  }
+
+  Rcpp::NumericVector result(total_floats);
+  for (size_t i = 0; i < plane; ++i) {
+    float inv_w = (weight_map[i] > 1e-6f) ? (1.0f / weight_map[i]) : 1.0f;
+    for (int c = 0; c < 3; ++c) {
+      size_t idx = (size_t)c * plane + i;
+      float v = full_out[idx] * inv_w;
+      if (v < 0.0f) v = 0.0f;
+      if (v > 1.0f) v = 1.0f;
+      result[idx] = (double)v;
+    }
+  }
+  return result;
+}
+
+// ==============================================================================
+// DENSITY ESTIMATION & COUNTING (CSRNET / DM-COUNT)
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::NumericMatrix run_density_map_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int pad_w = (in_w % 8 == 0) ? in_w : (((in_w / 8) + 1) * 8);
+  int pad_h = (in_h % 8 == 0) ? in_h : (((in_h / 8) + 1) * 8);
+  size_t pad_plane = (size_t)pad_w * pad_h;
+  size_t total_floats = 3 * pad_plane;
+  size_t plane_src = (size_t)in_w * in_h;
+
+  std::vector<float> in_vals(total_floats, 0.0f);
+  for (int c = 0; c < 3; ++c) {
+    size_t c_src = (size_t)c * plane_src;
+    size_t c_dst = (size_t)c * pad_plane;
+    for (int y = 0; y < in_h; ++y) {
+      for (int x = 0; x < in_w; ++x) {
+        in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+      }
+    }
+  }
+
+  int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("Density map inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+
+  int out_h = (int)out_dims[num_dims - 2];
+  int out_w = (int)out_dims[num_dims - 1];
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix density(out_w, out_h);
+  for (int y = 0; y < out_h; ++y) {
+    for (int x = 0; x < out_w; ++x) {
+      float v = out_data[(size_t)y * out_w + x];
+      density(x, y) = (double)(v > 0.0f ? v : 0.0f);
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return density;
+}
+
+// ==============================================================================
+// FIELD OCR (DBNET TEXT DETECTOR & CRNN/SVTR RECOGNIZER)
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::NumericMatrix run_ocr_det_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int pad_w = (in_w % 32 == 0) ? in_w : (((in_w / 32) + 1) * 32);
+  int pad_h = (in_h % 32 == 0) ? in_h : (((in_h / 32) + 1) * 32);
+  size_t pad_plane = (size_t)pad_w * pad_h;
+  size_t total_floats = 3 * pad_plane;
+  size_t plane_src = (size_t)in_w * in_h;
+
+  std::vector<float> in_vals(total_floats, 0.0f);
+  for (int c = 0; c < 3; ++c) {
+    size_t c_src = (size_t)c * plane_src;
+    size_t c_dst = (size_t)c * pad_plane;
+    for (int y = 0; y < in_h; ++y) {
+      for (int x = 0; x < in_w; ++x) {
+        in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+      }
+    }
+  }
+
+  int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("OCR text detection inference failed: " + msg);
+  }
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix prob_map(in_w, in_h);
+  for (int y = 0; y < in_h; ++y) {
+    for (int x = 0; x < in_w; ++x) {
+      float v = out_data[(size_t)y * pad_w + x];
+      prob_map(x, y) = (double)v;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return prob_map;
+}
+
+// [[Rcpp::export]]
+Rcpp::List run_ocr_rec_cpp(
+    Rcpp::NumericVector crops_vec,
+    int batch_size,
+    int crop_w,
+    int crop_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  if (batch_size <= 0) return Rcpp::List::create();
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  size_t total_floats = (size_t)batch_size * 3 * crop_h * crop_w;
+  std::vector<float> in_vals(total_floats);
+  for (size_t i = 0; i < total_floats; ++i) {
+    in_vals[i] = (float)crops_vec[i];
+  }
+
+  int64_t in_shape[4] = {batch_size, 3, crop_h, crop_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("OCR text recognition inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+
+  int T = (int)out_dims[1];
+  int C = (int)out_dims[2];
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::List results(batch_size);
+
+  for (int b = 0; b < batch_size; ++b) {
+    size_t b_off = (size_t)b * T * C;
+    std::vector<int> char_ids;
+    std::vector<double> char_probs;
+    int prev_c = -1;
+
+    for (int t = 0; t < T; ++t) {
+      size_t t_off = b_off + (size_t)t * C;
+      int max_c = 0;
+      float max_val = out_data[t_off];
+      for (int c = 1; c < C; ++c) {
+        float val = out_data[t_off + c];
+        if (val > max_val) {
+          max_val = val;
+          max_c = c;
+        }
+      }
+
+      float sum_exp = 0.0f;
+      for (int c = 0; c < C; ++c) {
+        sum_exp += std::exp(out_data[t_off + c] - max_val);
+      }
+      float prob = 1.0f / sum_exp;
+
+      if (max_c != 0 && max_c != prev_c) {
+        char_ids.push_back(max_c);
+        char_probs.push_back((double)prob);
+      }
+      prev_c = max_c;
+    }
+
+    double mean_score = 0.0;
+    if (!char_probs.empty()) {
+      double sum_p = 0.0;
+      for (double p : char_probs) sum_p += p;
+      mean_score = sum_p / (double)char_probs.size();
+    }
+
+    results[b] = Rcpp::List::create(
+      Rcpp::Named("char_ids") = char_ids,
+      Rcpp::Named("char_probs") = char_probs,
+      Rcpp::Named("score") = mean_score
+    );
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return results;
+}
+
 
 

@@ -233,18 +233,14 @@ gs_viewer <- function(splat = NULL,
     if (!is.null(tex_path) && file.exists(tex_path)) {
       raw_tex <- readBin(tex_path, what = "raw", n = file.info(tex_path)$size)
       mime <- if (grepl("\\.png$", tex_path, ignore.case = TRUE)) "image/png" else "image/jpeg"
-      if (requireNamespace("base64enc", quietly = TRUE)) {
-        tex_data_uri <- paste0("data:", mime, ";base64,", base64enc::base64encode(raw_tex))
-      }
+      tex_data_uri <- paste0("data:", mime, ";base64,", base64_encode(raw_tex))
     }
   } else if (has_initial_model && !is.null(orig_splat_textured_dir)) {
     candidates <- list.files(orig_splat_textured_dir, pattern = "\\.(png|jpg|jpeg)$", full.names = TRUE, ignore.case = TRUE)
     if (length(candidates) > 0 && file.exists(candidates[1])) {
       raw_tex <- readBin(candidates[1], what = "raw", n = file.info(candidates[1])$size)
       mime <- if (grepl("\\.png$", candidates[1], ignore.case = TRUE)) "image/png" else "image/jpeg"
-      if (requireNamespace("base64enc", quietly = TRUE)) {
-        tex_data_uri <- paste0("data:", mime, ";base64,", base64enc::base64encode(raw_tex))
-      }
+      tex_data_uri <- paste0("data:", mime, ";base64,", base64_encode(raw_tex))
     }
   }
 
@@ -430,7 +426,7 @@ gs_viewer <- function(splat = NULL,
               }
               tf <- tempfile(fileext = ".jpg")
               .write_image_file(im, tf, quality = 50)
-              img_ref <- paste0("data:image/jpeg;base64,", base64enc::base64encode(tf))
+              img_ref <- paste0("data:image/jpeg;base64,", base64_encode(tf, file = TRUE))
               unlink(tf)
             }, error = function(e) NULL)
           }

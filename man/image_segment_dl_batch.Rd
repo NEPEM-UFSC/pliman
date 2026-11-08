@@ -2,6 +2,8 @@
 % Please edit documentation in R/utils_dl_batch.R
 \name{image_segment_dl_batch}
 \alias{image_segment_dl_batch}
+\alias{image_segment_batch}
+\alias{yolo_segment_batch}
 \title{Batch Instance and Semantic Segmentation with Deep Learning}
 \usage{
 image_segment_dl_batch(
@@ -9,7 +11,6 @@ image_segment_dl_batch(
   pattern = NULL,
   path = NULL,
   parallel = FALSE,
-  workers = NULL,
   measure = TRUE,
   pixel_size = NULL,
   show_point = FALSE,
@@ -18,6 +19,44 @@ image_segment_dl_batch(
   dir_processed = "./proc",
   prefix = "proc_",
   verbose = TRUE,
+  imgsz = NULL,
+  as_job = FALSE,
+  ...
+)
+
+image_segment_batch(
+  data,
+  pattern = NULL,
+  path = NULL,
+  parallel = FALSE,
+  measure = TRUE,
+  pixel_size = NULL,
+  show_point = FALSE,
+  keep_images = FALSE,
+  save_image = FALSE,
+  dir_processed = "./proc",
+  prefix = "proc_",
+  verbose = TRUE,
+  imgsz = NULL,
+  as_job = FALSE,
+  ...
+)
+
+yolo_segment_batch(
+  data,
+  pattern = NULL,
+  path = NULL,
+  parallel = FALSE,
+  measure = TRUE,
+  pixel_size = NULL,
+  show_point = FALSE,
+  keep_images = FALSE,
+  save_image = FALSE,
+  dir_processed = "./proc",
+  prefix = "proc_",
+  verbose = TRUE,
+  imgsz = NULL,
+  as_job = FALSE,
   ...
 )
 }
@@ -36,9 +75,6 @@ image_segment_dl_batch(
 
 \item{parallel}{Logical. If \code{TRUE}, runs inference in parallel across images using \code{mirai}.
 Defaults to \code{FALSE}.}
-
-\item{workers}{Integer. Number of parallel workers/daemons to launch when \code{parallel = TRUE}.
-Defaults to 60\% of available CPU cores.}
 
 \item{measure}{Logical. If \code{TRUE}, automatically extracts granular morphometric, spectral,
 and geometric phenotypes for every segmented instance using \code{\link[=dl_extract_phenotypes]{dl_extract_phenotypes()}}. Defaults to \code{TRUE}.}
@@ -62,9 +98,17 @@ Defaults to \code{FALSE}.}
 \item{verbose}{Logical. Whether to show progress bars, timing, and formatted CLI summaries.
 Defaults to \code{TRUE}.}
 
+\item{imgsz}{Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), inferred automatically or defaults to \code{640}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, runs the batch segmentation process in an RStudio Background Job. Defaults to \code{FALSE}.}
+
 \item{...}{Additional arguments passed to \code{\link[=image_segment_dl]{image_segment_dl()}} (e.g., \code{model}, \code{type}, \code{threshold},
 \code{box_threshold}, \code{text_threshold}, \code{iou_threshold}, \code{prompt}, \code{col_background}, \code{col_highlight},
 \code{alpha}, \code{bbox}, \code{mask}, \code{engine}, \code{device_id}).}
+
+\item{workers}{Integer. Number of parallel workers/daemons to launch when \code{parallel = TRUE}.
+Defaults to 60\% of available CPU cores.}
 }
 \value{
 An S3 object of class \code{c("dl_segment_batch", "list")} containing:
@@ -92,7 +136,6 @@ res <- image_segment_dl_batch(
   data = "flax_grains",
   model = "yolo26n-seg",
   parallel = TRUE,
-  workers = 4,
   measure = TRUE
 )
 head(res$summary)

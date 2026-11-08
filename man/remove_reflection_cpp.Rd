@@ -11,7 +11,7 @@ remove_reflection_cpp(img, radius = 5L, has_white_bg = TRUE)
 
 \item{radius}{Neighbourhood radius for median sampling (default = 5).}
 
-\item{has_white_bg}{Unused — background class is detected automatically.}
+\item{has_white_bg}{Unused - background class is detected automatically.}
 }
 \value{
 Corrected grayscale matrix.

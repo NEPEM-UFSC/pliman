@@ -5,7 +5,14 @@
 \alias{yolo_dataset_health}
 \title{Comprehensive YOLO Dataset Health Audit and Auto-Repair}
 \usage{
-yolo_dataset_audit(data, repair = FALSE, min_images = 10L, verbose = TRUE)
+yolo_dataset_audit(
+  data,
+  repair = FALSE,
+  min_images = 10L,
+  check_leakage = TRUE,
+  leak_threshold = 4L,
+  verbose = TRUE
+)
 }
 \arguments{
 \item{data}{A \code{yolo_dataset} object, \code{yolo_dataset_cls} object, or directory path.}
@@ -37,6 +44,7 @@ and severe class imbalance.
 
 With \code{repair = TRUE}, it automatically repairs the dataset in-place:
 \itemize{
+\item Relocates misplaced label files when images are moved across splits (e.g. from train to val) to preserve annotations.
 \item Renames colliding images and review previews uniquely (\code{foo_jpg.jpg}, \code{foo_png.png}) and links existing \code{.txt} annotations to the best-matching file based on modification timestamps.
 \item Clamps out-of-bounds coordinates to \verb{[0, 1]}.
 \item Prunes zero-area bounding boxes.

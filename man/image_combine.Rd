@@ -9,9 +9,14 @@ image_combine(
   labels = NULL,
   nrow = NULL,
   ncol = NULL,
-  col = "black",
+  col = "white",
+  col_bg = "forestgreen",
+  badge = TRUE,
+  border = NA,
+  cex = 0.75,
+  font = 2,
   verbose = TRUE,
-  mar = c(1.5, 1.5, 1.5, 1.5),
+  mar = c(0.2, 0.2, 0.2, 0.2),
   oma = c(0, 0, 0, 0)
 )
 }
@@ -25,14 +30,24 @@ objects in \code{...} to indicate the plot labels.}
 \item{nrow, ncol}{The number of rows or columns in the plot grid. Defaults to
 \code{NULL}, i.e., a square grid is produced.}
 
-\item{col}{The color for the plot labels. Defaults to \code{col = "black"}.}
+\item{col}{The color for the plot labels. Defaults to \code{"white"} when \code{badge = TRUE} and \code{"black"} otherwise.}
+
+\item{col_bg}{The background color for the label badge. Defaults to \code{"forestgreen"}.}
+
+\item{badge}{Logical. Whether to draw a background badge for the labels. Defaults to \code{TRUE}.}
+
+\item{border}{The border color for the badge. Defaults to \code{NA} (no border).}
+
+\item{cex}{The character expansion factor for the labels. Defaults to \code{0.75}.}
+
+\item{font}{An integer which specifies which font to use for text. Defaults to \code{2} (bold).}
 
 \item{verbose}{Shows the name of objects declared in \code{...} or a numeric
 sequence if a list with no names is provided. Set to \code{FALSE} to supress the
 text.}
 
 \item{mar, oma}{Margins for each panel and outer margins for the combined plot.
-Defaults to \code{mar = c(1.5, 1.5, 1.5, 1.5)} and \code{oma = c(0, 0, 0, 0)}. Set
+Defaults to \code{mar = c(0.2, 0.2, 0.2, 0.2)} and \code{oma = c(0, 0, 0, 0)}. Set
 \code{mar = 0} or \code{mar = c(0, 0, 0, 0)} to eliminate margins and maximize the
 plotting area.}
 }

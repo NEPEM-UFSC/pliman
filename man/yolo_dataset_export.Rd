@@ -26,15 +26,26 @@ yolo_dataset_export(
   split_ratio = c(0.7, 0.2, 0.1),
   n_points = 40L,
   min_area = 15,
-  filter_edge = TRUE,
+  filter_edge = FALSE,
   crop_to_objects = FALSE,
   crop_margin = 0.05,
+  box_margin = 0.05,
+  lower_size = NULL,
+  upper_size = NULL,
+  size_mode = c("relative", "absolute"),
   show_similarity = FALSE,
   superres_map = FALSE,
   review = TRUE,
   rainbow = TRUE,
-  show_class = TRUE,
+  show_bbox = TRUE,
+  show_polygon = TRUE,
+  show_points = FALSE,
+  show_labels = TRUE,
   show_conf = TRUE,
+  bbox = show_bbox,
+  polygon = show_polygon,
+  points = show_points,
+  labels = show_labels,
   badge = TRUE,
   engine = c("gpu", "cpu"),
   device_id = -1,
@@ -119,11 +130,31 @@ compact and clean.}
 
 \item{min_area}{Minimum object area (in pixels) to include in the dataset. Defaults to \code{15}.}
 
-\item{filter_edge}{Logical. If \code{TRUE} (default), filters out spurious border-cut artifacts touching image edges.}
+\item{filter_edge}{Logical. Whether to automatically filter out spurious border-cut artifacts touching image edges (default: \code{FALSE}).}
 
 \item{crop_to_objects}{Logical. If \code{TRUE}, crops the image to the bounding box containing all detected objects plus a margin (default: \code{FALSE}).}
 
 \item{crop_margin}{Numeric. Margin fraction added around the object bounding box when \code{crop_to_objects = TRUE} (default: \code{0.05}, i.e., 5\%).}
+
+\item{box_margin}{Safety margin (padding proportion) added around detected bounding boxes before segmenting with Meta SAM 2.1 (e.g. \code{0.05} expands 5\% on each side). Prevents masks from cutting off object borders. Defaults to \code{0.05} (5\%).}
+
+\item{lower_size}{Optional numeric value to filter out small detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+less than \code{lower_size} times the mean area of all candidate boxes in that image are removed
+(e.g., \code{lower_size = 0.2} removes small debris, dust, or grains smaller than 20\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) below \code{lower_size} are removed.
+Defaults to \code{NULL} (no lower size filter).}
+
+\item{upper_size}{Optional numeric value to filter out abnormally large detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+greater than \code{upper_size} times the mean area of all candidate boxes in that image are removed
+(e.g., \code{upper_size = 2.0} removes objects larger than 200\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) above \code{upper_size} are removed.
+Defaults to \code{NULL} (no upper size filter).}
+
+\item{size_mode}{Character string specifying how \code{lower_size} and \code{upper_size} are interpreted.
+\code{"relative"} (default) treats values as proportions/multiples of the mean bounding box area.
+\code{"absolute"} treats values as area in pixels.}
 
 \item{show_similarity}{Logical. If \code{TRUE}, displays a side-by-side 2-panel preview showing the detected
 objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidencia") on the right. Defaults to \code{FALSE}.}
@@ -131,15 +162,23 @@ objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidenci
 \item{superres_map}{Logical. If \code{TRUE}, applies Real-ESRGAN 4x super-resolution on the PerSAM similarity map
 with bilateral semantic background gating. Default is \code{FALSE}.}
 
-\item{review}{Logical or integer. If \code{TRUE} (default), writes annotated review images to a \verb{review/}
+\item{review}{Logical or integer. If \code{TRUE} (default), writes annotated review images to a \verb{review/} subfolder. An integer can be provided (e.g. \code{review = 100}) to randomly sample that number of images across the dataset for review previews. Defaults to \code{TRUE}.
 subfolder in \code{dir} for visual inspection of all images. An integer can be provided (e.g. \code{review = 30})
 to limit the number of review images generated.}
 
 \item{rainbow}{Logical. If \code{TRUE} (default), plots instances in distinct rainbow colors during interactive review.}
 
-\item{show_class}{Logical. Whether to display class name on labels/badges during interactive review. Defaults to \code{TRUE}.}
+\item{show_bbox}{Logical. Whether to draw bounding boxes on review previews. Defaults to \code{TRUE}. Supported alias: \code{bbox}.}
 
-\item{show_conf}{Logical. Whether to display confidence score on labels/badges during interactive review. Defaults to \code{TRUE}.}
+\item{show_polygon}{Logical. Whether to draw segmentation polygons on review previews. Defaults to \code{TRUE}. Supported alias: \code{polygon}.}
+
+\item{show_points}{Logical. If \code{TRUE}, draws points at the centroid of each object using the same color as the box. Defaults to \code{FALSE}. Supported alias: \code{points}.}
+
+\item{show_labels}{Logical. Whether to display class name on labels/badges during review previews. Defaults to \code{TRUE}. Supported aliases: \code{show_class}, \code{labels}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges during review previews. Defaults to \code{TRUE}. Supported alias: \code{show_scores}.}
+
+\item{bbox, polygon, points, labels}{Backward-compatible aliases for \code{show_bbox}, \code{show_polygon}, \code{show_points}, and \code{show_labels}.}
 
 \item{badge}{Logical. Whether to draw a filled background badge behind labels during interactive review. Defaults to \code{TRUE}.}
 
@@ -147,7 +186,7 @@ to limit the number of review images generated.}
 
 \item{device_id}{GPU device ID (default \code{-1}).}
 
-\item{move}{Logical. If \code{TRUE} (default), moves the source images directly into the dataset's \verb{images/} split directories instead of copying them. Defaults to \code{TRUE}.}
+\item{move}{Logical. If \code{TRUE} (default), moves the source images directly into the dataset's \verb{images/} split directories instead of copying them.}
 
 \item{overwrite}{Logical. If \code{TRUE} (default), overwrites existing dataset files in \code{dir}.}
 
@@ -194,7 +233,9 @@ Accepts natural language text descriptions (e.g. \code{prompt = "people"}, \code
 or \code{class_names = c("person", "bicycle")}) to locate and segment all matching objects.
 \item \strong{YOLO Pre-Labeling / Active Learning (\code{model = "<model>.onnx"}):}
 Applies an existing trained YOLO model to unannotated images to produce draft labels
-for rapid dataset expansion.
+for rapid dataset expansion. If a YOLO detection model is passed with \code{task = "segment"},
+\code{pliman} automatically pairs the detected bounding boxes with Meta SAM 2.1 to extract
+precise sub-pixel instance segmentation polygons.
 \item \strong{Classical Image Analysis (\code{model = NULL}):}
 Extracts contours via \code{\link[=analyze_objects]{analyze_objects()}} using thresholding, color indexes, and watershed algorithms.
 }

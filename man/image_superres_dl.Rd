@@ -2,12 +2,12 @@
 % Please edit documentation in R/utils_neural.R
 \name{image_superres_dl}
 \alias{image_superres_dl}
-\title{4x Super-Resolution with Real-ESRGAN Compact}
+\title{Deep Learning Super-Resolution}
 \usage{
 image_superres_dl(
   img,
-  model = "realesrgan-compact",
-  scale = 4,
+  model = "realesrgan_x2_full",
+  scale = NULL,
   tile_size = 256,
   tile_pad = 16,
   threads = 0,
@@ -22,17 +22,27 @@ image_superres_dl(
 \arguments{
 \item{img}{An \code{Image} object, a 2D/3D numeric array, a path to an image file, or a list of images.}
 
-\item{model}{Model name or path to a custom ONNX file. Defaults to \code{"realesrgan-compact"}.}
+\item{model}{Super-resolution model name or path to a custom ONNX file. Built-in options:
+\itemize{
+\item \code{"realesrgan_x2_full"} (default): Full Real-ESRGAN perceptual network for 2x super-resolution (RRDBNet, photorealistic quality).
+\item \code{"SAFMN2x"}: PureScale 2x Spatially-Adaptive Feature Modulation Network for lightweight, artifact-free 2x upscaling.
+\item \code{"SAFMN2x_sharper"}: PureScale 2x SAFMN with enhanced high-frequency modulation for crisp boundary and fine texture reconstruction.
+\item \code{"SAFMN4x"}: PureScale 4x SAFMN for high-magnification 4x super-resolution with feature modulation.
+\item \code{"realesrgan_x4_full"}: Full Real-ESRGAN perceptual network for 4x super-resolution (RRDBNet, high-fidelity texture synthesis).
+\item \code{"realesrgan"} (or \code{"realesrgan-compact"}): Ultra-fast, lightweight 4x generative super-resolution (SRVGG, ~4.9 MB).
+}}
 
-\item{scale}{Upscaling factor (default 4).}
+\item{scale}{Desired upscaling factor. Defaults to \code{NULL}, which automatically infers the model's native scale
+(2x for 2x models, 4x for 4x models). If a different scale is provided (e.g., \code{scale = 3} or \code{scale = 8}),
+the neural output is resized to the target scale using high-quality Lanczos interpolation.}
 
 \item{tile_size}{Processing tile size in pixels (default 256).}
 
-\item{tile_pad}{Overlap margin in pixels for seamless blending (default 16).}
+\item{tile_pad}{Overlap margin in pixels for seamless blending between adjacent tiles (default 16).}
 
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 
-\item{engine}{Execution engine: \code{"cpu"} or \code{"gpu"} (DirectML).}
+\item{engine}{Execution engine: \code{"gpu"} (DirectML) or \code{"cpu"}.}
 
 \item{device_id}{GPU device ID (default -1 for auto).}
 
@@ -45,16 +55,19 @@ image_superres_dl(
 \item{...}{Additional arguments passed to \code{\link[graphics:plot]{graphics::plot()}}.}
 }
 \value{
-An \code{Image} object with dimensions \verb{(orig_w * 4) x (orig_h * 4) x 3}.
+An \code{Image} object with dimensions \verb{(orig_w * scale) x (orig_h * scale) x 3}.
 }
 \description{
-Upscales images by 4x using generative convolutional super-resolution with
-intelligent tiled overlapping to prevent GPU/CPU memory exhaustion.
+Upscales images using state-of-the-art deep convolutional and modulation neural networks
+(including Real-ESRGAN, Real-ESRGAN Full, and PureScale SAFMN Spatially-Adaptive Feature Modulation)
+with intelligent tiled overlapping to prevent GPU/CPU memory exhaustion.
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("low_res.png")
-  img_hr <- image_superres_dl(img)
+  imgsr <- image_superres_dl(img)
+  imgsharper <- image_superres_dl(img, model = "SAFMN2x_sharper")
+  image_combine(img, imgsr, imgsharper, ncol = 3)
 \dontshow{\}) # examplesIf}
 }

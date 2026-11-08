@@ -31,12 +31,6 @@
 #'   * **Size:** ~120.2 MB (Encoder + Decoder) | **Input Resolution:** 1024 x 1024
 #'   * **Architecture:** Meta AI Hiera-Tiny foundation vision transformer with promptable mask decoder.
 #'   * **Best For:** Zero-shot foundation segmentation with point prompts (`pick_object = TRUE`), box prompts, or center point defaults.
-#'
-#' * **`"sam3.1"` (Segment Anything 3.1 by Meta AI, alias `"sam3"`)**:
-#'   * **Size:** ~868.1 MB | **Input Resolution:** 1024 x 1024
-#'   * **Architecture:** Meta AI Segment Anything 3.1 with real-time concept-driven segmentation.
-#'   * **Best For:** Advanced foundation segmentation across diverse biological structures.
-#'
 #' * **`"birefnet-lite"` (Bilateral Reference Network Lite)**:
 #'   * **Size:** ~213.6 MB | **Input Resolution:** 1024 x 1024
 #'   * **Architecture:** Bilateral Reference Network for High-Resolution Dichotomous Image Segmentation (BiRefNet Lite).
@@ -262,10 +256,6 @@ pliman_model_dir <- function(dir = NULL) {
     "sam-2"                  = "sam2.1",
     "sam2.1"                 = "sam2.1",
     "sam-2.1"                = "sam2.1",
-    "sam3"                   = "sam3.1",
-    "sam-3"                  = "sam3.1",
-    "sam3.1"                 = "sam3.1",
-    "sam-3.1"                = "sam3.1",
     "segment-anything"       = "sam2.1",
     "segment_anything"       = "sam2.1",
     "segmentanything"        = "sam2.1",
@@ -378,12 +368,61 @@ pliman_model_dir <- function(dir = NULL) {
     "star-dist"              = "stardist",
     "stardist-dsb2018"       = "stardist",
     "star_dist"              = "stardist",
-    "realesrgan"             = "realesrgan-compact",
-    "real-esrgan"            = "realesrgan-compact",
-    "realesrgan-compact"     = "realesrgan-compact",
-    "real_esrgan"            = "realesrgan-compact",
-    "superres"               = "realesrgan-compact",
-    "super-res"              = "realesrgan-compact",
+    "purescale"              = "SAFMN4x",
+    "purescale-4x"           = "SAFMN4x",
+    "4x-purescale"           = "SAFMN4x",
+    "4x_purescale"           = "SAFMN4x",
+    "SAFMN4x"                = "SAFMN4x",
+    "safmn"                  = "SAFMN4x",
+    "safmn-4x"               = "SAFMN4x",
+    "safmn4x"                = "SAFMN4x",
+    "safmn_4x"               = "SAFMN4x",
+    "4x_safmn"               = "SAFMN4x",
+    "4x-safmn"               = "SAFMN4x",
+    "SAFMN4x.onnx"           = "SAFMN4x",
+    "purescale-2x"           = "SAFMN2x",
+    "2x-purescale"           = "SAFMN2x",
+    "2x_purescale"           = "SAFMN2x",
+    "SAFMN2x"                = "SAFMN2x",
+    "safmn-2x"               = "SAFMN2x",
+    "safmn2x"                = "SAFMN2x",
+    "safmn_2x"               = "SAFMN2x",
+    "2x_safmn"               = "SAFMN2x",
+    "2x-safmn"               = "SAFMN2x",
+    "SAFMN2x.onnx"           = "SAFMN2x",
+    "purescale-2x-sharper"   = "SAFMN2x_sharper",
+    "2x-purescale-sharper"   = "SAFMN2x_sharper",
+    "2x_purescale_sharper"   = "SAFMN2x_sharper",
+    "SAFMN2x_sharper"        = "SAFMN2x_sharper",
+    "safmn-2x-sharper"       = "SAFMN2x_sharper",
+    "safmn2x_sharper"        = "SAFMN2x_sharper",
+    "safmn_2x_sharper"       = "SAFMN2x_sharper",
+    "2x_safmn_sharper"       = "SAFMN2x_sharper",
+    "2x-safmn-sharper"       = "SAFMN2x_sharper",
+    "SAFMN2x_sharper.onnx"   = "SAFMN2x_sharper",
+    "realesrgan"             = "realesrgan_x2_full",
+    "real-esrgan"            = "realesrgan_x2_full",
+    "realesrgan-compact"     = "realesrgan",
+    "realesrgan_compact"     = "realesrgan",
+    "real-esrgan-compact"    = "realesrgan",
+    "realesrgan-x2"          = "realesrgan_x2_full",
+    "realesrgan_x2"          = "realesrgan_x2_full",
+    "real-esrgan-x2"         = "realesrgan_x2_full",
+    "real_esrgan_x2"         = "realesrgan_x2_full",
+    "realesrgan-x2-full"     = "realesrgan_x2_full",
+    "realesrgan_x2_full"     = "realesrgan_x2_full",
+    "real-esrgan-x2-full"    = "realesrgan_x2_full",
+    "real_esrgan_x2_full"    = "realesrgan_x2_full",
+    "realesrgan-x4"          = "realesrgan_x4_full",
+    "realesrgan_x4"          = "realesrgan_x4_full",
+    "real-esrgan-x4"         = "realesrgan_x4_full",
+    "real_esrgan_x4"         = "realesrgan_x4_full",
+    "realesrgan-x4-full"     = "realesrgan_x4_full",
+    "realesrgan_x4_full"     = "realesrgan_x4_full",
+    "real-esrgan-x4-full"    = "realesrgan_x4_full",
+    "real_esrgan_x4_full"    = "realesrgan_x4_full",
+    "superres"               = "realesrgan_x2_full",
+    "super-res"              = "realesrgan_x2_full",
     "clip"                   = "clip-vit-b32",
     "clip-vit-b32"           = "clip-vit-b32",
     "clip-b32"               = "clip-vit-b32",
@@ -517,6 +556,29 @@ pliman_model_dir <- function(dir = NULL) {
     NULL
   }, error = function(e) NULL)
 }
+
+.get_onnx_imgsz <- function(model_file) {
+  if (is.null(model_file) || !file.exists(model_file)) return(NULL)
+  tryCatch({
+    sz <- as.numeric(file.info(model_file)$size[1])
+    if (is.na(sz) || sz < 1024) return(NULL)
+    read_sz <- as.integer(min(sz, 262144L))
+    con <- file(model_file, "rb")
+    seek(con, as.integer(max(0, sz - read_sz)))
+    chunk <- readBin(con, "raw", n = read_sz)
+    close(con)
+
+    txt <- rawToChar(chunk[chunk >= 32 & chunk <= 126])
+    m <- regexec("imgsz\\s*\\[?\\s*(\\d+)", txt)
+    matches <- regmatches(txt, m)[[1]]
+    if (length(matches) >= 2) {
+      val <- as.integer(matches[2])
+      if (!is.na(val) && val > 0L) return(val)
+    }
+    NULL
+  }, error = function(e) NULL)
+}
+
 # Helper to map colors by object class/label or rainbow per instance (persistent by ID when available)
 .get_class_palette <- function(labels = NULL,
                                n = length(labels),
@@ -1067,14 +1129,6 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       url = paste0(base_url, "sam2.1.encoder.onnx")
     ),
     list(
-      name = "sam3.1",
-      description = "Segment Anything Model 3.1 (Meta AI): Concept-driven foundation segmentation (1024x1024)",
-      size_mb = 868.1,
-      input_size = 1024,
-      filename = "sam3.1.onnx",
-      url = paste0(base_url, "sam3.1.onnx")
-    ),
-    list(
       name = "ben2",
       description = "Boundary-aware Extraction Network (BEN2 Base, Prama LLC): High-accuracy crisp boundary extraction (1024x1024)",
       size_mb = 212.6,
@@ -1290,12 +1344,52 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       url = paste0(base_url, "stardist-dsb2018.onnx")
     ),
     list(
-      name = "realesrgan-compact",
-      description = "Real-ESRGAN Compact: Fast 4x generative super-resolution with edge preservation",
-      size_mb = 16.7,
+      name = "SAFMN4x",
+      description = "PureScale 4x SAFMN: Spatially-Adaptive Feature Modulation Network for high-detail 4x super-resolution",
+      size_mb = 23.2,
       input_size = 256,
-      filename = "realesrgan-compact.onnx",
-      url = paste0(base_url, "realesrgan-compact.onnx")
+      filename = "SAFMN4x.onnx",
+      url = paste0(base_url, "SAFMN4x.onnx")
+    ),
+    list(
+      name = "SAFMN2x",
+      description = "PureScale 2x SAFMN: Spatially-Adaptive Feature Modulation Network for fast, artifact-free 2x super-resolution",
+      size_mb = 23.0,
+      input_size = 256,
+      filename = "SAFMN2x.onnx",
+      url = paste0(base_url, "SAFMN2x.onnx")
+    ),
+    list(
+      name = "SAFMN2x_sharper",
+      description = "PureScale 2x SAFMN Sharper: Edge-enhanced and sharpened 2x super-resolution",
+      size_mb = 23.0,
+      input_size = 256,
+      filename = "SAFMN2x_sharper.onnx",
+      url = paste0(base_url, "SAFMN2x_sharper.onnx")
+    ),
+    list(
+      name = "realesrgan_x2_full",
+      description = "Real-ESRGAN Full 2x: High-fidelity photorealistic 2x super-resolution (RRDBNet, 67 MB)",
+      size_mb = 67.1,
+      input_size = 256,
+      filename = "realesrgan_x2_full.onnx",
+      url = "https://huggingface.co/SceneWorks/real-esrgan-onnx/resolve/main/real_esrgan_x2.onnx?download=true"
+    ),
+    list(
+      name = "realesrgan_x4_full",
+      description = "Real-ESRGAN Full 4x: High-fidelity photorealistic 4x super-resolution (RRDBNet, 67 MB)",
+      size_mb = 67.1,
+      input_size = 256,
+      filename = "realesrgan_x4_full.onnx",
+      url = "https://huggingface.co/SceneWorks/real-esrgan-onnx/resolve/main/real_esrgan_x4.onnx?download=true"
+    ),
+    list(
+      name = "realesrgan",
+      description = "Real-ESRGAN Compact: Ultra-fast 4x lightweight super-resolution (SRVGG, 4.8 MB)",
+      size_mb = 4.9,
+      input_size = 256,
+      filename = "realesrgan.onnx",
+      url = paste0(base_url, "realesrgan.onnx")
     ),
     list(
       name = "clip-vit-b32",
@@ -2743,6 +2837,13 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
                              device_id = -1,
                              verbose = TRUE,
                              dir = pliman_model_dir()) {
+  if (grepl("^sam-?3", tolower(model[1]))) {
+    cli::cli_abort(c(
+      "SAM 3 / 3.1 is not supported.",
+      "x" = "SAM 3.1 does not provide an interactive ONNX prompt decoder (point/box prompt mask generator).",
+      "i" = "Please use {.val 'sam2.1'} (or {.val 'persam'} / {.val 'grounded-sam'})."
+    ))
+  }
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
   model <- .resolve_model_name(model[1])
@@ -3086,8 +3187,6 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
 #'       visually similar to one or more user-clicked exemplar objects using Multi-Prototype Cosine Similarity Max-Pooling.
 #'     - `"sam2.1"` (or `"sam2"`): Meta AI Segment Anything 2.1 (Hiera-Tiny, ~120.2 MB, 1024x1024 input). Foundation vision transformer
 #'       supporting point prompts, box prompts, or interactive clicking (`pick_object = TRUE`).
-#'     - `"sam3.1"` (or `"sam3"`): Meta AI Segment Anything 3.1 (~868.1 MB, 1024x1024 input). High-capacity concept-driven
-#'       foundation segmentation model.
 #' @param threshold Numeric value in `[0, 1]` specifying the cutoff threshold applied to the model's
 #'   continuous probability/logit output map. Default is `0.5`. Increasing this threshold (e.g., `0.7`) makes
 #'   segmentation more conservative (avoiding background noise), whereas decreasing it (e.g., `0.3`) includes
@@ -3163,7 +3262,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
 #'   # One-shot visual exemplar segmentation (PerSAM)
 #'   mask_exemplar <- image_binary_dl(img, model = "persam", prompt = c(150, 200))
 image_binary_dl <- function(img,
-                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                             threshold = 0.5,
                             fill_hull = TRUE,
                             filter = 0,
@@ -3275,7 +3374,7 @@ image_binary_dl <- function(img,
 #'   # Extract instances matching a visual exemplar click (PerSAM)
 #'   img_exemplar <- image_remove_bg_dl(img, model = "persam", prompt = c(120, 150))
 image_remove_bg_dl <- function(img,
-                               model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                               model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                                threshold = 0.5,
                                fill_hull = TRUE,
                                filter = 0,
@@ -3614,7 +3713,7 @@ image_remove_bg_dl <- function(img,
                               show_id = FALSE,
                               show_box = NULL,
                               show_point = FALSE,
-                              point_size = 1.5,
+                              point_size = 1,
                               point_pch = 16,
                               point_col = NULL,
                               badge = TRUE,
@@ -4278,6 +4377,290 @@ image_remove_bg_dl <- function(img,
   ))
 }
 
+# Segment multiple bounding boxes using Meta SAM 2.1
+.sam_segment_boxes <- function(img,
+                               boxes,
+                               threshold = 0.5,
+                               fill_hull = TRUE,
+                               filter = 0,
+                               erode = 0,
+                               dilate = 0,
+                               opening = 0,
+                               closing = 0,
+                               min_area = 15,
+                               n_points = 40L,
+                               batch_size = 64L,
+                               box_margin = 0.05,
+                               engine = c("cpu", "gpu"),
+                               device_id = -1,
+                               dir = pliman_model_dir(),
+                               verbose = FALSE) {
+  if (is.null(boxes) || nrow(boxes) == 0L) {
+    return(list(contours = list(), masks = list()))
+  }
+  engine <- match.arg(engine)
+  use_gpu <- (engine == "gpu")
+  mat <- if (inherits(img, c("Image", "image"))) {
+    image_data(img)
+  } else if (is.character(img) && file.exists(img[1])) {
+    image_data(image_import(img[1]))
+  } else {
+    img
+  }
+  dims <- dim(mat)
+  orig_w <- dims[1]
+  orig_h <- dims[2]
+
+  dir <- pliman_model_dir(dir)
+  pliman_download_model("sam2.1", dir = dir)
+  sam_enc <- file.path(dir, "sam2.1.encoder.onnx")
+  sam_dec <- file.path(dir, "sam2.1.decoder.onnx")
+  lib_file <- pliman_onnx_lib_path(engine = engine)
+  if (is.null(lib_file) || !file.exists(lib_file)) {
+    lib_file <- onnx_install(engine = engine)
+  }
+
+  num_boxes <- nrow(boxes)
+  boxes_px <- matrix(0.0, nrow = num_boxes, ncol = 4)
+
+  boxes_df <- as.data.frame(boxes)
+  col_names <- tolower(names(boxes_df))
+  x1_col <- which(col_names %in% c("xmin", "x1", "left"))[1]
+  y1_col <- which(col_names %in% c("ymin", "y1", "top"))[1]
+  x2_col <- which(col_names %in% c("xmax", "x2", "right"))[1]
+  y2_col <- which(col_names %in% c("ymax", "y2", "bottom"))[1]
+  if (is.na(x1_col)) x1_col <- 1L
+  if (is.na(y1_col)) y1_col <- 2L
+  if (is.na(x2_col)) x2_col <- 3L
+  if (is.na(y2_col)) y2_col <- 4L
+
+  boxes_px[, 1] <- pmax(1.0, pmin(as.double(orig_w), as.double(boxes_df[[x1_col]])))
+  boxes_px[, 2] <- pmax(1.0, pmin(as.double(orig_h), as.double(boxes_df[[y1_col]])))
+  boxes_px[, 3] <- pmax(1.0, pmin(as.double(orig_w), as.double(boxes_df[[x2_col]])))
+  boxes_px[, 4] <- pmax(1.0, pmin(as.double(orig_h), as.double(boxes_df[[y2_col]])))
+
+  # Swap if coordinates inverted
+  for (i in seq_len(num_boxes)) {
+    if (boxes_px[i, 1] > boxes_px[i, 3]) {
+      tmp <- boxes_px[i, 1]; boxes_px[i, 1] <- boxes_px[i, 3]; boxes_px[i, 3] <- tmp
+    }
+    if (boxes_px[i, 2] > boxes_px[i, 4]) {
+      tmp <- boxes_px[i, 2]; boxes_px[i, 2] <- boxes_px[i, 4]; boxes_px[i, 4] <- tmp
+    }
+  }
+
+  # Apply safety margin (box_margin, e.g. 0.05 = 5% padding around each side)
+  # This prevents masks from being cut off along the bounding box edges
+  bm_x <- 0.05
+  bm_y <- 0.05
+  if (!is.null(box_margin) && is.numeric(box_margin) && length(box_margin) >= 1L && !is.na(box_margin[1])) {
+    bm_x <- as.numeric(box_margin[1])
+    bm_y <- if (length(box_margin) >= 2L && !is.na(box_margin[2])) as.numeric(box_margin[2]) else bm_x
+    if (bm_x > 1.0) bm_x <- bm_x / 100.0
+    if (bm_y > 1.0) bm_y <- bm_y / 100.0
+    if (bm_x < 0.0) bm_x <- 0.0
+    if (bm_y < 0.0) bm_y <- 0.0
+  }
+
+  if (bm_x > 0.0 || bm_y > 0.0) {
+    for (i in seq_len(num_boxes)) {
+      bw_b <- boxes_px[i, 3] - boxes_px[i, 1]
+      bh_b <- boxes_px[i, 4] - boxes_px[i, 2]
+      dx <- bw_b * bm_x
+      dy <- bh_b * bm_y
+      boxes_px[i, 1] <- pmax(1.0, boxes_px[i, 1] - dx)
+      boxes_px[i, 2] <- pmax(1.0, boxes_px[i, 2] - dy)
+      boxes_px[i, 3] <- pmin(as.double(orig_w), boxes_px[i, 3] + dx)
+      boxes_px[i, 4] <- pmin(as.double(orig_h), boxes_px[i, 4] + dy)
+    }
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_progress_step(
+      msg = "Segmenting {num_boxes} bounding box{?es} with Meta SAM 2.1 [{toupper(engine)}]...",
+      msg_done = "SAM 2.1 segmented {num_boxes} bounding box{?es}"
+    )
+  }
+
+  sam_tensor <- .preprocess_nchw(mat, target_size = 1024L,
+                                mean = c(0.485, 0.456, 0.406),
+                                std = c(0.229, 0.224, 0.225),
+                                letterbox = FALSE)
+
+  bs <- if (is.null(batch_size) || is.na(batch_size) || batch_size <= 0) 64L else as.integer(batch_size)
+
+  raw_masks <- run_sam2_instances_cpp(
+    tensor_vec = as.numeric(sam_tensor),
+    boxes = boxes_px,
+    orig_w = as.double(orig_w),
+    orig_h = as.double(orig_h),
+    encoder_path = normalizePath(sam_enc, winslash = "/", mustWork = FALSE),
+    decoder_path = normalizePath(sam_dec, winslash = "/", mustWork = FALSE),
+    lib_path = normalizePath(lib_file, winslash = "/", mustWork = FALSE),
+    num_threads = 0L,
+    use_gpu = use_gpu,
+    device_id = as.integer(device_id),
+    batch_size = bs
+  )
+
+  conts_list <- vector("list", num_boxes)
+  masks_list <- vector("list", num_boxes)
+
+  for (k in seq_len(num_boxes)) {
+    prob_map <- raw_masks[[k]]
+    bx <- boxes_px[k, ]
+    pad_mult_x <- max(0.02, bm_x)
+    pad_mult_y <- max(0.02, bm_y)
+    pad_w <- max(2.0, (bx[3] - bx[1]) * pad_mult_x)
+    pad_h <- max(2.0, (bx[4] - bx[2]) * pad_mult_y)
+    x1 <- max(1L, floor(bx[1] - pad_w))
+    x2 <- min(orig_w, ceiling(bx[3] + pad_w))
+    y1 <- max(1L, floor(bx[2] - pad_h))
+    y2 <- min(orig_h, ceiling(bx[4] + pad_h))
+
+    c1 <- max(1L, min(256L, floor(x1 / orig_w * 256.0)))
+    c2 <- max(1L, min(256L, ceiling(x2 / orig_w * 256.0)))
+    r1 <- max(1L, min(256L, floor(y1 / orig_h * 256.0)))
+    r2 <- min(256L, ceiling(y2 / orig_h * 256.0))
+
+    crop_prob <- prob_map[c1:c2, r1:r2, drop = FALSE]
+    bw_orig <- as.integer(x2 - x1 + 1L)
+    bh_orig <- as.integer(y2 - y1 + 1L)
+    bw <- min(256L, max(32L, bw_orig))
+    bh <- min(256L, max(32L, bh_orig))
+
+    crop_resized <- image_resize_cpp(crop_prob, bw, bh, filter = 1L)
+    m_crop <- crop_resized >= threshold
+
+    if (isTRUE(fill_hull)) {
+      m_crop <- (fill_holes_cpp(m_crop) > 0)
+    }
+    if (filter > 0) {
+      m_arr <- as.array(m_crop)
+      dim(m_arr) <- c(bw, bh, 1L)
+      f_res <- median_filter_binary_cpp(m_arr, bw, bh, 1L, as.integer(filter))
+      m_crop <- (f_res[, , 1] > 0)
+    }
+    if (erode > 0) m_crop <- (erode_cpp(m_crop, raio = as.integer(erode)) > 0)
+    if (dilate > 0) m_crop <- (dilate_cpp(m_crop, raio = as.integer(dilate)) > 0)
+    if (opening > 0) {
+      m_crop <- (erode_cpp(m_crop, raio = as.integer(opening)) > 0)
+      m_crop <- (dilate_cpp(m_crop, raio = as.integer(opening)) > 0)
+    }
+    if (closing > 0) {
+      m_crop <- (dilate_cpp(m_crop, raio = as.integer(closing)) > 0)
+      m_crop <- (erode_cpp(m_crop, raio = as.integer(closing)) > 0)
+    }
+
+    # Extract polygon contour from local crop using fast C++ tracer
+    cnt_found <- NULL
+    lbl_crop <- bwlabel_cpp(m_crop)
+    if (max(lbl_crop) > 0) {
+      if (max(lbl_crop) > 1) {
+        tb <- tabulate(lbl_crop)
+        best_id <- which.max(tb)
+        lbl_crop <- matrix(ifelse(lbl_crop == best_id, 1L, 0L), nrow = bw, ncol = bh)
+      }
+      cnts <- extract_contours_cpp(lbl_crop)
+      if (length(cnts) > 0 && !is.null(cnts[[1]]) && nrow(cnts[[1]]) >= 3L) {
+        cnt <- cnts[[1]]
+        # Rescale local crop coords back to original image coordinates
+        if (bw > 1 && bh > 1) {
+          cnt[, 1] <- (cnt[, 1] - 1) / (bw - 1) * (bw_orig - 1) + x1
+          cnt[, 2] <- (cnt[, 2] - 1) / (bh - 1) * (bh_orig - 1) + y1
+        } else {
+          cnt[, 1] <- cnt[, 1] + x1 - 1
+          cnt[, 2] <- cnt[, 2] + y1 - 1
+        }
+        if (!is.null(n_points) && !is.na(n_points) && n_points > 0L) {
+          n_cur <- nrow(cnt)
+          target_n <- min(as.integer(n_points), n_cur)
+          if (n_cur > target_n && target_n >= 3L) {
+            sampled_idx <- round(seq(1, n_cur, length.out = target_n + 1L)[-(target_n + 1L)])
+            cnt <- cnt[sampled_idx, , drop = FALSE]
+          }
+        }
+        cnt_found <- cnt
+      }
+    }
+
+    # Fallback to box corners if SAM produced no mask above threshold
+    if (is.null(cnt_found) || nrow(cnt_found) < 3L) {
+      cnt_found <- matrix(
+        c(bx[1], bx[2],
+          bx[3], bx[2],
+          bx[3], bx[4],
+          bx[1], bx[4]),
+        ncol = 2, byrow = TRUE
+      )
+    }
+
+    conts_list[[k]] <- cnt_found
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_progress_done()
+  }
+
+  list(
+    contours = conts_list,
+    masks = list()
+  )
+}
+
+# Compact/prune visual prototypes using Farthest-Point Sampling (FPS) by cosine similarity
+.compact_prototypes <- function(proto, max_protos = 8L) {
+  if (is.null(proto) || is.null(proto$semantic)) {
+    return(proto)
+  }
+  sem_list <- proto$semantic
+  n <- length(sem_list)
+  if (n <= max_protos) {
+    return(proto)
+  }
+
+  tryCatch({
+    mat <- do.call(cbind, sem_list)
+    if (!is.matrix(mat) || nrow(mat) != 256L) {
+      proto$semantic <- sem_list[seq_len(min(n, max_protos))]
+      if (!is.null(proto$hr0) && length(proto$hr0) >= n) {
+        proto$hr0 <- proto$hr0[seq_len(min(n, max_protos))]
+      }
+      return(proto)
+    }
+
+    # Cosine similarity matrix between prototypes
+    norms <- sqrt(colSums(mat^2))
+    norms[norms == 0] <- 1
+    mat_norm <- sweep(mat, 2, norms, "/")
+    sim_mat <- crossprod(mat_norm)
+    dist_mat <- 1 - sim_mat
+
+    # Farthest point sampling
+    selected <- integer(max_protos)
+    selected[1] <- 1L
+    min_dists <- dist_mat[1, ]
+
+    for (i in 2:max_protos) {
+      next_idx <- which.max(min_dists)
+      selected[i] <- next_idx
+      min_dists <- pmin(min_dists, dist_mat[next_idx, ])
+    }
+
+    proto$semantic <- sem_list[selected]
+    if (!is.null(proto$hr0) && length(proto$hr0) >= n) {
+      proto$hr0 <- proto$hr0[selected]
+    }
+    return(proto)
+  }, error = function(e) {
+    proto$semantic <- sem_list[seq_len(min(n, max_protos))]
+    if (!is.null(proto$hr0) && length(proto$hr0) >= n) {
+      proto$hr0 <- proto$hr0[seq_len(min(n, max_protos))]
+    }
+    return(proto)
+  })
+}
+
 # PerSAM (Personalize Segment Anything) runner: segments all instances similar to visual exemplar(s)
 .run_persam <- function(mat,
                         exemplar_points = NULL,
@@ -4747,6 +5130,9 @@ image_remove_bg_dl <- function(img,
   attr(vec, "gain") <- gain
   attr(vec, "pad_x") <- pad_x
   attr(vec, "pad_y") <- pad_y
+  attr(vec, "orig_w") <- orig_w
+  attr(vec, "orig_h") <- orig_h
+  attr(vec, "target_size") <- as.integer(target_size)
   vec
 }
 
@@ -4769,7 +5155,8 @@ image_remove_bg_dl <- function(img,
                       need_masks = TRUE,
                       return_features = FALSE,
                       txt_feats = NULL,
-                      dir = pliman_model_dir()) {
+                      dir = pliman_model_dir(),
+                      imgsz = NULL) {
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
   lib_path <- pliman_onnx_library_path()
@@ -4790,9 +5177,18 @@ image_remove_bg_dl <- function(img,
   is_obb_model  <- grepl("obb", model_lower)
   is_nas_model  <- grepl("nas", model_lower)
 
+  # Resolve input resolution (imgsz)
+  target_size <- if (!is.null(imgsz)) {
+    as.integer(imgsz[1])
+  } else {
+    model_imgsz <- .get_onnx_imgsz(model_file)
+    if (!is.null(model_imgsz) && length(model_imgsz) > 0L) as.integer(model_imgsz[1]) else 640L
+  }
+  if (is.na(target_size) || target_size <= 0L) target_size <- 640L
+
   tensor <- tryCatch(
-    preprocess_yolo_cpp(mat, target_size = 640L),
-    error = function(e) .preprocess_yolo(mat, target_size = 640L)
+    preprocess_yolo_cpp(mat, target_size = target_size),
+    error = function(e) .preprocess_yolo(mat, target_size = target_size)
   )
   orig_w <- attr(tensor, "orig_w")
   if (is.null(orig_w)) orig_w <- dim(mat)[1]
@@ -5636,7 +6032,7 @@ plot_yolo_heatmap <- function(img,
 #'   and `bbox = FALSE`. Defaults to `FALSE`.
 #' @param show_point Logical. Whether to show a point at the centroid of each segmented object. Defaults to `FALSE`.
 #' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (drawn if `bbox = TRUE`).
-#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1.5`.
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1`.
 #' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
 #' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param cex Size factor for bounding box label text (default `1.5`). Use smaller values (e.g., `0.2` or `0.5`)
@@ -5794,12 +6190,12 @@ image_segment_dl <- function(img,
                              show_id = FALSE,
                              show_point = FALSE,
                              show_box = NULL,
-                             point_size = 1.5,
+                             point_size = 1,
                              point_pch = 16,
                              point_col = NULL,
                              badge = TRUE,
                              rainbow = TRUE,
-                             model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                             model = c("rmbg-1.4", "u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1", "persam",  "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                              threshold = 0.5,
                              box_threshold = 0.25,
                              text_threshold = 0.25,
@@ -5832,6 +6228,7 @@ image_segment_dl <- function(img,
                              verbose = TRUE,
                              plot = TRUE,
                              dir = pliman_model_dir(),
+                             imgsz = NULL,
                              ...) {
   engine_specified <- !missing(engine)
   engine <- match.arg(engine)
@@ -5840,6 +6237,11 @@ image_segment_dl <- function(img,
     mask <- FALSE
   }
   dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
   if (is.null(classes) && !is.null(dots$classes)) classes <- dots$classes
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
@@ -5920,6 +6322,7 @@ image_segment_dl <- function(img,
                        verbose = verbose,
                        plot = FALSE,
                        dir = dir,
+                       imgsz = imgsz,
                        ...)
     })
     return(res)
@@ -5949,7 +6352,7 @@ image_segment_dl <- function(img,
   non_yolo_models <- c(
     "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
     "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben",
-    "sam2.1", "sam3.1", "sam", "grounded-sam", "persam", "stardist", "star-dist",
+    "sam2.1", "sam", "grounded-sam", "persam", "stardist", "star-dist",
     "depth-anything-v2", "dinov2", "realesrgan-compact",
     "yolov8s-world", "yolo-world", "yoloworld", "yolov8s-worldv2"
   )
@@ -5985,6 +6388,14 @@ image_segment_dl <- function(img,
     }
   } else if (!is_url) {
     model <- resolved_stem
+  }
+
+  if (!is_url && grepl("^sam-?3", tolower(model_raw))) {
+    cli::cli_abort(c(
+      "SAM 3 / 3.1 is not supported.",
+      "x" = "SAM 3.1 does not provide an interactive ONNX prompt decoder (point/box prompt mask generator).",
+      "i" = "Please use {.val 'sam2.1'} (or {.val 'persam'} / {.val 'grounded-sam'})."
+    ))
   }
 
   if (!is_url && grepl("[-_]cls", tolower(model))) {
@@ -6178,7 +6589,8 @@ image_segment_dl <- function(img,
         min_area = min_area,
         need_masks = isTRUE(mask) || type == "mask" || type == "highlight" || type == "segment",
         return_features = return_features,
-        dir = dir
+        dir = dir,
+        imgsz = imgsz
       )
     } else if (use_stardist) {
       gs_res <- .run_stardist(
@@ -6631,21 +7043,45 @@ image_segment_dl <- function(img,
           }
         }
       }
-      attr(gs_res, "contours") <- instance_conts
-      attr(gs_res, "instance_contours") <- instance_conts
-      attr(gs_res, "centroids") <- data.frame(id = seq_len(num_inst), x = cx, y = cy)
+      feats <- if (length(instance_conts) > 0) {
+        tryCatch(poly_measures(instance_conts), error = function(e) data.frame())
+      } else {
+        data.frame()
+      }
       if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
         gs_res$boxes$cx <- round(cx, 1)
         gs_res$boxes$cy <- round(cy, 1)
       }
+      res_df <- if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) > 0) {
+        bx <- gs_res$boxes
+        if (!is.null(feats) && is.data.frame(feats) && nrow(feats) > 0 && "id" %in% names(feats)) {
+          feat_cols_to_add <- setdiff(names(feats), c("id", "x", "y"))
+          m_idx <- match(bx$id, feats$id)
+          cbind(bx, feats[m_idx, feat_cols_to_add, drop = FALSE])
+        } else {
+          bx
+        }
+      } else {
+        data.frame()
+      }
+      attr(gs_res, "contours") <- instance_conts
+      attr(gs_res, "instance_contours") <- instance_conts
+      attr(gs_res, "centroids") <- data.frame(id = seq_len(num_inst), x = cx, y = cy)
       attr(gs_res, "summary") <- gs_res$summary
       attr(gs_res, "counts") <- gs_res$counts
+      attr(gs_res, "results") <- res_df
+      attr(gs_res, "boxes") <- res_df
       attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
       if (isTRUE(attach_im)) {
         attr(gs_res, "image") <- as_image(mat)
       }
       if (!is.null(gs_res$similarity_map)) attr(gs_res, "similarity_map") <- gs_res$similarity_map
-      gs_res <- .attach_features(gs_res, mat = mat, boxes = gs_res$boxes, conts = instance_conts,
+      gs_res$contours <- instance_conts
+      gs_res$results <- res_df
+      gs_res$boxes <- res_df
+      gs_res$features <- feats
+      class(gs_res) <- c("image_segment_dl", "list")
+      gs_res <- .attach_features(gs_res, mat = mat, boxes = res_df, conts = instance_conts,
                                  return_features = return_features, feature_model = feature_model,
                                  plot_features = plot_features, threads = threads, engine = engine,
                                  device_id = device_id, dir = dir, verbose = verbose,
@@ -6878,7 +7314,7 @@ pliman_clear_sessions <- function() {
 #' @rdname image_remove_bg_dl
 #' @export
 image_remove_bg <- function(img,
-                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                             threshold = 0.5,
                             fill_hull = TRUE,
                             filter = 0,
@@ -7231,7 +7667,7 @@ image_features_dl <- function(img,
 #' @param show_id Logical. Whether to display object IDs (`#1`, `#2`, ...) in labels (default `FALSE`).
 #' @param show_point Logical. Whether to show a point at the centroid of each detected object. Defaults to `FALSE`.
 #' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (TRUE unless `show_point = TRUE` and all text displays are `FALSE`).
-#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1.5`.
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1`.
 #' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
 #' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
@@ -7253,6 +7689,9 @@ image_features_dl <- function(img,
 #' @param verbose Logical. Whether to show progress messages.
 #' @param plot Logical. Whether to plot the original image with bounding boxes.
 #' @param dir Model directory (default `pliman_model_dir()`).
+#' @param imgsz Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+#'   If \code{NULL} (default), pliman automatically inspects the ONNX model metadata for native training
+#'   resolution and falls back to \code{640} if unspecified. Useful when running models exported with dynamic resolution.
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A data frame containing detected bounding boxes (`id`, `xmin`, `ymin`, `xmax`, `ymax`, `label`, `score`),
 #'   with `summary` and `counts` stored as attributes. If `return_features = TRUE`, `features` (an \eqn{N \times D} matrix)
@@ -7282,7 +7721,7 @@ image_detect_dl <- function(img,
                             show_id = FALSE,
                             show_point = FALSE,
                             show_box = NULL,
-                            point_size = 1.5,
+                            point_size = 1,
                             point_pch = 16,
                             point_col = NULL,
                             badge = TRUE,
@@ -7297,8 +7736,14 @@ image_detect_dl <- function(img,
                             verbose = TRUE,
                             plot = TRUE,
                             dir = pliman_model_dir(),
+                            imgsz = NULL,
                             ...) {
   dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
@@ -7338,7 +7783,7 @@ image_detect_dl <- function(img,
                       point_col = point_col, badge = badge,
                       return_features = return_features, feature_model = feature_model, plot_features = plot_features,
                       threads = threads, engine = engine, device_id = device_id, verbose = verbose, plot = FALSE,
-                      dir = dir, ...)
+                      dir = dir, imgsz = imgsz, ...)
     })
     return(res)
   }
@@ -7421,6 +7866,7 @@ image_detect_dl <- function(img,
       verbose = verbose,
       dir = dir,
       model = world_model,
+      imgsz = imgsz,
       ...
     ))
   }
@@ -7447,7 +7893,8 @@ image_detect_dl <- function(img,
     device_id = device_id,
     need_masks = need_masks,
     return_features = return_features,
-    dir = dir
+    dir = dir,
+    imgsz = imgsz
   )
 
   if (!is.null(classes) && !is.null(res$boxes) && nrow(res$boxes) > 0) {
@@ -7713,6 +8160,98 @@ list_cameras <- function(details = FALSE) {
   c(rx1, ry1, rx2, ry2)
 }
 
+# Factory to create a moving average smoother for telemetry metrics
+# - Internally updated on EVERY frame using a rolling window of length `smoot_stat`
+# - Displayed values are latched and only updated every `smoot_stat` frames (and on frame 1)
+.make_stats_smoother <- function(smoot_stat = 30L) {
+  win <- as.integer(smoot_stat[1])
+  if (is.na(win) || win < 1L) win <- 1L
+
+  # Buffer for rolling window of length win
+  history <- list()
+  displayed_vals <- list()
+  last_valid <- list()
+  frame_idx <- 0L
+
+  # Metrics that represent object properties and should retain their last valid value
+  # when no objects are present in the zone/frame, instead of plunging to 0
+  persist_keys <- c("flow", "vel_mean", "vel_jit", "size_mean", "size_cv", "conf_mean", "conf_sd", "conf_min")
+
+  function(metrics_list) {
+    if (!is.list(metrics_list) || length(metrics_list) == 0L) {
+      return(metrics_list)
+    }
+    if (win <= 1L) {
+      return(metrics_list)
+    }
+
+    frame_idx <<- frame_idx + 1L
+
+    # 1. Update rolling history for every metric on every frame
+    for (nm in names(metrics_list)) {
+      v <- metrics_list[[nm]]
+      if (is.numeric(v) && length(v) == 1L && !is.na(v)) {
+        cur <- c(history[[nm]], v)
+        if (length(cur) > win) {
+          cur <- cur[(length(cur) - win + 1L):length(cur)]
+        }
+        history[[nm]] <<- cur
+        if (nm %in% persist_keys && v > 1e-4) {
+          last_valid[[nm]] <<- v
+        }
+      }
+    }
+
+    # 2. On frame 1, populate displayed_vals immediately so HUD is not blank/zero
+    if (length(displayed_vals) == 0L) {
+      for (nm in names(metrics_list)) {
+        displayed_vals[[nm]] <<- metrics_list[[nm]]
+      }
+    }
+
+    # 3. Only update displayed values every `win` frames
+    if (frame_idx == 1L || (frame_idx %% win == 0L)) {
+      for (nm in names(history)) {
+        vals <- history[[nm]]
+        if (length(vals) > 0L) {
+          if (nm == "conf_min") {
+            pos_vals <- vals[vals > 1e-4]
+            if (length(pos_vals) > 0L) {
+              m <- min(pos_vals, na.rm = TRUE)
+              last_valid[[nm]] <<- m
+              displayed_vals[[nm]] <<- m
+            } else if (!is.null(last_valid[[nm]])) {
+              displayed_vals[[nm]] <<- last_valid[[nm]]
+            } else {
+              displayed_vals[[nm]] <<- 0.0
+            }
+          } else if (nm %in% persist_keys) {
+            pos_vals <- vals[vals > 1e-4]
+            if (length(pos_vals) > 0L) {
+              m <- mean(pos_vals, na.rm = TRUE)
+              last_valid[[nm]] <<- m
+              displayed_vals[[nm]] <<- m
+            } else if (!is.null(last_valid[[nm]])) {
+              displayed_vals[[nm]] <<- last_valid[[nm]]
+            } else {
+              displayed_vals[[nm]] <<- 0.0
+            }
+          } else {
+            displayed_vals[[nm]] <<- mean(vals, na.rm = TRUE)
+          }
+        }
+      }
+    }
+
+    # 4. Return the latched displayed values
+    res <- metrics_list
+    for (nm in names(displayed_vals)) {
+      res[[nm]] <- displayed_vals[[nm]]
+    }
+    res
+  }
+}
+
 #' Real-Time Video Object Detection with YOLO (ONNX Runtime)
 #'
 #' Performs real-time object detection and tracking on video files (.mp4, .avi, .mov)
@@ -7873,7 +8412,9 @@ list_cameras <- function(details = FALSE) {
 #' @param return_data Logical. Whether to compute and return the detection dataset and ecological summary statistics (default `TRUE`). If `FALSE`, returns `invisible(NULL)`.
 #' @param track Logical. Whether to enable multi-object tracking and assign persistent IDs (`#1`, `#2`, etc.) across frames. Defaults to `FALSE`.
 #' @param min_frames Minimum number of frames an object must persist across the video to be retained in tracking statistics. Defaults to `10L`, discarding fleeting, transient noise artifacts (e.g. spurious false positives appearing in 10 or fewer frames). Set to `0` or `NULL` to retain all detections.
-#' @param trail Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when `track = TRUE`. Defaults to `TRUE`. Set to `FALSE` to maintain persistent IDs while hiding the trail.
+#' @param interpolate_box Logical. Whether to temporally interpolate bounding box positions for tracked objects across briefly lost or occluded frames using velocity motion vectors (default `FALSE`).
+#' @param interpolate_mask Logical. Whether to interpolate instance segmentation masks alongside interpolated bounding boxes (default `FALSE`).
+#' @param trail Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when `track = TRUE`. Defaults to `FALSE`.
 #' @param cex Size factor for label text (default `1.0`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
 #' @param pad Padding multiplier controlling the area/background badge size around label text (default `1.0`).
@@ -7919,12 +8460,23 @@ list_cameras <- function(details = FALSE) {
 #' @param skeleton Logical. Whether to render the 17-keypoint anatomical skeleton when running pose estimation models (e.g. `"yolo26n-pose"`). Defaults to `TRUE`.
 #' @param kpt_threshold Minimum confidence threshold for rendering individual keypoints and skeleton limbs (default 0.3).
 #' @param kpt_radius Integer radius of keypoint joint markers in pixels (default 4).
-#' @param bbox Logical. Whether to render bounding boxes around detected objects or people (default `TRUE`).
+#' @param bbox,show_box Logical. Whether to render bounding boxes around detected objects or people (default `TRUE`).
+#' @param show_point Logical. Whether to render centroid markers/points for detected objects (default `FALSE`).
+#' @param point_radius Integer radius of centroid markers in pixels (default 4).
+#' @param point_col Optional color for centroid markers. If `NULL` (default), matches the object's class/instance palette.
 #' @param mask Logical. Whether to render semi-transparent instance segmentation masks when using segmentation models (default `TRUE`).
 #' @param alpha Opacity/transparency of instance segmentation masks (default `0.4`, range `0` to `1`).
 #' @param show Logical. Whether to display the video feed with bounding boxes in real time.
 #'   Default is `interactive()`.
 #' @param show_fps Logical. Whether to overlay a real-time FPS and detection counter badge (default `TRUE`).
+#' @param telemetry Telemetry HUD display mode: `"detailed"` (default, glassmorphic diagnostic HUD card with real-time FPS, latency breakdown (inference, tracking, GUI), object counts, confidence statistics, flow rate, motion velocity, ROI occupancy, and 20-frame sparkline trend), `"simple"` (compact FPS, in-zone, and count badges), or `"none"` (disables HUD overlay).
+#' @param smoot_stat Window size (in frames) for moving average of telemetry statistics (default `20`).
+#'   Internally, the moving average of metrics (SPEED, LATENCY, INF, TRK, GUI, CONF, FLOW, MOTION, SIZE, ROI OCC)
+#'   is updated on every single frame, but displayed values on the telemetry HUD are refreshed every `smoot_stat` frames.
+#'   Frame number, in-zone count, counted total, and active tracks are displayed instantaneously on every frame.
+#'   Supported aliases: `smooth_stat`, `smooth_stats`, `smoot_stats`.
+#' @param min_frames Minimum number of consecutive/persistent frames an object must be tracked before rendering its bounding box or point (default `10L`). Suppresses transient false positives and noise from flickering on screen.
+#' @param as_job Logical. If `TRUE` and running inside RStudio, dispatches the video processing task to an asynchronous RStudio Background Job, keeping the R console free. Default is `FALSE`.
 #' @param hud_pos Screen position of the telemetry HUD card: either a preset string
 #'   (`"top-right"` (default, avoids top-left ROI zone), `"top-left"`, `"bottom-left"`,
 #'   `"bottom-right"`, `"top"`, or `"bottom"`), or a numeric vector of length 2 `c(x, y)`
@@ -8037,8 +8589,10 @@ video_detect_dl <- function(video = 0,
                             save_video = !is.null(output),
                             return_data = TRUE,
                             track = FALSE,
-                            min_frames = 10L,
-                            trail = TRUE,
+                            min_frames = 20L,
+                            interpolate_box = FALSE,
+                            interpolate_mask = FALSE,
+                            trail = FALSE,
                             cex = 1.0,
                             pad = 1.0,
                             badge = TRUE,
@@ -8070,10 +8624,16 @@ video_detect_dl <- function(video = 0,
                             kpt_threshold = 0.3,
                             kpt_radius = 4,
                             bbox = TRUE,
+                            show_box = bbox,
+                            show_point = FALSE,
+                            point_radius = 4,
+                            point_col = NULL,
                             mask = TRUE,
                             alpha = 0.4,
                             show = NULL,
                             show_fps = TRUE,
+                            telemetry = c("detailed", "simple", "none"),
+                            smoot_stat = 20,
                             hud_pos = c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom"),
                             hud_layout = c("vertical", "horizontal"),
                             infer_every = 1L,
@@ -8086,8 +8646,68 @@ video_detect_dl <- function(video = 0,
                             device_id = -1,
                             threads = 0,
                             dir = pliman_model_dir(),
+                            imgsz = NULL,
+                            as_job = FALSE,
                             verbose = TRUE,
                             ...) {
+  if (isTRUE(as_job)) {
+    if (requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable() && rstudioapi::hasFun("jobRunScript")) {
+      call_args <- match.call(expand.dots = TRUE)
+      env <- parent.frame()
+      eval_args <- as.list(call_args)[-1]
+      eval_args <- lapply(eval_args, function(x) eval(x, envir = env))
+      eval_args$as_job <- FALSE
+
+      job_dir <- file.path(tempdir(), paste0("pliman_vid_job_", as.integer(stats::runif(1, 10000, 99999))))
+      dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+      job_args_rds <- file.path(job_dir, "job_args.rds")
+      job_script_path <- file.path(job_dir, "run_job.R")
+
+      job_payload <- list(
+        getwd = getwd(),
+        args = eval_args
+      )
+      saveRDS(job_payload, job_args_rds)
+
+      v_label <- if (is.character(video)) basename(video[1]) else paste0("Camera ", video[1])
+      m_label <- if (is.character(model)) basename(model[1]) else "YOLO"
+      j_name <- paste0("video_detect_dl: ", v_label)
+
+      job_code <- paste0(
+        "# Auto-generated RStudio Background Job by pliman::video_detect_dl()\n",
+        "library(pliman)\n",
+        "cat('================================================================\\n')\n",
+        "cat('   pliman video_detect_dl() - RStudio Background Job\\n')\n",
+        "cat('================================================================\\n\\n')\n",
+        "job_info <- readRDS(", base::deparse(job_args_rds), ")\n",
+        "setwd(job_info$getwd)\n",
+        "res <- do.call(pliman::video_detect_dl, job_info$args)\n",
+        "cat('\\n[OK] Video detection background job finished successfully!\\n')\n"
+      )
+      writeLines(job_code, job_script_path)
+
+      job_id <- rstudioapi::jobRunScript(
+        path = job_script_path,
+        name = j_name,
+        workingDir = getwd(),
+        importEnv = FALSE
+      )
+
+      cli::cli_h2("Video Detection (pliman)")
+      cli::cli_alert_success("Video processing task has been dispatched to RStudio's {.strong Jobs} tab!")
+      cli::cli_ul(c(
+        "Job name: {.val {j_name}}",
+        "Video: {.val {v_label}}",
+        "Model: {.val {m_label}}",
+        "Working directory: {.path {getwd()}}"
+      ))
+      cli::cli_alert_info("Your R console is free! You can track live progress in the {.strong Jobs} tab.")
+      return(invisible(job_id))
+    } else {
+      cli::cli_alert_warning("RStudio Job runner not available. Running synchronously in current session...")
+    }
+  }
+
   positions <- c("vertical", "horizontal")
   count_line_orientation <- positions[pmatch(count_line_orientation, positions)]
   roi_orientation <- positions[pmatch(roi_orientation, positions)]
@@ -8099,6 +8719,11 @@ video_detect_dl <- function(video = 0,
     cex <- text_size
   }
   dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
   if ("camera" %in% names(dots)) video <- dots$camera
   if ("cam" %in% names(dots)) video <- dots$cam
   if ("device" %in% names(dots)) video <- dots$device
@@ -8163,6 +8788,57 @@ video_detect_dl <- function(video = 0,
   if (is.na(alpha) || alpha < 0) alpha <- 0.4
   if (alpha > 1.0) alpha <- 1.0
   src_fps <- if (!is.null(fps) && is.numeric(fps) && fps > 0) as.numeric(fps) else 30.0
+
+  if ("telemetry" %in% names(dots)) telemetry <- dots$telemetry
+  if ("hud" %in% names(dots)) telemetry <- dots$hud
+  if (is.logical(telemetry)) {
+    telemetry <- if (isTRUE(telemetry)) "detailed" else "none"
+  } else if (is.character(telemetry) && length(telemetry) > 0) {
+    telemetry <- match.arg(tolower(telemetry[1]), c("detailed", "simple", "none"))
+  } else {
+    telemetry <- "detailed"
+  }
+  if (!isTRUE(show_fps)) {
+    telemetry <- "none"
+  }
+  is_detailed <- (telemetry == "detailed")
+
+  for (nm in c("smoot_stat", "smooth_stat", "smooth_stats", "smoot_stats", "stats_window", "smooth_window", "telemetry_window")) {
+    if (nm %in% names(dots)) {
+      smoot_stat <- dots[[nm]]
+      break
+    }
+  }
+  if (is.logical(smoot_stat)) {
+    smoot_stat <- if (isTRUE(smoot_stat)) 30L else 1L
+  }
+  smoot_stat <- suppressWarnings(as.integer(smoot_stat[1]))
+  if (is.na(smoot_stat) || smoot_stat < 1L) smoot_stat <- 1L
+
+  if ("show_box" %in% names(dots)) bbox <- isTRUE(dots$show_box)
+  if ("show_boxes" %in% names(dots)) bbox <- isTRUE(dots$show_boxes)
+  if ("box" %in% names(dots)) bbox <- isTRUE(dots$box)
+  if ("boxes" %in% names(dots)) bbox <- isTRUE(dots$boxes)
+  if ("bbox" %in% names(dots)) bbox <- isTRUE(dots$bbox)
+  bbox <- isTRUE(bbox)
+
+  if ("show_point" %in% names(dots)) show_point <- isTRUE(dots$show_point)
+  if ("show_points" %in% names(dots)) show_point <- isTRUE(dots$show_points)
+  if ("point" %in% names(dots)) show_point <- isTRUE(dots$point)
+  if ("points" %in% names(dots)) show_point <- isTRUE(dots$points)
+  show_point <- isTRUE(show_point)
+  if ("point_radius" %in% names(dots)) point_radius <- dots$point_radius
+  if ("pt_radius" %in% names(dots)) point_radius <- dots$pt_radius
+  point_radius <- as.integer(point_radius)
+  if ("point_col" %in% names(dots)) point_col <- dots$point_col
+  if ("point_color" %in% names(dots)) point_col <- dots$point_color
+
+  if ("min_frames" %in% names(dots)) min_frames <- dots$min_frames
+  if ("min_hits" %in% names(dots)) min_frames <- dots$min_hits
+  min_hits_val <- if (!is.null(min_frames) && as.integer(min_frames) > 0L) as.integer(min_frames) else 1L
+  if (min_hits_val > 1L) {
+    track <- TRUE
+  }
 
   if ("hud_pos" %in% names(dots)) hud_pos <- dots$hud_pos
   if ("pos" %in% names(dots)) hud_pos <- dots$pos
@@ -8262,6 +8938,12 @@ video_detect_dl <- function(video = 0,
   track_min_iou <- if ("min_iou" %in% names(dots)) as.numeric(dots$min_iou) else 0.25
   track_max_lost <- if ("max_lost" %in% names(dots)) as.integer(dots$max_lost) else 15L
   track_max_history <- if ("max_history" %in% names(dots)) as.integer(dots$max_history) else 30L
+  if ("interpolate_box" %in% names(dots)) interpolate_box <- dots$interpolate_box
+  if ("interp_box" %in% names(dots)) interpolate_box <- dots$interp_box
+  if ("interpolate_mask" %in% names(dots)) interpolate_mask <- dots$interpolate_mask
+  if ("interp_mask" %in% names(dots)) interpolate_mask <- dots$interp_mask
+  interpolate_box <- isTRUE(interpolate_box)
+  interpolate_mask <- isTRUE(interpolate_mask)
   if ("count_line_dir" %in% names(dots)) {
     count_line_orientation <- dots$count_line_dir
   }
@@ -8329,9 +9011,18 @@ video_detect_dl <- function(video = 0,
         class_names <- .coco_classes
       }
     }
+    # Inference resolution (imgsz)
+    target_size <- if (!is.null(imgsz)) {
+      as.integer(imgsz[1])
+    } else {
+      model_imgsz <- .get_onnx_imgsz(model_file)
+      if (!is.null(model_imgsz) && length(model_imgsz) > 0L) as.integer(model_imgsz[1]) else 640L
+    }
+    if (is.na(target_size) || target_size <= 0L) target_size <- 640L
   } else {
     model_file <- "None"
     class_names <- character(0)
+    target_size <- 640L
   }
 
   has_video_ext <- is.character(video) && tolower(tools::file_ext(video[1])) %in% c("mp4", "avi", "mov", "mkv", "wmv", "flv", "webm", "m4v")
@@ -8527,6 +9218,11 @@ video_detect_dl <- function(video = 0,
       last_total_count_val <- 0L
       last_in_zone_val <- 0L
       last_use_crop <- FALSE
+      last_track_res <- NULL
+      t_inf_ms <- 0.0
+      t_trk_ms <- 0.0
+      last_gui_ms <- 14.0
+      stats_smoother <- .make_stats_smoother(smoot_stat)
 
       while (TRUE) {
         if (!is.null(max_frames) && frame_count >= max_frames) {
@@ -8589,9 +9285,10 @@ video_detect_dl <- function(video = 0,
           feed_w <- feed_dims[2]
           feed_h <- feed_dims[3]
 
+          t_infer_start <- Sys.time()
           tensor <- tryCatch(
-            preprocess_yolo_cpp(bm_feed, target_size = 640L),
-            error = function(e) preprocess_yolo_cpp(bm, target_size = 640L)
+            preprocess_yolo_cpp(bm_feed, target_size = target_size),
+            error = function(e) preprocess_yolo_cpp(bm, target_size = target_size)
           )
 
           raw_res <- run_yolo_cpp(
@@ -8607,6 +9304,8 @@ video_detect_dl <- function(video = 0,
             device_id = as.integer(device_id),
             need_masks = isTRUE(mask)
           )
+          t_infer_end <- Sys.time()
+          t_inf_ms <- as.numeric(t_infer_end - t_infer_start, units = "secs") * 1000
 
           has_masks <- isTRUE(mask) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && any(raw_res$labels > 0L)
           num_boxes_orig <- nrow(raw_res$boxes)
@@ -8662,6 +9361,7 @@ video_detect_dl <- function(video = 0,
             }
 
             if ((isTRUE(track) || !is.null(count_line))) {
+              t_trk_start <- Sys.time()
               if (nrow(df_b) > 0) {
                 track_res <- update_tracker_cpp(
                   xmin = df_b$xmin,
@@ -8676,24 +9376,48 @@ video_detect_dl <- function(video = 0,
                   max_dist = track_max_dist,
                   min_iou = track_min_iou,
                   max_lost = track_max_lost,
-                  max_history = track_max_history
+                  max_history = track_max_history,
+                  current_time = round(t_elapsed, 3),
+                  frame_w = orig_w,
+                  frame_h = orig_h,
+                  class_ids = df_b$class_id,
+                  mask_ids = if ("orig_idx" %in% names(df_b)) df_b$orig_idx else seq_len(nrow(df_b)),
+                  interpolate_box = interpolate_box,
+                  interpolate_mask = interpolate_mask,
+                  min_hits = min_hits_val
                 )
                 track_state <- track_res$state
-                df_b$id <- track_res$track_ids
-                df_b$counted <- track_res$counted
-                if (!is.null(track_res$in_zone_vec)) {
-                  df_b$in_zone <- track_res$in_zone_vec
-                } else if (!is.null(roi_coords)) {
-                  cxs <- (df_b$xmin + df_b$xmax) / 2
-                  cys <- (df_b$ymin + df_b$ymax) / 2
-                  df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
+                total_count_val <- track_res$total_count
+                in_zone_val <- track_res$in_zone
+                n_trk <- length(track_res$track_ids)
+                if (n_trk > 0) {
+                  df_b <- data.frame(
+                    id = as.integer(track_res$track_ids),
+                    xmin = as.numeric(track_res$xmin),
+                    ymin = as.numeric(track_res$ymin),
+                    xmax = as.numeric(track_res$xmax),
+                    ymax = as.numeric(track_res$ymax),
+                    label = as.character(track_res$labels),
+                    score = as.numeric(track_res$scores),
+                    class_id = as.integer(track_res$class_ids),
+                    counted = as.logical(track_res$counted),
+                    orig_idx = as.integer(track_res$mask_ids),
+                    stringsAsFactors = FALSE
+                  )
+                  if (!is.null(track_res$in_zone_vec)) {
+                    df_b$in_zone <- as.logical(track_res$in_zone_vec)
+                  } else if (!is.null(roi_coords)) {
+                    cxs <- (df_b$xmin + df_b$xmax) / 2
+                    cys <- (df_b$ymin + df_b$ymax) / 2
+                    df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
+                  }
+                } else {
+                  df_b <- df_b[0, , drop = FALSE]
                 }
                 track_ids_pass <- track_res$track_ids
                 flash_pass <- track_res$flash
                 history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
                 history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
-                total_count_val <- track_res$total_count
-                in_zone_val <- track_res$in_zone
               } else if (!is.null(track_state$tracks) && length(track_state$tracks) > 0) {
                 track_res <- update_tracker_cpp(
                   xmin = numeric(0),
@@ -8708,12 +9432,48 @@ video_detect_dl <- function(video = 0,
                   max_dist = track_max_dist,
                   min_iou = track_min_iou,
                   max_lost = track_max_lost,
-                  max_history = track_max_history
+                  max_history = track_max_history,
+                  current_time = round(t_elapsed, 3),
+                  frame_w = orig_w,
+                  frame_h = orig_h,
+                  interpolate_box = interpolate_box,
+                  interpolate_mask = interpolate_mask,
+                  min_hits = min_hits_val
                 )
                 track_state <- track_res$state
                 total_count_val <- track_res$total_count
                 in_zone_val <- track_res$in_zone
+                n_trk <- length(track_res$track_ids)
+                if (n_trk > 0) {
+                  df_b <- data.frame(
+                    id = as.integer(track_res$track_ids),
+                    xmin = as.numeric(track_res$xmin),
+                    ymin = as.numeric(track_res$ymin),
+                    xmax = as.numeric(track_res$xmax),
+                    ymax = as.numeric(track_res$ymax),
+                    label = as.character(track_res$labels),
+                    score = as.numeric(track_res$scores),
+                    class_id = as.integer(track_res$class_ids),
+                    counted = as.logical(track_res$counted),
+                    orig_idx = as.integer(track_res$mask_ids),
+                    stringsAsFactors = FALSE
+                  )
+                  if (!is.null(track_res$in_zone_vec)) {
+                    df_b$in_zone <- as.logical(track_res$in_zone_vec)
+                  } else if (!is.null(roi_coords)) {
+                    cxs <- (df_b$xmin + df_b$xmax) / 2
+                    cys <- (df_b$ymin + df_b$ymax) / 2
+                    df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
+                  }
+                  track_ids_pass <- track_res$track_ids
+                  flash_pass <- track_res$flash
+                  history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
+                  history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
+                }
               }
+              t_trk_end <- Sys.time()
+              t_trk_ms <- as.numeric(t_trk_end - t_trk_start, units = "secs") * 1000
+              last_track_res <- track_res
             }
 
             if (!("in_zone" %in% names(df_b)) && !is.null(roi_coords) && nrow(df_b) > 0) {
@@ -8728,14 +9488,25 @@ video_detect_dl <- function(video = 0,
               conts <- extract_contours_cpp(raw_res$labels)
               meas <- poly_measures_minimal_cpp(conts)
               m_idx <- df_b$orig_idx
-              df_b$area <- as.numeric(exact_area[m_idx])
-              df_b$perimeter <- round(as.numeric(meas$perimeter[m_idx]), 1)
-              df_b$radius_mean <- round((as.numeric(meas$maj_axis[m_idx]) + as.numeric(meas$min_axis[m_idx])) / 2, 2)
-              df_b$length <- round(as.numeric(meas$length[m_idx]), 1)
-              df_b$width <- round(as.numeric(meas$width[m_idx]), 1)
-              df_b$circularity <- round(as.numeric(meas$circularity_norm[m_idx]), 4)
-              df_b$eccentricity <- round(as.numeric(meas$eccentricity[m_idx]), 4)
-              df_b$asp_ratio <- round(as.numeric(meas$length[m_idx]) / pmax(0.001, as.numeric(meas$width[m_idx])), 3)
+              valid_m <- which(!is.na(m_idx) & m_idx > 0 & m_idx <= num_boxes_orig)
+              df_b$area <- NA_real_
+              df_b$perimeter <- NA_real_
+              df_b$radius_mean <- NA_real_
+              df_b$length <- NA_real_
+              df_b$width <- NA_real_
+              df_b$circularity <- NA_real_
+              df_b$eccentricity <- NA_real_
+              df_b$asp_ratio <- NA_real_
+              if (length(valid_m) > 0) {
+                df_b$area[valid_m] <- as.numeric(exact_area[m_idx[valid_m]])
+                df_b$perimeter[valid_m] <- round(as.numeric(meas$perimeter[m_idx[valid_m]]), 1)
+                df_b$radius_mean[valid_m] <- round((as.numeric(meas$maj_axis[m_idx[valid_m]]) + as.numeric(meas$min_axis[m_idx[valid_m]])) / 2, 2)
+                df_b$length[valid_m] <- round(as.numeric(meas$length[m_idx[valid_m]]), 1)
+                df_b$width[valid_m] <- round(as.numeric(meas$width[m_idx[valid_m]]), 1)
+                df_b$circularity[valid_m] <- round(as.numeric(meas$circularity_norm[m_idx[valid_m]]), 4)
+                df_b$eccentricity[valid_m] <- round(as.numeric(meas$eccentricity[m_idx[valid_m]]), 4)
+                df_b$asp_ratio[valid_m] <- round(as.numeric(meas$length[m_idx[valid_m]]) / pmax(0.001, as.numeric(meas$width[m_idx[valid_m]])), 3)
+              }
             }
 
             has_kpts <- !is.null(raw_res$keypoints) && is.matrix(raw_res$keypoints) && ncol(raw_res$keypoints) == 51 && nrow(raw_res$keypoints) == nrow(df_b)
@@ -8808,17 +9579,74 @@ video_detect_dl <- function(video = 0,
           }
         }
 
-        hud_msg <- if (isTRUE(show_fps) && f_scale_hud > 0.05) {
-          if (isTRUE(track) || !is.null(count_line)) {
-            sprintf("%.1f FPS | IN ZONE: %d | COUNT: %d", fps_smooth, in_zone_val, total_count_val)
-          } else if (detect) {
-            sprintf("%.1f FPS | %d Dets", fps_smooth, nrow(df_b))
+        t_lat_ms <- max(1.0, t_inf_ms + t_trk_ms + last_gui_ms)
+        if (telemetry != "none" && f_scale_hud > 0.05) {
+          trk_info <- if (!is.null(last_track_res)) last_track_res else list()
+          trk_active <- if (!is.null(trk_info$active)) trk_info$active else in_zone_val
+          conf_mean <- if (!is.null(trk_info$conf_mean)) trk_info$conf_mean else if (nrow(df_b) > 0) mean(df_b$score) else 0.0
+          conf_sd <- if (!is.null(trk_info$conf_sd)) trk_info$conf_sd else 0.0
+          conf_min <- if (!is.null(trk_info$conf_min)) trk_info$conf_min else if (nrow(df_b) > 0) min(df_b$score) else 0.0
+          flow_val <- if (!is.null(trk_info$flow)) trk_info$flow else 0.0
+          vel_mean <- if (!is.null(trk_info$vel_mean)) trk_info$vel_mean else 0.0
+          vel_jit <- if (!is.null(trk_info$vel_jit)) trk_info$vel_jit else 0.0
+          welford_mean <- if (!is.null(trk_info$welford_mean)) trk_info$welford_mean else 0.0
+          welford_cv <- if (!is.null(trk_info$welford_cv)) trk_info$welford_cv else 0.0
+          roi_occ <- if (!is.null(trk_info$roi_occ)) trk_info$roi_occ else 0.0
+
+          raw_stats <- list(
+            fps = cur_fps,
+            lat = t_lat_ms,
+            inf = t_inf_ms,
+            trk = t_trk_ms,
+            gui = last_gui_ms,
+            conf_mean = conf_mean,
+            conf_sd = conf_sd,
+            conf_min = conf_min,
+            flow = flow_val,
+            vel_mean = vel_mean,
+            vel_jit = vel_jit,
+            size_mean = welford_mean,
+            size_cv = welford_cv,
+            roi_occ = roi_occ
+          )
+          sm_stats <- stats_smoother(raw_stats)
+
+          if (is_detailed) {
+            hud_msg <- paste(
+              sprintf("FRAME: %d", frame_count),
+              sprintf("SPEED: %.1f FPS", sm_stats$fps),
+              sprintf("LATENCY: %dms", round(sm_stats$lat)),
+              sprintf("  INF: %dms", round(sm_stats$inf)),
+              sprintf("  TRK: %dms", round(sm_stats$trk)),
+              sprintf("  GUI: %dms", round(sm_stats$gui)),
+              sprintf("TRACKS: %d ACT", trk_active),
+              sprintf("CONF: %.2f \u00b1 %.2f (MIN: %.2f)", sm_stats$conf_mean, sm_stats$conf_sd, sm_stats$conf_min),
+              sprintf("FLOW: %.1f obj/s", sm_stats$flow),
+              sprintf("MOTION: %.1f px/f (JIT: %.1f)", sm_stats$vel_mean, sm_stats$vel_jit),
+              sprintf("IN ZONE: %d", in_zone_val),
+              sprintf("COUNTED: %d", total_count_val),
+              sprintf("SIZE: %.0f px\u00b2 (CV: %.1f%%)", sm_stats$size_mean, sm_stats$size_cv),
+              sprintf("ROI OCC: %.1f%%", sm_stats$roi_occ),
+              sep = "\n"
+            )
+            sparkline_pass <- if (!is.null(trk_info$flow_history)) as.numeric(trk_info$flow_history) else NULL
           } else {
-            sprintf("%.1f FPS", fps_smooth)
+            hud_msg <- if (isTRUE(track) || !is.null(count_line)) {
+              sprintf("%.1f FPS | IN ZONE: %d | COUNT: %d", sm_stats$fps, in_zone_val, total_count_val)
+            } else if (detect) {
+              sprintf("%.1f FPS | %d Dets", sm_stats$fps, nrow(df_b))
+            } else {
+              sprintf("%.1f FPS", sm_stats$fps)
+            }
+            sparkline_pass <- NULL
           }
-        } else ""
+        } else {
+          hud_msg <- ""
+          sparkline_pass <- NULL
+        }
 
         if ((detect && nrow(df_b) > 0) || nzchar(hud_msg) || !is.null(roi_coords) || !is.null(line_coords)) {
+          t_gui_start <- Sys.time()
           draw_yolo_detections_bgr_cpp(
             bm = bm,
             xmin = if (detect && nrow(df_b) > 0) df_b$xmin else numeric(0),
@@ -8863,8 +9691,15 @@ video_detect_dl <- function(video = 0,
             hud_pos = as.character(hud_pos),
             hud_layout = as.character(hud_layout),
             font_scale_hud = as.numeric(f_scale_hud),
-            font_scale_roi = as.numeric(roi_sz)
+            font_scale_roi = as.numeric(roi_sz),
+            detailed_telemetry = is_detailed,
+            sparkline = sparkline_pass,
+            show_point = isTRUE(show_point),
+            point_radius = as.integer(point_radius),
+            point_col = if (!is.null(point_col)) as.character(point_col) else ""
           )
+          t_gui_end <- Sys.time()
+          last_gui_ms <- max(1.0, as.numeric(t_gui_end - t_gui_start, units = "secs") * 1000)
         }
 
         if (save_video) {
@@ -9079,6 +9914,12 @@ video_detect_dl <- function(video = 0,
     last_in_zone_val <- 0L
     last_use_crop <- FALSE
     last_crop_coords <- NULL
+    last_track_res <- NULL
+    t_inf_ms <- 0.0
+    t_trk_ms <- 0.0
+    last_gui_ms <- 14.0
+    last_frame_t <- Sys.time()
+    stats_smoother <- .make_stats_smoother(smoot_stat)
 
     recorded_frames <- vector("list", num_frames)
     bm_stream <- if (use_native_stream) {
@@ -9129,11 +9970,12 @@ video_detect_dl <- function(video = 0,
           feed_w <- feed_dims[2]
           feed_h <- feed_dims[3]
 
+          t_inf_start <- Sys.time()
           tensor <- tryCatch(
-            preprocess_yolo_cpp(bm_feed, target_size = 640L),
+            preprocess_yolo_cpp(bm_feed, target_size = target_size),
             error = function(e) {
               f_mat <- image_data(image_import(f_path))
-              preprocess_yolo_cpp(f_mat, target_size = 640L)
+              preprocess_yolo_cpp(f_mat, target_size = target_size)
             }
           )
 
@@ -9150,6 +9992,8 @@ video_detect_dl <- function(video = 0,
             device_id = as.integer(device_id),
             need_masks = isTRUE(mask)
           )
+          t_inf_end <- Sys.time()
+          t_inf_ms <<- as.numeric(t_inf_end - t_inf_start, units = "secs") * 1000
 
           has_masks <- isTRUE(mask) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && any(raw_res$labels > 0L)
           num_boxes_orig <- nrow(raw_res$boxes)
@@ -9207,6 +10051,7 @@ video_detect_dl <- function(video = 0,
             }
 
             if ((isTRUE(track) || !is.null(count_line))) {
+              t_trk_start <- Sys.time()
               if (nrow(df_b) > 0) {
                 track_res <- update_tracker_cpp(
                   xmin = df_b$xmin,
@@ -9221,24 +10066,50 @@ video_detect_dl <- function(video = 0,
                   max_dist = track_max_dist,
                   min_iou = track_min_iou,
                   max_lost = track_max_lost,
-                  max_history = track_max_history
+                  max_history = track_max_history,
+                  current_time = t_sec,
+                  frame_w = src_w,
+                  frame_h = src_h,
+                  class_ids = df_b$class_id,
+                  mask_ids = if ("orig_idx" %in% names(df_b)) df_b$orig_idx else seq_len(nrow(df_b)),
+                  interpolate_box = interpolate_box,
+                  interpolate_mask = interpolate_mask,
+                  min_hits = min_hits_val
                 )
                 track_state <<- track_res$state
-                df_b$id <- track_res$track_ids
-                df_b$counted <- track_res$counted
-                if (!is.null(track_res$in_zone_vec)) {
-                  df_b$in_zone <- track_res$in_zone_vec
-                } else if (!is.null(roi_coords)) {
-                  cxs <- (df_b$xmin + df_b$xmax) / 2
-                  cys <- (df_b$ymin + df_b$ymax) / 2
-                  df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
+                total_count_val <<- track_res$total_count
+                in_zone_val <<- track_res$in_zone
+                n_trk <- length(track_res$track_ids)
+                if (n_trk > 0) {
+                  df_b <- data.frame(
+                    frame = rep(i, n_trk),
+                    timestamp = rep(round((i - 1) / src_fps, 3), n_trk),
+                    id = as.integer(track_res$track_ids),
+                    xmin = as.numeric(track_res$xmin),
+                    ymin = as.numeric(track_res$ymin),
+                    xmax = as.numeric(track_res$xmax),
+                    ymax = as.numeric(track_res$ymax),
+                    label = as.character(track_res$labels),
+                    score = as.numeric(track_res$scores),
+                    class_id = as.integer(track_res$class_ids),
+                    counted = as.logical(track_res$counted),
+                    orig_idx = as.integer(track_res$mask_ids),
+                    stringsAsFactors = FALSE
+                  )
+                  if (!is.null(track_res$in_zone_vec)) {
+                    df_b$in_zone <- as.logical(track_res$in_zone_vec)
+                  } else if (!is.null(roi_coords)) {
+                    cxs <- (df_b$xmin + df_b$xmax) / 2
+                    cys <- (df_b$ymin + df_b$ymax) / 2
+                    df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
+                  }
+                } else {
+                  df_b <- df_b[0, , drop = FALSE]
                 }
                 track_ids_pass <- track_res$track_ids
                 flash_pass <- track_res$flash
                 history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
                 history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
-                total_count_val <<- track_res$total_count
-                in_zone_val <<- track_res$in_zone
               } else if (!is.null(track_state$tracks) && length(track_state$tracks) > 0) {
                 track_res <- update_tracker_cpp(
                   xmin = numeric(0),
@@ -9253,12 +10124,50 @@ video_detect_dl <- function(video = 0,
                   max_dist = track_max_dist,
                   min_iou = track_min_iou,
                   max_lost = track_max_lost,
-                  max_history = track_max_history
+                  max_history = track_max_history,
+                  current_time = t_sec,
+                  frame_w = src_w,
+                  frame_h = src_h,
+                  interpolate_box = interpolate_box,
+                  interpolate_mask = interpolate_mask,
+                  min_hits = min_hits_val
                 )
                 track_state <<- track_res$state
                 total_count_val <<- track_res$total_count
                 in_zone_val <<- track_res$in_zone
+                n_trk <- length(track_res$track_ids)
+                if (n_trk > 0) {
+                  df_b <- data.frame(
+                    frame = rep(i, n_trk),
+                    timestamp = rep(round((i - 1) / src_fps, 3), n_trk),
+                    id = as.integer(track_res$track_ids),
+                    xmin = as.numeric(track_res$xmin),
+                    ymin = as.numeric(track_res$ymin),
+                    xmax = as.numeric(track_res$xmax),
+                    ymax = as.numeric(track_res$ymax),
+                    label = as.character(track_res$labels),
+                    score = as.numeric(track_res$scores),
+                    class_id = as.integer(track_res$class_ids),
+                    counted = as.logical(track_res$counted),
+                    orig_idx = as.integer(track_res$mask_ids),
+                    stringsAsFactors = FALSE
+                  )
+                  if (!is.null(track_res$in_zone_vec)) {
+                    df_b$in_zone <- as.logical(track_res$in_zone_vec)
+                  } else if (!is.null(roi_coords)) {
+                    cxs <- (df_b$xmin + df_b$xmax) / 2
+                    cys <- (df_b$ymin + df_b$ymax) / 2
+                    df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
+                  }
+                  track_ids_pass <- track_res$track_ids
+                  flash_pass <- track_res$flash
+                  history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
+                  history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
+                }
               }
+              t_trk_end <- Sys.time()
+              t_trk_ms <<- as.numeric(t_trk_end - t_trk_start, units = "secs") * 1000
+              last_track_res <<- track_res
             }
 
             if (!("in_zone" %in% names(df_b)) && !is.null(roi_coords) && nrow(df_b) > 0) {
@@ -9273,14 +10182,25 @@ video_detect_dl <- function(video = 0,
               conts <- extract_contours_cpp(raw_res$labels)
               meas <- poly_measures_minimal_cpp(conts)
               m_idx <- df_b$orig_idx
-              df_b$area <- as.numeric(exact_area[m_idx])
-              df_b$perimeter <- round(as.numeric(meas$perimeter[m_idx]), 1)
-              df_b$radius_mean <- round((as.numeric(meas$maj_axis[m_idx]) + as.numeric(meas$min_axis[m_idx])) / 2, 2)
-              df_b$length <- round(as.numeric(meas$length[m_idx]), 1)
-              df_b$width <- round(as.numeric(meas$width[m_idx]), 1)
-              df_b$circularity <- round(as.numeric(meas$circularity_norm[m_idx]), 4)
-              df_b$eccentricity <- round(as.numeric(meas$eccentricity[m_idx]), 4)
-              df_b$asp_ratio <- round(as.numeric(meas$length[m_idx]) / pmax(0.001, as.numeric(meas$width[m_idx])), 3)
+              valid_m <- which(!is.na(m_idx) & m_idx > 0 & m_idx <= num_boxes_orig)
+              df_b$area <- NA_real_
+              df_b$perimeter <- NA_real_
+              df_b$radius_mean <- NA_real_
+              df_b$length <- NA_real_
+              df_b$width <- NA_real_
+              df_b$circularity <- NA_real_
+              df_b$eccentricity <- NA_real_
+              df_b$asp_ratio <- NA_real_
+              if (length(valid_m) > 0) {
+                df_b$area[valid_m] <- as.numeric(exact_area[m_idx[valid_m]])
+                df_b$perimeter[valid_m] <- round(as.numeric(meas$perimeter[m_idx[valid_m]]), 1)
+                df_b$radius_mean[valid_m] <- round((as.numeric(meas$maj_axis[m_idx[valid_m]]) + as.numeric(meas$min_axis[m_idx[valid_m]])) / 2, 2)
+                df_b$length[valid_m] <- round(as.numeric(meas$length[m_idx[valid_m]]), 1)
+                df_b$width[valid_m] <- round(as.numeric(meas$width[m_idx[valid_m]]), 1)
+                df_b$circularity[valid_m] <- round(as.numeric(meas$circularity_norm[m_idx[valid_m]]), 4)
+                df_b$eccentricity[valid_m] <- round(as.numeric(meas$eccentricity[m_idx[valid_m]]), 4)
+                df_b$asp_ratio[valid_m] <- round(as.numeric(meas$length[m_idx[valid_m]]) / pmax(0.001, as.numeric(meas$width[m_idx[valid_m]])), 3)
+              }
             }
 
             has_kpts <- !is.null(raw_res$keypoints) && is.matrix(raw_res$keypoints) && ncol(raw_res$keypoints) == 51 && nrow(raw_res$keypoints) == nrow(df_b)
@@ -9394,16 +10314,78 @@ video_detect_dl <- function(video = 0,
         if (save_video && !isTRUE(show)) {
           elapsed_now <- as.numeric(Sys.time() - t_start, units = "secs")
           cur_fps_est <- if (elapsed_now > 0) (i / elapsed_now) else src_fps
-          hud_txt <- if (isTRUE(show_fps) && f_scale_hud > 0.05) {
-            if (isTRUE(track) || !is.null(count_line)) {
-              sprintf("Frame %d/%d | %.1f FPS | IN ZONE: %d | COUNT: %d", i, num_frames, cur_fps_est, in_zone_val, total_count_val)
-            } else if (detect) {
-              sprintf("Frame %d/%d | %.1f FPS | %d Dets", i, num_frames, cur_fps_est, nrow(df_b))
-            } else {
-              sprintf("Frame %d/%d | %.1f FPS", i, num_frames, cur_fps_est)
-            }
-          } else ""
+          t_now <- Sys.time()
+          dt_frame <- as.numeric(t_now - last_frame_t, units = "secs")
+          last_frame_t <<- t_now
+          cur_fps_inst <- if (dt_frame > 0 && dt_frame < 10) (1.0 / dt_frame) else cur_fps_est
+          t_lat_ms <- max(1.0, t_inf_ms + t_trk_ms + last_gui_ms)
 
+          if (telemetry != "none" && f_scale_hud > 0.05) {
+            trk_info <- if (!is.null(last_track_res)) last_track_res else list()
+            trk_active <- if (!is.null(trk_info$active)) trk_info$active else in_zone_val
+            conf_mean <- if (!is.null(trk_info$conf_mean)) trk_info$conf_mean else if (nrow(df_b) > 0) mean(df_b$score) else 0.0
+            conf_sd <- if (!is.null(trk_info$conf_sd)) trk_info$conf_sd else 0.0
+            conf_min <- if (!is.null(trk_info$conf_min)) trk_info$conf_min else if (nrow(df_b) > 0) min(df_b$score) else 0.0
+            flow_val <- if (!is.null(trk_info$flow)) trk_info$flow else 0.0
+            vel_mean <- if (!is.null(trk_info$vel_mean)) trk_info$vel_mean else 0.0
+            vel_jit <- if (!is.null(trk_info$vel_jit)) trk_info$vel_jit else 0.0
+            welford_mean <- if (!is.null(trk_info$welford_mean)) trk_info$welford_mean else 0.0
+            welford_cv <- if (!is.null(trk_info$welford_cv)) trk_info$welford_cv else 0.0
+            roi_occ <- if (!is.null(trk_info$roi_occ)) trk_info$roi_occ else 0.0
+
+            raw_stats <- list(
+              fps = cur_fps_inst,
+              lat = t_lat_ms,
+              inf = t_inf_ms,
+              trk = t_trk_ms,
+              gui = last_gui_ms,
+              conf_mean = conf_mean,
+              conf_sd = conf_sd,
+              conf_min = conf_min,
+              flow = flow_val,
+              vel_mean = vel_mean,
+              vel_jit = vel_jit,
+              size_mean = welford_mean,
+              size_cv = welford_cv,
+              roi_occ = roi_occ
+            )
+            sm_stats <- stats_smoother(raw_stats)
+
+            if (is_detailed) {
+              hud_txt <- paste(
+                sprintf("FRAME: %d/%d", i, num_frames),
+                sprintf("SPEED: %.1f FPS", sm_stats$fps),
+                sprintf("LATENCY: %dms", round(sm_stats$lat)),
+                sprintf("  INF: %dms", round(sm_stats$inf)),
+                sprintf("  TRK: %dms", round(sm_stats$trk)),
+                sprintf("  GUI: %dms", round(sm_stats$gui)),
+                sprintf("TRACKS: %d ACT", trk_active),
+                sprintf("CONF: %.2f \u00b1 %.2f (MIN: %.2f)", sm_stats$conf_mean, sm_stats$conf_sd, sm_stats$conf_min),
+                sprintf("FLOW: %.1f obj/s", sm_stats$flow),
+                sprintf("MOTION: %.1f px/f (JIT: %.1f)", sm_stats$vel_mean, sm_stats$vel_jit),
+                sprintf("IN ZONE: %d", in_zone_val),
+                sprintf("COUNTED: %d", total_count_val),
+                sprintf("SIZE: %.0f px\u00b2 (CV: %.1f%%)", sm_stats$size_mean, sm_stats$size_cv),
+                sprintf("ROI OCC: %.1f%%", sm_stats$roi_occ),
+                sep = "\n"
+              )
+              sparkline_pass <- if (!is.null(trk_info$flow_history)) as.numeric(trk_info$flow_history) else NULL
+            } else {
+              hud_txt <- if (isTRUE(track) || !is.null(count_line)) {
+                sprintf("Frame %d/%d | %.1f FPS | IN ZONE: %d | COUNT: %d", i, num_frames, sm_stats$fps, in_zone_val, total_count_val)
+              } else if (detect) {
+                sprintf("Frame %d/%d | %.1f FPS | %d Dets", i, num_frames, sm_stats$fps, nrow(df_b))
+              } else {
+                sprintf("Frame %d/%d | %.1f FPS", i, num_frames, sm_stats$fps)
+              }
+              sparkline_pass <- NULL
+            }
+          } else {
+            hud_txt <- ""
+            sparkline_pass <- NULL
+          }
+
+          t_gui_start <- Sys.time()
           draw_yolo_detections_bgr_cpp(
             bm = bm,
             xmin = if (detect && nrow(df_b) > 0) df_b$xmin else numeric(0),
@@ -9448,7 +10430,12 @@ video_detect_dl <- function(video = 0,
             hud_pos = as.character(hud_pos),
             hud_layout = as.character(hud_layout),
             font_scale_hud = as.numeric(f_scale_hud),
-            font_scale_roi = as.numeric(roi_sz)
+            font_scale_roi = as.numeric(roi_sz),
+            detailed_telemetry = is_detailed,
+            sparkline = sparkline_pass,
+            show_point = isTRUE(show_point),
+            point_radius = as.integer(point_radius),
+            point_col = if (!is.null(point_col)) as.character(point_col) else ""
           )
           if (use_native_writer) {
             write_native_video_frame_cpp(v_writer, bm)
@@ -9459,6 +10446,8 @@ video_detect_dl <- function(video = 0,
           } else {
             save_frame_bgr_cpp(bm, f_path, quality = 90L)
           }
+          t_gui_end <- Sys.time()
+          last_gui_ms <<- max(1.0, as.numeric(t_gui_end - t_gui_start, units = "secs") * 1000)
         } else if (isTRUE(show)) {
           f_mat <- if (use_native_stream) image_data(as_image(bm)) else image_data(image_import(f_path))
           plot(as_image(f_mat), ...)
@@ -10322,8 +11311,14 @@ image_pose_dl <- function(img,
                           verbose = TRUE,
                           plot = TRUE,
                           dir = pliman_model_dir(),
+                          imgsz = NULL,
                           ...) {
   dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
@@ -10348,7 +11343,8 @@ image_pose_dl <- function(img,
                     show_text = show_text, show_conf = show_conf, show_class = show_class,
                     show_id = show_id, badge = badge, kpt_radius = kpt_radius,
                     bbox = bbox, skeleton = skeleton, threads = threads, engine = engine,
-                    device_id = device_id, verbose = verbose, plot = FALSE, dir = dir, ...)
+                    device_id = device_id, verbose = verbose, plot = FALSE, dir = dir,
+                    imgsz = imgsz, ...)
     })
     return(res)
   }
@@ -10390,7 +11386,8 @@ image_pose_dl <- function(img,
     threads = threads,
     engine = engine,
     device_id = device_id,
-    dir = dir
+    dir = dir,
+    imgsz = imgsz
   )
 
   if (isTRUE(verbose)) {
@@ -10836,32 +11833,43 @@ image_stardist_dl <- function(img,
   invisible(res)
 }
 
-#' 4x Super-Resolution with Real-ESRGAN Compact
+#' Deep Learning Super-Resolution
 #'
-#' Upscales images by 4x using generative convolutional super-resolution with
-#' intelligent tiled overlapping to prevent GPU/CPU memory exhaustion.
+#' Upscales images using state-of-the-art deep convolutional and modulation neural networks
+#' (including Real-ESRGAN, Real-ESRGAN Full, and PureScale SAFMN Spatially-Adaptive Feature Modulation)
+#' with intelligent tiled overlapping to prevent GPU/CPU memory exhaustion.
 #'
 #' @param img An `Image` object, a 2D/3D numeric array, a path to an image file, or a list of images.
-#' @param model Model name or path to a custom ONNX file. Defaults to `"realesrgan-compact"`.
-#' @param scale Upscaling factor (default 4).
+#' @param model Super-resolution model name or path to a custom ONNX file. Built-in options:
+#'   * `"realesrgan_x2_full"` (default): Full Real-ESRGAN perceptual network for 2x super-resolution (RRDBNet, photorealistic quality).
+#'   * `"SAFMN2x"`: PureScale 2x Spatially-Adaptive Feature Modulation Network for lightweight, artifact-free 2x upscaling.
+#'   * `"SAFMN2x_sharper"`: PureScale 2x SAFMN with enhanced high-frequency modulation for crisp boundary and fine texture reconstruction.
+#'   * `"SAFMN4x"`: PureScale 4x SAFMN for high-magnification 4x super-resolution with feature modulation.
+#'   * `"realesrgan_x4_full"`: Full Real-ESRGAN perceptual network for 4x super-resolution (RRDBNet, high-fidelity texture synthesis).
+#'   * `"realesrgan"` (or `"realesrgan-compact"`): Ultra-fast, lightweight 4x generative super-resolution (SRVGG, ~4.9 MB).
+#' @param scale Desired upscaling factor. Defaults to `NULL`, which automatically infers the model's native scale
+#'   (2x for 2x models, 4x for 4x models). If a different scale is provided (e.g., `scale = 3` or `scale = 8`),
+#'   the neural output is resized to the target scale using high-quality Lanczos interpolation.
 #' @param tile_size Processing tile size in pixels (default 256).
-#' @param tile_pad Overlap margin in pixels for seamless blending (default 16).
+#' @param tile_pad Overlap margin in pixels for seamless blending between adjacent tiles (default 16).
 #' @param threads Number of CPU threads (default 0 for auto-tuning).
-#' @param engine Execution engine: `"cpu"` or `"gpu"` (DirectML).
+#' @param engine Execution engine: `"gpu"` (DirectML) or `"cpu"`.
 #' @param device_id GPU device ID (default -1 for auto).
 #' @param verbose Logical. Whether to show progress messages.
 #' @param plot Logical. Whether to plot the super-resolved image.
 #' @param dir Model directory (default `pliman_model_dir()`).
 #' @param ... Additional arguments passed to [graphics::plot()].
-#' @return An `Image` object with dimensions `(orig_w * 4) x (orig_h * 4) x 3`.
+#' @return An `Image` object with dimensions `(orig_w * scale) x (orig_h * scale) x 3`.
 #' @export
 #' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("low_res.png")
-#'   img_hr <- image_superres_dl(img)
+#'   imgsr <- image_superres_dl(img)
+#'   imgsharper <- image_superres_dl(img, model = "SAFMN2x_sharper")
+#'   image_combine(img, imgsr, imgsharper, ncol = 3)
 image_superres_dl <- function(img,
-                              model = "realesrgan-compact",
-                              scale = 4,
+                              model = "realesrgan_x2_full",
+                              scale = NULL,
                               tile_size = 256,
                               tile_pad = 16,
                               threads = 0,
@@ -10894,9 +11902,10 @@ image_superres_dl <- function(img,
   orig_h <- dims[2]
   nch <- if (length(dims) >= 3) dims[3] else 1
 
-  model_str <- if (is.character(model)) .resolve_model_name(model[1]) else "realesrgan-compact"
-  if (file.exists(model[1])) {
-    model_file <- normalizePath(model[1], winslash = "/")
+  model_raw <- if (is.character(model)) model[1] else "realesrgan_x2_full"
+  model_str <- .resolve_model_name(model_raw)
+  if (file.exists(model_raw)) {
+    model_file <- normalizePath(model_raw, winslash = "/")
   } else {
     model_file <- pliman_download_model(model = model_str, dir = dir)
   }
@@ -10904,11 +11913,29 @@ image_superres_dl <- function(img,
   lib_path <- pliman_onnx_library_path()
   use_gpu <- (engine == "gpu")
 
+  m_stem <- tolower(basename(model_file))
+  model_scale <- if (grepl("2x|_2x|x2|_x2", m_stem)) 2L else 4L
+  if (is.null(scale)) {
+    scale <- model_scale
+  }
+
+  step <- as.integer(tile_size) - 2L * as.integer(tile_pad)
+  if (step < 16L) step <- 16L
+  num_tiles_x <- length(seq(0, orig_w - 1L, by = step))
+  num_tiles_y <- length(seq(0, orig_h - 1L, by = step))
+  total_tiles <- if (orig_w <= tile_size && orig_h <= tile_size) 1L else (num_tiles_x * num_tiles_y)
+
+  is_safmn <- grepl("safmn|purescale", m_stem)
   if (isTRUE(verbose)) {
+    tile_info <- if (total_tiles > 1) paste0(" [", total_tiles, " tiles]") else ""
     cli::cli_progress_step(
-      msg = "Running Real-ESRGAN {scale}x super-resolution [{toupper(engine)}]...",
+      msg = paste0("Running ", basename(model_file), " (", scale, "x) super-resolution [{toupper(engine)}]", tile_info, "..."),
       msg_done = "Super-resolution complete"
     )
+    if (total_tiles > 4 && is_safmn) {
+      cli::cli_alert_info("PureScale SAFMN has high spatial modulation depth. Processing {total_tiles} tiles may take some time.")
+      cli::cli_alert_info("Tip: For faster photorealistic super-resolution on GPU, use {.code model = 'realesrgan_x2_full'} or lightweight {.code model = 'realesrgan'}.")
+    }
   }
 
   if (is.raw(mat)) {
@@ -10927,8 +11954,6 @@ image_superres_dl <- function(img,
   }
   tensor <- c(R, G, B)
 
-  # Real-ESRGAN Compact natively runs at fixed 4x upscaling in the neural network
-  model_scale <- 4L
   raw_vec <- run_super_resolution_cpp(
     tensor_vec = tensor,
     in_w = orig_w,
@@ -10943,6 +11968,12 @@ image_superres_dl <- function(img,
     device_id = as.integer(device_id)
   )
 
+  actual_plane <- length(raw_vec) / 3
+  actual_scale <- as.integer(round(sqrt(actual_plane / (orig_w * orig_h))))
+  if (actual_scale > 0L) {
+    model_scale <- actual_scale
+  }
+
   out_w <- orig_w * model_scale
   out_h <- orig_h * model_scale
   plane <- out_w * out_h
@@ -10954,7 +11985,7 @@ image_superres_dl <- function(img,
 
   out_img <- as_image(out_arr)
 
-  # If the user requested a scale factor other than the model's native 4x (e.g., scale = 2, 6, 8)
+  # If user requested a custom scale different from actual model scale
   if (scale != model_scale) {
     target_w <- as.integer(round(orig_w * scale))
     target_h <- as.integer(round(orig_h * scale))
@@ -11255,7 +12286,7 @@ text_embed_dl <- function(text,
 #' @param show_id Logical. Whether to display object IDs (`#1`, `#2`, ...) in labels (default `FALSE`).
 #' @param show_point Logical. Whether to show a point at the centroid of each detected object. Defaults to `FALSE`.
 #' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (TRUE unless `show_point = TRUE` and all text displays are `FALSE`).
-#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1.5`.
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1`.
 #' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
 #' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
@@ -11299,7 +12330,7 @@ image_detect_world <- function(img,
                                show_id = FALSE,
                                show_point = FALSE,
                                show_box = NULL,
-                               point_size = 1.5,
+                               point_size = 1,
                                point_pch = 16,
                                point_col = NULL,
                                badge = TRUE,

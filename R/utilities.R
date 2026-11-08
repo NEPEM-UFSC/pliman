@@ -1030,6 +1030,7 @@ get_uuid <- function(filename) {
 #' @param data A data frame or a grouped data frame (`grouped_df`).
 #' @param real The column containing the observed/reference values.
 #' @param predito The column containing the predicted/estimated values.
+#' @param na.rm Logical. Should missing values (`NA`) be removed before computing the metrics? Defaults to `TRUE`.
 #'
 #' @return A data frame with the following columns:
 #' * `r`: Pearson correlation coefficient.
@@ -1047,11 +1048,11 @@ get_uuid <- function(filename) {
 #' library(pliman)
 #' df <- data.frame(
 #'   group = rep(c("A", "B"), each = 5),
-#'   real = c(1:5, 2:6),
-#'   predicted = c(1.1, 2, 2.9, 4.1, 5, 2.2, 3.1, 4, 4.8, 6.1)
+#'   real = c(1:4, NA, 2:6),
+#'   predicted = c(1.1, 2, NA, 4.1, 5, 2.2, 3.1, 4, 4.8, 6.1)
 #' )
 #'
-#' # Without grouping
+#' # Without grouping (NA values handled automatically)
 #' ccc(df, real, predicted)
 #'
 #' # With grouping
@@ -1059,15 +1060,45 @@ get_uuid <- function(filename) {
 #'   group_by(group) |>
 #'   ccc(real, predicted)
 #'
-ccc <- function(data, real, predito) {
-  if(dplyr::is.grouped_df(data)){
+ccc <- function(data, real, predito, na.rm = TRUE) {
+  if (dplyr::is.grouped_df(data)) {
     data |>
-      dplyr::group_modify(~ccc(.x, {{real}}, {{predito}})) |>
+      dplyr::group_modify(~ccc(.x, {{real}}, {{predito}}, na.rm = na.rm)) |>
       dplyr::ungroup()
-  } else{
+  } else {
     x <- data |> dplyr::select({{real}}) |> dplyr::pull()
     y <- data |> dplyr::select({{predito}}) |> dplyr::pull()
+
+    if (isTRUE(na.rm)) {
+      valid <- !is.na(x) & !is.na(y)
+      x <- x[valid]
+      y <- y[valid]
+    } else if (any(is.na(x)) || any(is.na(y))) {
+      return(data.frame(
+        r = NA_real_,
+        r2 = NA_real_,
+        ccc = NA_real_,
+        d = NA_real_,
+        rmse = NA_real_,
+        rrmse = NA_real_,
+        mae = NA_real_,
+        bias = NA_real_
+      ))
+    }
+
     n <- length(x)
+    if (n < 2L) {
+      return(data.frame(
+        r = NA_real_,
+        r2 = NA_real_,
+        ccc = NA_real_,
+        d = NA_real_,
+        rmse = NA_real_,
+        rrmse = NA_real_,
+        mae = NA_real_,
+        bias = NA_real_
+      ))
+    }
 
     mean_x <- mean(x)
     mean_y <- mean(y)
@@ -1076,20 +1107,24 @@ ccc <- function(data, real, predito) {
     cov_xy <- cov(x, y)
 
     # Métricas Base
-    r <- cov_xy / (sqrt(var_x) * sqrt(var_y))
+    sd_prod <- sqrt(var_x) * sqrt(var_y)
+    r <- if (!is.na(sd_prod) && sd_prod > 0) cov_xy / sd_prod else NA_real_
     rmse <- sqrt(mean((x - y)^2))
-    ccc_val <- (2 * cov_xy) / (var_x + var_y + (mean_x - mean_y)^2)
+    denom_ccc <- var_x + var_y + (mean_x - mean_y)^2
+    ccc_val <- if (!is.na(denom_ccc) && denom_ccc > 0) (2 * cov_xy) / denom_ccc else NA_real_
 
     # Novas Métricas
     bias <- mean(y - x)
     mae <- mean(abs(y - x))
-    r_2 <- summary(lm(y ~ x))$r.squared
+    fit_lm <- tryCatch(lm(y ~ x), error = function(e) NULL)
+    r_2 <- if (!is.null(fit_lm)) summary(fit_lm)$r.squared else NA_real_
 
     # Índice de concordância de Willmott (d)
-    d <- 1 - (sum((y - x)^2) / sum((abs(y - mean_x) + abs(x - mean_x))^2))
+    denom_d <- sum((abs(y - mean_x) + abs(x - mean_x))^2)
+    d <- if (!is.na(denom_d) && denom_d > 0) 1 - (sum((y - x)^2) / denom_d) else NA_real_
 
     # Erro relativo (%)
-    rrmse <- (rmse / mean_x) * 100
+    rrmse <- if (!is.na(mean_x) && mean_x != 0) (rmse / mean_x) * 100 else NA_real_
 
     return(data.frame(
       r = r,
@@ -1206,3 +1241,79 @@ create_poly_matrix <- function(df, model = "cubic") {
   return(poly_matrix)
 }
 
+#' @keywords internal
+.open_plot_device <- function(save = FALSE,
+                              file_name = NULL,
+                              width = NULL,
+                              height = NULL,
+                              dpi = 300,
+                              default_name = "plot.png",
+                              default_w = 8,
+                              default_h = 6) {
+  should_save <- isTRUE(save) || (!is.null(file_name) && nzchar(file_name))
+  if (!should_save) {
+    return(NULL)
+  }
+
+  if (is.null(file_name) || !nzchar(file_name)) {
+    file_name <- default_name
+  }
+
+  out_dir <- dirname(file_name)
+  if (!dir.exists(out_dir) && nzchar(out_dir) && out_dir != ".") {
+    dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+  }
+
+  if (is.null(width)) width <- default_w
+  if (is.null(height)) height <- default_h
+  if (is.null(dpi) || is.na(dpi) || dpi <= 0) dpi <- 300
+
+  ext <- tolower(tools::file_ext(file_name))
+  if (!nzchar(ext)) {
+    ext <- "png"
+    file_name <- paste0(file_name, ".png")
+  }
+
+  if (ext %in% c("pdf", "svg", "ps")) {
+    units <- "in"
+    w_in <- if (width > 50) width / dpi else width
+    h_in <- if (height > 50) height / dpi else height
+    if (ext == "pdf") {
+      grDevices::pdf(file = file_name, width = w_in, height = h_in)
+    } else if (ext == "svg") {
+      grDevices::svg(filename = file_name, width = w_in, height = h_in)
+    } else {
+      grDevices::postscript(file = file_name, width = w_in, height = h_in)
+    }
+  } else {
+    units <- if (width > 50 || height > 50) "px" else "in"
+    if (ext == "png") {
+      grDevices::png(filename = file_name, width = width, height = height, units = units, res = dpi)
+    } else if (ext %in% c("jpg", "jpeg")) {
+      grDevices::jpeg(filename = file_name, width = width, height = height, units = units, res = dpi, quality = 95)
+    } else if (ext %in% c("tif", "tiff")) {
+      grDevices::tiff(filename = file_name, width = width, height = height, units = units, res = dpi, compression = "lzw")
+    } else {
+      grDevices::png(filename = file_name, width = width, height = height, units = units, res = dpi)
+    }
+  }
+
+  return(list(
+    active = TRUE,
+    file_name = file_name,
+    width = width,
+    height = height,
+    units = units,
+    dpi = dpi
+  ))
+}
+
+#' @keywords internal
+.close_plot_device <- function(dev_info) {
+  if (!is.null(dev_info) && isTRUE(dev_info$active)) {
+    if (grDevices::dev.cur() > 1L) {
+      grDevices::dev.off()
+    }
+    cli::cli_alert_success("Plot saved to {.path {dev_info$file_name}} ({dev_info$width}x{dev_info$height} {dev_info$units} at {dev_info$dpi} DPI)")
+  }
+}

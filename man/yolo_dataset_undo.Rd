@@ -13,6 +13,7 @@ yolo_dataset_undo(
   to = NULL,
   steps = 1L,
   purge_empty = TRUE,
+  force = FALSE,
   verbose = TRUE
 )
 
@@ -21,6 +22,7 @@ yolo_undo(
   to = NULL,
   steps = 1L,
   purge_empty = TRUE,
+  force = FALSE,
   verbose = TRUE
 )
 
@@ -29,6 +31,7 @@ yolo_autolabel_undo(
   to = NULL,
   steps = 1L,
   purge_empty = TRUE,
+  force = FALSE,
   verbose = TRUE
 )
 
@@ -37,6 +40,7 @@ yolo_dataset_export_undo(
   to = NULL,
   steps = 1L,
   purge_empty = TRUE,
+  force = FALSE,
   verbose = TRUE
 )
 
@@ -45,6 +49,7 @@ yolo_dataset_label_undo(
   to = NULL,
   steps = 1L,
   purge_empty = TRUE,
+  force = FALSE,
   verbose = TRUE
 )
 }
@@ -52,11 +57,13 @@ yolo_dataset_label_undo(
 \item{data}{Path to the dataset directory (e.g. \code{"dataset_rotulado"}, \code{"."}) or a \code{yolo_dataset} object.}
 
 \item{to}{Optional destination folder to return the images to (used if original location cannot be determined
-or to override original locations).}
+or to override original locations). Defaults to restoring images directly inside the dataset directory.}
 
 \item{steps}{Integer. Number of operations to undo (default \code{1L}).}
 
 \item{purge_empty}{Logical. Whether to remove empty dataset directories (\verb{images/}, \verb{labels/}, \verb{review/}) after restoring images. Defaults to \code{TRUE}.}
+
+\item{force}{Logical. If \code{TRUE}, forces undo even if \code{data} is a root/system directory or a parent container holding multiple child datasets. Defaults to \code{FALSE}.}
 
 \item{verbose}{Logical. Show progress messages. Defaults to \code{TRUE}.}
 }
@@ -70,6 +77,6 @@ functioning like a "Ctrl + Z" action.
 If source images were moved (\code{move = TRUE}), they are safely moved back to their original
 source directory. If images were copied (\code{move = FALSE}), the copies in \verb{images/} are removed.
 All generated labels (\verb{labels/}), review preview images (\verb{review/}), and YAML configs are
-cleanly purged. If no history manifest is found, it can also safely restore all images from \verb{images/}
-back to a designated folder (e.g. \code{"data"} or the parent directory).
+cleanly purged. If no history manifest is found, it safely restores all images from \verb{images/}
+back to the dataset folder (or a custom \code{to} directory).
 }

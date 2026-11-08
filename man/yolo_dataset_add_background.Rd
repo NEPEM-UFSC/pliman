@@ -10,6 +10,7 @@ yolo_dataset_add_background(
   n = 20L,
   train_prop = 0.8,
   prefix = "bg_",
+  as_job = FALSE,
   verbose = TRUE
 )
 }
@@ -23,6 +24,9 @@ yolo_dataset_add_background(
 \item{train_prop}{Numeric. Proportion of background images assigned to the training split. Defaults to \code{0.80}.}
 
 \item{prefix}{Character. Filename prefix for added background images. Defaults to \code{"bg_"}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches background image addition
+as an RStudio Background Job in the Jobs tab, keeping the current R session free. Defaults to \code{FALSE}.}
 
 \item{verbose}{Logical. Whether to show progress messages. Defaults to \code{TRUE}.}
 }

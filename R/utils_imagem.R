@@ -7,12 +7,17 @@
 #'   objects in `...` to indicate the plot labels.
 #' @param nrow,ncol The number of rows or columns in the plot grid. Defaults to
 #'   `NULL`, i.e., a square grid is produced.
-#' @param col The color for the plot labels. Defaults to `col = "black"`.
+#' @param col The color for the plot labels. Defaults to `"white"` when `badge = TRUE` and `"black"` otherwise.
+#' @param col_bg The background color for the label badge. Defaults to `"forestgreen"`.
+#' @param badge Logical. Whether to draw a background badge for the labels. Defaults to `TRUE`.
+#' @param border The border color for the badge. Defaults to `NA` (no border).
+#' @param cex The character expansion factor for the labels. Defaults to `0.75`.
+#' @param font An integer which specifies which font to use for text. Defaults to `2` (bold).
 #' @param verbose Shows the name of objects declared in `...` or a numeric
 #'   sequence if a list with no names is provided. Set to `FALSE` to supress the
 #'   text.
 #' @param mar,oma Margins for each panel and outer margins for the combined plot.
-#'   Defaults to `mar = c(1.5, 1.5, 1.5, 1.5)` and `oma = c(0, 0, 0, 0)`. Set
+#'   Defaults to `mar = c(0.2, 0.2, 0.2, 0.2)` and `oma = c(0, 0, 0, 0)`. Set
 #'   `mar = 0` or `mar = c(0, 0, 0, 0)` to eliminate margins and maximize the
 #'   plotting area.
 #' @importFrom stats reshape IQR quantile
@@ -31,10 +36,18 @@ image_combine <- function(...,
                           labels = NULL,
                           nrow = NULL,
                           ncol = NULL,
-                          col = "black",
+                          col = "white",
+                          col_bg = "forestgreen",
+                          badge = TRUE,
+                          border = NA,
+                          cex = 0.75,
+                          font = 2,
                           verbose = TRUE,
-                          mar = c(1.5, 1.5, 1.5, 1.5),
+                          mar = c(0.2, 0.2, 0.2, 0.2),
                           oma = c(0, 0, 0, 0)) {
+  if (missing(col)) {
+    col <- if (isTRUE(badge)) "white" else "black"
+  }
   dots <- list(...)
   call_args <- match.call(expand.dots = FALSE)$...
 
@@ -105,12 +118,491 @@ image_combine <- function(...,
       lbl <- idx_names[i]
       if (nzchar(lbl)) {
         d <- dim(img)
+        w <- if (!is.null(d) && length(d) >= 1L) d[1L] else 100
         h <- if (!is.null(d) && length(d) >= 2L) d[2L] else 100
-        text(0, h * 0.075, lbl, pos = 4, col = col, cex = 1.1, font = 2)
+
+        tw <- abs(graphics::strwidth(lbl, cex = cex, font = font))
+        th <- abs(graphics::strheight(lbl, cex = cex, font = font))
+        pad_x <- abs(graphics::strwidth("M", cex = cex, font = font)) * 0.45
+        pad_y <- abs(graphics::strheight("M", cex = cex, font = font)) * 0.35
+
+        x1 <- 0.5
+        y1 <- 0.5
+        x2 <- x1 + tw + 2 * pad_x
+        y2 <- y1 + th + 2 * pad_y
+
+        if (isTRUE(badge)) {
+          graphics::polygon(c(x1, x2, x2, x1), c(y1, y1, y2, y2), col = col_bg, border = border)
+          graphics::text(x1 + pad_x, (y1 + y2) / 2, lbl, adj = c(0, 0.5), col = col, cex = cex, font = font)
+        } else {
+          graphics::text(x1 + pad_x, (y1 + y2) / 2, lbl, adj = c(0, 0.5), col = col, cex = cex, font = font)
+        }
       }
     }
   }
-  return(plots)
+  invisible(plots)
+}
+
+#' Create a 4-Image Mosaic Composite
+#'
+#' @description
+#' `image_mosaic()` creates a 4-image mosaic composite (2x2 grid) by cropping
+#' a quadrant from 4 input images and stitching them together onto a single
+#' canvas with an adjustable overlap (defaults to 20%). It seamlessly handles
+#' coordinate alignment, feathering or overlay blending in the overlap zones,
+#' and translation/clipping of YOLO bounding box or polygon annotations.
+#'
+#' @param ... Image objects, character paths to image files, or a list of images.
+#' @param images An optional list of `Image` objects or character vector of file paths.
+#' @param pattern An optional regular expression pattern to select image files from `path`.
+#' @param path An optional directory path where image files are located.
+#' @param labels Optional YOLO annotations corresponding to the 4 input images.
+#'   Can be a character vector of 4 `.txt` label file paths, or a list of 4 character
+#'   vectors where each element contains lines of YOLO formatted annotations
+#'   (`class x_center y_center width height` or `class x1 y1 x2 y2 ...`).
+#' @param width,height Target dimensions (width and height in pixels) of the output
+#'   mosaic canvas. Defaults to the dimensions of the first input image.
+#' @param overlap Fraction of overlap between adjacent tiles (default `0.20`, i.e., 20%).
+#'   Can be a single numeric value or a vector of two values `c(overlap_x, overlap_y)`.
+#' @param crop_region Region to crop from each input image:
+#'   * `"quadrant"` (default): Image 1 crops top-left, Image 2 crops top-right,
+#'     Image 3 crops bottom-left, Image 4 crops bottom-right.
+#'   * `"random"`: Random crop of size `(1 + overlap) / 2` from each image.
+#'   * `"center"`: Center crop of size `(1 + overlap) / 2` from each image.
+#' @param min_area_ratio Minimum visible area fraction (between 0 and 1) required
+#'   to retain an object cut by mosaic quadrant seams. Default is `0.10` (10 percent).
+#' @param blend Blending mode for the overlapping regions:
+#'   * `"feather"` (default): Linear alpha cross-fading across the overlap seam.
+#'   * `"overlay"`: Sequential overlay where subsequent tiles cover previous ones.
+#'   * `"none"`: Hard cut at the canvas midpoint.
+#' @param sample Logical. If more than 4 images are provided, whether to randomly
+#'   sample 4 images (`TRUE`) or use the first 4 (`FALSE`, default).
+#' @param return_list Logical. If `TRUE`, returns a named list with `image` and `labels`.
+#'   If `FALSE` (default), returns the composite `Image` object with the transformed
+#'   annotations attached as an attribute `attr(out, "labels")`.
+#' @param plot Logical. Whether to display the resulting mosaic. Defaults to `TRUE`.
+#' @param verbose Logical. Whether to display informative progress/messages. Defaults to `TRUE`.
+#'
+#' @return An `Image` object of class `c("pliman_mosaic", "Image")` (with `attr(out, "labels")`
+#'   containing transformed annotations if `labels` were provided), or a list containing
+#'   `$image` and `$labels` if `return_list = TRUE`.
+#'
+#' @export
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#'
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#'
+#' # Mosaic from 4 sample images with 20% overlap
+#' im1 <- image_pliman("sev_leaf.jpg")
+#' im2 <- image_pliman("sev_leaf_nb.jpg")
+#' im3 <- image_pliman("sev_healthy.jpg")
+#' im4 <- image_pliman("sev_sympt.jpg")
+#'
+#' mos <- image_mosaic(im1, im2, im3, im4, overlap = 0.20)
+#' }
+image_mosaic <- function(...,
+                         images = NULL,
+                         pattern = NULL,
+                         path = NULL,
+                         labels = NULL,
+                         width = NULL,
+                         height = NULL,
+                         overlap = 0.20,
+                         min_area_ratio = 0.10,
+                         crop_region = c("quadrant", "random", "center"),
+                         blend = c("none", "feather", "overlay"),
+                         sample = FALSE,
+                         return_list = FALSE,
+                         plot = TRUE,
+                         verbose = TRUE) {
+  crop_region <- match.arg(crop_region)
+  blend <- match.arg(blend)
+
+  # 1. Resolve image list
+  dots <- list(...)
+  input_list <- list()
+
+  if (!is.null(pattern)) {
+    path_dir <- if (is.null(path)) getwd() else path
+    fls <- list.files(path_dir, pattern = pattern, full.names = TRUE, ignore.case = TRUE)
+    if (length(fls) == 0L) {
+      cli::cli_abort("No image files matching pattern {.val {pattern}} found in {.path {path_dir}}.")
+    }
+    input_list <- as.list(fls)
+  } else if (!is.null(path) && is.null(images) && length(dots) == 0L) {
+    fls <- list.files(path, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", full.names = TRUE, ignore.case = TRUE)
+    if (length(fls) == 0L) {
+      cli::cli_abort("No valid image files found in directory {.path {path}}.")
+    }
+    input_list <- as.list(fls)
+  } else if (!is.null(images)) {
+    if (is.character(images)) {
+      input_list <- as.list(images)
+    } else if (is.list(images)) {
+      input_list <- images
+    } else {
+      input_list <- list(images)
+    }
+  } else if (length(dots) > 0L) {
+    if (length(dots) == 1L && is.list(dots[[1L]]) && !inherits(dots[[1L]], c("Image", "image"))) {
+      input_list <- dots[[1L]]
+    } else {
+      input_list <- dots
+    }
+  }
+
+  if (length(input_list) == 0L) {
+    cli::cli_abort("No images provided to {.fn image_mosaic}.")
+  }
+
+  # If more than 4 images:
+  if (length(input_list) > 4L) {
+    if (isTRUE(sample)) {
+      sel_idx <- base::sample(seq_along(input_list), 4L, replace = FALSE)
+      input_list <- input_list[sel_idx]
+      if (!is.null(labels) && length(labels) >= length(input_list)) {
+        labels <- labels[sel_idx]
+      }
+    } else {
+      input_list <- input_list[1:4]
+      if (!is.null(labels) && length(labels) >= 4L) {
+        labels <- labels[1:4]
+      }
+    }
+  } else if (length(input_list) < 4L) {
+    orig_len <- length(input_list)
+    rec_idx <- rep(seq_len(orig_len), length.out = 4L)
+    input_list <- input_list[rec_idx]
+    if (!is.null(labels) && length(labels) > 0L) {
+      labels <- labels[rep(seq_along(labels), length.out = 4L)]
+    }
+  }
+
+  # Load images if paths
+  raw_imgs <- lapply(input_list, function(x) {
+    if (is.character(x)) {
+      image_import(x, plot = FALSE)
+    } else if (is.list(x) && !is.null(x$img)) {
+      x$img
+    } else {
+      x
+    }
+  })
+
+  # Parse labels if provided
+  lbl_lines_list <- vector("list", 4L)
+  if (!is.null(labels)) {
+    for (k in 1:4) {
+      lk <- labels[[k]]
+      if (is.character(lk) && length(lk) == 1L && file.exists(lk)) {
+        lines_k <- readLines(lk, warn = FALSE)
+      } else if (is.character(lk)) {
+        lines_k <- lk
+      } else {
+        lines_k <- character(0)
+      }
+      lbl_lines_list[[k]] <- lines_k[nzchar(trimws(lines_k))]
+    }
+  }
+
+  # Canvas dimensions
+  d1 <- dim(raw_imgs[[1L]])
+  W_mos <- if (!is.null(width)) as.integer(width[1L]) else d1[1L]
+  H_mos <- if (!is.null(height)) as.integer(height[1L]) else d1[2L]
+
+  # Overlap
+  ov <- as.numeric(overlap)
+  ov_x <- max(0.0, min(0.49, ov[1L]))
+  ov_y <- max(0.0, min(0.49, if (length(ov) > 1L) ov[2L] else ov[1L]))
+
+  # Target tile sizes on canvas
+  tw <- as.integer(round(W_mos / 2.0 * (1.0 + ov_x)))
+  th <- as.integer(round(H_mos / 2.0 * (1.0 + ov_y)))
+  tw <- min(tw, W_mos)
+  th <- min(th, H_mos)
+
+  # Placement coordinates on canvas (1-indexed)
+  # Tile 1: Top-Left
+  # Tile 2: Top-Right
+  # Tile 3: Bottom-Left
+  # Tile 4: Bottom-Right
+  can_x1 <- c(1L, W_mos - tw + 1L, 1L, W_mos - tw + 1L)
+  can_x2 <- c(tw, W_mos, tw, W_mos)
+  can_y1 <- c(1L, 1L, H_mos - th + 1L, H_mos - th + 1L)
+  can_y2 <- c(th, th, H_mos, H_mos)
+
+  # Check channels
+  max_ch <- max(vapply(raw_imgs, function(x) {
+    d <- dim(x)
+    if (length(d) >= 3L) d[3L] else 1L
+  }, integer(1L)))
+  if (max_ch < 3L && any(vapply(raw_imgs, function(x) inherits(x, "Image") && (attr(x, "colormode") %||% "") == "Color", logical(1L)))) {
+    max_ch <- 3L
+  }
+
+  canvas_arr <- array(0.0, dim = c(W_mos, H_mos, max_ch))
+  weight_arr <- array(0.0, dim = c(W_mos, H_mos))
+  mosaic_labels <- character(0)
+
+  # Process each tile
+  for (k in 1:4) {
+    im_k <- raw_imgs[[k]]
+    d_k <- dim(im_k)
+    W_k <- d_k[1L]
+    H_k <- d_k[2L]
+
+    cw_k <- min(W_k, as.integer(round(W_k / 2.0 * (1.0 + ov_x))))
+    ch_k <- min(H_k, as.integer(round(H_k / 2.0 * (1.0 + ov_y))))
+
+    # Determine crop coordinates in image k
+    if (crop_region == "quadrant") {
+      if (k == 1L) { # TL
+        cx1 <- 1L; cx2 <- cw_k
+        cy1 <- 1L; cy2 <- ch_k
+      } else if (k == 2L) { # TR
+        cx1 <- W_k - cw_k + 1L; cx2 <- W_k
+        cy1 <- 1L; cy2 <- ch_k
+      } else if (k == 3L) { # BL
+        cx1 <- 1L; cx2 <- cw_k
+        cy1 <- H_k - ch_k + 1L; cy2 <- H_k
+      } else { # BR
+        cx1 <- W_k - cw_k + 1L; cx2 <- W_k
+        cy1 <- H_k - ch_k + 1L; cy2 <- H_k
+      }
+    } else if (crop_region == "center") {
+      cx1 <- max(1L, as.integer(round((W_k - cw_k) / 2.0 + 1L)))
+      cx2 <- cx1 + cw_k - 1L
+      cy1 <- max(1L, as.integer(round((H_k - ch_k) / 2.0 + 1L)))
+      cy2 <- cy1 + ch_k - 1L
+    } else { # random
+      cx1 <- sample(1L:max(1L, W_k - cw_k + 1L), 1L)
+      cx2 <- cx1 + cw_k - 1L
+      cy1 <- sample(1L:max(1L, H_k - ch_k + 1L), 1L)
+      cy2 <- cy1 + ch_k - 1L
+    }
+
+    # Extract cropped patch
+    patch_k <- im_k[cx1:cx2, cy1:cy2, , drop = FALSE]
+    dp <- dim(patch_k)
+
+    # Resize patch to (tw, th) if needed
+    if (dp[1L] != tw || dp[2L] != th) {
+      patch_k <- image_resize(patch_k, width = tw, height = th, plot = FALSE)
+    }
+
+    # Convert patch to float [0, 1]
+    u <- unclass(patch_k)
+    p_arr <- if (is.raw(u)) as.numeric(u) / 255.0 else as.numeric(u)
+    dim(p_arr) <- dim(patch_k)
+    if (length(dim(p_arr)) == 2L) {
+      dim(p_arr) <- c(dim(p_arr), 1L)
+    }
+    if (dim(p_arr)[3L] == 1L && max_ch == 3L) {
+      p_arr <- array(rep(p_arr[, , 1L], 3L), dim = c(tw, th, 3L))
+    }
+
+    # Canvas target region
+    tx1 <- can_x1[k]; tx2 <- can_x2[k]
+    ty1 <- can_y1[k]; ty2 <- can_y2[k]
+
+    # Blending
+    mid_x <- as.integer(round(W_mos / 2.0))
+    mid_y <- as.integer(round(H_mos / 2.0))
+
+    sub_x1 <- if (k %in% c(1L, 3L)) 1L else mid_x + 1L
+    sub_x2 <- if (k %in% c(1L, 3L)) mid_x else W_mos
+    sub_y1 <- if (k %in% c(1L, 2L)) 1L else mid_y + 1L
+    sub_y2 <- if (k %in% c(1L, 2L)) mid_y else H_mos
+
+    if (blend %in% c("none", "overlay")) {
+      px_idx <- sub_x1:sub_x2 - tx1 + 1L
+      py_idx <- sub_y1:sub_y2 - ty1 + 1L
+
+      canvas_arr[sub_x1:sub_x2, sub_y1:sub_y2, ] <- p_arr[px_idx, py_idx, , drop = FALSE]
+      weight_arr[sub_x1:sub_x2, sub_y1:sub_y2] <- 1.0
+    } else { # "feather"
+      ov_w <- 2L * tw - W_mos
+      ov_h <- 2L * th - H_mos
+
+      wx <- rep(1.0, tw)
+      if (ov_w > 0L) {
+        if (k %in% c(1L, 3L)) { # left tiles
+          ramp_idx <- (tw - ov_w + 1L):tw
+          wx[ramp_idx] <- seq(1.0, 0.0, length.out = ov_w)
+        } else { # right tiles
+          ramp_idx <- 1L:ov_w
+          wx[ramp_idx] <- seq(0.0, 1.0, length.out = ov_w)
+        }
+      }
+
+      wy <- rep(1.0, th)
+      if (ov_h > 0L) {
+        if (k %in% c(1L, 2L)) { # top tiles
+          ramp_idx <- (th - ov_h + 1L):th
+          wy[ramp_idx] <- seq(1.0, 0.0, length.out = ov_h)
+        } else { # bottom tiles
+          ramp_idx <- 1L:ov_h
+          wy[ramp_idx] <- seq(0.0, 1.0, length.out = ov_h)
+        }
+      }
+
+      W_tile <- outer(wx, wy)
+
+      for (ch in seq_len(max_ch)) {
+        canvas_arr[tx1:tx2, ty1:ty2, ch] <- canvas_arr[tx1:tx2, ty1:ty2, ch] + p_arr[, , ch] * W_tile
+      }
+      weight_arr[tx1:tx2, ty1:ty2] <- weight_arr[tx1:tx2, ty1:ty2] + W_tile
+    }
+
+    # Transform YOLO annotations if present
+    k_lines <- lbl_lines_list[[k]]
+    if (length(k_lines) > 0L) {
+      sx <- (tx2 - tx1 + 1.0) / (cx2 - cx1 + 1.0)
+      sy <- (ty2 - ty1 + 1.0) / (cy2 - cy1 + 1.0)
+
+      # Visible canvas quadrant bounds for tile k
+      vx1 <- as.numeric(sub_x1)
+      vx2 <- as.numeric(sub_x2)
+      vy1 <- as.numeric(sub_y1)
+      vy2 <- as.numeric(sub_y2)
+
+      for (ln in k_lines) {
+        vals <- as.numeric(strsplit(trimws(ln), "\\s+")[[1L]])
+        if (length(vals) < 5L) next
+        cid <- as.integer(vals[1L])
+
+        if (length(vals) == 5L) {
+          # Box: xc, yc, w, h
+          bx_xc <- vals[2L] * W_k
+          bx_yc <- vals[3L] * H_k
+          bx_w  <- vals[4L] * W_k
+          bx_h  <- vals[5L] * H_k
+
+          b_xmin <- bx_xc - bx_w / 2.0
+          b_xmax <- bx_xc + bx_w / 2.0
+          b_ymin <- bx_yc - bx_h / 2.0
+          b_ymax <- bx_yc + bx_h / 2.0
+
+          # 1. Map full object bounding box from Image k onto canvas coordinates
+          mx1 <- tx1 + (b_xmin - cx1) * sx
+          mx2 <- tx1 + (b_xmax - cx1) * sx
+          my1 <- ty1 + (b_ymin - cy1) * sy
+          my2 <- ty1 + (b_ymax - cy1) * sy
+          full_area <- max(1e-6, (mx2 - mx1) * (my2 - my1))
+
+          # 2. Clip bounding box to the tile's visible quadrant on the canvas
+          final_mx1 <- max(vx1, mx1)
+          final_mx2 <- min(vx2, mx2)
+          final_my1 <- max(vy1, my1)
+          final_my2 <- min(vy2, my2)
+
+          # If object has no overlap with the visible quadrant of this tile, skip
+          if (final_mx2 <= final_mx1 || final_my2 <= final_my1) next
+
+          vis_w <- final_mx2 - final_mx1
+          vis_h <- final_my2 - final_my1
+          if (vis_w < 2.0 || vis_h < 2.0) next
+
+          vis_area <- vis_w * vis_h
+          # Retain cut objects if at least min_area_ratio of the object is visible
+          if ((vis_area / full_area) < min_area_ratio) next
+
+          # 3. Re-normalize to mosaic canvas dimensions [0, 1]
+          n_xc <- (final_mx1 + final_mx2) / (2.0 * W_mos)
+          n_yc <- (final_my1 + final_my2) / (2.0 * H_mos)
+          n_w  <- vis_w / W_mos
+          n_h  <- vis_h / H_mos
+
+          n_xc <- max(0.0, min(1.0, n_xc))
+          n_yc <- max(0.0, min(1.0, n_yc))
+          n_w  <- max(0.0, min(1.0, n_w))
+          n_h  <- max(0.0, min(1.0, n_h))
+
+          if (n_w * W_mos >= 2.0 && n_h * H_mos >= 2.0) {
+            mosaic_labels <- c(mosaic_labels, sprintf("%d %.6f %.6f %.6f %.6f", cid, n_xc, n_yc, n_w, n_h))
+          }
+        } else {
+          # Polygon: class x1 y1 x2 y2 ...
+          coords <- vals[-1L]
+          xs <- coords[seq(1L, length(coords), by = 2L)] * W_k
+          ys <- coords[seq(2L, length(coords), by = 2L)] * H_k
+
+          # Map to canvas coordinates
+          mx <- tx1 + (xs - cx1) * sx
+          my <- ty1 + (ys - cy1) * sy
+
+          # Clip polygon points to tile's visible quadrant
+          c_mx <- pmax(vx1, pmin(vx2, mx))
+          c_my <- pmax(vy1, pmin(vy2, my))
+
+          poly_w <- max(c_mx) - min(c_mx)
+          poly_h <- max(c_my) - min(c_my)
+
+          if (poly_w < 2.0 || poly_h < 2.0) next
+
+          orig_poly_w <- max(mx) - min(mx)
+          orig_poly_h <- max(my) - min(my)
+          orig_poly_area <- max(1e-6, orig_poly_w * orig_poly_h)
+          vis_poly_area <- poly_w * poly_h
+          if ((vis_poly_area / orig_poly_area) < min_area_ratio) next
+
+          norm_x <- pmax(0.0, pmin(1.0, c_mx / W_mos))
+          norm_y <- pmax(0.0, pmin(1.0, c_my / H_mos))
+
+          interleaved <- as.vector(rbind(norm_x, norm_y))
+          mosaic_labels <- c(mosaic_labels, paste(c(cid, sprintf("%.6f", interleaved)), collapse = " "))
+        }
+      }
+    }
+  }
+
+  if (blend == "feather") {
+    weight_arr[weight_arr < 1e-6] <- 1.0
+    for (ch in seq_len(max_ch)) {
+      canvas_arr[, , ch] <- canvas_arr[, , ch] / weight_arr
+    }
+  }
+
+  canvas_arr[canvas_arr < 0.0] <- 0.0
+  canvas_arr[canvas_arr > 1.0] <- 1.0
+
+  # Build Image object
+  colmode <- if (max_ch == 3L) "Color" else "Grayscale"
+  res_img <- as_image(canvas_arr, colormode = colmode)
+  class(res_img) <- unique(c("pliman_mosaic", class(res_img)))
+  attr(res_img, "labels") <- mosaic_labels
+  attr(res_img, "mosaic_info") <- list(
+    width = W_mos,
+    height = H_mos,
+    overlap = c(ov_x, ov_y),
+    crop_region = crop_region,
+    blend = blend,
+    tiles = data.frame(
+      tile = 1:4,
+      position = c("top_left", "top_right", "bottom_left", "bottom_right"),
+      can_x1 = can_x1, can_x2 = can_x2,
+      can_y1 = can_y1, can_y2 = can_y2
+    )
+  )
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_success("Mosaic composite created ({W_mos}x{H_mos}, overlap: {round(ov_x * 100)}% x {round(ov_y * 100)}%).")
+    if (length(mosaic_labels) > 0L) {
+      cli::cli_alert_info("Transformed {length(mosaic_labels)} YOLO annotation(s).")
+    }
+  }
+
+  if (isTRUE(plot)) {
+    plot(res_img)
+  }
+
+  if (isTRUE(return_list)) {
+    return(list(image = res_img, labels = mosaic_labels))
+  }
+
+  res_img
 }
 
 # Internal helper function to read a single image file (Zero-dependency C++ engine)
@@ -276,7 +768,9 @@ image_combine <- function(...,
     if (requireNamespace("webp", quietly = TRUE)) {
       img_d <- image_data(img)
       float_data <- if (is.raw(img_d)) raw_to_float_cpp(img_d) else img_d
-      webp::write_webp(float_data, target = file, quality = round(quality * 100))
+      q_val <- if (quality <= 1.0) round(quality * 100) else round(quality)
+      q_val <- max(0L, min(100L, as.integer(q_val)))
+      webp::write_webp(float_data, target = file, quality = q_val)
       return(return(file))
     } else {
       cli::cli_abort(c(
@@ -577,6 +1071,240 @@ image_export <- function(img,
     return(invisible(out_file))
   }
 }
+
+#' Convert Images to JPEG Format
+#'
+#' Converts images in a directory (or a vector of image file paths) to `.jpg` /
+#' `.jpeg` format. This is particularly useful for preparing datasets for YOLO
+#' object detection and segmentation training, where WebP, PNG, BMP, or TIFF files
+#' need to be unified into standard JPEG format.
+#'
+#' @param path Character string or vector. A directory containing images to
+#'   convert, or a character vector of image file paths. Defaults to `"."`
+#'   (current working directory).
+#' @param from Character vector of file extensions to convert (case-insensitive).
+#'   Defaults to `c("webp", "png", "bmp", "tif", "tiff", "jpeg")`.
+#' @param pattern Optional regular expression to filter image filenames.
+#' @param dest_dir Optional destination directory. If `NULL` (default), the `.jpg`
+#'   images are written in the same directory as the source images.
+#' @param quality Integer between 1 and 100 specifying the JPEG compression
+#'   quality. Default is `95L`.
+#' @param delete_original Logical. If `TRUE`, deletes the original unconverted
+#'   image file after successful conversion. Default is `FALSE`.
+#' @param overwrite Logical. If `TRUE`, overwrites existing `.jpg` files with
+#'   the same stem name. Defaults to `FALSE` (skips conversion if target exists).
+#' @param recursive Logical. Should subdirectories be searched recursively?
+#'   Default is `FALSE`.
+#' @param parallel Logical or integer. If `TRUE` or integer > 1, converts images
+#'   in parallel using multiple worker daemons. Defaults to `FALSE`.
+#' @param verbose Logical. If `TRUE` (default), prints progress and summary
+#'   messages to the console.
+#'
+#' @return A character vector of paths to the created `.jpg` files (invisibly).
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#' @export
+#' @rdname image_to_jpg
+#'
+#' @examples
+#' \dontrun{
+#' # Convert all WebP files in a folder to JPG
+#' image_to_jpg("path/to/folder", from = "webp")
+#'
+#' # Convert and delete original WebP files
+#' image_to_jpg("path/to/folder", from = "webp", delete_original = TRUE)
+#'
+#' # Convert specific files
+#' image_to_jpg(c("img1.webp", "img2.png"))
+#' }
+image_to_jpg <- function(path = ".",
+                         from = c("webp", "png", "bmp", "tif", "tiff", "jpeg"),
+                         pattern = NULL,
+                         dest_dir = NULL,
+                         quality = 95L,
+                         delete_original = FALSE,
+                         overwrite = FALSE,
+                         recursive = FALSE,
+                         parallel = FALSE,
+                         verbose = TRUE) {
+  quality <- as.integer(quality)[1]
+  if (is.na(quality) || quality < 1L || quality > 100L) quality <- 95L
+
+  # 1. Resolve files to convert
+  target_files <- character(0)
+
+  if (length(path) == 1L && dir.exists(path)) {
+    ext_pattern <- if (!is.null(from) && length(from) > 0L) {
+      from_clean <- gsub("^\\.", "", tolower(from))
+      sprintf("\\.(%s)$", paste(from_clean, collapse = "|"))
+    } else {
+      "\\.(webp|png|bmp|tif|tiff|jpeg)$"
+    }
+
+    fls <- list.files(
+      path = path,
+      pattern = ext_pattern,
+      full.names = TRUE,
+      recursive = recursive,
+      ignore.case = TRUE
+    )
+    if (!is.null(pattern) && nzchar(pattern)) {
+      fls <- fls[grepl(pattern, basename(fls), ignore.case = TRUE)]
+    }
+    target_files <- fls
+  } else {
+    for (p in path) {
+      if (dir.exists(p)) {
+        ext_pattern <- if (!is.null(from) && length(from) > 0L) {
+          from_clean <- gsub("^\\.", "", tolower(from))
+          sprintf("\\.(%s)$", paste(from_clean, collapse = "|"))
+        } else {
+          "\\.(webp|png|bmp|tif|tiff|jpeg)$"
+        }
+        fls <- list.files(p, pattern = ext_pattern, full.names = TRUE, recursive = recursive, ignore.case = TRUE)
+        target_files <- c(target_files, fls)
+      } else if (file.exists(p)) {
+        ext_p <- tolower(tools::file_ext(p))
+        if (is.null(from) || ext_p %in% tolower(gsub("^\\.", "", from))) {
+          target_files <- c(target_files, p)
+        }
+      }
+    }
+    if (!is.null(pattern) && nzchar(pattern)) {
+      target_files <- target_files[grepl(pattern, basename(target_files), ignore.case = TRUE)]
+    }
+  }
+
+  target_files <- unique(target_files)
+  n_files <- length(target_files)
+
+  if (n_files == 0L) {
+    if (isTRUE(verbose)) {
+      from_str <- if (!is.null(from)) paste(from, collapse = ", ") else "non-jpg"
+      cli::cli_alert_warning("No matching image files found to convert (searched: {.val {from_str}}).")
+    }
+    return(invisible(character(0)))
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_info("Found {.val {n_files}} image{?s} to convert to {.val *.jpg}.")
+  }
+
+  if (!is.null(dest_dir)) {
+    if (!dir.exists(dest_dir)) {
+      dir.create(dest_dir, recursive = TRUE)
+    }
+  }
+
+  convert_single <- function(f) {
+    stem <- tools::file_path_sans_ext(basename(f))
+    out_dir <- if (!is.null(dest_dir)) dest_dir else dirname(f)
+    out_file <- file.path(out_dir, paste0(stem, ".jpg"))
+    out_file <- normalizePath(out_file, winslash = "/", mustWork = FALSE)
+    src_norm <- normalizePath(f, winslash = "/", mustWork = FALSE)
+
+    if (!isTRUE(overwrite) && file.exists(out_file)) {
+      return(list(status = "skipped", file = out_file, src = f))
+    }
+
+    if (identical(tolower(src_norm), tolower(out_file))) {
+      return(list(status = "skipped", file = out_file, src = f))
+    }
+
+    im <- tryCatch(image_import(f, verbose = FALSE), error = function(e) NULL)
+    if (is.null(im) || !is_image(im)) {
+      return(list(status = "error", file = out_file, src = f))
+    }
+
+    ok <- tryCatch({
+      .write_image_file(im, out_file, quality = quality)
+      TRUE
+    }, error = function(e) FALSE)
+
+    if (isTRUE(ok) && file.exists(out_file) && file.size(out_file) > 0L) {
+      del_ok <- FALSE
+      if (isTRUE(delete_original) && !identical(tolower(src_norm), tolower(out_file))) {
+        del_ok <- tryCatch({
+          unlink(f)
+          TRUE
+        }, error = function(e) FALSE)
+      }
+      return(list(status = "converted", file = out_file, src = f, deleted = del_ok))
+    } else {
+      return(list(status = "error", file = out_file, src = f))
+    }
+  }
+
+  created_files <- character(0)
+  n_converted <- 0L
+  n_skipped <- 0L
+  n_deleted <- 0L
+  n_error <- 0L
+
+  if (isTRUE(parallel) && n_files > 4L && requireNamespace("mirai", quietly = TRUE)) {
+    res_list <- tryCatch({
+      d_info <- .ensure_daemons(n_items = n_files, verbose = FALSE)
+      if (isTRUE(d_info$active)) {
+        if (isTRUE(d_info$auto_cleanup)) on.exit(mirai::daemons(0), add = TRUE)
+        mirai::mirai_map(target_files, function(f) {
+          stem <- tools::file_path_sans_ext(basename(f))
+          out_dir <- if (!is.null(dest_dir)) dest_dir else dirname(f)
+          out_file <- file.path(out_dir, paste0(stem, ".jpg"))
+          im <- tryCatch(pliman::image_import(f, verbose = FALSE), error = function(e) NULL)
+          if (!is.null(im)) {
+            pliman:::write_image_cpp(im, out_file, quality = quality)
+            if (isTRUE(delete_original) && tolower(f) != tolower(out_file)) unlink(f)
+            out_file
+          } else NULL
+        })[]
+      } else NULL
+    }, error = function(e) NULL)
+
+    if (!is.null(res_list)) {
+      created_files <- unlist(res_list)
+      n_converted <- length(created_files)
+    } else {
+      res_list <- NULL
+    }
+  } else {
+    res_list <- NULL
+  }
+
+  if (is.null(res_list)) {
+    if (isTRUE(verbose)) {
+      pb <- cli::cli_progress_bar("Converting images to JPEG", total = n_files)
+    }
+
+    for (k in seq_along(target_files)) {
+      res_k <- convert_single(target_files[k])
+      if (identical(res_k$status, "converted")) {
+        created_files <- c(created_files, res_k$file)
+        n_converted <- n_converted + 1L
+        if (isTRUE(res_k$deleted)) n_deleted <- n_deleted + 1L
+      } else if (identical(res_k$status, "skipped")) {
+        n_skipped <- n_skipped + 1L
+      } else {
+        n_error <- n_error + 1L
+      }
+      if (isTRUE(verbose)) cli::cli_progress_update(id = pb)
+    }
+    if (isTRUE(verbose)) cli::cli_progress_done(id = pb)
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_success(
+      "Converted {.val {n_converted}} image{?s} to {.val *.jpg} (quality = {quality}%){if (n_deleted > 0) sprintf(', removed %d original file(s)', n_deleted) else ''}{if (n_skipped > 0) sprintf(', skipped %d already existing', n_skipped) else ''}."
+    )
+    if (n_error > 0L) {
+      cli::cli_alert_warning("Failed to convert {.val {n_error}} file{?s}.")
+    }
+  }
+
+  invisible(created_files)
+}
+
+#' @export
+#' @rdname image_to_jpg
+image_to_jpeg <- image_to_jpg
 
 #' @export
 #' @name utils_image
@@ -940,7 +1668,21 @@ image_crop <- function(img,
 image_dimension <- function(img,
                             parallel = FALSE,
                             workers = NULL,
-                            verbose = TRUE){
+                            verbose = TRUE) {
+  if (is.character(img)) {
+    if (length(img) == 1L) {
+      im <- tryCatch(image_import(img, plot = FALSE), error = function(e) NULL)
+      if (is.null(im)) {
+        cli::cli_abort("Failed to read image at {.path {img}}.")
+      }
+      return(image_dimension(im, verbose = verbose))
+    } else {
+      imgs <- lapply(img, function(x) tryCatch(image_import(x, plot = FALSE), error = function(e) NULL))
+      names(imgs) <- basename(img)
+      return(image_dimension(imgs, parallel = parallel, workers = workers, verbose = verbose))
+    }
+  }
+
   if (is.list(img)) {
     if (inherits(img, c("binary_list", "segment_list", "index_list",
                         "img_mat_list", "palette_list"))) {
@@ -1825,6 +2567,124 @@ image_trim <- function(img,
     return(img)
   }
 }
+
+#' Scramble or Shuffle an Image
+#'
+#' @description
+#' `image_scramble()` (and its alias `image_shuffle()`) decomposes an image into
+#' a grid of tiles (or jigsaw puzzle pieces) or pixels and randomly permutes them, optionally
+#' applying random 90-degree rotations and horizontal/vertical flips to individual tiles.
+#'
+#' This technique destroys coherent object contours, semantics, and global geometry
+#' while strictly preserving the authentic color palette, luminance, sensor noise,
+#' texture distribution, and illumination of the original scene. It is especially
+#' powerful for synthesizing realistic negative background images for object detection
+#' models like YOLO.
+#'
+#' Three scrambling modes are supported via the `mode` parameter:
+#' - `"grid"` (default): Divides the image into a grid of `grid_r x grid_c` tiles and performs
+#'   a complete Fisher-Yates jigsaw puzzle permutation across all positions.
+#' - `"block_swap"`: Performs random pairwise swaps between neighboring tiles, preserving
+#'   local continuous background structures and gradients while disrupting object integrity.
+#' - `"pixel"`: Shuffles all individual pixel coordinates globally, synthesizing an exact
+#'   spectral/color noise image that retains 100% of the original histogram and sensor palette.
+#'
+#' @param img An image object of class `image`, `Image`, a numeric array, raw array, or a list of images.
+#' @param grid An integer vector of length 1 or 2 specifying the number of rows and columns
+#'   in the scrambling grid (default: `c(8, 8)`). If a single integer is provided,
+#'   a square grid `c(grid, grid)` is used. Ignored when `mode = "pixel"`.
+#' @param mode Character specifying the scrambling strategy: `"grid"` (default jigsaw tile shuffle),
+#'   `"block_swap"` (local block swapping preserving partial continuity), or `"pixel"` (global pixel shuffle).
+#' @param swap_prob Numeric between 0 and 1. Fraction of tiles swapped when `mode = "block_swap"` (default: `0.5`).
+#' @param shuffle_pixels Logical. Whether to randomize/shuffle all pixels internally within
+#'   each individual tile (default: `TRUE`). Combining tile permutation with intra-tile pixel
+#'   randomization completely dissolves any recognizable sub-objects (e.g. wood logs) while
+#'   strictly conserving the local background color and textural palette of each region!
+#' @param rotate_tiles Logical. Whether to apply random 90-degree rotations (0°, 90°, 180°, 270°)
+#'   to individual scrambled tiles (default: `TRUE`). Ignored when `mode = "pixel"`.
+#' @param flip_tiles Logical. Whether to apply random horizontal/vertical flips to individual
+#'   scrambled tiles (default: `TRUE`). Ignored when `mode = "pixel"`.
+#' @param seed Optional integer seed for reproducibility (default: `NULL`).
+#' @param plot Logical. If `TRUE`, plots the scrambled image(s) (default: `FALSE`).
+#'
+#' @return An scrambled image of the same class and dimensions as `img` (or a list of images).
+#' @export
+#' @aliases image_shuffle
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#' @examplesIf interactive()
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#'
+#' # 1. Tile permutation with intra-tile pixel randomization (default)
+#' scr_blocks_pix <- image_scramble(img, grid = c(8, 8), shuffle_pixels = TRUE, plot = TRUE)
+#'
+#' # 2. Local block swap preserving partial background continuity
+#' scr_swap <- image_scramble(img, grid = c(10, 10), mode = "block_swap", plot = TRUE)
+#'
+#' # 3. Complete global pixel shuffle (exact spectral color noise)
+#' scr_pixel <- image_scramble(img, mode = "pixel", plot = TRUE)
+image_scramble <- function(img,
+                           grid = c(8, 8),
+                           mode = c("grid", "block_swap", "pixel"),
+                           swap_prob = 0.5,
+                           shuffle_pixels = TRUE,
+                           rotate_tiles = TRUE,
+                           flip_tiles = TRUE,
+                           seed = NULL,
+                           plot = FALSE) {
+  mode <- match.arg(mode)
+  if (length(grid) == 1L) {
+    grid_r <- as.integer(grid[1L])
+    grid_c <- grid_r
+  } else {
+    grid_r <- as.integer(grid[1L])
+    grid_c <- as.integer(grid[2L])
+  }
+  grid_r <- max(1L, grid_r)
+  grid_c <- max(1L, grid_c)
+
+  int_seed <- if (!is.null(seed)) as.integer(seed) else as.integer(sample.int(2147483647L, 1L))
+
+  scramble_single <- function(x, s) {
+    if (!inherits(x, c("image", "Image")) && !is.array(x) && !is.matrix(x)) {
+      cli::cli_abort("Each image must be of class {.cls image}, {.cls Image}, matrix, or array.")
+    }
+    res <- image_scramble_cpp(
+      img_sexp = x,
+      grid_r = grid_r,
+      grid_c = grid_c,
+      rotate_tiles = isTRUE(rotate_tiles),
+      flip_tiles = isTRUE(flip_tiles),
+      mode = mode,
+      swap_prob = as.numeric(swap_prob),
+      shuffle_pixels = isTRUE(shuffle_pixels),
+      seed = s
+    )
+    res
+  }
+
+  if (is.list(img) && !inherits(img, c("image", "Image"))) {
+    out <- vector("list", length(img))
+    for (i in seq_along(img)) {
+      cur_s <- (int_seed + i * 997L) %% 2147483647L
+      out[[i]] <- scramble_single(img[[i]], cur_s)
+    }
+    names(out) <- names(img)
+    if (isTRUE(plot)) {
+      for (im in out) plot(im)
+    }
+    return(out)
+  }
+
+  res <- scramble_single(img, int_seed)
+  if (isTRUE(plot)) {
+    plot(res)
+  }
+  return(res)
+}
+
+#' @export
+image_shuffle <- image_scramble
 
 
 #' @name utils_transform

@@ -8,6 +8,7 @@ yolo_dataset_split(
   data,
   out_dir = "split_yolo_dataset",
   split = c(train = 0.7, val = 0.2, test = 0.1),
+  stratify = TRUE,
   seed = 42,
   copy = TRUE,
   overwrite = FALSE,
@@ -20,6 +21,9 @@ yolo_dataset_split(
 \item{out_dir}{Output directory path for the re-split dataset. Defaults to \code{"split_yolo_dataset"}.}
 
 \item{split}{Proportions for partitioning (default: \code{c(train = 0.70, val = 0.20, test = 0.10)}).}
+
+\item{stratify}{Logical. If \code{TRUE} (default), applies multi-label iterative stratification
+to ensure balanced class distributions across all splits.}
 
 \item{seed}{Optional random seed for reproducible shuffling (default: 42).}
 
@@ -37,12 +41,17 @@ A \code{yolo_dataset} object pointing to the newly split dataset.
 and redistributes all images and matching \code{.txt} labels into new \verb{train/}, \verb{val/},
 and optionally \verb{test/} splits. It ensures that pairs are preserved and regenerates
 an updated \code{data.yaml}.
+
+For object detection and segmentation datasets, setting \code{stratify = TRUE} (default)
+applies multi-label iterative stratification (Sechidis et al.) to ensure that rare and
+minority classes maintain exact representative proportions across all splits, preventing
+zero-instance validation splits.
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
-# Re-stratify into 70\% train, 20\% validation, 10\% test
-ds_split <- yolo_dataset_split("dataset_cafe", split = c(0.7, 0.2, 0.1))
+# Re-stratify into 70\% train, 20\% validation, 10\% test with iterative stratification
+ds_split <- yolo_dataset_split("dataset_cafe", split = c(0.7, 0.2, 0.1), stratify = TRUE)
 \dontshow{\}) # examplesIf}
 }

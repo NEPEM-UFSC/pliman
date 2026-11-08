@@ -758,8 +758,8 @@ poly_measures <- function(x){
     if (nrow(res) == 0) {
       return(data.frame())
     }
-    res$id <- 1:nrow(res)
-    shape <- res[, c(ncol(res), 1:ncol(res) -1) ]
+    res$id <- valid
+    shape <- res[, c(ncol(res), 1:(ncol(res) - 1))]
     return(shape)
   } else{
     coord <- poly_check(x)

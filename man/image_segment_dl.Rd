@@ -24,14 +24,14 @@ image_segment_dl(
   show_id = FALSE,
   show_point = FALSE,
   show_box = NULL,
-  point_size = 1.5,
+  point_size = 1,
   point_pch = 16,
   point_col = NULL,
   badge = TRUE,
   rainbow = TRUE,
-  model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1",
-    "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1",
-    "isnet-general-use", "silueta", "u2net"),
+  model = c("rmbg-1.4", "u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam",
+    "sam2.1", "persam", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use",
+    "silueta", "u2net"),
   threshold = 0.5,
   box_threshold = 0.25,
   text_threshold = 0.25,
@@ -64,6 +64,7 @@ image_segment_dl(
   verbose = TRUE,
   plot = TRUE,
   dir = pliman_model_dir(),
+  imgsz = NULL,
   ...
 )
 }
@@ -137,7 +138,7 @@ and \code{bbox = FALSE}. Defaults to \code{FALSE}.}
 
 \item{show_box}{Logical. Whether to draw bounding boxes. Defaults to \code{NULL} (drawn if \code{bbox = TRUE}).}
 
-\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1.5}.}
+\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1}.}
 
 \item{point_pch}{Integer. Plotting symbol (\code{pch}) for the centroid point. Defaults to \code{16} (filled circle).}
 

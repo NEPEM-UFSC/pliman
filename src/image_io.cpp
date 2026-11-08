@@ -1,10 +1,15 @@
 #define STB_IMAGE_IMPLEMENTATION
+#if defined(__MINGW32__) && defined(__x86_64__)
+#define STBI_MINGW_ENABLE_SSE2
+#endif
+#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
 #include "font8x8_basic.h"
+#include "font8x16.h"
 #include "font3x5.h"
 
 #ifdef _WIN32
@@ -172,13 +177,21 @@ SEXP read_image_cpp(std::string filename) {
   unsigned char* p_out = reinterpret_cast<unsigned char*>(out.begin());
 
   if (n_channels >= 3) {
-    #pragma omp parallel for collapse(2) if(total_pixels > 50000)
-    for (int c = 0; c < n_channels; ++c) {
-      for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
-          std::size_t r_idx = x + static_cast<std::size_t>(w) * (y + static_cast<std::size_t>(h) * c);
-          std::size_t stb_idx = (static_cast<std::size_t>(y) * w + x) * channels + c;
-          p_out[r_idx] = data[stb_idx];
+    std::size_t wh = static_cast<std::size_t>(w) * h;
+    unsigned char* pR = p_out;
+    unsigned char* pG = p_out + wh;
+    unsigned char* pB = p_out + 2 * wh;
+    unsigned char* pA = (n_channels >= 4) ? (p_out + 3 * wh) : nullptr;
+    #pragma omp parallel for if(total_pixels > 50000)
+    for (int y = 0; y < h; ++y) {
+      const unsigned char* src_row = data + static_cast<std::size_t>(y) * w * channels;
+      std::size_t dst_offset = static_cast<std::size_t>(y) * w;
+      for (int x = 0; x < w; ++x) {
+        pR[dst_offset + x] = src_row[x * channels + 0];
+        pG[dst_offset + x] = src_row[x * channels + 1];
+        pB[dst_offset + x] = src_row[x * channels + 2];
+        if (pA) {
+          pA[dst_offset + x] = src_row[x * channels + 3];
         }
       }
     }
@@ -206,6 +219,257 @@ SEXP read_image_cpp(std::string filename) {
   out.attr("colormode") = (n_channels >= 3) ? "Color" : "Grayscale";
 
   return out;
+}
+
+// [[Rcpp::export]]
+Rcpp::NumericVector preprocess_yolo_file_cpp(
+    std::string filename,
+    int target_size = 640,
+    std::string interpolation = "bilinear"
+) {
+  int w = 0, h = 0, channels = 0;
+  unsigned char *data = nullptr;
+  std::vector<unsigned char> tiff_buf;
+
+  std::size_t dot_pos = filename.find_last_of(".");
+  std::string ext = (dot_pos != std::string::npos) ? filename.substr(dot_pos + 1) : "";
+  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+  bool is_tiff = (ext == "tif" || ext == "tiff");
+  bool tiff_read_success = false;
+
+  if (is_tiff) {
+    tiff_read_success = read_tiff_cpp_impl(filename, w, h, channels, tiff_buf);
+    if (tiff_read_success) {
+      data = tiff_buf.data();
+    }
+  }
+
+  if (!data) {
+    // Force 3 channels (RGB) directly from STB
+    data = stbi_load(filename.c_str(), &w, &h, &channels, 3);
+    if (data) channels = 3;
+  }
+
+  if (!data) {
+    std::string err_msg = stbi_failure_reason() ? stbi_failure_reason() : "Unknown STB/TIFF error";
+    Rcpp::stop("Failed to read image '" + filename + "': " + err_msg);
+  }
+
+  float gain = std::min((float)target_size / (float)w, (float)target_size / (float)h);
+  int new_w = std::max(1, (int)std::round(w * gain));
+  int new_h = std::max(1, (int)std::round(h * gain));
+  float pad_x = ((float)target_size - (float)new_w) / 2.0f;
+  float pad_y = ((float)target_size - (float)new_h) / 2.0f;
+  int x1 = (int)std::floor(pad_x);
+  int y1 = (int)std::floor(pad_y);
+
+  size_t plane_size = (size_t)target_size * target_size;
+  size_t total_floats = 3 * plane_size;
+  Rcpp::NumericVector out_tensor(total_floats);
+  double* p_tensor = out_tensor.begin();
+
+  // Fill with standard YOLO letterbox padding value (114 / 255)
+  double fill_val = 114.0 / 255.0;
+  std::fill(p_tensor, p_tensor + total_floats, fill_val);
+
+  double* pR = p_tensor;
+  double* pG = p_tensor + plane_size;
+  double* pB = p_tensor + 2 * plane_size;
+  size_t row_stride = (size_t)w * channels;
+
+  std::string interp_mode = interpolation;
+  std::transform(interp_mode.begin(), interp_mode.end(), interp_mode.begin(), ::tolower);
+
+  if (interp_mode == "nearest") {
+    float r_scale_x = (float)w / (float)new_w;
+    float r_scale_y = (float)h / (float)new_h;
+
+    #pragma omp parallel for schedule(static) if(new_h * new_w > 10000)
+    for (int y = 0; y < new_h; ++y) {
+      int src_y = std::min(h - 1, (int)std::floor(y * r_scale_y));
+      const unsigned char* src_row = data + static_cast<size_t>(src_y) * row_stride;
+      int dst_row_idx = (y1 + y) * target_size + x1;
+      if (channels >= 3) {
+        for (int x = 0; x < new_w; ++x) {
+          int src_x = std::min(w - 1, (int)std::floor(x * r_scale_x));
+          const unsigned char* px = src_row + src_x * channels;
+          int dst_idx = dst_row_idx + x;
+          pR[dst_idx] = px[0] / 255.0;
+          pG[dst_idx] = px[1] / 255.0;
+          pB[dst_idx] = px[2] / 255.0;
+        }
+      } else {
+        for (int x = 0; x < new_w; ++x) {
+          int src_x = std::min(w - 1, (int)std::floor(x * r_scale_x));
+          double val = src_row[src_x] / 255.0;
+          int dst_idx = dst_row_idx + x;
+          pR[dst_idx] = val; pG[dst_idx] = val; pB[dst_idx] = val;
+        }
+      }
+    }
+  } else if (interp_mode == "lanczos" || interp_mode == "lanczos3") {
+    // Lanczos-3 interpolation: L(x) = sinc(x) * sinc(x/3) for |x| < 3
+    auto lanczos3_weight = [](float x) -> float {
+      if (x == 0.0f) return 1.0f;
+      float ax = std::fabs(x);
+      if (ax >= 3.0f) return 0.0f;
+      float pi_x = 3.14159265358979323846f * ax;
+      return (std::sin(pi_x) / pi_x) * (std::sin(pi_x / 3.0f) / (pi_x / 3.0f));
+    };
+
+    struct LanczosWeight {
+      int idx[6];
+      float w[6];
+    };
+    std::vector<LanczosWeight> hw(new_w);
+    for (int x = 0; x < new_w; ++x) {
+      float src_x = ((float)x + 0.5f) / gain - 0.5f;
+      int base_x = (int)std::floor(src_x);
+      float sum_w = 0.0f;
+      for (int k = 0; k < 6; ++k) {
+        int ix = base_x - 2 + k;
+        hw[x].idx[k] = std::max(0, std::min(w - 1, ix));
+        float wt = lanczos3_weight(src_x - (float)ix);
+        hw[x].w[k] = wt;
+        sum_w += wt;
+      }
+      if (sum_w != 0.0f) {
+        for (int k = 0; k < 6; ++k) hw[x].w[k] /= sum_w;
+      }
+    }
+
+    #pragma omp parallel for schedule(static) if(new_h > 20)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      int base_y = (int)std::floor(src_y);
+      int vy_idx[6];
+      float vy_w[6];
+      float sum_wy = 0.0f;
+      for (int k = 0; k < 6; ++k) {
+        int iy = base_y - 2 + k;
+        vy_idx[k] = std::max(0, std::min(h - 1, iy));
+        float wt = lanczos3_weight(src_y - (float)iy);
+        vy_w[k] = wt;
+        sum_wy += wt;
+      }
+      if (sum_wy != 0.0f) {
+        for (int k = 0; k < 6; ++k) vy_w[k] /= sum_wy;
+      }
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+
+      for (int x = 0; x < new_w; ++x) {
+        const LanczosWeight& h_w = hw[x];
+        float sum_r = 0.0f, sum_g = 0.0f, sum_b = 0.0f;
+
+        for (int ky = 0; ky < 6; ++ky) {
+          const unsigned char* row_k = data + (size_t)vy_idx[ky] * row_stride;
+          float wy = vy_w[ky];
+          for (int kx = 0; kx < 6; ++kx) {
+            float w_total = wy * h_w.w[kx];
+            size_t off = (size_t)h_w.idx[kx] * channels;
+            if (channels >= 3) {
+              sum_r += w_total * row_k[off];
+              sum_g += w_total * row_k[off + 1];
+              sum_b += w_total * row_k[off + 2];
+            } else {
+              float v = w_total * row_k[off];
+              sum_r += v; sum_g += v; sum_b += v;
+            }
+          }
+        }
+
+        size_t dst_idx = dst_base + x;
+        pR[dst_idx] = std::max(0.0, std::min(1.0, (double)sum_r / 255.0));
+        pG[dst_idx] = std::max(0.0, std::min(1.0, (double)sum_g / 255.0));
+        pB[dst_idx] = std::max(0.0, std::min(1.0, (double)sum_b / 255.0));
+      }
+    }
+  } else {
+    // Default: Half-pixel Bilinear Interpolation (matches OpenCV cv2.INTER_LINEAR and PyTorch)
+    struct HorizWeight {
+      int x0;
+      int x1_idx;
+      float dx0;
+      float dx1;
+      size_t off00;
+      size_t off10;
+    };
+    std::vector<HorizWeight> hw(new_w);
+    for (int x = 0; x < new_w; ++x) {
+      float src_x = ((float)x + 0.5f) / gain - 0.5f;
+      if (src_x < 0.0f) src_x = 0.0f;
+      if (src_x > (float)(w - 1)) src_x = (float)(w - 1);
+      int x0 = (int)std::floor(src_x);
+      int x1_idx = std::min(x0 + 1, w - 1);
+      float dx = src_x - (float)x0;
+      hw[x].x0 = x0;
+      hw[x].x1_idx = x1_idx;
+      hw[x].dx0 = 1.0f - dx;
+      hw[x].dx1 = dx;
+      hw[x].off00 = (size_t)x0 * channels;
+      hw[x].off10 = (size_t)x1_idx * channels;
+    }
+
+    #pragma omp parallel for schedule(static) if(new_h > 30)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      if (src_y < 0.0f) src_y = 0.0f;
+      if (src_y > (float)(h - 1)) src_y = (float)(h - 1);
+      int y0 = (int)std::floor(src_y);
+      int y1_idx = std::min(y0 + 1, h - 1);
+      float dy1 = src_y - (float)y0;
+      float dy0 = 1.0f - dy1;
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+      const unsigned char* row0 = data + (size_t)y0 * row_stride;
+      const unsigned char* row1 = data + (size_t)y1_idx * row_stride;
+
+      if (channels >= 3) {
+        for (int x = 0; x < new_w; ++x) {
+          const HorizWeight& w_h = hw[x];
+          float w00 = w_h.dx0 * dy0;
+          float w10 = w_h.dx1 * dy0;
+          float w01 = w_h.dx0 * dy1;
+          float w11 = w_h.dx1 * dy1;
+
+          size_t dst_idx = dst_base + x;
+          pR[dst_idx] = (w00 * row0[w_h.off00]     + w10 * row0[w_h.off10]     + w01 * row1[w_h.off00]     + w11 * row1[w_h.off10])     / 255.0;
+          pG[dst_idx] = (w00 * row0[w_h.off00 + 1] + w10 * row0[w_h.off10 + 1] + w01 * row1[w_h.off00 + 1] + w11 * row1[w_h.off10 + 1]) / 255.0;
+          pB[dst_idx] = (w00 * row0[w_h.off00 + 2] + w10 * row0[w_h.off10 + 2] + w01 * row1[w_h.off00 + 2] + w11 * row1[w_h.off10 + 2]) / 255.0;
+        }
+      } else {
+        for (int x = 0; x < new_w; ++x) {
+          const HorizWeight& w_h = hw[x];
+          float w00 = w_h.dx0 * dy0;
+          float w10 = w_h.dx1 * dy0;
+          float w01 = w_h.dx0 * dy1;
+          float w11 = w_h.dx1 * dy1;
+
+          size_t dst_idx = dst_base + x;
+          double val = (w00 * row0[w_h.off00] + w10 * row0[w_h.off10] + w01 * row1[w_h.off00] + w11 * row1[w_h.off10]) / 255.0;
+          pR[dst_idx] = val;
+          pG[dst_idx] = val;
+          pB[dst_idx] = val;
+        }
+      }
+    }
+  }
+
+  if (!tiff_read_success) {
+    stbi_image_free(data);
+  }
+
+  out_tensor.attr("gain") = gain;
+  out_tensor.attr("pad_x") = pad_x;
+  out_tensor.attr("pad_y") = pad_y;
+  out_tensor.attr("orig_w") = w;
+  out_tensor.attr("orig_h") = h;
+  out_tensor.attr("target_size") = target_size;
+  return out_tensor;
 }
 
 // [[Rcpp::export]]
@@ -333,106 +597,6 @@ bool write_image_cpp(SEXP img_sexp, std::string filename, int quality = 95) {
   }
 
   return ret != 0;
-}
-
-// [[Rcpp::export]]
-Rcpp::NumericVector preprocess_yolo_file_cpp(
-    std::string filename,
-    int target_size = 640
-) {
-  int orig_w = 0, orig_h = 0, orig_ch = 0;
-  // stbi_load with req_comp = 3 forces RGB 3-channel interleaved output (R,G,B, R,G,B, ...)
-  unsigned char* data = stbi_load(filename.c_str(), &orig_w, &orig_h, &orig_ch, 3);
-  if (!data) {
-    std::string err = stbi_failure_reason() ? stbi_failure_reason() : "Failed to load image";
-    Rcpp::stop("Cannot open image file '%s': %s", filename.c_str(), err.c_str());
-  }
-
-  float gain = std::min((float)target_size / (float)orig_w, (float)target_size / (float)orig_h);
-  int new_w = std::max(1, (int)std::round(orig_w * gain));
-  int new_h = std::max(1, (int)std::round(orig_h * gain));
-  float pad_x = ((float)target_size - (float)new_w) / 2.0f;
-  float pad_y = ((float)target_size - (float)new_h) / 2.0f;
-  int x1 = (int)std::floor(pad_x);
-  int y1 = (int)std::floor(pad_y);
-
-  size_t plane_size = (size_t)target_size * target_size;
-  size_t total_floats = 3 * plane_size;
-  Rcpp::NumericVector out_tensor(total_floats);
-
-  // Fill canvas with YOLO letterbox color: 114 / 255
-  double fill_val = 114.0 / 255.0;
-  std::fill(out_tensor.begin(), out_tensor.end(), fill_val);
-  double* out_ptr = out_tensor.begin();
-  struct HorizWeight {
-    int x0;
-    int x1_idx;
-    float dx0;
-    float dx1;
-    size_t off00;
-    size_t off10;
-  };
-  std::vector<HorizWeight> hw(new_w);
-  for (int x = 0; x < new_w; ++x) {
-    float src_x = ((float)x + 0.5f) / gain - 0.5f;
-    if (src_x < 0.0f) src_x = 0.0f;
-    if (src_x > (float)(orig_w - 1)) src_x = (float)(orig_w - 1);
-    int x0 = (int)std::floor(src_x);
-    int x1_idx = std::min(x0 + 1, orig_w - 1);
-    float dx = src_x - (float)x0;
-    hw[x].x0 = x0;
-    hw[x].x1_idx = x1_idx;
-    hw[x].dx0 = 1.0f - dx;
-    hw[x].dx1 = dx;
-    hw[x].off00 = (size_t)x0 * 3;
-    hw[x].off10 = (size_t)x1_idx * 3;
-  }
-
-  size_t row_stride = (size_t)orig_w * 3;
-
-  #pragma omp parallel for schedule(static) if(new_h > 30)
-  for (int y = 0; y < new_h; ++y) {
-    float src_y = ((float)y + 0.5f) / gain - 0.5f;
-    if (src_y < 0.0f) src_y = 0.0f;
-    if (src_y > (float)(orig_h - 1)) src_y = (float)(orig_h - 1);
-    int y0 = (int)std::floor(src_y);
-    int y1_idx = std::min(y0 + 1, orig_h - 1);
-    float dy1 = src_y - (float)y0;
-    float dy0 = 1.0f - dy1;
-
-    int dst_y = y1 + y;
-    size_t dst_base = (size_t)dst_y * target_size + x1;
-    const unsigned char* row0 = data + (size_t)y0 * row_stride;
-    const unsigned char* row1 = data + (size_t)y1_idx * row_stride;
-
-    for (int x = 0; x < new_w; ++x) {
-      const HorizWeight& w = hw[x];
-      float w00 = w.dx0 * dy0;
-      float w10 = w.dx1 * dy0;
-      float w01 = w.dx0 * dy1;
-      float w11 = w.dx1 * dy1;
-
-      size_t dst_idx = dst_base + x;
-
-      for (int c = 0; c < 3; ++c) {
-        float val = (w00 * row0[w.off00 + c] +
-                     w10 * row0[w.off10 + c] +
-                     w01 * row1[w.off00 + c] +
-                     w11 * row1[w.off10 + c]) / 255.0f;
-        out_ptr[(size_t)c * plane_size + dst_idx] = (double)val;
-      }
-    }
-  }
-
-  stbi_image_free(data);
-
-  out_tensor.attr("gain") = gain;
-  out_tensor.attr("pad_x") = pad_x;
-  out_tensor.attr("pad_y") = pad_y;
-  out_tensor.attr("orig_w") = orig_w;
-  out_tensor.attr("orig_h") = orig_h;
-
-  return out_tensor;
 }
 
 static inline void set_pixel_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, uint8_t r, uint8_t g, uint8_t b) {
@@ -606,65 +770,77 @@ static void draw_circle_rgb(unsigned char* p, int orig_w, int orig_h, int cx, in
 // MODERN PROPORTIONAL TYPOGRAPHY & HUD TELEMETRY
 // ---------------------------------------------------------------------------
 
-static inline int get_char_width_modern(char ch) {
-  uint8_t c = (uint8_t)ch;
-  if (c > 127) return 6;
-  if (c == ' ') return 4;
-  if (c == ':' || c == '.' || c == ',' || c == '\'' || c == '!') return 3;
-  if (c == '|' || c == '(' || c == ')' || c == '[' || c == ']') return 4;
-  if (c == '1' || c == 'I' || c == 'i' || c == 'l') return 4;
-  const unsigned char* glyph = font8x8_basic[c];
+// ---------------------------------------------------------------------------
+// Telemetry HUD and High-Resolution Typography (font8x16 + UTF-8 symbols)
+// ---------------------------------------------------------------------------
+
+static inline uint8_t decode_next_modern_char(const std::string& text, size_t& i) {
+  uint8_t c = (uint8_t)text[i];
+  if (c == 0xC2 && i + 1 < text.size()) {
+    uint8_t c2 = (uint8_t)text[i + 1];
+    if (c2 == 0xB1) { i++; return 0xF1; } // ± in CP437
+    if (c2 == 0xB2) { i++; return 0xFD; } // ² in CP437
+    if (c2 == 0xB0) { i++; return 0xF8; } // ° in CP437
+  }
+  return c;
+}
+
+static inline int get_char_width_modern(uint8_t c, int scale = 1) {
+  if (c == ' ') return 5 * scale;
+  if (c == ':' || c == '.' || c == ',' || c == '\'' || c == '!') return 4 * scale;
+  if (c == '|' || c == '(' || c == ')' || c == '[' || c == ']') return 5 * scale;
+  if (c == '1' || c == 'I' || c == 'i' || c == 'l') return 5 * scale;
+  const unsigned char* glyph = font8x16_basic[c];
   int min_col = 7, max_col = 0;
   bool has_pixel = false;
-  for (int row = 0; row < 8; ++row) {
+  for (int row = 0; row < 16; ++row) {
     unsigned char byte = glyph[row];
     for (int col = 0; col < 8; ++col) {
-      if ((byte >> col) & 1) {
+      if ((byte >> (7 - col)) & 1) {
         has_pixel = true;
         if (col < min_col) min_col = col;
         if (col > max_col) max_col = col;
       }
     }
   }
-  if (!has_pixel) return 4;
-  return std::max(3, max_col - min_col + 1);
+  if (!has_pixel) return 5 * scale;
+  return std::max(4 * scale, (max_col - min_col + 2) * scale);
 }
 
 static inline int get_text_width_modern(const std::string& text, int scale = 1) {
   int w = 0;
   for (size_t i = 0; i < text.size(); ++i) {
-    w += (get_char_width_modern(text[i]) + 1) * scale;
+    uint8_t c = decode_next_modern_char(text, i);
+    w += get_char_width_modern(c, scale);
   }
   return w;
 }
 
-static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, char ch, int scale, uint8_t r, uint8_t g, uint8_t b, bool shadow = true) {
-  uint8_t c = (uint8_t)ch;
-  if (c > 127) c = '?';
+static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, uint8_t c, int scale, uint8_t r, uint8_t g, uint8_t b, bool shadow = true) {
   if (c == ' ') {
-    return 4 * scale;
+    return 5 * scale;
   }
-  const unsigned char* glyph = font8x8_basic[c];
+  const unsigned char* glyph = font8x16_basic[c];
 
   int min_col = 0, max_col = 7;
   bool found = false;
   for (int col = 0; col < 8; ++col) {
-    for (int row = 0; row < 8; ++row) {
-      if ((glyph[row] >> col) & 1) {
+    for (int row = 0; row < 16; ++row) {
+      if ((glyph[row] >> (7 - col)) & 1) {
         if (!found) { min_col = col; found = true; }
         max_col = col;
       }
     }
   }
-  if (!found) return 4 * scale;
+  if (!found) return 5 * scale;
   int char_w = max_col - min_col + 1;
 
   // 1. Soft drop shadow (1px offset)
   if (shadow) {
-    for (int row = 0; row < 8; ++row) {
+    for (int row = 0; row < 16; ++row) {
       unsigned char byte = glyph[row];
       for (int col = min_col; col <= max_col; ++col) {
-        if ((byte >> col) & 1) {
+        if ((byte >> (7 - col)) & 1) {
           int sx = x + (col - min_col) * scale + 1;
           int sy = y + row * scale + 1;
           if (scale == 1) {
@@ -678,10 +854,10 @@ static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x,
   }
 
   // 2. Crisp foreground glyph
-  for (int row = 0; row < 8; ++row) {
+  for (int row = 0; row < 16; ++row) {
     unsigned char byte = glyph[row];
     for (int col = min_col; col <= max_col; ++col) {
-      if ((byte >> col) & 1) {
+      if ((byte >> (7 - col)) & 1) {
         int px = x + (col - min_col) * scale;
         int py = y + row * scale;
         if (scale == 1) {
@@ -699,7 +875,8 @@ static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x,
 static void draw_text_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, const std::string& text, int scale, uint8_t r, uint8_t g, uint8_t b, bool shadow = true) {
   int cur_x = x;
   for (size_t i = 0; i < text.size(); ++i) {
-    cur_x += draw_char_modern_rgb(p, orig_w, orig_h, cur_x, y, text[i], scale, r, g, b, shadow);
+    uint8_t c = decode_next_modern_char(text, i);
+    cur_x += draw_char_modern_rgb(p, orig_w, orig_h, cur_x, y, c, scale, r, g, b, shadow);
   }
 }
 
@@ -723,16 +900,22 @@ static void draw_hud_modern(
     const std::string& hud_text,
     const std::string& hud_pos,
     const std::string& hud_layout,
-    double font_scale = 1.0
+    double font_scale = 1.0,
+    bool detailed_telemetry = false,
+    Rcpp::Nullable<Rcpp::NumericVector> sparkline = R_NilValue
 ) {
   if (hud_text.empty() || font_scale <= 0.05) return;
 
   // 1. Split tokens by '|' or '\n'
   std::vector<HudTelemetryItem> items;
   std::string cur_tok = "";
+  int bracket_depth = 0;
   for (size_t i = 0; i <= hud_text.size(); ++i) {
-    char ch = (i < hud_text.size()) ? hud_text[i] : '|';
-    if (ch == '|' || ch == '\n') {
+    char ch = (i < hud_text.size()) ? hud_text[i] : '\n';
+    if (ch == '[') bracket_depth++;
+    else if (ch == ']') bracket_depth = std::max(0, bracket_depth - 1);
+
+    if (i == hud_text.size() || (bracket_depth == 0 && (ch == '|' || ch == '\n'))) {
       std::string t = trim_str(cur_tok);
       cur_tok = "";
       if (t.empty()) continue;
@@ -743,13 +926,55 @@ static void draw_hud_modern(
 
       if (t_lower.rfind("frame", 0) == 0) {
         item.label = "FRAME";
-        size_t sp = t.find(' ');
+        size_t sp = t.find(':');
+        if (sp == std::string::npos) sp = t.find(' ');
         item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
         item.val_r = 255; item.val_g = 255; item.val_b = 255; // Crisp White
-      } else if (t_lower.find("fps") != std::string::npos) {
+      } else if (t_lower.find("fps") != std::string::npos || t_lower.rfind("speed", 0) == 0) {
         item.label = "SPEED";
-        item.value = t;
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
         item.val_r = 0; item.val_g = 255; item.val_b = 136; // Neon Emerald
+      } else if (t_lower.rfind("latency", 0) == 0) {
+        item.label = "LATENCY";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 0; item.val_g = 229; item.val_b = 255; // Electric Ice Blue
+      } else if (t_lower.find("inf") != std::string::npos && t_lower.find("conf") == std::string::npos) {
+        item.label = "  INF";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 150; item.val_g = 215; item.val_b = 255; // Soft Tech Sky
+      } else if (t_lower.find("trk") != std::string::npos) {
+        item.label = "  TRK";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 150; item.val_g = 215; item.val_b = 255;
+      } else if (t_lower.find("gui") != std::string::npos) {
+        item.label = "  GUI";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 150; item.val_g = 215; item.val_b = 255;
+      } else if (t_lower.rfind("tracks", 0) == 0) {
+        item.label = "TRACKS";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 255; item.val_g = 215; item.val_b = 0; // Bright Gold
+      } else if (t_lower.rfind("conf", 0) == 0) {
+        item.label = "CONF";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 100; item.val_g = 220; item.val_b = 255; // Crisp Cyan
+      } else if (t_lower.rfind("flow", 0) == 0) {
+        item.label = "FLOW";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 255; item.val_g = 140; item.val_b = 60; // Neon Coral / Orange
+      } else if (t_lower.rfind("motion", 0) == 0) {
+        item.label = "MOTION";
+        size_t sp = t.find(':');
+        item.value = (sp != std::string::npos) ? trim_str(t.substr(sp + 1)) : t;
+        item.val_r = 120; item.val_g = 255; item.val_b = 120; // Electric Lime
       } else if (t_lower.find("in zone") != std::string::npos || t_lower.find("zone:") != std::string::npos) {
         item.label = "IN ZONE";
         size_t cp = t.find(':');
@@ -760,11 +985,22 @@ static void draw_hud_modern(
         size_t cp = t.find(':');
         item.value = (cp != std::string::npos) ? trim_str(t.substr(cp + 1)) : t;
         item.val_r = 0; item.val_g = 229; item.val_b = 255; // Electric Cyan
-      } else if (t_lower.find("det") != std::string::npos) {
+      } else if (t_lower.rfind("size", 0) == 0) {
+        item.label = "SIZE";
+        size_t cp = t.find(':');
+        item.value = (cp != std::string::npos) ? trim_str(t.substr(cp + 1)) : t;
+        item.val_r = 210; item.val_g = 180; item.val_b = 255; // Soft Lavender
+      } else if (t_lower.rfind("roi occ", 0) == 0) {
+        item.label = "ROI OCC";
+        size_t cp = t.find(':');
+        item.value = (cp != std::string::npos) ? trim_str(t.substr(cp + 1)) : t;
+        item.val_r = 255; item.val_g = 160; item.val_b = 120; // Warm Coral
+      } else if (t_lower.find("det") != std::string::npos || t_lower.rfind("objects", 0) == 0) {
         item.label = "OBJECTS";
-        size_t dp = t.find(" Det");
+        size_t dp = t.find(':');
+        if (dp == std::string::npos) dp = t.find(" Det");
         if (dp == std::string::npos) dp = t.find(" det");
-        item.value = (dp != std::string::npos) ? trim_str(t.substr(0, dp)) : t;
+        item.value = (dp != std::string::npos) ? trim_str(t.substr(dp + 1)) : t;
         item.val_r = 255; item.val_g = 255; item.val_b = 255;
       } else if (t.find(':') != std::string::npos) {
         size_t cp = t.find(':');
@@ -787,17 +1023,32 @@ static void draw_hud_modern(
   int scale = (font_scale >= 1.5) ? (int)std::round(font_scale) : 1;
   int card_w = 0, card_h = 0;
   bool is_vertical = (hud_layout != "horizontal" && hud_layout != "horiz");
+  bool has_spark = detailed_telemetry && sparkline.isNotNull();
 
   if (is_vertical) {
     int max_label_w = 0, max_val_w = 0;
+    int num_dividers = 0;
     for (size_t k = 0; k < items.size(); ++k) {
       int lw = get_text_width_modern(items[k].label, scale);
       int vw = get_text_width_modern(items[k].value, scale);
       if (lw > max_label_w) max_label_w = lw;
       if (vw > max_val_w) max_val_w = vw;
+      if (detailed_telemetry) {
+        if (items[k].label.find("GUI") != std::string::npos ||
+            (items[k].label == "LATENCY" && (k + 1 >= items.size() || items[k + 1].label.find("INF") == std::string::npos)) ||
+            items[k].label == "MOTION" ||
+            items[k].label == "COUNTED" ||
+            items[k].label == "ROI OCC") {
+          num_dividers++;
+        }
+      }
     }
-    card_w = std::max(130 * scale, max_label_w + max_val_w + 30 * scale);
-    card_h = (26 + (int)items.size() * 16 + 6) * scale;
+    card_w = std::max(140 * scale, max_label_w + max_val_w + 24 * scale);
+    if (detailed_telemetry) {
+      card_w = std::max(card_w, 260 * scale);
+    }
+    int spark_extra = has_spark ? (130 * scale) : 0;
+    card_h = (28 + (int)items.size() * 19 + num_dividers * 6 + 10) * scale + spark_extra;
   } else {
     // Horizontal layout
     int content_w = 26 * scale; // dot + padding
@@ -807,7 +1058,7 @@ static void draw_hud_modern(
       content_w += lw + 4 * scale + vw + 14 * scale;
     }
     card_w = content_w;
-    card_h = 24 * scale;
+    card_h = 28 * scale;
   }
 
   // 2. Position calculation
@@ -890,14 +1141,18 @@ static void draw_hud_modern(
   // 4. Render Content
   if (is_vertical) {
     // Header with glowing status dot
-    draw_circle_rgb(p, orig_w, orig_h, x1 + 10 * scale, y1 + 12 * scale, 2 * scale, 0, 255, 136);
-    draw_text_modern_rgb(p, orig_w, orig_h, x1 + 16 * scale, y1 + 8 * scale, "TELEMETRY", scale, 0, 229, 255);
-    // Subtle horizontal divider line
-    draw_line_rgb(p, orig_w, orig_h, x1 + 8 * scale, y1 + 21 * scale, x2 - 8 * scale, y1 + 21 * scale, 1, 35, 55, 78);
+    draw_circle_rgb(p, orig_w, orig_h, x1 + 10 * scale, y1 + 13 * scale, 2 * scale, 0, 255, 136);
+    draw_text_modern_rgb(p, orig_w, orig_h, x1 + 17 * scale, y1 + 6 * scale, "TELEMETRY", scale, 0, 229, 255);
+    if (detailed_telemetry) {
+      int dw = get_text_width_modern("DIAGNOSTIC", scale);
+      draw_text_modern_rgb(p, orig_w, orig_h, x2 - 12 * scale - dw, y1 + 6 * scale, "DIAGNOSTIC", scale, 148, 176, 196);
+    }
+    // Subtle horizontal divider line below header
+    draw_line_rgb(p, orig_w, orig_h, x1 + 8 * scale, y1 + 24 * scale, x2 - 8 * scale, y1 + 24 * scale, 1, 35, 55, 78);
 
     // Rows
+    int cur_y = y1 + 28 * scale;
     for (size_t k = 0; k < items.size(); ++k) {
-      int cur_y = y1 + (26 + (int)k * 16) * scale;
       // Label in cool slate
       draw_text_modern_rgb(p, orig_w, orig_h, x1 + 10 * scale, cur_y, items[k].label, scale, 148, 176, 196);
       // Value right-aligned in its high-contrast color
@@ -905,23 +1160,84 @@ static void draw_hud_modern(
         int vw = get_text_width_modern(items[k].value, scale);
         draw_text_modern_rgb(p, orig_w, orig_h, x2 - 10 * scale - vw, cur_y, items[k].value, scale, items[k].val_r, items[k].val_g, items[k].val_b);
       }
+      cur_y += 19 * scale;
+
+      // Section divider line in detailed telemetry mode
+      if (detailed_telemetry && k + 1 < items.size()) {
+        if (items[k].label.find("GUI") != std::string::npos ||
+            (items[k].label == "LATENCY" && items[k + 1].label.find("INF") == std::string::npos) ||
+            items[k].label == "MOTION" ||
+            items[k].label == "COUNTED" ||
+            items[k].label == "ROI OCC") {
+          draw_line_rgb(p, orig_w, orig_h, x1 + 8 * scale, cur_y - 2 * scale, x2 - 8 * scale, cur_y - 2 * scale, 1, 35, 55, 78);
+          cur_y += 6 * scale;
+        }
+      }
+    }
+
+    // Sparkline at the bottom
+    if (has_spark) {
+      Rcpp::NumericVector sp_vec(sparkline.get());
+      if (sp_vec.size() >= 5) {
+        int sp_x = x1 + 10 * scale;
+        int sp_w = card_w - 20 * scale;
+        int sp_h = 108 * scale;
+        int sp_y = y2 - 8 * scale - sp_h;
+
+        // Label above sparkline
+        draw_text_modern_rgb(p, orig_w, orig_h, sp_x, sp_y - 12 * scale, "FLOW TREND (20F)", scale, 120, 150, 180, false);
+
+        // Recessed track
+        fill_rect_alpha_rgb(p, orig_w, orig_h, sp_x, sp_y, sp_x + sp_w, sp_y + sp_h, 15, 22, 35, 0.90f);
+        draw_box_rgb(p, orig_w, orig_h, sp_x, sp_y, sp_x + sp_w, sp_y + sp_h, 1, 35, 55, 80);
+
+        // Subtle tech grid lines (25%, 50%, 75% height)
+        draw_line_rgb(p, orig_w, orig_h, sp_x + 2 * scale, sp_y + sp_h / 4, sp_x + sp_w - 2 * scale, sp_y + sp_h / 4, 1, 22, 34, 50);
+        draw_line_rgb(p, orig_w, orig_h, sp_x + 2 * scale, sp_y + sp_h / 2, sp_x + sp_w - 2 * scale, sp_y + sp_h / 2, 1, 28, 42, 62);
+        draw_line_rgb(p, orig_w, orig_h, sp_x + 2 * scale, sp_y + (3 * sp_h) / 4, sp_x + sp_w - 2 * scale, sp_y + (3 * sp_h) / 4, 1, 22, 34, 50);
+
+        int n_pts = std::min(20, (int)sp_vec.size());
+        double max_v = 1.0;
+        for (int k = 0; k < n_pts; ++k) {
+          if (sp_vec[k] > max_v) max_v = sp_vec[k];
+        }
+
+        int step_px = (sp_w - 4 * scale) / n_pts;
+        int bar_w = std::max(2, step_px - 1);
+        for (int k = 0; k < n_pts; ++k) {
+          double norm = std::max(0.0, std::min(1.0, sp_vec[k] / max_v));
+          int bh = std::max((sp_vec[k] > 0.001 ? 2 : 0), (int)std::round(norm * (sp_h - 4 * scale)));
+          int bx = sp_x + 2 * scale + k * step_px;
+          int by2_b = sp_y + sp_h - 2 * scale;
+          int by1_b = by2_b - bh;
+          uint8_t br = 0, bg = 229, bb = 255;
+          if (k == n_pts - 1) {
+            br = 255; bg = 220; bb = 60; // highlight current frame
+          } else if (norm > 0.6) {
+            br = 0; bg = 255; bb = 136; // green peak
+          }
+          fill_rect_rgb(p, orig_w, orig_h, bx, by1_b, bx + bar_w, by2_b, br, bg, bb);
+        }
+      }
     }
   } else {
     // Horizontal layout
-    draw_circle_rgb(p, orig_w, orig_h, x1 + 10 * scale, y1 + 12 * scale, 2 * scale, 0, 255, 136);
+    draw_circle_rgb(p, orig_w, orig_h, x1 + 10 * scale, y1 + 14 * scale, 2 * scale, 0, 255, 136);
     int cur_x = x1 + 18 * scale;
     for (size_t k = 0; k < items.size(); ++k) {
       if (k > 0) {
         draw_line_rgb(p, orig_w, orig_h, cur_x - 6 * scale, y1 + 5 * scale, cur_x - 6 * scale, y2 - 5 * scale, 1, 40, 65, 90);
       }
       std::string lbl_str = items[k].label + ":";
-      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + 8 * scale, lbl_str, scale, 148, 176, 196);
+      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + 6 * scale, lbl_str, scale, 148, 176, 196);
       cur_x += get_text_width_modern(lbl_str, scale) + 4 * scale;
-      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + 8 * scale, items[k].value, scale, items[k].val_r, items[k].val_g, items[k].val_b);
+      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + 6 * scale, items[k].value, scale, items[k].val_r, items[k].val_g, items[k].val_b);
       cur_x += get_text_width_modern(items[k].value, scale) + 12 * scale;
     }
   }
 }
+
+
 
 // 16 COCO anatomical skeleton pairs (0-indexed)
 // 0: nose, 1: left_eye, 2: right_eye, 3: left_ear, 4: right_ear,
@@ -1006,6 +1322,7 @@ bool draw_yolo_detections_bgr_cpp(
     Rcpp::Nullable<Rcpp::List> history_y = R_NilValue,
     Rcpp::Nullable<Rcpp::NumericVector> roi = R_NilValue,
     std::string roi_label = "",
+    double roi_alpha = 0.3,
     Rcpp::Nullable<Rcpp::NumericVector> count_line = R_NilValue,
     std::string count_line_label = "",
     Rcpp::Nullable<Rcpp::LogicalVector> counted = R_NilValue,
@@ -1027,7 +1344,14 @@ bool draw_yolo_detections_bgr_cpp(
     std::string hud_pos = "top-right",
     std::string hud_layout = "vertical",
     double font_scale_hud = -1.0,
-    double font_scale_roi = 1
+    double font_scale_roi = 1,
+    bool detailed_telemetry = false,
+    Rcpp::Nullable<Rcpp::NumericVector> sparkline = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> mask_shift_x = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> mask_shift_y = R_NilValue,
+    bool show_point = false,
+    int point_radius = 4,
+    std::string point_col = ""
 ) {
   SEXP dim_attr = Rf_getAttrib(bm, R_DimSymbol);
   if (dim_attr == R_NilValue || Rf_length(dim_attr) < 3) return false;
@@ -1050,8 +1374,10 @@ bool draw_yolo_detections_bgr_cpp(
       if (rx1 > rx2) std::swap(rx1, rx2);
       if (ry1 > ry2) std::swap(ry1, ry2);
 
-      // Semi-transparent salmon fill (RGB: 250, 128, 114, alpha: 0.3)
-      fill_rect_alpha_rgb(p, orig_w, orig_h, rx1, ry1, rx2, ry2, 250, 128, 114, 0.3f);
+      // Semi-transparent salmon fill if roi_alpha > 0 (RGB: 250, 128, 114)
+      if (roi_alpha > 0.001) {
+        fill_rect_alpha_rgb(p, orig_w, orig_h, rx1, ry1, rx2, ry2, 250, 128, 114, (float)roi_alpha);
+      }
       draw_box_rgb(p, orig_w, orig_h, rx1, ry1, rx2, ry2, 1, 250, 128, 114);
 
       std::string rlabel = !roi_label.empty() ? roi_label : "ROI / MONITORED ZONE";
@@ -1164,9 +1490,19 @@ bool draw_yolo_detections_bgr_cpp(
   Rcpp::IntegerVector mids_vec;
   if (has_mids) mids_vec = Rcpp::as<Rcpp::IntegerVector>(mask_ids);
 
+  bool has_shifts = (mask_shift_x.isNotNull() && mask_shift_y.isNotNull());
+  Rcpp::NumericVector shift_x_vec, shift_y_vec;
+  if (has_shifts) {
+    shift_x_vec = Rcpp::as<Rcpp::NumericVector>(mask_shift_x);
+    shift_y_vec = Rcpp::as<Rcpp::NumericVector>(mask_shift_y);
+  }
+
   // Draw semi-transparent filled instance segmentation masks (no contours)
   if (has_masks_input && alpha_val > 0 && m_ptr != NULL) {
     for (int i = 0; i < n_dets; ++i) {
+      int target_lbl = (has_mids && i < mids_vec.size()) ? mids_vec[i] : (i + 1);
+      if (target_lbl <= 0) continue;
+
       int x1 = (int)std::round(xmin[i]);
       int y1 = (int)std::round(ymin[i]);
       int x2 = (int)std::round(xmax[i]);
@@ -1188,7 +1524,8 @@ bool draw_yolo_detections_bgr_cpp(
         parse_color_rgb(c_str, mr, mg, mb);
       }
 
-      int target_lbl = (has_mids && i < mids_vec.size()) ? mids_vec[i] : (i + 1);
+      int isx = (has_shifts && i < shift_x_vec.size()) ? (int)std::round(shift_x_vec[i]) : 0;
+      int isy = (has_shifts && i < shift_y_vec.size()) ? (int)std::round(shift_y_vec[i]) : 0;
 
       int bx1 = std::max(0, std::min(orig_w - 1, x1));
       int bx2 = std::max(0, std::min(orig_w - 1, x2));
@@ -1196,13 +1533,13 @@ bool draw_yolo_detections_bgr_cpp(
       int by2 = std::max(0, std::min(orig_h - 1, y2));
 
       for (int y = by1; y <= by2; ++y) {
-        int my = y - mask_offset_y;
+        int my = y - mask_offset_y - isy;
         if (my < 0 || my >= mh) continue;
         size_t row_start = (size_t)y * ((size_t)3 * orig_w);
         size_t m_col_start = (size_t)my * mw;
 
         for (int x = bx1; x <= bx2; ++x) {
-          int mx = x - mask_offset_x;
+          int mx = x - mask_offset_x - isx;
           if (mx < 0 || mx >= mw) continue;
 
           if (m_ptr[m_col_start + mx] == target_lbl) {
@@ -1280,10 +1617,23 @@ bool draw_yolo_detections_bgr_cpp(
       }
     }
 
+    int cx = (x1 + x2) / 2;
+    int cy = (y1 + y2) / 2;
+
+    if (show_point) {
+      uint8_t pr = r, pg = g, pb = b;
+      if (!point_col.empty()) {
+        parse_color_rgb(point_col, pr, pg, pb);
+      }
+      draw_circle_rgb(p, orig_w, orig_h, cx, cy, std::max(1, point_radius), pr, pg, pb);
+    }
+
     if (draw_boxes) {
       // 1. Draw bounding box border
       draw_box_rgb(p, orig_w, orig_h, x1, y1, x2, y2, cur_lwd, r, g, b);
+    }
 
+    if (draw_boxes || show_point) {
       bool draw_label = show_text && (font_scale > 0.05);
       bool use_micro = (font_scale < 0.75);
       int scale_int = std::max(1, (int)std::round(font_scale));
@@ -1318,17 +1668,33 @@ bool draw_yolo_detections_bgr_cpp(
         int tag_w = text_w + 2 * tag_pad;
         int tag_h = text_h + 2 * tag_pad;
 
-        int tag_y1 = y1 - tag_h;
-        int tag_y2 = y1;
-        if (tag_y1 < 0) {
-          tag_y1 = y1;
-          tag_y2 = y1 + tag_h;
+        int tag_y1, tag_y2, tag_x1, tag_x2;
+        if (draw_boxes) {
+          tag_y1 = y1 - tag_h;
+          tag_y2 = y1;
+          if (tag_y1 < 0) {
+            tag_y1 = y1;
+            tag_y2 = y1 + tag_h;
+          }
+          tag_x1 = x1;
+          tag_x2 = x1 + tag_w;
+        } else {
+          tag_y1 = cy - point_radius - tag_h - 2;
+          tag_y2 = tag_y1 + tag_h;
+          if (tag_y1 < 0) {
+            tag_y1 = cy + point_radius + 2;
+            tag_y2 = tag_y1 + tag_h;
+          }
+          tag_x1 = cx - tag_w / 2;
+          tag_x2 = tag_x1 + tag_w;
         }
-        int tag_x1 = x1;
-        int tag_x2 = x1 + tag_w;
         if (tag_x2 >= orig_w) {
           tag_x2 = orig_w - 1;
           tag_x1 = std::max(0, tag_x2 - tag_w);
+        }
+        if (tag_x1 < 0) {
+          tag_x1 = 0;
+          tag_x2 = std::min(orig_w - 1, tag_w);
         }
 
         // Draw tag background if badge == true
@@ -1394,7 +1760,7 @@ bool draw_yolo_detections_bgr_cpp(
   if (!hud_text.empty()) {
     double eff_hud_scale = (font_scale_hud >= 0.0) ? font_scale_hud : font_scale;
     if (eff_hud_scale > 0.05) {
-      draw_hud_modern(p, orig_w, orig_h, hud_text, hud_pos, hud_layout, eff_hud_scale);
+      draw_hud_modern(p, orig_w, orig_h, hud_text, hud_pos, hud_layout, eff_hud_scale, detailed_telemetry, sparkline);
     }
   }
 
@@ -1498,4 +1864,232 @@ Rcpp::RawVector load_frame_bgr_cpp(std::string filename) {
   stbi_image_free(data);
   bm.attr("dim") = Rcpp::IntegerVector::create(3, orig_w, orig_h);
   return bm;
+}
+
+// [[Rcpp::export]]
+bool adjust_frame_color_cpp(Rcpp::RawVector bm, double saturation = 1.0, double contrast = 1.0) {
+  if (std::abs(saturation - 1.0) < 0.005 && std::abs(contrast - 1.0) < 0.005) {
+    return true;
+  }
+  SEXP dim_attr = Rf_getAttrib(bm, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 3) return false;
+  int* dims = INTEGER(dim_attr);
+  int w = dims[1];
+  int h = dims[2];
+  unsigned char* p = RAW(bm);
+  size_t total_px = (size_t)w * h;
+
+  int isat = (int)std::round(saturation * 256.0);
+  int icont = (int)std::round(contrast * 256.0);
+
+  #pragma omp parallel for schedule(static) if(total_px > 50000)
+  for (size_t i = 0; i < total_px; ++i) {
+    size_t idx = i * 3;
+    int r = p[idx + 0];
+    int g = p[idx + 1];
+    int b = p[idx + 2];
+
+    // Saturation adjustment via Rec.601 integer luma
+    int gray = (77 * r + 150 * g + 29 * b) >> 8;
+    int nr = gray + (((r - gray) * isat) >> 8);
+    int ng = gray + (((g - gray) * isat) >> 8);
+    int nb = gray + (((b - gray) * isat) >> 8);
+
+    // Contrast adjustment around midpoint 128
+    if (icont != 256) {
+      nr = 128 + (((nr - 128) * icont) >> 8);
+      ng = 128 + (((ng - 128) * icont) >> 8);
+      nb = 128 + (((nb - 128) * icont) >> 8);
+    }
+
+    p[idx + 0] = (unsigned char)(nr < 0 ? 0 : (nr > 255 ? 255 : nr));
+    p[idx + 1] = (unsigned char)(ng < 0 ? 0 : (ng > 255 ? 255 : ng));
+    p[idx + 2] = (unsigned char)(nb < 0 ? 0 : (nb > 255 ? 255 : nb));
+  }
+  return true;
+}
+
+// ==============================================================================
+// NATIVE IMAGE BLUR & SHARPNESS ESTIMATION (VARIANCE OF LAPLACIAN)
+// ==============================================================================
+static double compute_lum_laplacian_var(const double* lum, int w, int h) {
+  if (w < 3 || h < 3) return 0.0;
+  double sum = 0.0;
+  double sum_sq = 0.0;
+  long long count = 0;
+
+  #pragma omp parallel for reduction(+:sum, sum_sq, count) if((long long)w * h > 50000)
+  for (int y = 1; y < h - 1; ++y) {
+    for (int x = 1; x < w - 1; ++x) {
+      double center = lum[x + y * w];
+      double lap = lum[(x - 1) + y * w] + lum[(x + 1) + y * w] +
+                   lum[x + (y - 1) * w] + lum[x + (y + 1) * w] - 4.0 * center;
+      sum += lap;
+      sum_sq += lap * lap;
+      count++;
+    }
+  }
+
+  if (count <= 1) return 0.0;
+  double mean = sum / (double)count;
+  double variance = (sum_sq - (double)count * mean * mean) / (double)(count - 1);
+  return (variance < 0.0) ? 0.0 : variance;
+}
+
+static double compute_file_blur_impl(const std::string& filename, int max_size) {
+  int w = 0, h = 0, channels = 0;
+  std::size_t dot_pos = filename.find_last_of(".");
+  std::string ext = (dot_pos != std::string::npos) ? filename.substr(dot_pos + 1) : "";
+  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+  bool is_tiff = (ext == "tif" || ext == "tiff");
+  unsigned char *data = nullptr;
+  std::vector<unsigned char> tiff_buf;
+  bool tiff_read = false;
+
+  if (is_tiff) {
+    tiff_read = read_tiff_cpp_impl(filename, w, h, channels, tiff_buf);
+    if (tiff_read) data = tiff_buf.data();
+  }
+  if (!data) {
+    data = stbi_load(filename.c_str(), &w, &h, &channels, 1);
+  }
+  if (!data || w < 3 || h < 3) {
+    if (data && !tiff_read) stbi_image_free(data);
+    return 0.0;
+  }
+
+  int step = 1;
+  if (max_size > 0 && (w > max_size || h > max_size)) {
+    step = std::max(1, (int)std::floor(std::max(w, h) / (double)max_size));
+  }
+  int sw = w / step;
+  int sh = h / step;
+  if (sw < 3 || sh < 3) { step = 1; sw = w; sh = h; }
+
+  std::vector<double> lum(static_cast<std::size_t>(sw) * sh);
+  if (is_tiff && channels >= 3) {
+    std::size_t plane = static_cast<std::size_t>(w) * h;
+    for (int y = 0; y < sh; ++y) {
+      int sy = y * step;
+      for (int x = 0; x < sw; ++x) {
+        int sx = x * step;
+        std::size_t idx = sx + static_cast<std::size_t>(w) * sy;
+        lum[x + y * sw] = 0.299 * data[idx] + 0.587 * data[idx + plane] + 0.114 * data[idx + 2 * plane];
+      }
+    }
+  } else {
+    for (int y = 0; y < sh; ++y) {
+      int sy = y * step;
+      for (int x = 0; x < sw; ++x) {
+        int sx = x * step;
+        lum[x + y * sw] = static_cast<double>(data[sx + static_cast<std::size_t>(w) * sy]);
+      }
+    }
+  }
+
+  if (!tiff_read) stbi_image_free(data);
+  return compute_lum_laplacian_var(lum.data(), sw, sh);
+}
+
+// [[Rcpp::export]]
+double image_blur_cpp(SEXP img_sexp, int max_size = 640) {
+  if (TYPEOF(img_sexp) == STRSXP) {
+    if (Rf_length(img_sexp) == 0) return 0.0;
+    std::string fn = Rcpp::as<std::string>(img_sexp);
+    return compute_file_blur_impl(fn, max_size);
+  }
+
+  IntegerVector dims = Rf_getAttrib(img_sexp, R_DimSymbol);
+  if (dims.size() < 2) return 0.0;
+  int orig_w = dims[0];
+  int orig_h = dims[1];
+  int nch = (dims.size() >= 3) ? dims[2] : 1;
+  if (orig_w < 3 || orig_h < 3) return 0.0;
+
+  int step = 1;
+  if (max_size > 0 && (orig_w > max_size || orig_h > max_size)) {
+    step = std::max(1, (int)std::floor(std::max(orig_w, orig_h) / (double)max_size));
+  }
+  int w = orig_w / step;
+  int h = orig_h / step;
+  if (w < 3 || h < 3) { step = 1; w = orig_w; h = orig_h; }
+
+  std::vector<double> lum(static_cast<std::size_t>(w) * h);
+  std::size_t plane = static_cast<std::size_t>(orig_w) * orig_h;
+
+  if (TYPEOF(img_sexp) == RAWSXP) {
+    Rcpp::RawVector rv(img_sexp);
+    const unsigned char* p = RAW(rv);
+    if (nch >= 3) {
+      const unsigned char* pr = p;
+      const unsigned char* pg = p + plane;
+      const unsigned char* pb = p + 2 * plane;
+      for (int y = 0; y < h; ++y) {
+        int sy = y * step;
+        for (int x = 0; x < w; ++x) {
+          int sx = x * step;
+          std::size_t idx = sx + static_cast<std::size_t>(orig_w) * sy;
+          lum[x + y * w] = 0.299 * pr[idx] + 0.587 * pg[idx] + 0.114 * pb[idx];
+        }
+      }
+    } else {
+      for (int y = 0; y < h; ++y) {
+        int sy = y * step;
+        for (int x = 0; x < w; ++x) {
+          int sx = x * step;
+          std::size_t idx = sx + static_cast<std::size_t>(orig_w) * sy;
+          lum[x + y * w] = static_cast<double>(p[idx]);
+        }
+      }
+    }
+  } else {
+    Rcpp::NumericVector nv(img_sexp);
+    const double* p = nv.begin();
+    double mult = 1.0;
+    double max_val = 0.0;
+    std::size_t chk = std::min(plane, (std::size_t)1000);
+    for (std::size_t i = 0; i < chk; ++i) if (p[i] > max_val) max_val = p[i];
+    if (max_val <= 1.05) mult = 255.0;
+
+    if (nch >= 3) {
+      const double* pr = p;
+      const double* pg = p + plane;
+      const double* pb = p + 2 * plane;
+      for (int y = 0; y < h; ++y) {
+        int sy = y * step;
+        for (int x = 0; x < w; ++x) {
+          int sx = x * step;
+          std::size_t idx = sx + static_cast<std::size_t>(orig_w) * sy;
+          lum[x + y * w] = mult * (0.299 * pr[idx] + 0.587 * pg[idx] + 0.114 * pb[idx]);
+        }
+      }
+    } else {
+      for (int y = 0; y < h; ++y) {
+        int sy = y * step;
+        for (int x = 0; x < w; ++x) {
+          int sx = x * step;
+          std::size_t idx = sx + static_cast<std::size_t>(orig_w) * sy;
+          lum[x + y * w] = mult * p[idx];
+        }
+      }
+    }
+  }
+
+  return compute_lum_laplacian_var(lum.data(), w, h);
+}
+
+// [[Rcpp::export]]
+Rcpp::NumericVector images_blur_cpp(Rcpp::CharacterVector files, int max_size = 640) {
+  int n = files.size();
+  std::vector<std::string> fnames(n);
+  for (int i = 0; i < n; ++i) {
+    fnames[i] = Rcpp::as<std::string>(files[i]);
+  }
+
+  Rcpp::NumericVector out(n);
+  #pragma omp parallel for schedule(dynamic) if(n > 4)
+  for (int i = 0; i < n; ++i) {
+    out[i] = compute_file_blur_impl(fnames[i], max_size);
+  }
+  return out;
 }

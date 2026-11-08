@@ -38,7 +38,6 @@ Imports:
     utils
 Suggests: 
     av,
-    base64enc,
     BiocManager,
     curl,
     fields,
@@ -51,12 +50,14 @@ Suggests:
     mapview (>= 2.11.0),
     pak,
     reticulate,
+    rgl,
     rlas,
     rmarkdown,
     rstudioapi,
     tidyr,
     tiff,
-    webp
+    webp,
+    zip
 LinkingTo: 
     Rcpp,
     RcppArmadillo

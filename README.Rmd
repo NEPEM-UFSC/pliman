@@ -122,7 +122,7 @@ Models are downloaded automatically on first use or manually via `pliman_downloa
 | **Star-Convex Segmentation** | `image_stardist_dl()` | `stardist`, `stardist-dsb2018` | 48-ray star-convex polygon detection for round, convex, or touching grains, seeds, and cells. |
 | **3D Depth Estimation** | `image_depth_dl()` | `depth-anything-v2` | Monocular 3D relative depth estimation (Depth Anything V2 Small, 518×518). |
 | **Semantic Foundation Features** | `image_features_dl()` | `dinov2` | Dense 384-D patch embeddings and top-3 PCA false-color semantic segmentation via DINOv2 (ViT-S/14). |
-| **4x Super-Resolution** | `image_superres_dl()` | `realesrgan-compact` | 4x generative convolutional super-resolution with memory-efficient tiled inference. |
+| **Super-Resolution** | `image_superres_dl()` | `realesrgan_x2_full`, `realesrgan_x4_full`, `realesrgan` | Photorealistic 2x/4x generative super-resolution (RRDBNet full models or ultra-fast compact). |
 | **Text-Prompted Segmentation** | `image_segment_dl()` | `grounded-sam` | Zero-shot open-vocabulary instance segmentation via Grounding DINO + SAM 2.1. |
 | **One-Shot Exemplar Counting** | `image_segment_dl()` | `persam` | One-shot visual exemplar segmentation and counting via SAM 2.1 and Dense Conv ZNCC. |
 | **Salient Background Removal** | `image_remove_bg()` | `ben2`, `u2netp`, `rmbg-2.0` | Ultra-sharp boundary cutouts and transparent background export. |
@@ -187,11 +187,17 @@ grains <- image_import("grains.jpg")
 res_star <- image_stardist_dl(grains, prob_threshold = 0.5)
 ```
 
-### 5. Generative 4x Super-Resolution (Real-ESRGAN Compact)
+### 5. Generative Super-Resolution (Real-ESRGAN Full & Compact)
 
 ```r
-# Upscale low-resolution imagery by 4x with tiled memory-safe inference
-img_4x <- image_superres_dl(img, scale = 4)
+# 2x Photorealistic super-resolution (RRDBNet default)
+img_2x <- image_superres_dl(img)
+
+# 4x Photorealistic super-resolution
+img_4x <- image_superres_dl(img, model = "realesrgan_x4_full")
+
+# 4x Ultra-fast preview with lightweight compact model
+img_fast <- image_superres_dl(img, model = "realesrgan-compact")
 ```
 
 # Citation

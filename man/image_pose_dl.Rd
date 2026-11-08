@@ -28,6 +28,7 @@ image_pose_dl(
   verbose = TRUE,
   plot = TRUE,
   dir = pliman_model_dir(),
+  imgsz = NULL,
   ...
 )
 }

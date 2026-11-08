@@ -4,7 +4,7 @@
 \alias{ccc}
 \title{Model performance statistics}
 \usage{
-ccc(data, real, predito)
+ccc(data, real, predito, na.rm = TRUE)
 }
 \arguments{
 \item{data}{A data frame or a grouped data frame (\code{grouped_df}).}
@@ -12,6 +12,8 @@ ccc(data, real, predito)
 \item{real}{The column containing the observed/reference values.}
 
 \item{predito}{The column containing the predicted/estimated values.}
+
+\item{na.rm}{Logical. Should missing values (\code{NA}) be removed before computing the metrics? Defaults to \code{TRUE}.}
 }
 \value{
 A data frame with the following columns:
@@ -56,11 +58,11 @@ library(dplyr)
 library(pliman)
 df <- data.frame(
   group = rep(c("A", "B"), each = 5),
-  real = c(1:5, 2:6),
-  predicted = c(1.1, 2, 2.9, 4.1, 5, 2.2, 3.1, 4, 4.8, 6.1)
+  real = c(1:4, NA, 2:6),
+  predicted = c(1.1, 2, NA, 4.1, 5, 2.2, 3.1, 4, 4.8, 6.1)
 )
 
-# Without grouping
+# Without grouping (NA values handled automatically)
 ccc(df, real, predicted)
 
 # With grouping

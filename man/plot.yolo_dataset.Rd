@@ -7,12 +7,20 @@
 \usage{
 \method{plot}{yolo_dataset}(
   x,
-  bbox = TRUE,
+  show_bbox = TRUE,
+  show_polygon = TRUE,
+  show_points = FALSE,
+  show_labels = TRUE,
+  bbox = show_bbox,
+  polygon = show_polygon,
+  points = show_points,
+  labels = show_labels,
   n = 4L,
   which = NULL,
   images = NULL,
   split = c("train", "val", "test"),
   only_augmented = NULL,
+  only_original = NULL,
   pattern = NULL,
   random = is.null(which) && is.null(images),
   seed = NULL,
@@ -21,7 +29,6 @@
   col = NULL,
   lwd = 1.5,
   fill = NULL,
-  show_labels = TRUE,
   label_bg = FALSE,
   cex = 0.6,
   title = TRUE,
@@ -31,7 +38,15 @@
 \arguments{
 \item{x}{A \code{yolo_dataset} or \code{yolo_dataset_aug} object (or dataset directory path).}
 
-\item{bbox}{Logical. Whether to draw bounding boxes and annotations. Defaults to \code{TRUE}.}
+\item{show_bbox}{Logical. Whether to draw bounding boxes and annotations. Defaults to \code{TRUE}. Supported alias: \code{bbox}.}
+
+\item{show_polygon}{Logical. For segmentation datasets, whether to draw polygons. Defaults to \code{TRUE}. Supported alias: \code{polygon}.}
+
+\item{show_points}{Logical. If \code{TRUE}, draws points at the centroid of each bounding box or polygon using the same color as the box. Defaults to \code{FALSE}. Supported alias: \code{points}.}
+
+\item{show_labels}{Logical. Whether to display class label names. Defaults to \code{TRUE}. Supported aliases: \code{labels}, \code{show_class}.}
+
+\item{bbox, polygon, points, labels}{Backward-compatible aliases for \code{show_bbox}, \code{show_polygon}, \code{show_points}, and \code{show_labels}.}
 
 \item{n}{Integer. Number of images to plot. Defaults to \code{4L}. Supported aliases: \code{n_images}, \code{num_images}.}
 
@@ -44,6 +59,10 @@ image names/stems (e.g. \code{c("img_3_aug1", "img_553_aug2")}) to plot specific
 
 \item{only_augmented}{Logical. If \code{TRUE}, only previews augmented images (containing \verb{_aug}).
 Defaults to \code{TRUE} if \code{x} is an augmented dataset (\code{yolo_dataset_aug}), and \code{FALSE} otherwise.}
+
+\item{only_original}{Logical. If \code{TRUE}, only previews original pristine images (excluding synthetic
+augmentations \verb{_aug[0-9]+}, synthetic backgrounds \code{synth_bg_}, external backgrounds \code{bg_}, and scrambled backgrounds \code{scramble_}).
+Defaults to \code{FALSE} (or \code{NULL}).}
 
 \item{pattern}{Optional regex pattern to filter image filenames.}
 
@@ -60,8 +79,6 @@ Defaults to \code{TRUE} if \code{x} is an augmented dataset (\code{yolo_dataset_
 \item{lwd}{Numeric. Line width for bounding boxes. Defaults to \code{1.5}.}
 
 \item{fill}{Fill color for segmentation polygons. Defaults to semi-transparent color.}
-
-\item{show_labels}{Logical. Whether to display class label names. Defaults to \code{TRUE}.}
 
 \item{label_bg}{Logical. Whether to draw a background badge behind label text. Defaults to \code{FALSE}.}
 
