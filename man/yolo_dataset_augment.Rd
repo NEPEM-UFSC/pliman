@@ -10,35 +10,51 @@ yolo_dataset_augment(
   out_dir = NULL,
   total_imgs = NULL,
   copies = 1L,
-  flip_h = TRUE,
+  flip_h = FALSE,
   flip_v = FALSE,
-  rotate = c(-45, 45),
+  rotate = TRUE,
   rotate_range = c(-45, 45),
-  perspective = TRUE,
-  perspective_x = c(20, 40),
-  perspective_y = c(20, 40),
-  perspective_z = c(20, 40),
+  perspective = FALSE,
+  perspective_x = c(15, 30),
+  perspective_y = c(15, 30),
+  perspective_z = c(15, 30),
   perspective_scale = c(0.95, 1.05),
   bg_col = "white",
-  brightness = TRUE,
+  brightness = FALSE,
   brightness_range = c(0.6, 1.2),
-  contrast = TRUE,
+  contrast = FALSE,
   contrast_range = c(1, 3),
-  noise = TRUE,
+  noise = FALSE,
   noise_sd = c(0.05, 0.1),
-  blur = TRUE,
+  blur = FALSE,
   blur_sigma = c(2, 4),
-  cutout = TRUE,
+  cutout = FALSE,
   cutout_target = c("object", "image"),
   cutout_pos = c("corner", "random"),
   cutout_n = c(3, 5),
   cutout_size = c(0.4, 0.6),
   cutout_fill = "mean",
+  mosaic = FALSE,
+  mosaic_prob = 0.5,
+  mosaic_overlap = 0.2,
+  mosaic_crop = c("quadrant", "random", "center"),
+  mosaic_blend = c("none", "feather", "overlay"),
+  mosaic_min_area = 0.1,
+  scramble_background = FALSE,
+  scramble_prop = 0.05,
+  scramble_grid = c(8, 8),
+  scramble_mode = c("grid", "block_swap", "pixel"),
+  permute = FALSE,
+  permute_prob = 0.5,
+  permute_pos = c("random", "left", "right", "top", "bottom", "corner"),
+  permute_fill = c("border_slices", "mean", "blur", "noise"),
+  permute_margin = 0.02,
   quality = 90,
   max_ops = c(1, 3),
   seed = 42,
   verbose = TRUE,
   progress = TRUE,
+  as_job = FALSE,
   ...
 )
 }
@@ -54,7 +70,7 @@ variants will be generated and distributed across images. If \code{NULL} (defaul
 \item{copies}{Integer. The number of augmented variants generated per original training image (default: \code{1L}).
 Ignored if \code{total_imgs} is specified.}
 
-\item{flip_h}{Logical. Allow horizontal flipping with probability 0.5 (default: \code{TRUE}).}
+\item{flip_h}{Logical. Allow horizontal flipping with probability 0.5 (default: \code{FALSE}).}
 
 \item{flip_v}{Logical. Allow vertical flipping with probability 0.5 (default: \code{FALSE}).}
 
@@ -69,39 +85,39 @@ Ignored if \code{total_imgs} is specified.}
 \item{rotate_range}{Numeric vector of length 2 giving \code{c(min, max)} rotation angles in degrees
 when \code{rotate = TRUE} (default: \code{c(-45, 45)}).}
 
-\item{perspective}{Logical. Whether to apply 3D camera perspective warp augmentation (default: \code{TRUE}).
+\item{perspective}{Logical. Whether to apply 3D camera perspective warp augmentation (default: \code{FALSE}).
 When \code{TRUE}, simulates realistic pitch, yaw, and roll camera tilts.}
 
 \item{perspective_x}{Numeric vector of length 2 giving \code{c(min, max)} pitch tilt range around X in degrees (default: \code{c(20, 40)}).
-If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or negative tilts between 20 and 40 degrees.}
+If given as a positive range (e.g. \code{c(15, 30)}), samples random positive or negative tilts between 20 and 40 degrees.}
 
 \item{perspective_y}{Numeric vector of length 2 giving \code{c(min, max)} yaw tilt range around Y in degrees (default: \code{c(20, 40)}).
-If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or negative tilts between 20 and 40 degrees.}
+If given as a positive range (e.g. \code{c(15, 30)}), samples random positive or negative tilts between 20 and 40 degrees.}
 
 \item{perspective_z}{Numeric vector of length 2 giving \code{c(min, max)} roll angle range around Z in degrees (default: \code{c(20, 40)}).
-If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or negative rolls between 20 and 40 degrees.}
+If given as a positive range (e.g. \code{c(15, 30)}), samples random positive or negative rolls between 20 and 40 degrees.}
 
 \item{perspective_scale}{Numeric vector of length 2 giving \code{c(min, max)} zoom scale range (default: \code{c(0.95, 1.05)}).}
 
 \item{bg_col}{Background fill color for exposed canvas (default: \code{"white"}).}
 
-\item{brightness}{Logical. Allow random brightness jitter (default: \code{TRUE}).}
+\item{brightness}{Logical. Allow random brightness jitter (default: \code{FALSE}).}
 
 \item{brightness_range}{Numeric vector of length 2 giving \code{c(min, max)} brightness scaling factors (default: \code{c(0.6, 1.2)}).}
 
-\item{contrast}{Logical. Allow random contrast adjustment via adaptive histogram equalization (\code{\link[=image_contrast]{image_contrast()}}). Defaults to \code{TRUE}.}
+\item{contrast}{Logical. Allow random contrast adjustment via adaptive histogram equalization (\code{\link[=image_contrast]{image_contrast()}}). Defaults to \code{FALSE}.}
 
 \item{contrast_range}{Numeric vector of length 2 giving \code{c(min, max)} clip limit for \code{\link[=image_contrast]{image_contrast()}} (default: \code{c(1, 3)}).}
 
-\item{noise}{Logical. Allow additive Gaussian noise (default: \code{TRUE}).}
+\item{noise}{Logical. Allow additive Gaussian noise (default: \code{FALSE}).}
 
 \item{noise_sd}{Numeric vector of length 2 giving \code{c(min, max)} standard deviation of Gaussian noise (default: \code{c(0.05, 0.1)}).}
 
-\item{blur}{Logical. Allow Gaussian blurring (default: \code{TRUE}).}
+\item{blur}{Logical. Allow Gaussian blurring (default: \code{FALSE}).}
 
 \item{blur_sigma}{Numeric vector of length 2 giving \code{c(min, max)} Gaussian blur sigma (default: \code{c(2, 4)}).}
 
-\item{cutout}{Logical. Whether to apply Cutout / Random Erasing augmentation to simulate occlusions (default: \code{TRUE}).}
+\item{cutout}{Logical. Whether to apply Cutout / Random Erasing augmentation to simulate occlusions (default: \code{FALSE}).}
 
 \item{cutout_target}{Target location for cutout rectangles. Either \code{"object"} (default, occludes parts of annotated objects) or \code{"image"} (places cutout rectangles randomly across the entire image canvas).}
 
@@ -113,6 +129,39 @@ If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or
 
 \item{cutout_fill}{Fill color or pattern for cutout rectangles. Can be \code{"mean"} (channel-wise mean image color, default), \code{"black"}, \code{"white"}, \code{"noise"} (random uniform noise), or any valid R color name.}
 
+\item{mosaic}{Logical or numeric. Whether to generate 4-image mosaic augmentations (\code{\link[=image_mosaic]{image_mosaic()}}).
+Can be \code{TRUE} (applies mosaic with probability \code{mosaic_prob}), \code{FALSE} (default, disabled),
+or a numeric probability between 0 and 1 (e.g. \code{mosaic = 1.0} for 100\% mosaic augmentation).}
+
+\item{mosaic_prob}{Numeric between 0 and 1. Probability of applying mosaic augmentation when \code{mosaic = TRUE}.
+Defaults to \code{0.5}.}
+
+\item{mosaic_overlap}{Fraction of overlap between adjacent tiles in the mosaic composite
+(default \code{0.20}, i.e., 20\%). Passed to \code{\link[=image_mosaic]{image_mosaic()}}.}
+
+\item{mosaic_crop}{Region to crop from each image for the mosaic: \code{"quadrant"} (default),
+\code{"random"}, or \code{"center"}.}
+
+\item{mosaic_blend}{Blending mode for overlapping regions in the mosaic: \code{"overlay"} (default
+for object detection datasets), \code{"feather"}, or \code{"none"}.}
+
+\item{mosaic_min_area}{Minimum visible area fraction (between 0 and 1) required
+to retain an object cut by mosaic quadrant seams (default \code{0.10}, i.e., 10 percent).}
+
+\item{scramble_background}{Logical or numeric. Whether to synthesize negative background
+images via jigsaw patch scrambling (\code{\link[=yolo_dataset_scramble]{yolo_dataset_scramble()}}). If numeric (e.g. \code{0.05}),
+it specifies the proportion of negative background images to generate relative to the training set.
+If \code{TRUE}, defaults to \code{scramble_prop = 0.05} (5\% negative background samples). Defaults to \code{FALSE}.}
+
+\item{scramble_prop}{Numeric between 0 and 1. Proportion of negative background images to generate
+when \code{scramble_background = TRUE} (default: \code{0.05}).}
+
+\item{scramble_grid}{Integer vector of length 1 or 2 specifying grid divisions for tile scrambling
+(default: \code{c(8, 8)}). Ignored when \code{scramble_mode = "pixel"}.}
+
+\item{scramble_mode}{Character specifying the scrambling strategy: \code{"grid"} (default jigsaw tile shuffle),
+\code{"block_swap"} (local block swapping preserving partial background continuity), or \code{"pixel"} (global pixel shuffle).}
+
 \item{quality}{Integer between 1 and 100. JPEG compression quality for exported augmented images (default: \code{90}). Quality 85-90 preserves pristine pixel fidelity while encoding several times faster than 95+.}
 
 \item{max_ops}{Maximum number of transformations/alterations applied to each augmented image copy (default: \code{c(1, 3)}). Can be an integer (e.g., \code{2} or \code{3}, meaning between 1 and \code{max_ops} operations are randomly selected), a range \code{c(min, max)} (e.g. \code{c(1, 3)}), or \code{NULL} (no limit, independent probabilities for all enabled operations).}
@@ -122,6 +171,10 @@ If given as a positive range (e.g. \code{c(20, 40)}), samples random positive or
 \item{verbose}{Logical. Whether to print informative messages. Defaults to \code{TRUE}.}
 
 \item{progress}{Logical. Whether to display a CLI progress bar during data augmentation. Defaults to \code{TRUE}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches the data augmentation
+process in the background via RStudio Background Jobs, leaving the main R console completely free.
+Defaults to \code{FALSE}.}
 
 \item{...}{Additional arguments (supports alias \code{blurr = TRUE}, \code{blurr_sigma}, \code{noise_range}).}
 }
@@ -172,5 +225,16 @@ ds_cutout <- yolo_dataset_augment("dataset_cafe",
                                   cutout = TRUE,
                                   cutout_target = "object",
                                   cutout_size = c(0.4, 0.6))
+
+# 4. Mosaic augmentation (4 images stitched with 20\% overlap)
+ds_mosaic <- yolo_dataset_augment("dataset_cafe",
+                                  mosaic = TRUE,
+                                  mosaic_overlap = 0.20)
+
+# 5. Break center bias: permute/relocate target clusters to borders with authentic background fill
+ds_perm <- yolo_dataset_augment("dataset_cafe",
+                                permute = TRUE,
+                                permute_prob = 0.5,
+                                permute_fill = "border_slices")
 \dontshow{\}) # examplesIf}
 }

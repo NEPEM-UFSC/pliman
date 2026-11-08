@@ -17,6 +17,9 @@ yolo_fewshot_predict(
   show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
   show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
   badge = if (!is.null(model$badge)) model$badge else TRUE,
+  lower_size = NULL,
+  upper_size = NULL,
+  size_mode = c("relative", "absolute"),
   ...
 )
 }

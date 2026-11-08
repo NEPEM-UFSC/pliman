@@ -31,7 +31,9 @@ yolo_train_workflow(
   output_dir = pliman_model_dir(),
   output_name = NULL,
   temp_dir = NULL,
-  keep_dataset = FALSE,
+  dataset_dir = NULL,
+  keep_dataset = TRUE,
+  as_job = FALSE,
   review = FALSE,
   show_class = FALSE,
   show_conf = FALSE,
@@ -99,7 +101,11 @@ an informative name based on \code{data} is automatically generated.}
 \item{temp_dir}{Directory used to construct the bootstrap training dataset. If \code{NULL} (default),
 creates a temporary folder inside \code{\link[=tempdir]{tempdir()}}.}
 
-\item{keep_dataset}{Logical. If \code{FALSE} (default), removes the temporary bootstrap dataset after training.
+\item{keep_dataset}{Logical. If \code{FALSE} (default), removes the temporary bootstrap dataset after training.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches the entire
+workflow (bootstrapping, augmentation, tiling, and YOLO training) as an asynchronous
+RStudio Background Job, immediately freeing up the R console. Default is \code{FALSE}.
 If \code{TRUE}, keeps the folder intact.}
 
 \item{review}{Logical. Whether to generate review preview images during few-shot labeling (default \code{FALSE}).}

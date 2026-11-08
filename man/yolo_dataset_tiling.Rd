@@ -9,11 +9,13 @@ yolo_dataset_tiling(
   data = NULL,
   out_dir = NULL,
   path = NULL,
+  n = NULL,
+  prop = NULL,
   tile_size = 640L,
   overlap = 0.2,
   n_tiles = NULL,
   min_area_ratio = 0.5,
-  assign_by = c("center_or_overlap", "center", "overlap"),
+  assign_by = c("center_or_overlap", "center_and_overlap", "center", "overlap"),
   min_box_size = 4,
   include_empty = TRUE,
   max_bg_ratio = NULL,
@@ -34,6 +36,12 @@ yolo_dataset_tiling(
 
 \item{path}{Alias for \code{data}.}
 
+\item{n}{Optional integer. Number of source images to sample for tiling (e.g. \code{n = 50}).
+If \code{NULL} (default) and \code{prop} is \code{NULL}, all available images are tiled.}
+
+\item{prop}{Optional numeric between 0 and 1. Proportion of source images to sample for tiling
+(e.g. \code{prop = 0.20} for 20\% of the dataset). Ignored if \code{n} is provided.}
+
 \item{tile_size}{Integer or numeric vector of length 2 giving \code{c(width, height)}. Standard multiple of 32 (default: \code{640L}).}
 
 \item{overlap}{Numeric fraction of overlap between adjacent tiles (default: \code{0.20}, i.e., 20\%). Ignored if \code{n_tiles} is set.}
@@ -42,7 +50,7 @@ yolo_dataset_tiling(
 
 \item{min_area_ratio}{Minimum proportion of original object area preserved when truncated by a tile boundary (default: \code{0.50}, i.e., 50\%).}
 
-\item{assign_by}{Criterion for keeping truncated annotations: \code{"center_or_overlap"} (default, keeps if center is inside tile OR area ratio >= \code{min_area_ratio}), \code{"center"} (only if center is inside), or \code{"overlap"} (only if area ratio >= \code{min_area_ratio}).}
+\item{assign_by}{Criterion for keeping truncated annotations: \code{"center_or_overlap"} (default, keeps if center is inside tile OR area ratio >= \code{min_area_ratio}), \code{"center_and_overlap"} (keeps only if center is inside AND area ratio >= \code{min_area_ratio}), \code{"center"} (only if center is inside), or \code{"overlap"} (only if area ratio >= \code{min_area_ratio}).}
 
 \item{min_box_size}{Minimum width/height in pixels for a cropped bounding box in the tile (default: \code{4}).}
 
@@ -102,5 +110,11 @@ tiled_5x5 <- yolo_dataset_tiling("highres_dataset",
                                  tile_size = 640,
                                  n_tiles = c(5, 5),
                                  min_area_ratio = 0.50)
+
+# 3. Tile a subset of images (e.g. 50 images or 20\% from a large 500-image dataset)
+tiled_sub <- yolo_dataset_tiling("highres_dataset",
+                                 out_dir = "tiled_sub",
+                                 prop = 0.20,
+                                 tile_size = 640)
 \dontshow{\}) # examplesIf}
 }

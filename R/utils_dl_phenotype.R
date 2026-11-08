@@ -56,6 +56,12 @@ dl_extract_phenotypes <- function(data,
   # Resolve bounding boxes and labels
   df_boxes <- if (is.data.frame(data)) {
     data
+  } else if (!is.null(data$results)) {
+    data$results
+  } else if (!is.null(data$boxes)) {
+    data$boxes
+  } else if (!is.null(attr(data, "results"))) {
+    attr(data, "results")
   } else if (!is.null(attr(data, "boxes"))) {
     attr(data, "boxes")
   } else {

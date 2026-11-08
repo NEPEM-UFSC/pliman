@@ -11,14 +11,21 @@ yolo_background_synth(
   n = 10L,
   width = 640L,
   height = 640L,
-  pattern = c("random", "waves", "gradient", "plasma", "blobs", "texture"),
-  colors = c("random", "earth", "foliage", "neutral", "vibrant", "pastel", "dark",
-    "light"),
+  pattern = c("random", "crop_rows", "soil", "straw", "pasture", "forest", "mountain",
+    "sea", "sky", "wood", "lab", "leaf_litter", "mulch_film", "gravel", "composite",
+    "waves", "gradient", "plasma", "blobs", "texture", "solid"),
+  colors = c("random", "agriculture", "soil", "crop", "straw", "pasture", "forest",
+    "mountain", "sea", "sky", "wood", "lab", "germitest", "leaf_litter", "plastic_film",
+    "gravel", "earth", "foliage", "neutral", "vibrant", "pastel", "dark", "light"),
+  color = NULL,
   noise = 0.01,
   blur = 0,
+  vignette = 0.1,
+  exposure = 0.05,
   train_prop = 0.8,
   prefix = "synth_bg_",
   preview = FALSE,
+  as_job = FALSE,
   verbose = TRUE
 )
 }
@@ -32,25 +39,50 @@ to \code{train_prop}, and matching empty \code{.txt} label files are created aut
 
 \item{width, height}{Integer. Dimensions of generated images in pixels. Defaults to \code{640L}.}
 
-\item{pattern}{Character vector or string specifying the geometric/visual pattern:
+\item{pattern}{Character vector or string specifying the geometric/visual pattern(s):
 \itemize{
-\item \code{"waves"}: Multi-frequency sinusoidal/cosine color waves simulating organic fluid undulations,
-cloth folds, or moving light patterns.
+\item \code{"crop_rows"} (or \code{"field"}): Agricultural plantation rows with perspective convergence,
+foliage clumps along the ridges, and tilled furrows.
+\item \code{"soil"} (or \code{"earth"}): Tilled soil with multiscale fractal roughness and directional shaded clods/crumbs.
+\item \code{"straw"} (or \code{"mulch"}): Crop residues and dry stalks scattered across ground substrate (no-till farming).
+\item \code{"pasture"} (or \code{"grass"}): Dense pasture turf with macro soil-fertility patches and anisotropic grass fibers.
+\item \code{"forest"} (or \code{"canopy"}): Aerial forest and tree crowns with 3D dome shading, canopy gaps, and chlorophyll variations.
+\item \code{"mountain"}: Mountain terrain profiles with atmospheric sky, distant misty ranges, and foreground rocky ridges.
+\item \code{"sea"} (or \code{"water"}): Water and aquatic surfaces with multi-directional wave interference and specular sunlight highlights.
+\item \code{"sky"} (or \code{"clouds"}): Atmospheric sky gradient with soft cumulus cloud billows.
+\item \code{"lab"} (or \code{"paper"}, \code{"board"}, \code{"bench"}, \code{"germitest"}): Laboratory phenotyping benchtop, paper sheets,
+subtle millimeter grids, and studio lighting drop-off for seed/leaf scanning.
+\item \code{"leaf_litter"} (or \code{"leaves"}, \code{"litter"}): Scattered fallen leaves and plant residue on soil.
+\item \code{"mulch_film"} (or \code{"plastic"}): Agricultural black/silver plastic mulching bed with soil margins and specular wrinkles.
+\item \code{"gravel"} (or \code{"concrete"}, \code{"floor"}): Greenhouse concrete or gravel substrate with fine aggregate micro-shadows.
+\item \code{"composite"} (or \code{"field_mixed"}): Multi-layer natural field combining soil furrows, crop rows, straw residue, and weeds.
+\item \code{"wood"}: Wood grain and timber growth rings with organic waviness.
+\item \code{"waves"}: Multi-frequency sinusoidal/cosine color waves simulating fluid undulations.
 \item \code{"gradient"}: Linear and radial color gradients with smooth illumination transitions.
 \item \code{"plasma"}: Multi-octave turbulence noise producing cloudy, organic textures.
-\item \code{"blobs"}: Random Gaussian color spots simulating out-of-focus background elements or soil aggregates.
-\item \code{"texture"}: Textured substrate with high-frequency chromatic variations simulating paper or bench surfaces.
-\item \code{"random"} (default): Randomly picks and combines patterns across the generated batch.
+\item \code{"blobs"}: Random Gaussian color spots simulating out-of-focus background elements.
+\item \code{"texture"}: Textured substrate with high-frequency chromatic variations.
+\item \code{"random"} (default): Randomly picks among all available patterns (or the subset supplied in \code{pattern}).
 }}
 
-\item{colors}{Preset name (\code{"random"}, \code{"earth"}, \code{"foliage"}, \code{"neutral"}, \code{"vibrant"},
-\code{"pastel"}, \code{"dark"}, \code{"light"}) or a character vector of hex colors (e.g. \code{c("#3d2817", "#8b5a2b", "#d2b48c")}).
-Defaults to \code{"random"}.}
+\item{colors}{Preset name (\code{"random"}, \code{"agriculture"}, \code{"soil"}, \code{"crop"}, \code{"straw"},
+\code{"pasture"}, \code{"forest"}, \code{"mountain"}, \code{"sea"}, \code{"sky"}, \code{"wood"}, \code{"lab"}, \code{"germitest"},
+\code{"leaf_litter"}, \code{"plastic_film"}, \code{"gravel"}, \code{"earth"}, \code{"foliage"}, \code{"neutral"},
+\code{"vibrant"}, \code{"pastel"}, \code{"dark"}, \code{"light"}), a numeric RGB vector (e.g., \code{c(255, 250, 250)}
+in 0-255 or \code{c(1, 0.98, 0.98)} in 0-1 for a custom tone), a matrix or list of RGB values,
+a standard R color name (e.g. \code{"white"}, \code{"snow"}), or a character vector of hex colors
+(e.g. \code{c("#1c120c", "#5c3a21", "#90be6d")} or \code{"#fffafa"}). Defaults to \code{"random"}, which smartly pairs palettes to patterns.}
+
+\item{color}{Alias for \code{colors} (convenient for passing a single RGB vector or color). Defaults to \code{NULL}.}
 
 \item{noise}{Numeric. Standard deviation of subtle Gaussian sensor noise added to
 synthetic imagery (0 to 0.2). Defaults to \code{0.01}.}
 
 \item{blur}{Numeric. Standard deviation (sigma) for Gaussian smoothing filter to soften edges (0 to 5). Defaults to \code{0}.}
+
+\item{vignette}{Numeric. Strength of natural camera lens vignetting / radial illumination falloff (0 to 1). Defaults to \code{0.10}.}
+
+\item{exposure}{Numeric. Strength of subtle photographic exposure jitter (+/- variation in brightness). Defaults to \code{0.05}.}
 
 \item{train_prop}{Numeric. Proportion of images assigned to the training split (\verb{images/train/})
 versus validation (\verb{images/val/}) when saving to a YOLO dataset. Defaults to \code{0.80}.}
@@ -60,6 +92,9 @@ versus validation (\verb{images/val/}) when saving to a YOLO dataset. Defaults t
 \item{preview}{Logical. If \code{TRUE} and in an interactive session, displays a visual
 preview grid of the generated images. Defaults to \code{FALSE}.}
 
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches the synthetic
+background generation as a background job in RStudio, freeing up the console. Defaults to \code{FALSE}.}
+
 \item{verbose}{Logical. Whether to print progress messages. Defaults to \code{TRUE}.}
 }
 \value{
@@ -67,8 +102,12 @@ If \code{dir = NULL}, a list of pliman \code{Image} objects. If \code{dir} is sp
 an invisible list with paths of generated training and validation images: \code{list(train = ..., val = ...)}.
 }
 \description{
-\code{yolo_background_synth()} creates realistic synthetic background images featuring multi-frequency
-sinusoidal waves, fluid transitions, organic color gradients, Perlin/plasma noise, or textured surfaces.
+\code{yolo_background_synth()} creates realistic synthetic background images featuring agricultural crop rows,
+tilled soil with aggregate crumbs, straw/mulch crop residues, dense pasture turf, forest canopies,
+mountain relief silhouettes, sea/water surfaces with specular reflections, atmospheric sky/clouds,
+laboratory phenotyping bench/paper with optional calibration grids, fallen leaf litter,
+agricultural plastic mulch film, greenhouse gravel/concrete floors, multi-layer composite fields,
+wood grain, sinusoidal waves, organic color gradients, Perlin/plasma noise, or textured surfaces.
 
 In YOLO detection and segmentation models, adding negative background images (images without any target
 objects and with empty \code{.txt} annotation files) is a recommended practice (typically 1\% to 10\% of the dataset)
@@ -78,10 +117,22 @@ to drastically minimize False Positive (FP) detections on complex, non-target ba
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
-# 1. Generate 6 wavy background images in memory and preview them
-bgs <- yolo_background_synth(n = 6, pattern = "waves", colors = "earth", preview = TRUE)
+# 1. Generate 12 diverse agricultural, field, and laboratory backgrounds in memory
+bgs <- yolo_background_synth(
+  n = 12,
+  pattern = c("crop_rows", "soil", "straw", "pasture", "forest", "lab", "leaf_litter", "composite"),
+  preview = TRUE
+)
 
-# 2. Generate and inject 20 synthetic background images into a YOLO dataset
+# 2. Generate warm white backgrounds using custom RGB vector c(255, 250, 250)
+bgs_white <- yolo_background_synth(
+  n = 5,
+  color = c(255, 250, 250),
+  pattern = "solid",
+  preview = TRUE
+)
+
+# 3. Generate and inject 20 synthetic background images into a YOLO dataset
 yolo_background_synth(dir = "my_dataset", n = 20, pattern = "random")
 \dontshow{\}) # examplesIf}
 }

@@ -2,51 +2,68 @@
 % Please edit documentation in R/utils_yolo_dataset.R
 \name{yolo_dataset_balance}
 \alias{yolo_dataset_balance}
-\title{Balance Class Distributions via Augmentation or Downsampling}
+\title{Balance Class Distributions via Copy-Paste, Augmentation or Downsampling}
 \usage{
 yolo_dataset_balance(
   data,
-  strategy = c("oversample", "undersample"),
+  strategy = c("copypaste", "oversample", "undersample"),
   target_count = NULL,
+  classes = NULL,
   clean = TRUE,
   seed = 42,
-  verbose = TRUE
+  as_job = FALSE,
+  verbose = TRUE,
+  ...
 )
 }
 \arguments{
 \item{data}{A \code{yolo_dataset} object, \code{yolo_dataset_cls} object, or directory path.}
 
-\item{strategy}{Strategy to apply: \code{"oversample"} (default) or \code{"undersample"}.}
+\item{strategy}{Strategy to apply: \code{"copypaste"} (default for detection/segmentation),
+\code{"oversample"}, or \code{"undersample"}.}
 
 \item{target_count}{Optional integer target count per class in \verb{train/}. If \code{NULL},
-uses the maximum count for \code{"oversample"} and the minimum count for \code{"undersample"}.}
+uses the maximum class count for oversampling/copy-paste and the minimum count for undersampling.}
 
-\item{clean}{Logical. If \code{TRUE} (default), removes any previously generated \verb{_bal*.ext} files
-in the training split before computing counts and balancing.}
+\item{classes}{Optional character vector or integer IDs of specific classes to balance.}
 
-\item{seed}{Optional random seed (default: 42).}
+\item{clean}{Logical. If \code{TRUE} (default), cleans previously balanced files (\verb{_bal*.ext}, \verb{_copypaste*.ext})
+before computing class distributions.}
 
-\item{verbose}{Logical. Whether to show progress. Defaults to \code{TRUE}.}
+\item{seed}{Optional random seed (default: \code{42}).}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, runs as a background job (default: \code{FALSE}).}
+
+\item{verbose}{Logical. Whether to show progress messages (default: \code{TRUE}).}
+
+\item{...}{Additional arguments forwarded to \code{\link[=yolo_dataset_copypaste]{yolo_dataset_copypaste()}}.}
 }
 \value{
 A \code{yolo_dataset} object with balanced class distributions.
 }
 \description{
-\code{yolo_dataset_balance()} balances class distributions in a YOLO dataset to eliminate
-majority class bias.
+\code{yolo_dataset_balance()} balances class distributions across all YOLO dataset types
+(classification, object detection, instance segmentation, and OBB) to eliminate majority class bias.
 \itemize{
-\item With \code{strategy = "oversample"} (default), it generates augmented variants of minority
-classes using random flips, rotations, and photometric jitter until all classes reach
-the target count.
-\item With \code{strategy = "undersample"}, it downsamples majority classes to match the count
-of the smallest class (or a specified \code{target_count}).
+\item For \strong{object detection and instance segmentation} (\code{task \%in\% c("detect", "segment", "obb")}):
+\itemize{
+\item \code{strategy = "copypaste"} (default): Uses state-of-the-art instance-level Copy-Paste augmentation
+to extract instances of minority classes and blend them into training images until all classes
+reach \code{target_count}.
+\item \code{strategy = "undersample"}: Downsamples images containing exclusively majority classes.
+}
+\item For \strong{image classification} (\code{task == "classify"}):
+\itemize{
+\item \code{strategy = "oversample"}: Balances folder images via geometric/photometric augmentation.
+\item \code{strategy = "undersample"}: Downsamples majority class folders to \code{target_count}.
+}
 }
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
-# Oversample minority classes to achieve equal sample sizes
-ds_balanced <- yolo_dataset_balance("dataset_flores_yolo", strategy = "oversample")
+# Balance detection/segmentation dataset using instance Copy-Paste
+ds_balanced <- yolo_dataset_balance("my_yolo_dataset")
 \dontshow{\}) # examplesIf}
 }

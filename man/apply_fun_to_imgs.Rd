@@ -14,7 +14,8 @@ apply_fun_to_imgs(
   suffix = "",
   parallel = FALSE,
   workers = 3,
-  verbose = TRUE
+  verbose = TRUE,
+  as_job = FALSE
 )
 }
 \arguments{
@@ -40,6 +41,9 @@ up the processing time, especially when pattern is used is informed.}
 parallel processes that can be active at the same time. Defaults to 3.}
 
 \item{verbose}{Shows the progress in console? Defaults to \code{TRUE}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, runs the image processing
+as an RStudio Background Job (default: \code{FALSE}).}
 }
 \value{
 Nothing. The processed images are saved to the current working directory.

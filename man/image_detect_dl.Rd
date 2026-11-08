@@ -23,7 +23,7 @@ image_detect_dl(
   show_id = FALSE,
   show_point = FALSE,
   show_box = NULL,
-  point_size = 1.5,
+  point_size = 1,
   point_pch = 16,
   point_col = NULL,
   badge = TRUE,
@@ -38,6 +38,7 @@ image_detect_dl(
   verbose = TRUE,
   plot = TRUE,
   dir = pliman_model_dir(),
+  imgsz = NULL,
   ...
 )
 }
@@ -83,7 +84,7 @@ between 0 and 1 (e.g., \code{pad = 0.05} for 5\% margin), or a length-2 vector \
 
 \item{show_box}{Logical. Whether to draw bounding boxes. Defaults to \code{NULL} (TRUE unless \code{show_point = TRUE} and all text displays are \code{FALSE}).}
 
-\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1.5}.}
+\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1}.}
 
 \item{point_pch}{Integer. Plotting symbol (\code{pch}) for the centroid point. Defaults to \code{16} (filled circle).}
 
@@ -120,6 +121,10 @@ that enclose smaller boxes of the same class.}
 \item{plot}{Logical. Whether to plot the original image with bounding boxes.}
 
 \item{dir}{Model directory (default \code{pliman_model_dir()}).}
+
+\item{imgsz}{Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), pliman automatically inspects the ONNX model metadata for native training
+resolution and falls back to \code{640} if unspecified. Useful when running models exported with dynamic resolution.}
 
 \item{...}{Additional arguments passed to \code{\link[graphics:plot]{graphics::plot()}}.}
 }

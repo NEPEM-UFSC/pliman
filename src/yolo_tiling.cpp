@@ -175,6 +175,9 @@ NumericMatrix clip_yolo_boxes_cpp(NumericMatrix boxes,
     } else if (mode == 2) {
       // overlap only
       keep = area_preserved;
+    } else if (mode == 3) {
+      // center and overlap
+      keep = center_inside && area_preserved;
     }
 
     if (!keep) continue;
@@ -365,6 +368,7 @@ List clip_yolo_polygons_cpp(List polygons,
     if (mode == 0) keep = center_inside || area_preserved;
     else if (mode == 1) keep = center_inside;
     else if (mode == 2) keep = area_preserved;
+    else if (mode == 3) keep = center_inside && area_preserved;
 
     if (!keep) continue;
 

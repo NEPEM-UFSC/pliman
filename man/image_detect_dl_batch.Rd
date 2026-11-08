@@ -2,6 +2,8 @@
 % Please edit documentation in R/utils_dl_batch.R
 \name{image_detect_dl_batch}
 \alias{image_detect_dl_batch}
+\alias{image_detect_batch}
+\alias{yolo_detect_batch}
 \title{Batch Object Detection with Deep Learning}
 \usage{
 image_detect_dl_batch(
@@ -9,13 +11,46 @@ image_detect_dl_batch(
   pattern = NULL,
   path = NULL,
   parallel = FALSE,
-  workers = NULL,
   show_point = FALSE,
   keep_images = FALSE,
   save_image = FALSE,
   dir_processed = "./proc",
   prefix = "proc_",
   verbose = TRUE,
+  imgsz = NULL,
+  as_job = FALSE,
+  ...
+)
+
+image_detect_batch(
+  data,
+  pattern = NULL,
+  path = NULL,
+  parallel = FALSE,
+  show_point = FALSE,
+  keep_images = FALSE,
+  save_image = FALSE,
+  dir_processed = "./proc",
+  prefix = "proc_",
+  verbose = TRUE,
+  imgsz = NULL,
+  as_job = FALSE,
+  ...
+)
+
+yolo_detect_batch(
+  data,
+  pattern = NULL,
+  path = NULL,
+  parallel = FALSE,
+  show_point = FALSE,
+  keep_images = FALSE,
+  save_image = FALSE,
+  dir_processed = "./proc",
+  prefix = "proc_",
+  verbose = TRUE,
+  imgsz = NULL,
+  as_job = FALSE,
   ...
 )
 }
@@ -35,9 +70,6 @@ image_detect_dl_batch(
 \item{parallel}{Logical. If \code{TRUE}, runs inference in parallel across images using \code{mirai}.
 Defaults to \code{FALSE}.}
 
-\item{workers}{Integer. Number of parallel workers/daemons to launch when \code{parallel = TRUE}.
-Defaults to 60\% of available CPU cores.}
-
 \item{show_point}{Logical. Whether to show a point at the centroid of each detected object.
 Defaults to \code{FALSE}.}
 
@@ -55,8 +87,16 @@ Defaults to \code{FALSE}.}
 \item{verbose}{Logical. Whether to show progress bars, timing, and formatted CLI summaries.
 Defaults to \code{TRUE}.}
 
+\item{imgsz}{Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), inferred automatically or defaults to \code{640}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, runs the batch detection process in an RStudio Background Job. Defaults to \code{FALSE}.}
+
 \item{...}{Additional arguments passed to \code{\link[=image_detect_dl]{image_detect_dl()}} (e.g., \code{model}, \code{conf_threshold},
 \code{iou_threshold}, \code{classes}, \code{labels}, \code{col}, \code{rainbow}, \code{lwd}, \code{cex}, \code{badge}, \code{engine}, \code{device_id}).}
+
+\item{workers}{Integer. Number of parallel workers/daemons to launch when \code{parallel = TRUE}.
+Defaults to 60\% of available CPU cores.}
 }
 \value{
 An S3 object of class \code{c("dl_detect_batch", "list")} containing:
@@ -93,8 +133,7 @@ head(res$predictions)
 res_par <- image_detect_dl_batch(
   data = "-",
   path = "flax_grains",
-  parallel = TRUE,
-  workers = 4
+  parallel = TRUE
 )
 \dontshow{\}) # examplesIf}
 }

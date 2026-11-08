@@ -498,7 +498,7 @@ double help_otsu(SEXP img_sexp);
 //'
 //' @param img Grayscale index matrix.
 //' @param radius Neighbourhood radius for median sampling (default = 5).
-//' @param has_white_bg Unused — background class is detected automatically.
+//' @param has_white_bg Unused - background class is detected automatically.
 //' @return Corrected grayscale matrix.
 //' @export
 // [[Rcpp::export]]

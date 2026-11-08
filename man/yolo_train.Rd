@@ -15,6 +15,10 @@ yolo_train(
   output_name = NULL,
   results_dir = NULL,
   export_pt = TRUE,
+  resume = FALSE,
+  checkpoint = TRUE,
+  checkpoint_onnx = FALSE,
+  as_job = FALSE,
   patience = 15,
   lr0 = 0.01,
   lrf = 0.01,
@@ -22,6 +26,8 @@ yolo_train(
   close_mosaic = 10,
   amp = NULL,
   plots = FALSE,
+  verbose = TRUE,
+  progress = NULL,
   workers = if (.Platform$OS.type == "windows") 0L else 4L,
   auto_install = TRUE,
   ...
@@ -57,6 +63,23 @@ inside \code{output_dir}.}
 \item{export_pt}{Logical. If \code{TRUE} (default), also exports the PyTorch \code{.pt}
 weights (e.g., \code{model.pt}) alongside the \code{.onnx} model, allowing future
 re-training or fine-tuning on more complex datasets.}
+
+\item{resume}{Logical (\code{TRUE} to automatically resume from the latest checkpoint) or
+character path pointing to an existing \code{last.pt} checkpoint file. Defaults to \code{FALSE}.}
+
+\item{checkpoint}{Logical. If \code{TRUE} (default), continuously saves real-time checkpoints:
+mirrors \code{last.pt} and \code{results.csv} after each epoch, and copies \code{best.pt} directly to
+\code{results_dir} and \code{output_dir} immediately whenever a new \verb{*(best)} epoch is reached.
+This guarantees no progress is lost even if training is interrupted. Defaults to \code{TRUE}.}
+
+\item{checkpoint_onnx}{Logical. If \code{TRUE}, also generates and updates a checkpoint \code{.onnx}
+model in real-time whenever a new \verb{*(best)} epoch is achieved. Defaults to \code{FALSE}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches the training
+as an asynchronous RStudio Background Job, immediately freeing up the R console while
+live progress and epoch tables stream in RStudio's "Jobs" tab. Checkpoints continue
+to be saved in real time, and the resulting model object is automatically saved to
+\code{model_res.rds} inside \code{results_dir}. Defaults to \code{FALSE}.}
 
 \item{patience}{Early stopping patience in epochs. Defaults to \code{15}.}
 
@@ -163,13 +186,16 @@ where \eqn{\eta_0 = \text{lr0}} and \eqn{\eta_{\text{final}} = \text{lr0} \times
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
-# Train a custom coffee grain segmentation model
+# 1. Train a custom coffee grain segmentation model with real-time checkpointing
 model_res <- yolo_train(
   data = "dataset_cafe", # or "dataset_cafe/data.yaml"
   model = "yolo26n-seg",
   epochs = 30,
   output_name = "cafe_seg.onnx"
 )
+
+# 2. Resume training seamlessly from the last saved checkpoint if interrupted:
+yolo_train(data = "dataset_cafe", resume = TRUE, epochs = 50)
 
 # Inspect training summary and plot diagnostic dashboard
 print(model_res)

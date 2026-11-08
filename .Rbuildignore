@@ -25,3 +25,4 @@ vignettes
 ^scratch$
 ^weights$
 .*\.pt$
+^models_optimized$

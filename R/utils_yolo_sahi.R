@@ -235,15 +235,37 @@
 #' @param full_image_inference Logical. If `TRUE` (default), runs an additional detection pass on the
 #'   resized full canvas to capture objects larger than individual slices.
 #' @param cex Numeric character expansion for labels and badges. Defaults to `1.0`.
-#' @param pad Numeric padding factor for badges. Defaults to `1.0`.
+#' @param bbox Logical. If `TRUE` (default), draws bounding boxes.
+#' @param show_box Logical. Explicitly control whether bounding boxes are drawn. Defaults to `TRUE` (or value of `bbox`). Supported aliases: `box`, `boxes`, `show_boxes`.
+#' @param show_point Logical. If `TRUE`, draws points at the centroid of each detected object. Defaults to `FALSE`. Supported aliases: `points`, `point`, `show_points`.
+#' @param point_size Numeric. Size (cex) of centroid points when `show_point = TRUE`. Defaults to `1.5`. Supported aliases: `marker_size`, `point_cex`.
+#' @param point_pch Integer. Symbol code for centroid points. Defaults to `16` (filled circle). Supported alias: `marker_pch`.
+#' @param point_col Color for centroid points. Defaults to `NULL` (uses matching box/instance color). Supported alias: `marker_col`.
 #' @param show_text Logical. Display text labels on bounding boxes. Defaults to `TRUE`.
 #' @param show_conf Logical. Display confidence score on labels/badges. Defaults to `TRUE`.
 #' @param show_class Logical. Display class name on labels/badges. Defaults to `TRUE`.
 #' @param show_id Logical. Display instance ID number. Defaults to `FALSE`.
 #' @param badge Logical. Display rounded badge background behind text labels. Defaults to `TRUE`.
 #' @param rainbow Logical. If `TRUE` (default), bounding boxes are rendered in rainbow colors.
+#' @param lower_size Optional numeric value to filter out small detected objects.
+#'   When `size_mode = "relative"` (default), objects with a bounding box area
+#'   less than `lower_size` times the mean area of all candidate boxes are removed
+#'   (e.g., `lower_size = 0.2` removes objects smaller than 20% of the average object size).
+#'   When `size_mode = "absolute"`, objects with an area (in pixels) below `lower_size` are removed.
+#'   Defaults to `NULL` (no lower size filter).
+#' @param upper_size Optional numeric value to filter out abnormally large detected objects.
+#'   When `size_mode = "relative"` (default), objects with a bounding box area
+#'   greater than `upper_size` times the mean area of all candidate boxes are removed
+#'   (e.g., `upper_size = 2.0` removes objects larger than 200% of the average object size).
+#'   When `size_mode = "absolute"`, objects with an area (in pixels) above `upper_size` are removed.
+#'   Defaults to `NULL` (no upper size filter).
+#' @param size_mode Character string specifying how `lower_size` and `upper_size` are interpreted.
+#'   `"relative"` (default) treats values as proportions/multiples of the mean bounding box area.
+#'   `"absolute"` treats values as area in pixels.
+#' @param pad Numeric padding around bounding box labels or badges. Defaults to `1.0`.
 #' @param plot Logical. Display global detections overlaid on the full image. Defaults to `TRUE`.
 #' @param verbose Logical. Show progress bar and tile metrics. Defaults to `TRUE`.
+#' @param imgsz Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}). Default is \code{NULL}.
 #' @param ... Additional arguments passed to [image_detect_dl()].
 #'
 #' @return A `data.frame` of global bounding boxes with attributes `image`, `counts`, and `summary`.
@@ -268,8 +290,17 @@ image_detect_sahi <- function(img,
                               agnostic_nms = FALSE,
                               seam_merging = TRUE,
                               full_image_inference = TRUE,
+                              lower_size = NULL,
+                              upper_size = NULL,
+                              size_mode = c("relative", "absolute"),
                               cex = 1.0,
                               pad = 1.0,
+                              bbox = TRUE,
+                              show_box = NULL,
+                              show_point = FALSE,
+                              point_size = 1.5,
+                              point_pch = 16,
+                              point_col = NULL,
                               show_text = TRUE,
                               show_conf = TRUE,
                               show_class = TRUE,
@@ -278,7 +309,34 @@ image_detect_sahi <- function(img,
                               rainbow = TRUE,
                               plot = TRUE,
                               verbose = TRUE,
+                              imgsz = NULL,
                               ...) {
+  dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
+  if ("lower_size" %in% names(dots)) lower_size <- dots$lower_size
+  if ("upper_size" %in% names(dots)) upper_size <- dots$upper_size
+  if ("size_mode" %in% names(dots)) size_mode <- dots$size_mode
+  if ("show_points" %in% names(dots)) show_point <- isTRUE(dots$show_points)
+  if ("show_point" %in% names(dots)) show_point <- isTRUE(dots$show_point)
+  if ("points" %in% names(dots)) show_point <- isTRUE(dots$points)
+  if ("point" %in% names(dots)) show_point <- isTRUE(dots$point)
+  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
+  if ("box" %in% names(dots)) show_box <- isTRUE(dots$box)
+  if ("boxes" %in% names(dots)) show_box <- isTRUE(dots$boxes)
+  if (is.null(show_box)) {
+    show_box <- isTRUE(bbox)
+  }
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
+  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
+  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
+  if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
   match_metric <- match.arg(match_metric)
   postprocess_type <- match.arg(postprocess_type)
 
@@ -339,8 +397,10 @@ image_detect_sahi <- function(img,
         model = model,
         conf_threshold = conf_threshold,
         iou_threshold = iou_threshold,
+        classes = classes,
         plot = FALSE,
         verbose = FALSE,
+        imgsz = imgsz,
         ...
       ),
       silent = TRUE
@@ -379,8 +439,11 @@ image_detect_sahi <- function(img,
         model = model,
         conf_threshold = conf_threshold,
         iou_threshold = iou_threshold,
+        classes = classes,
         plot = FALSE,
         verbose = FALSE,
+        save_image = FALSE,
+        imgsz = imgsz,
         ...
       ),
       silent = TRUE
@@ -456,10 +519,27 @@ image_detect_sahi <- function(img,
   final_df <- res_post$boxes
   rownames(final_df) <- NULL
 
+  if ((!is.null(lower_size) || !is.null(upper_size)) && nrow(final_df) > 0L) {
+    size_mode <- match.arg(size_mode)
+    f_res <- .filter_by_size(
+      boxes = final_df,
+      lower_size = lower_size,
+      upper_size = upper_size,
+      size_mode = size_mode
+    )
+    final_df <- f_res$boxes
+  }
+
   # Summaries
   c_names <- if (!is.null(final_df$class_name)) final_df$class_name else if (!is.null(final_df$label)) final_df$label else rep("object", nrow(final_df))
   tbl <- table(c_names)
   counts <- setNames(as.integer(tbl), names(tbl))
+
+  if (nrow(final_df) > 0L) {
+    if (is.null(final_df$id)) final_df$id <- seq_len(nrow(final_df))
+    if (is.null(final_df$label)) final_df$label <- c_names
+    if (is.null(final_df$score)) final_df$score <- if (!is.null(final_df$conf)) final_df$conf else 1.0
+  }
 
   attr(final_df, "image") <- im
   attr(final_df, "counts") <- counts
@@ -471,10 +551,6 @@ image_detect_sahi <- function(img,
   if (isTRUE(plot)) {
     plot(im)
     if (nrow(final_df) > 0L) {
-      if (is.null(final_df$id)) final_df$id <- seq_len(nrow(final_df))
-      if (is.null(final_df$label)) final_df$label <- c_names
-      if (is.null(final_df$score)) final_df$score <- if (!is.null(final_df$conf)) final_df$conf else 1.0
-
       n_b <- nrow(final_df)
       palette_cols <- if (isTRUE(rainbow)) grDevices::rainbow(n_b, s = 0.85, v = 0.95) else rep("#00FFCC", n_b)
 
@@ -488,6 +564,11 @@ image_detect_sahi <- function(img,
         show_conf = show_conf,
         show_class = show_class,
         show_id = show_id,
+        show_box = show_box,
+        show_point = show_point,
+        point_size = point_size,
+        point_pch = point_pch,
+        point_col = point_col,
         badge = badge
       )
     }
@@ -516,6 +597,11 @@ image_detect_sahi <- function(img,
 #'   Detections belonging to other classes are discarded before post-processing. Defaults to `NULL` (all classes kept).
 #' @param agnostic_nms Logical. If `TRUE`, bounding boxes and masks from different classes compete during post-processing suppression. Defaults to `FALSE`.
 #' @param bbox Logical. If `TRUE`, draws bounding boxes and class badges around segmented instances. Defaults to `FALSE`.
+#' @param show_box Logical. Explicitly control whether bounding boxes are drawn. Defaults to `NULL` (or value of `bbox`). Supported aliases: `box`, `boxes`, `show_boxes`.
+#' @param show_point Logical. If `TRUE`, draws points at the centroid of each segmented object. Defaults to `FALSE`. Supported aliases: `points`, `point`, `show_points`.
+#' @param point_size Numeric. Size (cex) of centroid points when `show_point = TRUE`. Defaults to `1.5`. Supported aliases: `marker_size`, `point_cex`.
+#' @param point_pch Integer. Symbol code for centroid points. Defaults to `16` (filled circle). Supported alias: `marker_pch`.
+#' @param point_col Color for centroid points. Defaults to `NULL` (uses matching instance color). Supported alias: `marker_col`.
 #' @param mask Logical. If `TRUE` (default), draws instance segmentation masks.
 #' @param cex Numeric character expansion for labels and badges. Defaults to `1.0`.
 #' @param pad Numeric padding factor for badges. Defaults to `1.0`.
@@ -548,7 +634,15 @@ image_segment_sahi <- function(img,
                                border = NA,
                                lwd = 1,
                                bbox = FALSE,
+                               show_box = NULL,
+                               show_point = FALSE,
+                               point_size = 1.5,
+                               point_pch = 16,
+                               point_col = NULL,
                                mask = TRUE,
+                               lower_size = NULL,
+                               upper_size = NULL,
+                               size_mode = c("relative", "absolute"),
                                cex = 1.0,
                                pad = 1.0,
                                show_text = TRUE,
@@ -559,7 +653,34 @@ image_segment_sahi <- function(img,
                                rainbow = TRUE,
                                plot = TRUE,
                                verbose = TRUE,
+                               imgsz = NULL,
                                ...) {
+  dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
+  if ("lower_size" %in% names(dots)) lower_size <- dots$lower_size
+  if ("upper_size" %in% names(dots)) upper_size <- dots$upper_size
+  if ("size_mode" %in% names(dots)) size_mode <- dots$size_mode
+  if ("show_points" %in% names(dots)) show_point <- isTRUE(dots$show_points)
+  if ("show_point" %in% names(dots)) show_point <- isTRUE(dots$show_point)
+  if ("points" %in% names(dots)) show_point <- isTRUE(dots$points)
+  if ("point" %in% names(dots)) show_point <- isTRUE(dots$point)
+  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
+  if ("box" %in% names(dots)) show_box <- isTRUE(dots$box)
+  if ("boxes" %in% names(dots)) show_box <- isTRUE(dots$boxes)
+  if (is.null(show_box)) {
+    show_box <- if (isTRUE(show_point)) FALSE else isTRUE(bbox)
+  }
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
+  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
+  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
+  if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
   type <- match.arg(type)
   match_metric <- match.arg(match_metric)
   postprocess_type <- match.arg(postprocess_type)
@@ -621,8 +742,10 @@ image_segment_sahi <- function(img,
         type = "highlight",
         box_threshold = conf_threshold,
         iou_threshold = iou_threshold,
+        classes = classes,
         plot = FALSE,
         verbose = FALSE,
+        imgsz = imgsz,
         ...
       ),
       silent = TRUE
@@ -709,8 +832,10 @@ image_segment_sahi <- function(img,
         type = "highlight",
         box_threshold = conf_threshold,
         iou_threshold = iou_threshold,
+        classes = classes,
         plot = FALSE,
         verbose = FALSE,
+        imgsz = imgsz,
         ...
       ),
       silent = TRUE
@@ -820,6 +945,19 @@ image_segment_sahi <- function(img,
   final_conts <- res_post$contours
   rownames(final_df) <- NULL
 
+  if ((!is.null(lower_size) || !is.null(upper_size)) && nrow(final_df) > 0L) {
+    size_mode <- match.arg(size_mode)
+    f_res <- .filter_by_size(
+      boxes = final_df,
+      contours = final_conts,
+      lower_size = lower_size,
+      upper_size = upper_size,
+      size_mode = size_mode
+    )
+    final_df <- f_res$boxes
+    final_conts <- f_res$contours
+  }
+
   c_names <- if (!is.null(final_df$class_name)) final_df$class_name else if (!is.null(final_df$label)) final_df$label else rep("object", nrow(final_df))
   tbl <- table(c_names)
   counts <- setNames(as.integer(tbl), names(tbl))
@@ -881,7 +1019,7 @@ image_segment_sahi <- function(img,
       }
     }
 
-    if (isTRUE(bbox) || !isTRUE(mask)) {
+    if (isTRUE(show_box) || isTRUE(show_point) || isTRUE(bbox) || !isTRUE(mask)) {
       .plot_yolo_bboxes(
         boxes = final_df,
         palette_colors = palette_cols,
@@ -892,6 +1030,11 @@ image_segment_sahi <- function(img,
         show_conf = show_conf,
         show_class = show_class,
         show_id = show_id,
+        show_box = show_box,
+        show_point = show_point,
+        point_size = point_size,
+        point_pch = point_pch,
+        point_col = point_col,
         badge = badge
       )
     } else if (isTRUE(show_id)) {

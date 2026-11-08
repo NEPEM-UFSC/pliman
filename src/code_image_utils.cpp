@@ -832,11 +832,22 @@ IntegerMatrix cpp_as_native_raster(SEXP img_sexp, IntegerVector dims) {
       const bool has_alpha = (nch >= 4);
       const int stride_a = has_alpha ? npix * 3 : 0;
 
+      bool all_zero_alpha = false;
+      if (has_alpha) {
+        all_zero_alpha = true;
+        for (int i = 0; i < npix; i++) {
+          if (ptr[i + stride_a] != 0) {
+            all_zero_alpha = false;
+            break;
+          }
+        }
+      }
+
       for (int i = 0; i < npix; i++) {
         uint32_t rv = ptr[i];
         uint32_t gv = ptr[i + stride_g];
         uint32_t bv = ptr[i + stride_b];
-        uint32_t av = has_alpha ? ptr[i + stride_a] : 255u;
+        uint32_t av = (has_alpha && !all_zero_alpha) ? ptr[i + stride_a] : 255u;
 
         out[i] = static_cast<int>(
           (av << 24) | (bv << 16) | (gv << 8) | rv
@@ -865,11 +876,22 @@ IntegerMatrix cpp_as_native_raster(SEXP img_sexp, IntegerVector dims) {
       const bool has_alpha = (nch >= 4);
       const int stride_a = has_alpha ? npix * 3 : 0;
 
+      bool all_zero_alpha = false;
+      if (has_alpha) {
+        all_zero_alpha = true;
+        for (int i = 0; i < npix; i++) {
+          if (ptr[i + stride_a] > 0.0) {
+            all_zero_alpha = false;
+            break;
+          }
+        }
+      }
+
       for (int i = 0; i < npix; i++) {
         uint32_t rv = (uint32_t)std::max(0, std::min(255, (int)(ptr[i] * scale)));
         uint32_t gv = (uint32_t)std::max(0, std::min(255, (int)(ptr[i + stride_g] * scale)));
         uint32_t bv = (uint32_t)std::max(0, std::min(255, (int)(ptr[i + stride_b] * scale)));
-        uint32_t av = has_alpha ? (uint32_t)std::max(0, std::min(255, (int)(ptr[i + stride_a] * scale))) : 255u;
+        uint32_t av = (has_alpha && !all_zero_alpha) ? (uint32_t)std::max(0, std::min(255, (int)(ptr[i + stride_a] * scale))) : 255u;
 
         out[i] = static_cast<int>(
           (av << 24) | (bv << 16) | (gv << 8) | rv

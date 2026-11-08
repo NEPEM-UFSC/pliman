@@ -9,8 +9,16 @@
   which = c("all", "metrics", "confusion_matrix_norm", "confusion_matrix", "pr_curve",
     "f1_curve", "results", "labels"),
   native = TRUE,
-  bg = "#fafafa",
+  bg = "white",
   mar = 0.5,
+  ncol = NULL,
+  nrow = NULL,
+  digits = 3,
+  save = FALSE,
+  file_name = NULL,
+  width = NULL,
+  height = NULL,
+  dpi = 300,
   ...
 )
 }
@@ -32,9 +40,28 @@
 \item{native}{Logical. When \code{TRUE} (default), renders crisp, resizable native R base graphic vector plots
 directly from metrics and CSV evaluation tables rather than displaying raster image files.}
 
-\item{bg}{Background color for native plots. Defaults to \code{"#fafafa"}.}
+\item{bg}{Background color for native plots. Defaults to \code{"white"}.}
 
 \item{mar}{Plot margins passed to base graphics. Defaults to \code{0.5}.}
+
+\item{ncol}{Optional integer. Number of columns in multi-panel layout.}
+
+\item{nrow}{Optional integer. Number of rows in multi-panel layout.}
+
+\item{digits}{Integer. Number of decimal digits for statistical displays (default \code{3}).}
+
+\item{save}{Logical. If \code{TRUE}, saves the generated plot to a file. Defaults to \code{FALSE}.}
+
+\item{file_name}{Optional character string. Custom file name or path to save the plot (e.g. \code{"metrics.png"}, \code{"dashboard.pdf"}).
+If not specified and \code{save = TRUE}, a default filename based on the model name and plotted metric is automatically generated.}
+
+\item{width}{Numeric. Width of the output plot. If \verb{<= 50}, interpreted as inches; if \verb{> 50}, interpreted as pixels.
+Defaults to \code{10} inches for the multi-panel dashboard (\code{which = "all"}), \code{9} for metrics curves, and \code{7} for single curves.}
+
+\item{height}{Numeric. Height of the output plot. If \verb{<= 50}, interpreted as inches; if \verb{> 50}, interpreted as pixels.
+Defaults to \code{8} inches for the multi-panel dashboard (\code{which = "all"}), and \code{6} for single curves.}
+
+\item{dpi}{Numeric. Resolution in dots per inch (DPI) for raster formats (PNG, JPEG, TIFF). Defaults to \code{300}.}
 
 \item{...}{Additional arguments passed to base graphics.}
 }
@@ -128,6 +155,11 @@ res <- yolo_results("capsulas_det")
 # Inspect training summary and plot 2x2 diagnostic dashboard
 print(res)
 plot(res)
+
+# Save high-resolution 300 DPI publication plots:
+plot(res, save = TRUE)
+plot(res, which = "confusion_matrix_norm", save = TRUE, file_name = "fig_cm.png", width = 8, height = 7, dpi = 300)
+plot(res, which = "metrics", save = TRUE, file_name = "fig_metrics.pdf", width = 9, height = 6)
 
 # Plot individual evaluation curves in high-resolution vector format:
 plot(res, which = "confusion_matrix")

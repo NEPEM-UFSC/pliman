@@ -90,16 +90,17 @@ plot.image <- function(x,
   u_disp <- unclass(disp_img)
   rst <- cpp_as_native_raster(u_disp, dim(disp_img))
 
+  dots <- list(...)
   if (!isTRUE(add)) {
     is_mf <- (prod(graphics::par("mfrow")) > 1L) || (prod(graphics::par("mfcol")) > 1L)
     if (!is_mf) {
-      if (!isTRUE(axes) && is.null(main)) {
-        op <- graphics::par(mar = c(0, 0, 0, 0), oma = c(0, 0, 0, 0))
-        on.exit(graphics::par(op), add = TRUE)
+      if (!is.null(dots$mar)) {
+        graphics::par(mar = dots$mar)
+      } else if (!isTRUE(axes) && is.null(main)) {
+        graphics::par(mar = c(0, 0, 0, 0), oma = c(0, 0, 0, 0))
       } else {
         top_mar <- if (is.null(main)) 2 else 4
-        op <- graphics::par(mar = c(3, 3, top_mar, 1))
-        on.exit(graphics::par(op), add = TRUE)
+        graphics::par(mar = c(2.5, 2.5, top_mar, 1))
       }
     }
 
@@ -113,10 +114,9 @@ plot.image <- function(x,
     )
   }
 
-  dots <- list(...)
   valid_pars <- tryCatch(names(graphics::par(no.readonly = FALSE)), error = function(e) character(0))
   allowed_args <- setdiff(unique(c("angle", valid_pars)), c("type", "pch", "lty", "lwd", "col", "cex", "font", "bty", "ann", "axes"))
-  dots <- dots[names(dots) %in% allowed_args]
+  dots_img <- dots[names(dots) %in% allowed_args]
 
   raster_args <- c(
     list(
@@ -127,7 +127,7 @@ plot.image <- function(x,
       ytop = ylim[1] - 0.5,
       interpolate = interpolate
     ),
-    dots
+    dots_img
   )
   do.call(graphics::rasterImage, raster_args)
 
@@ -138,7 +138,11 @@ plot.image <- function(x,
   }
 
   if (!is.null(main)) {
-    graphics::title(main = main)
+    title_args <- list(main = main)
+    for (t_arg in c("sub", "col.main", "cex.main", "font.main", "col.sub", "cex.sub", "font.sub", "line")) {
+      if (!is.null(dots[[t_arg]])) title_args[[t_arg]] <- dots[[t_arg]]
+    }
+    do.call(graphics::title, title_args)
   }
 
   invisible(x)
@@ -223,11 +227,13 @@ view.image <- function(x, viewer = get_pliman_viewer(), ...) {
       ...
     )
 
-    cat("\nInteractive Viewer Actions:\n")
-    cat("  1: Zoom In (Click 2 corners on image)\n")
-    cat("  2: Zoom Out (2x)\n")
-    cat("  3: Reset Zoom (Full Image)\n")
-    cat("  0: Done / Exit\n")
+    cli::cli_rule(left = "Interactive Viewer Actions")
+    cli::cli_bullets(c(
+      "*" = paste0(cli::col_green("1"), ": Zoom In (Click 2 corners on image)"),
+      "*" = paste0(cli::col_green("2"), ": Zoom Out (2x)"),
+      "*" = paste0(cli::col_green("3"), ": Reset Zoom (Full Image)"),
+      "*" = paste0(cli::col_green("0"), ": Done / Exit")
+    ))
     ans <- readline(prompt = "Select option [0-3]: ")
     ans <- trimws(tolower(ans))
 

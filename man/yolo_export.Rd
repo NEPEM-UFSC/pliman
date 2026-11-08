@@ -2,38 +2,87 @@
 % Please edit documentation in R/utils_yolo_train.R
 \name{yolo_export}
 \alias{yolo_export}
-\title{Export a Trained PyTorch YOLO Checkpoint (.pt) to ONNX}
+\title{Export YOLO Model to ONNX and Pliman Model Zoo}
 \usage{
 yolo_export(
   model,
   output_dir = pliman_model_dir(),
   output_name = NULL,
+  export_results = TRUE,
   imgsz = 640,
+  dynamic = TRUE,
+  simplify = TRUE,
+  opset = 17L,
+  half = FALSE,
   auto_install = TRUE
 )
 }
 \arguments{
-\item{model}{Path to the \code{.pt} weights file.}
+\item{model}{A model checkpoint path (\code{.pt} or \code{.onnx}), a training results directory,
+a results \code{.zip} archive, or a \code{yolo_train} object from \code{\link[=yolo_results]{yolo_results()}} or \code{\link[=yolo_train]{yolo_train()}}.}
 
-\item{output_dir}{Target directory to save the exported \code{.onnx} file. Defaults to \code{\link[=pliman_model_dir]{pliman_model_dir()}}.}
+\item{output_dir}{Target directory to save the exported model and results. Defaults to \code{\link[=pliman_model_dir]{pliman_model_dir()}}.}
 
-\item{output_name}{Filename of the exported model. If \code{NULL} (default), derived from \code{model}.}
+\item{output_name}{Desired filename or identifier for the exported model (e.g. \code{"capsulas_det"} or \code{"capsulas_det.onnx"}).
+If \code{NULL} (default), it is inferred automatically from the model name or results folder.}
 
-\item{imgsz}{Input image resolution (default \code{640}).}
+\item{export_results}{Logical. If \code{TRUE} (default), copies the full training results directory
+(curves, metrics, confusion matrices, weights) alongside the model so that \code{\link[=yolo_results]{yolo_results()}} can load them.}
 
-\item{auto_install}{Logical. If \code{TRUE} (default), automatically installs missing export libraries.}
+\item{imgsz}{Integer image resolution (width and height) for ONNX export. Default is \code{640}.}
+
+\item{dynamic}{Logical. If \code{TRUE} (default), exports the ONNX model with dynamic input and output
+axes (\verb{[batch, 3, height, width]}), enabling inference with variable batch sizes and flexible
+image resolutions (e.g., 640, 960, 1024, 1280) in downstream functions like \code{\link[=image_detect_dl]{image_detect_dl()}}
+and \code{\link[=video_detect_dl]{video_detect_dl()}}. If \code{FALSE}, inputs are fixed to \verb{imgsz x imgsz}.}
+
+\item{simplify}{Logical. If \code{TRUE} (default), runs graph optimization via \code{onnxslim} / \code{onnx-simplifier}
+to prune redundant operators, fuse layers, and reduce model file size and runtime latency.}
+
+\item{opset}{Integer specifying the ONNX operator set version (default is \code{17L}). Modern YOLO architectures
+typically recommend opset 17 or 18 for compatibility with advanced operators and DirectML/CUDA.}
+
+\item{half}{Logical. If \code{TRUE}, converts model weights and graph activations to FP16 half-precision,
+reducing file size by approximately 50\\% and accelerating GPU/NPU inference on hardware with native FP16 support.
+Defaults to \code{FALSE} (standard FP32 single precision).}
+
+\item{auto_install}{Logical. If \code{TRUE} (default), automatically installs missing Python export libraries
+(\code{ultralytics}, \code{onnx}, \code{onnxslim}).}
 }
 \value{
-The full path to the exported \code{.onnx} model.
+The full path to the exported \code{.onnx} model (invisibly).
 }
 \description{
-Converts a trained PyTorch YOLO checkpoint (\code{best.pt} or any custom \code{.pt} model)
-into a standalone ONNX model ready for instant C++ execution in \code{\link[=image_segment_dl]{image_segment_dl()}}
-or \code{\link[=image_detect_dl]{image_detect_dl()}}.
+Exports a trained YOLO PyTorch (\code{.pt}) model to standalone ONNX (\code{.onnx}) format, or
+imports/registers an existing \code{.onnx} model and its training results into the pliman model
+repository (\code{\link[=pliman_model_dir]{pliman_model_dir()}}).
+
+When \code{export_results = TRUE} (default), all diagnostic plots, loss curves, confusion matrices,
+and performance metrics from the training run are also copied to \verb{<output_name>_results} in
+\code{output_dir}. This allows inspecting the exported model anytime with \code{\link[=yolo_results]{yolo_results()}} or
+\code{\link[=yolo_model_details]{yolo_model_details()}}.
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
-yolo_export("best.pt", output_name = "custom_model.onnx")
+
+# 1. Export from a PyTorch checkpoint with dynamic axes
+yolo_export("best.pt", output_name = "custom_model.onnx", imgsz = 640, dynamic = TRUE)
+
+# 2. Export with FP16 half-precision for GPU optimization
+yolo_export("best.pt", output_name = "custom_fp16.onnx", half = TRUE)
+
+# 3. Register an external training folder with all results
+yolo_export("path/to/model_capsulas", output_name = "capsulas_det")
+
+# 4. Directly export from a yolo_results object
+res <- yolo_results("path/to/model_capsulas")
+yolo_export(res, output_name = "capsulas_det")
+
+# 5. Inspect exported model details anytime
+yolo_model_details("capsulas_det.onnx")
 \dontshow{\}) # examplesIf}
+}
+\seealso{
+\code{\link[=yolo_train]{yolo_train()}}, \code{\link[=yolo_results]{yolo_results()}}, \code{\link[=yolo_model_details]{yolo_model_details()}}, \code{\link[=image_detect_dl]{image_detect_dl()}}, \code{\link[=video_detect_dl]{video_detect_dl()}}, \code{\link[=pliman_model_dir]{pliman_model_dir()}}
 }

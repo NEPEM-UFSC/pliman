@@ -23,7 +23,7 @@ image_detect_world(
   show_id = FALSE,
   show_point = FALSE,
   show_box = NULL,
-  point_size = 1.5,
+  point_size = 1,
   point_pch = 16,
   point_col = NULL,
   badge = TRUE,
@@ -71,7 +71,7 @@ If \code{FALSE} (default), objects of the same class share the exact same color.
 
 \item{show_box}{Logical. Whether to draw bounding boxes. Defaults to \code{NULL} (TRUE unless \code{show_point = TRUE} and all text displays are \code{FALSE}).}
 
-\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1.5}.}
+\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1}.}
 
 \item{point_pch}{Integer. Plotting symbol (\code{pch}) for the centroid point. Defaults to \code{16} (filled circle).}
 
