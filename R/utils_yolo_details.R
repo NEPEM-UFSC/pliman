@@ -261,6 +261,41 @@ elif ext == ".onnx":
             res["inputs"].append({"name": inp.name, "shape": inp.shape, "type": inp.type})
         for out in sess.get_outputs():
             res["outputs"].append({"name": out.name, "shape": out.shape, "type": out.type})
+
+        # Infer architecture from description if not set
+        if not res.get("architecture") and res.get("description"):
+            import re
+            m_arch = re.search(r"YOLO[0-9a-zA-Z_\\-]+", res["description"], re.IGNORECASE)
+            if m_arch:
+                res["architecture"] = m_arch.group(0)
+
+        # Count parameters from ONNX initializers
+        try:
+            import onnx
+            m_onnx = onnx.load(model_path, load_external_data=False)
+            total_params = 0
+            for t in m_onnx.graph.initializer:
+                p_cnt = 1
+                for d in t.dims:
+                    p_cnt *= int(d)
+                total_params += p_cnt
+            if total_params > 0:
+                res["parameters"] = int(total_params)
+        except Exception:
+            pass
+
+        # Fallback to companion .pt if parameters still missing
+        if not res.get("parameters"):
+            try:
+                pt_cand = os.path.splitext(model_path)[0] + ".pt"
+                if not os.path.exists(pt_cand):
+                    pt_cand = os.path.join(os.path.dirname(model_path), "best.pt")
+                if os.path.exists(pt_cand):
+                    from ultralytics import YOLO
+                    y_tmp = YOLO(pt_cand)
+                    res["parameters"] = int(sum(p.numel() for p in y_tmp.model.parameters()))
+            except Exception:
+                pass
     except Exception as e:
         res["status"] = "error"
         res["error"] = str(e)
@@ -315,6 +350,30 @@ print(json.dumps(res))
   }
 
   n_p <- if (!is.null(parsed$parameters)) as.numeric(parsed$parameters) else NULL
+  if (is.null(n_p) || is.na(n_p)) {
+    pt_cand <- sub("\\.onnx$", ".pt", resolved_path, ignore.case = TRUE)
+    if (!file.exists(pt_cand)) {
+      pt_cand <- file.path(dirname(resolved_path), "best.pt")
+    }
+    if (file.exists(pt_cand)) {
+      pt_res <- tryCatch({
+        py_pt <- '
+import sys, json
+try:
+    from ultralytics import YOLO
+    y = YOLO(sys.argv[1])
+    p = int(sum(p.numel() for p in y.model.parameters()))
+    print(json.dumps({"parameters": p}))
+except:
+    pass
+'
+        out_pt <- system2("python", args = c("-c", shQuote(py_pt), shQuote(pt_cand)), stdout = TRUE, stderr = FALSE)
+        if (length(out_pt) > 0) jsonlite::fromJSON(paste(out_pt, collapse = "\n"))$parameters else NULL
+      }, error = function(e) NULL)
+      if (!is.null(pt_res)) n_p <- as.numeric(pt_res)
+    }
+  }
+
   p_fmt <- if (!is.null(n_p)) {
     if (n_p >= 1e6) paste0(round(n_p / 1e6, 2), " M")
     else if (n_p >= 1e3) paste0(round(n_p / 1e3, 1), " K")

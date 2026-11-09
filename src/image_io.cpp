@@ -669,30 +669,35 @@ static void draw_box_rgb(unsigned char* p, int orig_w, int orig_h, int x1, int y
   }
 }
 
-static void draw_char_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, char ch, int scale, uint8_t r, uint8_t g, uint8_t b) {
+static void draw_char_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, char ch, double scale, uint8_t r, uint8_t g, uint8_t b) {
   uint8_t c = (uint8_t)ch;
   if (c > 127) c = '?';
   const unsigned char* glyph = font8x8_basic[c];
 
   for (int row = 0; row < 8; ++row) {
     unsigned char byte = glyph[row];
+    int py0 = (int)std::floor(row * scale);
+    int py1 = (int)std::floor((row + 1) * scale) - 1;
+    if (py1 < py0) py1 = py0;
+
     for (int col = 0; col < 8; ++col) {
       if ((byte >> col) & 1) {
-        if (scale == 1) {
-          set_pixel_rgb(p, orig_w, orig_h, x + col, y + row, r, g, b);
-        } else {
-          fill_rect_rgb(p, orig_w, orig_h, x + col * scale, y + row * scale, x + (col + 1) * scale - 1, y + (row + 1) * scale - 1, r, g, b);
-        }
+        int px0 = (int)std::floor(col * scale);
+        int px1 = (int)std::floor((col + 1) * scale) - 1;
+        if (px1 < px0) px1 = px0;
+
+        fill_rect_rgb(p, orig_w, orig_h, x + px0, y + py0, x + px1, y + py1, r, g, b);
       }
     }
   }
 }
 
-static void draw_text_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, const std::string& text, int scale, uint8_t r, uint8_t g, uint8_t b) {
+static void draw_text_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, const std::string& text, double scale, uint8_t r, uint8_t g, uint8_t b) {
   int cur_x = x;
+  int step = std::max(1, (int)std::round(8.0 * scale));
   for (size_t i = 0; i < text.size(); ++i) {
     draw_char_rgb(p, orig_w, orig_h, cur_x, y, text[i], scale, r, g, b);
-    cur_x += 8 * scale;
+    cur_x += step;
   }
 }
 
@@ -785,11 +790,11 @@ static inline uint8_t decode_next_modern_char(const std::string& text, size_t& i
   return c;
 }
 
-static inline int get_char_width_modern(uint8_t c, int scale = 1) {
-  if (c == ' ') return 5 * scale;
-  if (c == ':' || c == '.' || c == ',' || c == '\'' || c == '!') return 4 * scale;
-  if (c == '|' || c == '(' || c == ')' || c == '[' || c == ']') return 5 * scale;
-  if (c == '1' || c == 'I' || c == 'i' || c == 'l') return 5 * scale;
+static inline int get_char_width_modern(uint8_t c, double scale = 1.0) {
+  if (c == ' ') return std::max(1, (int)std::round(5.0 * scale));
+  if (c == ':' || c == '.' || c == ',' || c == '\'' || c == '!') return std::max(1, (int)std::round(4.0 * scale));
+  if (c == '|' || c == '(' || c == ')' || c == '[' || c == ']') return std::max(1, (int)std::round(5.0 * scale));
+  if (c == '1' || c == 'I' || c == 'i' || c == 'l') return std::max(1, (int)std::round(5.0 * scale));
   const unsigned char* glyph = font8x16_basic[c];
   int min_col = 7, max_col = 0;
   bool has_pixel = false;
@@ -803,11 +808,11 @@ static inline int get_char_width_modern(uint8_t c, int scale = 1) {
       }
     }
   }
-  if (!has_pixel) return 5 * scale;
-  return std::max(4 * scale, (max_col - min_col + 2) * scale);
+  if (!has_pixel) return std::max(1, (int)std::round(5.0 * scale));
+  return std::max(1, (int)std::round(std::max(4.0, (double)(max_col - min_col + 2)) * scale));
 }
 
-static inline int get_text_width_modern(const std::string& text, int scale = 1) {
+static inline int get_text_width_modern(const std::string& text, double scale = 1.0) {
   int w = 0;
   for (size_t i = 0; i < text.size(); ++i) {
     uint8_t c = decode_next_modern_char(text, i);
@@ -816,9 +821,9 @@ static inline int get_text_width_modern(const std::string& text, int scale = 1) 
   return w;
 }
 
-static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, uint8_t c, int scale, uint8_t r, uint8_t g, uint8_t b, bool shadow = true) {
+static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, uint8_t c, double scale, uint8_t r, uint8_t g, uint8_t b, bool shadow = true) {
   if (c == ' ') {
-    return 5 * scale;
+    return std::max(1, (int)std::round(5.0 * scale));
   }
   const unsigned char* glyph = font8x16_basic[c];
 
@@ -832,22 +837,20 @@ static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x,
       }
     }
   }
-  if (!found) return 5 * scale;
+  if (!found) return std::max(1, (int)std::round(5.0 * scale));
   int char_w = max_col - min_col + 1;
 
   // 1. Soft drop shadow (1px offset)
   if (shadow) {
     for (int row = 0; row < 16; ++row) {
       unsigned char byte = glyph[row];
+      int sy0 = y + (int)std::floor(row * scale) + 1;
+      int sy1 = y + (int)std::floor((row + 1) * scale);
       for (int col = min_col; col <= max_col; ++col) {
         if ((byte >> (7 - col)) & 1) {
-          int sx = x + (col - min_col) * scale + 1;
-          int sy = y + row * scale + 1;
-          if (scale == 1) {
-            blend_pixel_rgb(p, orig_w, orig_h, sx, sy, 0, 0, 0, 0.65f);
-          } else {
-            fill_rect_alpha_rgb(p, orig_w, orig_h, sx, sy, sx + scale - 1, sy + scale - 1, 0, 0, 0, 0.65f);
-          }
+          int sx0 = x + (int)std::floor((col - min_col) * scale) + 1;
+          int sx1 = x + (int)std::floor((col - min_col + 1) * scale);
+          fill_rect_alpha_rgb(p, orig_w, orig_h, sx0, sy0, sx1, sy1, 0, 0, 0, 0.65f);
         }
       }
     }
@@ -856,23 +859,23 @@ static int draw_char_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x,
   // 2. Crisp foreground glyph
   for (int row = 0; row < 16; ++row) {
     unsigned char byte = glyph[row];
+    int py0 = y + (int)std::floor(row * scale);
+    int py1 = y + (int)std::floor((row + 1) * scale) - 1;
+    if (py1 < py0) py1 = py0;
     for (int col = min_col; col <= max_col; ++col) {
       if ((byte >> (7 - col)) & 1) {
-        int px = x + (col - min_col) * scale;
-        int py = y + row * scale;
-        if (scale == 1) {
-          set_pixel_rgb(p, orig_w, orig_h, px, py, r, g, b);
-        } else {
-          fill_rect_rgb(p, orig_w, orig_h, px, py, px + scale - 1, py + scale - 1, r, g, b);
-        }
+        int px0 = x + (int)std::floor((col - min_col) * scale);
+        int px1 = x + (int)std::floor((col - min_col + 1) * scale) - 1;
+        if (px1 < px0) px1 = px0;
+        fill_rect_rgb(p, orig_w, orig_h, px0, py0, px1, py1, r, g, b);
       }
     }
   }
 
-  return (char_w + 1) * scale;
+  return std::max(1, (int)std::round((char_w + 1.0) * scale));
 }
 
-static void draw_text_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, const std::string& text, int scale, uint8_t r, uint8_t g, uint8_t b, bool shadow = true) {
+static void draw_text_modern_rgb(unsigned char* p, int orig_w, int orig_h, int x, int y, const std::string& text, double scale, uint8_t r, uint8_t g, uint8_t b, bool shadow = true) {
   int cur_x = x;
   for (size_t i = 0; i < text.size(); ++i) {
     uint8_t c = decode_next_modern_char(text, i);
@@ -1020,7 +1023,9 @@ static void draw_hud_modern(
 
   if (items.empty()) return;
 
-  int scale = (font_scale >= 1.5) ? (int)std::round(font_scale) : 1;
+  double scale = std::max(0.4, font_scale);
+  auto S = [scale](double v) -> int { return std::max(1, (int)std::round(v * scale)); };
+
   int card_w = 0, card_h = 0;
   bool is_vertical = (hud_layout != "horizontal" && hud_layout != "horiz");
   bool has_spark = detailed_telemetry && sparkline.isNotNull();
@@ -1043,22 +1048,22 @@ static void draw_hud_modern(
         }
       }
     }
-    card_w = std::max(140 * scale, max_label_w + max_val_w + 24 * scale);
+    card_w = std::max(S(140), max_label_w + max_val_w + S(24));
     if (detailed_telemetry) {
-      card_w = std::max(card_w, 260 * scale);
+      card_w = std::max(card_w, S(260));
     }
-    int spark_extra = has_spark ? (130 * scale) : 0;
-    card_h = (28 + (int)items.size() * 19 + num_dividers * 6 + 10) * scale + spark_extra;
+    int spark_extra = has_spark ? S(130) : 0;
+    card_h = S(28 + (int)items.size() * 19 + num_dividers * 6 + 10) + spark_extra;
   } else {
     // Horizontal layout
-    int content_w = 26 * scale; // dot + padding
+    int content_w = S(26); // dot + padding
     for (size_t k = 0; k < items.size(); ++k) {
       int lw = get_text_width_modern(items[k].label + ":", scale);
       int vw = get_text_width_modern(items[k].value, scale);
-      content_w += lw + 4 * scale + vw + 14 * scale;
+      content_w += lw + S(4) + vw + S(14);
     }
     card_w = content_w;
-    card_h = 28 * scale;
+    card_h = S(28);
   }
 
   // 2. Position calculation
@@ -1136,31 +1141,31 @@ static void draw_hud_modern(
   // 1px subtle tech border
   draw_box_rgb(p, orig_w, orig_h, x1, y1, x2, y2, 1, 35, 60, 85);
   // Glowing cyan top accent line
-  fill_rect_rgb(p, orig_w, orig_h, x1, y1, x2, y1 + std::max(2, scale), 0, 229, 255);
+  fill_rect_rgb(p, orig_w, orig_h, x1, y1, x2, y1 + std::max(2, S(2)), 0, 229, 255);
 
   // 4. Render Content
   if (is_vertical) {
     // Header with glowing status dot
-    draw_circle_rgb(p, orig_w, orig_h, x1 + 10 * scale, y1 + 13 * scale, 2 * scale, 0, 255, 136);
-    draw_text_modern_rgb(p, orig_w, orig_h, x1 + 17 * scale, y1 + 6 * scale, "TELEMETRY", scale, 0, 229, 255);
+    draw_circle_rgb(p, orig_w, orig_h, x1 + S(10), y1 + S(13), std::max(2, S(2)), 0, 255, 136);
+    draw_text_modern_rgb(p, orig_w, orig_h, x1 + S(17), y1 + S(6), "TELEMETRY", scale, 0, 229, 255);
     if (detailed_telemetry) {
       int dw = get_text_width_modern("DIAGNOSTIC", scale);
-      draw_text_modern_rgb(p, orig_w, orig_h, x2 - 12 * scale - dw, y1 + 6 * scale, "DIAGNOSTIC", scale, 148, 176, 196);
+      draw_text_modern_rgb(p, orig_w, orig_h, x2 - S(12) - dw, y1 + S(6), "DIAGNOSTIC", scale, 148, 176, 196);
     }
     // Subtle horizontal divider line below header
-    draw_line_rgb(p, orig_w, orig_h, x1 + 8 * scale, y1 + 24 * scale, x2 - 8 * scale, y1 + 24 * scale, 1, 35, 55, 78);
+    draw_line_rgb(p, orig_w, orig_h, x1 + S(8), y1 + S(24), x2 - S(8), y1 + S(24), 1, 35, 55, 78);
 
     // Rows
-    int cur_y = y1 + 28 * scale;
+    int cur_y = y1 + S(28);
     for (size_t k = 0; k < items.size(); ++k) {
       // Label in cool slate
-      draw_text_modern_rgb(p, orig_w, orig_h, x1 + 10 * scale, cur_y, items[k].label, scale, 148, 176, 196);
+      draw_text_modern_rgb(p, orig_w, orig_h, x1 + S(10), cur_y, items[k].label, scale, 148, 176, 196);
       // Value right-aligned in its high-contrast color
       if (!items[k].value.empty()) {
         int vw = get_text_width_modern(items[k].value, scale);
-        draw_text_modern_rgb(p, orig_w, orig_h, x2 - 10 * scale - vw, cur_y, items[k].value, scale, items[k].val_r, items[k].val_g, items[k].val_b);
+        draw_text_modern_rgb(p, orig_w, orig_h, x2 - S(10) - vw, cur_y, items[k].value, scale, items[k].val_r, items[k].val_g, items[k].val_b);
       }
-      cur_y += 19 * scale;
+      cur_y += S(19);
 
       // Section divider line in detailed telemetry mode
       if (detailed_telemetry && k + 1 < items.size()) {
@@ -1169,8 +1174,8 @@ static void draw_hud_modern(
             items[k].label == "MOTION" ||
             items[k].label == "COUNTED" ||
             items[k].label == "ROI OCC") {
-          draw_line_rgb(p, orig_w, orig_h, x1 + 8 * scale, cur_y - 2 * scale, x2 - 8 * scale, cur_y - 2 * scale, 1, 35, 55, 78);
-          cur_y += 6 * scale;
+          draw_line_rgb(p, orig_w, orig_h, x1 + S(8), cur_y - S(2), x2 - S(8), cur_y - S(2), 1, 35, 55, 78);
+          cur_y += S(6);
         }
       }
     }
@@ -1179,22 +1184,22 @@ static void draw_hud_modern(
     if (has_spark) {
       Rcpp::NumericVector sp_vec(sparkline.get());
       if (sp_vec.size() >= 5) {
-        int sp_x = x1 + 10 * scale;
-        int sp_w = card_w - 20 * scale;
-        int sp_h = 108 * scale;
-        int sp_y = y2 - 8 * scale - sp_h;
+        int sp_x = x1 + S(10);
+        int sp_w = card_w - S(20);
+        int sp_h = S(108);
+        int sp_y = y2 - S(8) - sp_h;
 
         // Label above sparkline
-        draw_text_modern_rgb(p, orig_w, orig_h, sp_x, sp_y - 12 * scale, "FLOW TREND (20F)", scale, 120, 150, 180, false);
+        draw_text_modern_rgb(p, orig_w, orig_h, sp_x, sp_y - S(12), "FLOW TREND (20F)", scale, 120, 150, 180, false);
 
         // Recessed track
         fill_rect_alpha_rgb(p, orig_w, orig_h, sp_x, sp_y, sp_x + sp_w, sp_y + sp_h, 15, 22, 35, 0.90f);
         draw_box_rgb(p, orig_w, orig_h, sp_x, sp_y, sp_x + sp_w, sp_y + sp_h, 1, 35, 55, 80);
 
         // Subtle tech grid lines (25%, 50%, 75% height)
-        draw_line_rgb(p, orig_w, orig_h, sp_x + 2 * scale, sp_y + sp_h / 4, sp_x + sp_w - 2 * scale, sp_y + sp_h / 4, 1, 22, 34, 50);
-        draw_line_rgb(p, orig_w, orig_h, sp_x + 2 * scale, sp_y + sp_h / 2, sp_x + sp_w - 2 * scale, sp_y + sp_h / 2, 1, 28, 42, 62);
-        draw_line_rgb(p, orig_w, orig_h, sp_x + 2 * scale, sp_y + (3 * sp_h) / 4, sp_x + sp_w - 2 * scale, sp_y + (3 * sp_h) / 4, 1, 22, 34, 50);
+        draw_line_rgb(p, orig_w, orig_h, sp_x + S(2), sp_y + sp_h / 4, sp_x + sp_w - S(2), sp_y + sp_h / 4, 1, 22, 34, 50);
+        draw_line_rgb(p, orig_w, orig_h, sp_x + S(2), sp_y + sp_h / 2, sp_x + sp_w - S(2), sp_y + sp_h / 2, 1, 28, 42, 62);
+        draw_line_rgb(p, orig_w, orig_h, sp_x + S(2), sp_y + (3 * sp_h) / 4, sp_x + sp_w - S(2), sp_y + (3 * sp_h) / 4, 1, 22, 34, 50);
 
         int n_pts = std::min(20, (int)sp_vec.size());
         double max_v = 1.0;
@@ -1202,13 +1207,13 @@ static void draw_hud_modern(
           if (sp_vec[k] > max_v) max_v = sp_vec[k];
         }
 
-        int step_px = (sp_w - 4 * scale) / n_pts;
+        int step_px = (sp_w - S(4)) / n_pts;
         int bar_w = std::max(2, step_px - 1);
         for (int k = 0; k < n_pts; ++k) {
           double norm = std::max(0.0, std::min(1.0, sp_vec[k] / max_v));
-          int bh = std::max((sp_vec[k] > 0.001 ? 2 : 0), (int)std::round(norm * (sp_h - 4 * scale)));
-          int bx = sp_x + 2 * scale + k * step_px;
-          int by2_b = sp_y + sp_h - 2 * scale;
+          int bh = std::max((sp_vec[k] > 0.001 ? 2 : 0), (int)std::round(norm * (sp_h - S(4))));
+          int bx = sp_x + S(2) + k * step_px;
+          int by2_b = sp_y + sp_h - S(2);
           int by1_b = by2_b - bh;
           uint8_t br = 0, bg = 229, bb = 255;
           if (k == n_pts - 1) {
@@ -1222,17 +1227,17 @@ static void draw_hud_modern(
     }
   } else {
     // Horizontal layout
-    draw_circle_rgb(p, orig_w, orig_h, x1 + 10 * scale, y1 + 14 * scale, 2 * scale, 0, 255, 136);
-    int cur_x = x1 + 18 * scale;
+    draw_circle_rgb(p, orig_w, orig_h, x1 + S(10), y1 + S(14), std::max(2, S(2)), 0, 255, 136);
+    int cur_x = x1 + S(18);
     for (size_t k = 0; k < items.size(); ++k) {
       if (k > 0) {
-        draw_line_rgb(p, orig_w, orig_h, cur_x - 6 * scale, y1 + 5 * scale, cur_x - 6 * scale, y2 - 5 * scale, 1, 40, 65, 90);
+        draw_line_rgb(p, orig_w, orig_h, cur_x - S(6), y1 + S(5), cur_x - S(6), y2 - S(5), 1, 40, 65, 90);
       }
       std::string lbl_str = items[k].label + ":";
-      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + 6 * scale, lbl_str, scale, 148, 176, 196);
-      cur_x += get_text_width_modern(lbl_str, scale) + 4 * scale;
-      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + 6 * scale, items[k].value, scale, items[k].val_r, items[k].val_g, items[k].val_b);
-      cur_x += get_text_width_modern(items[k].value, scale) + 12 * scale;
+      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + S(6), lbl_str, scale, 148, 176, 196);
+      cur_x += get_text_width_modern(lbl_str, scale) + S(4);
+      draw_text_modern_rgb(p, orig_w, orig_h, cur_x, y1 + S(6), items[k].value, scale, items[k].val_r, items[k].val_g, items[k].val_b);
+      cur_x += get_text_width_modern(items[k].value, scale) + S(12);
     }
   }
 }
@@ -1381,16 +1386,20 @@ bool draw_yolo_detections_bgr_cpp(
       draw_box_rgb(p, orig_w, orig_h, rx1, ry1, rx2, ry2, 1, 250, 128, 114);
 
       std::string rlabel = !roi_label.empty() ? roi_label : "ROI / MONITORED ZONE";
-      int rw = (int)rlabel.size() * 8;
-      int r_y = std::max(0, ry1 - 16);
-      if (ry1 < 16) {
-        fill_rect_rgb(p, orig_w, orig_h, rx1, ry1, rx1 + rw + 8, ry1 + 16, 25, 25, 25);
-        draw_box_rgb(p, orig_w, orig_h, rx1, ry1, rx1 + rw + 8, ry1 + 16, 1, 250, 128, 114);
-        draw_text_rgb(p, orig_w, orig_h, rx1 + 4, ry1 + 4, rlabel, font_scale_roi, 250, 128, 114);
+      int rw = (int)std::round((double)rlabel.size() * 8.0 * font_scale_roi);
+      int rh = std::max(12, (int)std::round(16.0 * font_scale_roi));
+      int r_pad = std::max(2, (int)std::round(4.0 * font_scale_roi));
+      int r_y = std::max(0, ry1 - rh);
+      int text_y_off = std::max(0, (rh - (int)std::round(8.0 * font_scale_roi)) / 2);
+
+      if (ry1 < rh) {
+        fill_rect_rgb(p, orig_w, orig_h, rx1, ry1, rx1 + rw + 2 * r_pad, ry1 + rh, 25, 25, 25);
+        draw_box_rgb(p, orig_w, orig_h, rx1, ry1, rx1 + rw + 2 * r_pad, ry1 + rh, 1, 250, 128, 114);
+        draw_text_rgb(p, orig_w, orig_h, rx1 + r_pad, ry1 + text_y_off, rlabel, font_scale_roi, 250, 128, 114);
       } else {
-        fill_rect_rgb(p, orig_w, orig_h, rx1, r_y, rx1 + rw + 8, ry1, 25, 25, 25);
-        draw_box_rgb(p, orig_w, orig_h, rx1, r_y, rx1 + rw + 8, ry1, 1, 250, 128, 114);
-        draw_text_rgb(p, orig_w, orig_h, rx1 + 4, r_y + 4, rlabel, font_scale_roi, 250, 128, 114);
+        fill_rect_rgb(p, orig_w, orig_h, rx1, r_y, rx1 + rw + 2 * r_pad, ry1, 25, 25, 25);
+        draw_box_rgb(p, orig_w, orig_h, rx1, r_y, rx1 + rw + 2 * r_pad, ry1, 1, 250, 128, 114);
+        draw_text_rgb(p, orig_w, orig_h, rx1 + r_pad, r_y + text_y_off, rlabel, font_scale_roi, 250, 128, 114);
       }
     }
   }
@@ -1636,7 +1645,6 @@ bool draw_yolo_detections_bgr_cpp(
     if (draw_boxes || show_point) {
       bool draw_label = show_text && (font_scale > 0.05);
       bool use_micro = (font_scale < 0.75);
-      int scale_int = std::max(1, (int)std::round(font_scale));
 
       // 2. Format label string
       std::string lbl = "";
@@ -1659,9 +1667,9 @@ bool draw_yolo_detections_bgr_cpp(
       }
 
       if (!lbl.empty()) {
-        int char_w = use_micro ? 4 : (8 * scale_int);
-        int char_h = use_micro ? 5 : (8 * scale_int);
-        int base_pad = use_micro ? 1 : (2 * scale_int);
+        int char_w = use_micro ? 4 : std::max(1, (int)std::round(8.0 * font_scale));
+        int char_h = use_micro ? 5 : std::max(1, (int)std::round(8.0 * font_scale));
+        int base_pad = use_micro ? 1 : std::max(1, (int)std::round(2.0 * font_scale));
         int tag_pad = (int)std::round(base_pad * std::max(0.0, pad_scale));
         int text_w = (int)lbl.size() * char_w;
         int text_h = char_h;
@@ -1716,7 +1724,7 @@ bool draw_yolo_detections_bgr_cpp(
         if (use_micro) {
           draw_text_micro_rgb(p, orig_w, orig_h, tag_x1 + tag_pad, tag_y1 + tag_pad, lbl, tr, tg, tb);
         } else {
-          draw_text_rgb(p, orig_w, orig_h, tag_x1 + tag_pad, tag_y1 + tag_pad, lbl, scale_int, tr, tg, tb);
+          draw_text_rgb(p, orig_w, orig_h, tag_x1 + tag_pad, tag_y1 + tag_pad, lbl, font_scale, tr, tg, tb);
         }
       }
     }

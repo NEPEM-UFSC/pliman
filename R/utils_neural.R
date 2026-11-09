@@ -8283,11 +8283,12 @@ list_cameras <- function(details = FALSE) {
 
 #' Real-Time Video Object Detection with YOLO (ONNX Runtime)
 #'
-#' Performs real-time object detection and tracking on video files (.mp4, .avi, .mov)
-#' or live camera feeds (webcam) using YOLO models via native C++ ONNX Runtime with
-#' zero Python dependencies. When `return_data = TRUE`, it computes an extensive ecological
-#' and temporal community profile (richness, abundance, Shannon diversity, Simpson index,
-#' Pielou evenness, species accumulation curves, and class persistence rates).
+#' Performs real-time object detection and tracking on video files (.mp4, .avi,
+#' .mov) or live camera feeds (webcam) using YOLO models via native C++ ONNX
+#' Runtime.When `return_data = TRUE`, it computes an extensive ecological and
+#' temporal community profile (richness, abundance, Shannon diversity, Simpson
+#' index, Pielou evenness, species accumulation curves, and class persistence
+#' rates).
 #'
 #' @details
 #' \subsection{Ecological and Analytical Framework}{
@@ -9988,6 +9989,7 @@ video_detect_dl <- function(video = 0,
     stats_smoother <- .make_stats_smoother(smoot_stat)
 
     recorded_frames <- vector("list", num_frames)
+    frames_processed <- 0L
     bm_stream <- if (use_native_stream) {
       b_raw <- raw(3L * src_w * src_h)
       attr(b_raw, "dim") <- c(3L, src_w, src_h)
@@ -10688,6 +10690,8 @@ video_detect_dl <- function(video = 0,
           }
         }
 
+        frames_processed <<- i
+
         if (!is.null(pb)) {
           elapsed_now <- as.numeric(Sys.time() - t_start, units = "secs")
           cur_fps_est <- if (elapsed_now > 0) (i / elapsed_now) else src_fps
@@ -10697,6 +10701,10 @@ video_detect_dl <- function(video = 0,
     }
 
     process_loop()
+    t_loop_end <- Sys.time()
+    loop_time <- max(0.001, as.numeric(t_loop_end - t_start, units = "secs"))
+    actual_n <- frames_processed
+    avg_fps <- if (loop_time > 0 && actual_n > 0) (actual_n / loop_time) else src_fps
 
     if (use_native_stream) {
       try(close_native_video_reader_cpp(v_reader), silent = TRUE)
@@ -10729,13 +10737,11 @@ video_detect_dl <- function(video = 0,
     all_dets <- if (length(valid_records) > 0) do.call(rbind, valid_records) else data.frame()
     all_kpts <- if (length(valid_kpts) > 0) do.call(rbind, valid_kpts) else NULL
     total_time <- as.numeric(Sys.time() - t_start, units = "secs")
-    actual_n <- if (use_native_stream) length(valid_records) else num_frames
-    avg_fps <- if (total_time > 0 && actual_n > 0) (actual_n / total_time) else src_fps
   }
 
   if (!return_data) {
     if (isTRUE(verbose)) {
-      cli::cli_alert_success("Session complete: {if (is_camera) frame_count else num_frames} frame(s) processed at {round(avg_fps, 1)} FPS average.")
+      cli::cli_alert_success("Session complete: {if (is_camera) frame_count else actual_n} frame(s) processed at {round(avg_fps, 1)} FPS average.")
       if (save_video && !is.null(output) && file.exists(output)) {
         cli::cli_alert_success("Video saved to: {.path {output}}")
       }
@@ -10746,7 +10752,7 @@ video_detect_dl <- function(video = 0,
   # ============================================================================
   # COMPREHENSIVE DATA & ECOLOGICAL SUMMARY (RICHNESS, ABUNDANCE & DIVERSITY)
   # ============================================================================
-  tot_frames <- if (is_camera) frame_count else num_frames
+  tot_frames <- if (is_camera) frame_count else actual_n
   if (is_camera && avg_fps > 0) src_fps <- avg_fps
   duration_sec <- if (is_camera) t_elapsed else (tot_frames / src_fps)
   v_source <- if (is_camera) "Live Webcam" else normalizePath(video, winslash = "/")
