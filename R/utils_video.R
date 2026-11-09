@@ -120,12 +120,27 @@ video_split <- function(video,
       FALSE
     },
     "auto" = {
-      # Prefer av if available for maximum hardware SIMD speed (10x faster), otherwise fallback to native
-      if (has_av) FALSE else can_native
+      if (can_native) {
+        TRUE
+      } else if (has_av) {
+        FALSE
+      } else {
+        cli::cli_abort(c(
+          "No video decoding backend available.",
+          "i" = "Install {.pkg av} with {.run install.packages('av')}."
+        ))
+      }
     }
   )
 
   t0 <- proc.time()
+
+  av_ext <- if (format == "jpg") "jpg" else "png"
+  pat <- paste0("^", prefix, "\\d{", digits, ",}\\.", av_ext, "$")
+  old_matching <- list.files(dir_full, pattern = pat, full.names = TRUE)
+  if (length(old_matching) > 0L) {
+    unlink(old_matching)
+  }
 
   mode_txt <- if (!is.null(fps)) {
     paste0(fps, " fps")
@@ -142,8 +157,11 @@ video_split <- function(video,
     if (!is.null(info)) {
       dur_val <- info$duration
       dim_txt <- paste0(" [", info$width, "x", info$height, ", ~", round(info$duration, 1), "s]")
+    } else if (backend == "auto" && has_av) {
+      use_native <- FALSE
     }
-  } else {
+  }
+  if (!use_native) {
     v_info_pre <- tryCatch(av::av_video_info(video_full), error = function(e) NULL)
     if (!is.null(v_info_pre)) {
       dur_val <- if (!is.null(v_info_pre$duration)) v_info_pre$duration else if (!is.null(v_info_pre$video$duration)) v_info_pre$video$duration else NULL
@@ -160,7 +178,7 @@ video_split <- function(video,
     if (!is.null(dur_val) && is.numeric(dur_val) && dur_val > 0) {
       as.integer(max(1, round(dur_val * fps)))
     } else {
-      NA
+      NA_integer_
     }
   } else {
     if (!use_native && !is.null(v_info_pre$video$frames)) {
@@ -168,43 +186,71 @@ video_split <- function(video,
     } else if (use_native && !is.null(info$estimated_frames)) {
       as.integer(info$estimated_frames)
     } else {
-      NA
+      NA_integer_
     }
   }
 
   pb <- NULL
   if (isTRUE(verbose)) {
     cli::cli_alert_info("Extracting video frames ({mode_txt}){dim_txt}...")
-    if (!use_native) {
-      fmt_str <- if (!is.na(total_expected)) {
-        "{cli::pb_spin} Extracting frames [{cli::pb_bar}] {cli::pb_current}/{cli::pb_total} ({cli::pb_percent}) [ETA: {cli::pb_eta}]"
-      } else {
-        "{cli::pb_spin} Extracting frames [{cli::pb_bar}] {cli::pb_current} frames [Elapsed: {cli::pb_elapsed}]"
-      }
-      pb <- cli::cli_progress_bar(
-        total = total_expected,
-        format = fmt_str,
-        clear = FALSE
-      )
+    fmt_str <- if (!is.na(total_expected)) {
+      "{cli::pb_spin} Extracting frames [{cli::pb_bar}] {cli::pb_current}/{cli::pb_total} ({cli::pb_percent}) [ETA: {cli::pb_eta}]"
+    } else {
+      "{cli::pb_spin} Extracting frames [{cli::pb_bar}] {cli::pb_current} frames [Elapsed: {cli::pb_elapsed}]"
     }
+    pb <- cli::cli_progress_bar(
+      total = total_expected,
+      format = fmt_str,
+      clear = FALSE,
+      auto_terminate = FALSE
+    )
   }
 
+  res <- NULL
   if (use_native) {
     target_fps <- if (is.null(fps)) 0.0 else as.numeric(fps)
     target_n <- if (is.null(n)) 0L else as.integer(n)
+    cur_frame <- 0L
+    cb_fn <- if (!is.null(pb)) {
+      function() {
+        cur_frame <<- cur_frame + 1L
+        tot_now <- if (!is.na(total_expected)) max(total_expected, cur_frame) else NA_integer_
+        tryCatch(
+          cli::cli_progress_update(id = pb, set = cur_frame, total = tot_now),
+          error = function(e) NULL
+        )
+      }
+    } else {
+      NULL
+    }
 
-    res <- split_video_native_cpp(
-      video_path = video_full,
-      output_dir = dir_full,
-      prefix = prefix,
-      digits = as.integer(digits),
-      format = format,
-      quality = as.integer(quality),
-      target_fps = target_fps,
-      target_n = target_n,
-      verbose = isTRUE(verbose)
+    res <- tryCatch(
+      split_video_native_cpp(
+        video_path = video_full,
+        output_dir = dir_full,
+        prefix = prefix,
+        digits = as.integer(digits),
+        format = format,
+        quality = as.integer(quality),
+        target_fps = target_fps,
+        target_n = target_n,
+        verbose = FALSE,
+        callback = cb_fn
+      ),
+      error = function(e) {
+        if (backend == "auto" && has_av) {
+          NULL
+        } else {
+          stop(e)
+        }
+      }
     )
-  } else {
+    if (is.null(res)) {
+      use_native <- FALSE
+    }
+  }
+
+  if (!use_native) {
     v_info <- av::av_video_info(video_full)
     dur <- if (!is.null(v_info$duration)) v_info$duration else if (!is.null(v_info$video$duration)) v_info$video$duration else NULL
     framerate <- if (!is.null(v_info$video$framerate) && length(v_info$video$framerate) > 0) v_info$video$framerate[1] else 30
@@ -225,35 +271,66 @@ video_split <- function(video,
       "null"
     }
 
-    av_ext <- if (format == "jpg") "jpg" else "png"
-    av_codec <- if (format == "jpg") "mjpeg" else "png"
-    out_pattern <- file.path(dir_full, paste0(prefix, "%0", digits, "d.", av_ext))
-    pat <- paste0("^", prefix, "\\d{", digits, ",}\\.", av_ext, "$")
-
     old_log_level <- av::av_log_level(-8)
     on.exit(av::av_log_level(old_log_level), add = TRUE)
 
-    av::av_encode_video(
-      input = video_full,
-      output = out_pattern,
-      framerate = framerate,
-      codec = av_codec,
-      vfilter = vfilter,
-      verbose = FALSE
-    )
-    av::av_log_level(old_log_level)
+    if (format == "jpg") {
+      # Decode via lossless uncompressed BMP first to avoid av's hardcoded 200kbps MJPEG bitrate artifacting,
+      # then encode to high-quality JPEG in parallel C++ respecting `quality`.
+      tmp_av_dir <- file.path(tempdir(), paste0("pliman_av_split_", as.integer(stats::runif(1, 100000, 999999))))
+      dir.create(tmp_av_dir, recursive = TRUE, showWarnings = FALSE)
+      on.exit(unlink(tmp_av_dir, recursive = TRUE, force = TRUE), add = TRUE)
 
-    av_files <- list.files(dir_full, pattern = pat, full.names = TRUE)
+      bmp_pattern <- file.path(tmp_av_dir, paste0(prefix, "%0", digits, "d.bmp"))
+      bmp_pat <- paste0("^", prefix, "\\d{", digits, ",}\\.bmp$")
 
-    if (!is.null(n) && length(av_files) > n) {
-      excess <- av_files[(n + 1):length(av_files)]
-      unlink(excess)
-      av_files <- av_files[1:n]
-    }
+      av::av_encode_video(
+        input = video_full,
+        output = bmp_pattern,
+        framerate = framerate,
+        codec = "bmp",
+        vfilter = vfilter,
+        verbose = FALSE
+      )
+      av::av_log_level(old_log_level)
 
-    if (!is.null(pb)) {
-      tryCatch(cli::cli_progress_update(id = pb, set = length(av_files)), error = function(e) NULL)
-      tryCatch(cli::cli_progress_done(id = pb), error = function(e) NULL)
+      bmp_files <- sort(list.files(tmp_av_dir, pattern = bmp_pat, full.names = TRUE))
+      if (!is.null(n) && length(bmp_files) > n) {
+        bmp_files <- bmp_files[seq_len(n)]
+      }
+
+      if (length(bmp_files) > 0L) {
+        jpg_names <- sprintf(paste0("%s%0", digits, "d.jpg"), prefix, seq_along(bmp_files))
+        av_files <- file.path(dir_full, jpg_names)
+        ok_vec <- convert_frames_to_jpg_cpp(
+          src_files = bmp_files,
+          dst_files = av_files,
+          quality = as.integer(quality),
+          remove_src = TRUE
+        )
+        av_files <- av_files[ok_vec]
+      } else {
+        av_files <- character(0)
+      }
+      unlink(tmp_av_dir, recursive = TRUE, force = TRUE)
+    } else {
+      out_pattern <- file.path(dir_full, paste0(prefix, "%0", digits, "d.png"))
+      av::av_encode_video(
+        input = video_full,
+        output = out_pattern,
+        framerate = framerate,
+        codec = "png",
+        vfilter = vfilter,
+        verbose = FALSE
+      )
+      av::av_log_level(old_log_level)
+
+      av_files <- sort(list.files(dir_full, pattern = pat, full.names = TRUE))
+      if (!is.null(n) && length(av_files) > n) {
+        excess <- av_files[(n + 1):length(av_files)]
+        unlink(excess)
+        av_files <- av_files[seq_len(n)]
+      }
     }
 
     res <- data.frame(
@@ -272,6 +349,12 @@ video_split <- function(video,
       height = rep(as.integer(h), length(av_files)),
       stringsAsFactors = FALSE
     )
+  }
+
+  if (!is.null(pb)) {
+    n_done <- nrow(res)
+    tryCatch(cli::cli_progress_update(id = pb, set = n_done, total = max(1L, n_done), force = TRUE), error = function(e) NULL)
+    tryCatch(cli::cli_progress_done(id = pb), error = function(e) NULL)
   }
 
   elapsed <- round(as.numeric((proc.time() - t0)[3]), 2)
@@ -452,8 +535,8 @@ frame_to_img <- function(video,
     dir.create(tmp_dir, recursive = TRUE, showWarnings = FALSE)
     on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
 
-    suppressWarnings(av::av_video_images(video_full, destdir = tmp_dir, format = "jpg"))
-    img_files <- list.files(tmp_dir, pattern = "\\.jpe?g$", full.names = TRUE)
+    suppressWarnings(av::av_video_images(video_full, destdir = tmp_dir, format = "png"))
+    img_files <- list.files(tmp_dir, pattern = "\\.png$", full.names = TRUE)
 
     for (f_idx in target_unique) {
       if (f_idx <= length(img_files)) {

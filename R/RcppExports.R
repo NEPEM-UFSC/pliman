@@ -619,6 +619,10 @@ images_blur_cpp <- function(files, max_size = 640L) {
     .Call(`_pliman_images_blur_cpp`, files, max_size)
 }
 
+convert_frames_to_jpg_cpp <- function(src_files, dst_files, quality = 95L, remove_src = TRUE) {
+    .Call(`_pliman_convert_frames_to_jpg_cpp`, src_files, dst_files, quality, remove_src)
+}
+
 perspective_matrix_cpp <- function(W, H, theta_x, theta_y, theta_z, scale = 1.0, focal_fac = 1.0, keep_size = TRUE) {
     .Call(`_pliman_perspective_matrix_cpp`, W, H, theta_x, theta_y, theta_z, scale, focal_fac, keep_size)
 }

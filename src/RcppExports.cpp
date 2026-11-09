@@ -1498,6 +1498,20 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// convert_frames_to_jpg_cpp
+Rcpp::LogicalVector convert_frames_to_jpg_cpp(Rcpp::CharacterVector src_files, Rcpp::CharacterVector dst_files, int quality, bool remove_src);
+RcppExport SEXP _pliman_convert_frames_to_jpg_cpp(SEXP src_filesSEXP, SEXP dst_filesSEXP, SEXP qualitySEXP, SEXP remove_srcSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::CharacterVector >::type src_files(src_filesSEXP);
+    Rcpp::traits::input_parameter< Rcpp::CharacterVector >::type dst_files(dst_filesSEXP);
+    Rcpp::traits::input_parameter< int >::type quality(qualitySEXP);
+    Rcpp::traits::input_parameter< bool >::type remove_src(remove_srcSEXP);
+    rcpp_result_gen = Rcpp::wrap(convert_frames_to_jpg_cpp(src_files, dst_files, quality, remove_src));
+    return rcpp_result_gen;
+END_RCPP
+}
 // perspective_matrix_cpp
 List perspective_matrix_cpp(int W, int H, double theta_x, double theta_y, double theta_z, double scale, double focal_fac, bool keep_size);
 RcppExport SEXP _pliman_perspective_matrix_cpp(SEXP WSEXP, SEXP HSEXP, SEXP theta_xSEXP, SEXP theta_ySEXP, SEXP theta_zSEXP, SEXP scaleSEXP, SEXP focal_facSEXP, SEXP keep_sizeSEXP) {
@@ -3015,6 +3029,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_adjust_frame_color_cpp", (DL_FUNC) &_pliman_adjust_frame_color_cpp, 3},
     {"_pliman_image_blur_cpp", (DL_FUNC) &_pliman_image_blur_cpp, 2},
     {"_pliman_images_blur_cpp", (DL_FUNC) &_pliman_images_blur_cpp, 2},
+    {"_pliman_convert_frames_to_jpg_cpp", (DL_FUNC) &_pliman_convert_frames_to_jpg_cpp, 4},
     {"_pliman_perspective_matrix_cpp", (DL_FUNC) &_pliman_perspective_matrix_cpp, 8},
     {"_pliman_image_warp_perspective_cpp", (DL_FUNC) &_pliman_image_warp_perspective_cpp, 5},
     {"_pliman_image_perspective_cpp", (DL_FUNC) &_pliman_image_perspective_cpp, 8},

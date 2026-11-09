@@ -1087,7 +1087,15 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
     next_fps_target = 0;
   }
 
-  std::vector<unsigned char> rgb_buffer((size_t)width * height * 3);
+  const int batch_cap = 8;
+  std::vector<std::vector<unsigned char>> batch_rgb(batch_cap, std::vector<unsigned char>((size_t)width * height * 3));
+  std::vector<std::string> batch_paths(batch_cap);
+  std::vector<double> batch_times(batch_cap);
+  std::vector<int> batch_ok(batch_cap, 0);
+  int batch_len = 0;
+  int queued_count = 0;
+  int last_valid_slot = -1;
+
   std::vector<int> saved_frames;
   std::vector<std::string> saved_files;
   std::vector<double> saved_times;
@@ -1117,6 +1125,38 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
   if (verbose) {
     render_c_progress_bar(0, total_expected, 0.0);
   }
+
+  auto flush_batch = [&]() {
+    if (batch_len <= 0) return;
+    #pragma omp parallel for schedule(dynamic) if(batch_len > 1)
+    for (int b = 0; b < batch_len; ++b) {
+      if (is_png) {
+        batch_ok[b] = stbi_write_png(batch_paths[b].c_str(), (int)width, (int)height, 3, batch_rgb[b].data(), (int)width * 3);
+      } else {
+        batch_ok[b] = stbi_write_jpg(batch_paths[b].c_str(), (int)width, (int)height, 3, batch_rgb[b].data(), quality);
+      }
+    }
+    for (int b = 0; b < batch_len; ++b) {
+      if (batch_ok[b]) {
+        saved_count++;
+        saved_frames.push_back(saved_count);
+        saved_files.push_back(batch_paths[b]);
+        saved_times.push_back(batch_times[b]);
+        if (callback.isNotNull()) {
+          Rcpp::Function cb(callback.get());
+          cb();
+        }
+      }
+    }
+    if (verbose) {
+      auto t_now = std::chrono::steady_clock::now();
+      double el = std::chrono::duration<double>(t_now - t_start).count();
+      render_c_progress_bar(saved_count, total_expected, el);
+    }
+    batch_len = 0;
+  };
+
+  LONGLONG half_frame_100ns = (LONGLONG)(5000000.0 / std::max(1.0, native_fps));
 
   while (true) {
     if (++check_interrupt_counter % 20 == 0) {
@@ -1158,9 +1198,9 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
         target_idx++;
       }
     } else if (sample_by_fps) {
-      if (timestamp >= next_fps_target) {
+      if (timestamp + half_frame_100ns >= next_fps_target) {
         should_save = true;
-        while (next_fps_target <= timestamp) {
+        while (next_fps_target <= timestamp + half_frame_100ns) {
           next_fps_target += fps_step_100ns;
         }
       }
@@ -1175,57 +1215,61 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
     }
 
     IMFMediaBuffer* pBuffer = nullptr;
-    if (SUCCEEDED(pSample->ConvertToContiguousBuffer(&pBuffer)) && pBuffer) {
+    HRESULT hrBuf = pSample->GetBufferByIndex(0, &pBuffer);
+    if (FAILED(hrBuf) || !pBuffer) {
+      hrBuf = pSample->ConvertToContiguousBuffer(&pBuffer);
+    }
+    if (SUCCEEDED(hrBuf) && pBuffer) {
       BYTE* pData = nullptr;
       DWORD maxLen = 0, curLen = 0;
       if (SUCCEEDED(pBuffer->Lock(&pData, &maxLen, &curLen)) && pData) {
+        int w = (int)width;
+        int h = (int)height;
         int actual_stride = abs_stride;
-        if (height > 0 && curLen >= (DWORD)(width * 4 * height)) {
-          int buf_stride = (int)(curLen / height);
-          if (buf_stride >= (int)(width * 4)) {
-            actual_stride = buf_stride;
-          }
+        int min_stride = w * 4;
+        int align64 = ((min_stride + 63) / 64) * 64;
+        int align128 = ((min_stride + 127) / 128) * 128;
+
+        if (h > 0 && (curLen % h == 0) && (int)(curLen / h) >= min_stride) {
+          actual_stride = (int)(curLen / h);
+        } else if (abs_stride >= min_stride && (abs_stride % 64 == 0) && (DWORD)(abs_stride * h) <= curLen) {
+          actual_stride = abs_stride;
+        } else if ((DWORD)(align64 * h) <= curLen) {
+          actual_stride = align64;
+        } else if ((DWORD)(align128 * h) <= curLen) {
+          actual_stride = align128;
+        } else if (abs_stride >= min_stride) {
+          actual_stride = abs_stride;
+        } else {
+          actual_stride = min_stride;
         }
-        if (curLen >= (DWORD)(actual_stride * height)) {
-          #pragma omp parallel for schedule(static) if(height > 100)
-          for (int y = 0; y < (int)height; ++y) {
-            int src_y = is_bottom_up ? ((int)height - 1 - y) : y;
+
+        if (curLen >= (DWORD)((size_t)actual_stride * h)) {
+          unsigned char* dst_buf = batch_rgb[batch_len].data();
+          #pragma omp parallel for schedule(static) if(h > 100)
+          for (int y = 0; y < h; ++y) {
+            int src_y = is_bottom_up ? (h - 1 - y) : y;
             const unsigned char* src_row = pData + (size_t)src_y * actual_stride;
-            unsigned char* dst_row = rgb_buffer.data() + (size_t)y * width * 3;
-            for (int x = 0; x < (int)width; ++x) {
+            unsigned char* dst_row = dst_buf + (size_t)y * w * 3;
+            for (int x = 0; x < w; ++x) {
               dst_row[x * 3 + 0] = src_row[x * 4 + 2]; // R
               dst_row[x * 3 + 1] = src_row[x * 4 + 1]; // G
               dst_row[x * 3 + 2] = src_row[x * 4 + 0]; // B
             }
           }
 
+          queued_count++;
           char fname[256];
-          snprintf(fname, sizeof(fname), "%s%0*d.%s", prefix.c_str(), digits, saved_count + 1, ext.c_str());
-          std::string out_filepath = output_dir + "/" + std::string(fname);
-
-          int write_res = 0;
-          if (is_png) {
-            write_res = stbi_write_png(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), (int)width * 3);
-          } else {
-            write_res = stbi_write_jpg(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), quality);
-          }
-
-          if (write_res) {
-            saved_count++;
-            saved_frames.push_back(saved_count);
-            saved_files.push_back(out_filepath);
-            saved_times.push_back((double)timestamp / 10000000.0);
-            if (verbose) {
-              auto t_now = std::chrono::steady_clock::now();
-              double el = std::chrono::duration<double>(t_now - t_start).count();
-              render_c_progress_bar(saved_count, total_expected, el);
-            }
-            if (callback.isNotNull()) {
-              Rcpp::Function cb(callback.get());
-              cb();
-            }
-          }
+          snprintf(fname, sizeof(fname), "%s%0*d.%s", prefix.c_str(), digits, queued_count, ext.c_str());
+          batch_paths[batch_len] = output_dir + "/" + std::string(fname);
+          batch_times[batch_len] = (double)timestamp / 10000000.0;
+          last_valid_slot = batch_len;
           last_frame_valid = true;
+          batch_len++;
+
+          if (batch_len >= batch_cap) {
+            flush_batch();
+          }
         }
         pBuffer->Unlock();
       }
@@ -1234,17 +1278,19 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
     pSample->Release();
   }
 
+  flush_batch();
+
   // If sample_by_n and only target_n - 1 frames were saved due to stream end timing,
   // save the last valid frame so the user gets exactly target_n frames.
-  if (sample_by_n && saved_count == (target_n - 1) && last_frame_valid) {
+  if (sample_by_n && saved_count == (target_n - 1) && last_frame_valid && last_valid_slot >= 0) {
     char fname[256];
     snprintf(fname, sizeof(fname), "%s%0*d.%s", prefix.c_str(), digits, saved_count + 1, ext.c_str());
     std::string out_filepath = output_dir + "/" + std::string(fname);
     int write_res = 0;
     if (is_png) {
-      write_res = stbi_write_png(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), (int)width * 3);
+      write_res = stbi_write_png(out_filepath.c_str(), (int)width, (int)height, 3, batch_rgb[last_valid_slot].data(), (int)width * 3);
     } else {
-      write_res = stbi_write_jpg(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), quality);
+      write_res = stbi_write_jpg(out_filepath.c_str(), (int)width, (int)height, 3, batch_rgb[last_valid_slot].data(), quality);
     }
     if (write_res) {
       saved_count++;

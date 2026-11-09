@@ -2101,3 +2101,43 @@ Rcpp::NumericVector images_blur_cpp(Rcpp::CharacterVector files, int max_size = 
   }
   return out;
 }
+
+// [[Rcpp::export]]
+Rcpp::LogicalVector convert_frames_to_jpg_cpp(Rcpp::CharacterVector src_files,
+                                              Rcpp::CharacterVector dst_files,
+                                              int quality = 95,
+                                              bool remove_src = true) {
+  int n = src_files.size();
+  if (dst_files.size() != n) return Rcpp::LogicalVector(0);
+  if (quality < 1) quality = 1;
+  if (quality > 100) quality = 100;
+
+  std::vector<std::string> srcs(n);
+  std::vector<std::string> dsts(n);
+  for (int i = 0; i < n; ++i) {
+    srcs[i] = Rcpp::as<std::string>(src_files[i]);
+    dsts[i] = Rcpp::as<std::string>(dst_files[i]);
+  }
+
+  std::vector<int> ok(n, 0);
+
+  #pragma omp parallel for schedule(dynamic) if(n > 1)
+  for (int i = 0; i < n; ++i) {
+    int w = 0, h = 0, ch = 0;
+    unsigned char* data = stbi_load(srcs[i].c_str(), &w, &h, &ch, 3);
+    if (data) {
+      int ret = stbi_write_jpg(dsts[i].c_str(), w, h, 3, data, quality);
+      stbi_image_free(data);
+      if (ret != 0) {
+        ok[i] = 1;
+        if (remove_src) {
+          std::remove(srcs[i].c_str());
+        }
+      }
+    }
+  }
+
+  Rcpp::LogicalVector res(n);
+  for (int i = 0; i < n; ++i) res[i] = (ok[i] != 0);
+  return res;
+}
