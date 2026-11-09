@@ -46,7 +46,18 @@ static std::string g_current_lib_path = "";
 typedef HRESULT (WINAPI *CreateDXGIFactory1Fn)(REFIID, void**);
 typedef OrtStatus* (*OrtAppendDMLFn)(OrtSessionOptions*, int);
 
+static bool g_gpu_probed = false;
+static int g_cached_best_gpu_id = 0;
+static std::string g_cached_best_gpu_name = "Default GPU";
+static double g_cached_best_gpu_vram = 0.0;
+
 static int find_best_gpu_id(std::string* out_name = NULL, double* out_vram = NULL) {
+  if (g_gpu_probed) {
+    if (out_name) *out_name = g_cached_best_gpu_name;
+    if (out_vram) *out_vram = g_cached_best_gpu_vram;
+    return g_cached_best_gpu_id;
+  }
+
   HMODULE hDxgi = LoadLibraryA("dxgi.dll");
   if (!hDxgi) return 0;
 
@@ -94,8 +105,13 @@ static int find_best_gpu_id(std::string* out_name = NULL, double* out_vram = NUL
   pFactory->Release();
   FreeLibrary(hDxgi);
 
+  g_cached_best_gpu_id = best_id;
+  g_cached_best_gpu_name = best_name;
+  g_cached_best_gpu_vram = (double)max_vram / (1024.0 * 1024.0);
+  g_gpu_probed = true;
+
   if (out_name) *out_name = best_name;
-  if (out_vram) *out_vram = (double)max_vram / (1024.0 * 1024.0);
+  if (out_vram) *out_vram = g_cached_best_gpu_vram;
   return best_id;
 }
 #endif
@@ -328,12 +344,22 @@ static void evict_cached_session_by_key(const OrtApi* ort, const std::string& ke
   }
 }
 
+struct CachedIOShape {
+  bool dynamic = true;
+  int expected_w = 640;
+  int expected_h = 640;
+  int64_t file_mtime = 0;
+  int64_t file_size = 0;
+};
+static std::map<std::string, CachedIOShape> g_io_shape_cache;
+
 static void clear_onnx_sessions_internal() {
   if (g_ort_api == NULL) return;
   g_cached_encoder.valid = false;
   g_cached_encoder.hr0.clear();
   g_cached_encoder.hr1.clear();
   g_cached_encoder.embed.clear();
+  g_io_shape_cache.clear();
   for (auto& pair : g_session_cache) {
     CachedSession& cs = pair.second;
     if (cs.session) g_ort_api->ReleaseSession(cs.session);
@@ -3032,11 +3058,39 @@ Rcpp::List run_dinov2_cpp(
 }
 
 // [[Rcpp::export]]
-Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_path = "") {
+Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_path = "", int num_threads = 0, bool use_gpu = true, int device_id = -1) {
   try {
+    int64_t cur_mtime = 0, cur_size = 0;
+    get_file_stat(model_path, cur_mtime, cur_size);
+
+    auto it_sh = g_io_shape_cache.find(model_path);
+    if (it_sh != g_io_shape_cache.end() && cur_mtime != 0 &&
+        it_sh->second.file_mtime == cur_mtime && it_sh->second.file_size == cur_size) {
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = it_sh->second.dynamic,
+        Rcpp::Named("expected_w") = it_sh->second.expected_w,
+        Rcpp::Named("expected_h") = it_sh->second.expected_h
+      );
+    }
+
     const OrtApi* ort = get_ort_api(lib_path);
-    CachedSession cs = get_or_create_cached_session(ort, model_path, 1, false, -1);
-    OrtSession* session = cs.session;
+    OrtSession* session = NULL;
+
+    // Reuse any already-cached session for this model_path without evicting it!
+    std::string prefix = model_path + "_th_";
+    for (const auto& pair : g_session_cache) {
+      if (pair.first.rfind(prefix, 0) == 0 && pair.second.session != NULL) {
+        if (cur_mtime == 0 || (pair.second.file_mtime == cur_mtime && pair.second.file_size == cur_size)) {
+          session = pair.second.session;
+          break;
+        }
+      }
+    }
+
+    if (session == NULL) {
+      CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+      session = cs.session;
+    }
 
     OrtTypeInfo* type_info = NULL;
     if (ort->SessionGetInputTypeInfo(session, 0, &type_info) != NULL || type_info == NULL) {
@@ -3072,6 +3126,15 @@ Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_p
         exp_w = (int)dims[3];
       }
     }
+
+    CachedIOShape csh;
+    csh.dynamic = is_dyn;
+    csh.expected_w = exp_w;
+    csh.expected_h = exp_h;
+    csh.file_mtime = cur_mtime;
+    csh.file_size = cur_size;
+    g_io_shape_cache[model_path] = csh;
+
     return Rcpp::List::create(
       Rcpp::Named("dynamic") = is_dyn,
       Rcpp::Named("expected_w") = exp_w,
@@ -3086,9 +3149,213 @@ Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_p
   }
 }
 
+static void preprocess_yolo_to_float_vec(
+    SEXP img_data,
+    int target_size,
+    std::vector<float>& out_float,
+    int& orig_w,
+    int& orig_h,
+    double& out_gain,
+    double& out_pad_x,
+    double& out_pad_y
+) {
+  SEXP dim_attr = Rf_getAttrib(img_data, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 2) {
+    Rcpp::stop("img_data must be a 2D or 3D array/matrix");
+  }
+
+  int num_dims = Rf_length(dim_attr);
+  int* dims_ptr = INTEGER(dim_attr);
+  int nch = 1;
+  bool is_ch_first = false;
+
+  if (num_dims == 2) {
+    orig_w = dims_ptr[0];
+    orig_h = dims_ptr[1];
+    nch = 1;
+  } else {
+    if (dims_ptr[0] == 3) {
+      is_ch_first = true;
+      nch = 3;
+      orig_w = dims_ptr[1];
+      orig_h = dims_ptr[2];
+    } else {
+      is_ch_first = false;
+      orig_w = dims_ptr[0];
+      orig_h = dims_ptr[1];
+      nch = dims_ptr[2];
+    }
+  }
+
+  bool is_raw_data = (TYPEOF(img_data) == RAWSXP);
+  const Rbyte* raw_ptr = is_raw_data ? RAW(img_data) : NULL;
+  const double* dbl_ptr = !is_raw_data ? REAL(img_data) : NULL;
+
+  float val_scale = 1.0f;
+  if (is_raw_data) {
+    val_scale = 1.0f / 255.0f;
+  } else {
+    size_t check_len = std::min((size_t)1000, (size_t)Rf_length(img_data));
+    double max_sample = 0.0;
+    for (size_t i = 0; i < check_len; ++i) {
+      if (dbl_ptr[i] > max_sample) max_sample = dbl_ptr[i];
+    }
+    if (max_sample > 1.5) val_scale = 1.0f / 255.0f;
+  }
+
+  float gain = std::min((float)target_size / (float)orig_w, (float)target_size / (float)orig_h);
+  int new_w = std::max(1, (int)std::round(orig_w * gain));
+  int new_h = std::max(1, (int)std::round(orig_h * gain));
+  float pad_x = ((float)target_size - (float)new_w) / 2.0f;
+  float pad_y = ((float)target_size - (float)new_h) / 2.0f;
+  int x1 = (int)std::floor(pad_x);
+  int y1 = (int)std::floor(pad_y);
+
+  out_gain = (double)gain;
+  out_pad_x = (double)pad_x;
+  out_pad_y = (double)pad_y;
+
+  size_t plane_size = (size_t)target_size * target_size;
+  size_t total_floats = 3 * plane_size;
+  out_float.assign(total_floats, 114.0f / 255.0f);
+  float* out_ptr = out_float.data();
+
+  struct HorizWeight {
+    int x0;
+    int x1_idx;
+    float dx0;
+    float dx1;
+  };
+  std::vector<HorizWeight> hw(new_w);
+  for (int x = 0; x < new_w; ++x) {
+    float src_x = ((float)x + 0.5f) / gain - 0.5f;
+    if (src_x < 0.0f) src_x = 0.0f;
+    if (src_x > (float)(orig_w - 1)) src_x = (float)(orig_w - 1);
+    int x0 = (int)std::floor(src_x);
+    int x1_idx = std::min(x0 + 1, orig_w - 1);
+    float dx = src_x - (float)x0;
+    hw[x].x0 = x0;
+    hw[x].x1_idx = x1_idx;
+    hw[x].dx0 = 1.0f - dx;
+    hw[x].dx1 = dx;
+  }
+
+  if (is_raw_data && is_ch_first) {
+    #pragma omp parallel for schedule(static) if(new_h > 30)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      if (src_y < 0.0f) src_y = 0.0f;
+      if (src_y > (float)(orig_h - 1)) src_y = (float)(orig_h - 1);
+      int y0 = (int)std::floor(src_y);
+      int y1_idx = std::min(y0 + 1, orig_h - 1);
+      float dy1 = src_y - (float)y0;
+      float dy0 = 1.0f - dy1;
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+      size_t row_stride = (size_t)3 * orig_w;
+      const Rbyte* row0 = raw_ptr + (size_t)y0 * row_stride;
+      const Rbyte* row1 = raw_ptr + (size_t)y1_idx * row_stride;
+
+      for (int x = 0; x < new_w; ++x) {
+        const HorizWeight& w = hw[x];
+        float w00 = w.dx0 * dy0;
+        float w10 = w.dx1 * dy0;
+        float w01 = w.dx0 * dy1;
+        float w11 = w.dx1 * dy1;
+        size_t off00 = (size_t)w.x0 * 3;
+        size_t off10 = (size_t)w.x1_idx * 3;
+        size_t dst_idx = dst_base + x;
+
+        for (int c = 0; c < 3; ++c) {
+          float p00 = (float)row0[off00 + c];
+          float p10 = (float)row0[off10 + c];
+          float p01 = (float)row1[off00 + c];
+          float p11 = (float)row1[off10 + c];
+          out_ptr[(size_t)c * plane_size + dst_idx] = (w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11) * val_scale;
+        }
+      }
+    }
+  } else if (is_raw_data && !is_ch_first) {
+    size_t plane_src = (size_t)orig_w * orig_h;
+    #pragma omp parallel for schedule(static) if(new_h > 30)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      if (src_y < 0.0f) src_y = 0.0f;
+      if (src_y > (float)(orig_h - 1)) src_y = (float)(orig_h - 1);
+      int y0 = (int)std::floor(src_y);
+      int y1_idx = std::min(y0 + 1, orig_h - 1);
+      float dy1 = src_y - (float)y0;
+      float dy0 = 1.0f - dy1;
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+
+      for (int x = 0; x < new_w; ++x) {
+        const HorizWeight& w = hw[x];
+        float w00 = w.dx0 * dy0;
+        float w10 = w.dx1 * dy0;
+        float w01 = w.dx0 * dy1;
+        float w11 = w.dx1 * dy1;
+        size_t idx00 = (size_t)w.x0 + (size_t)y0 * orig_w;
+        size_t idx10 = (size_t)w.x1_idx + (size_t)y0 * orig_w;
+        size_t idx01 = (size_t)w.x0 + (size_t)y1_idx * orig_w;
+        size_t idx11 = (size_t)w.x1_idx + (size_t)y1_idx * orig_w;
+        size_t dst_idx = dst_base + x;
+
+        for (int c = 0; c < 3; ++c) {
+          size_t c_off = (size_t)std::min(c, nch - 1) * plane_src;
+          float p00 = (float)raw_ptr[idx00 + c_off];
+          float p10 = (float)raw_ptr[idx10 + c_off];
+          float p01 = (float)raw_ptr[idx01 + c_off];
+          float p11 = (float)raw_ptr[idx11 + c_off];
+          out_ptr[(size_t)c * plane_size + dst_idx] = (w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11) * val_scale;
+        }
+      }
+    }
+  } else {
+    size_t plane_src = (size_t)orig_w * orig_h;
+    #pragma omp parallel for schedule(static) if(new_h > 30)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      if (src_y < 0.0f) src_y = 0.0f;
+      if (src_y > (float)(orig_h - 1)) src_y = (float)(orig_h - 1);
+      int y0 = (int)std::floor(src_y);
+      int y1_idx = std::min(y0 + 1, orig_h - 1);
+      float dy1 = src_y - (float)y0;
+      float dy0 = 1.0f - dy1;
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+
+      for (int x = 0; x < new_w; ++x) {
+        const HorizWeight& w = hw[x];
+        float w00 = w.dx0 * dy0;
+        float w10 = w.dx1 * dy0;
+        float w01 = w.dx0 * dy1;
+        float w11 = w.dx1 * dy1;
+        size_t idx00 = (size_t)w.x0 + (size_t)y0 * orig_w;
+        size_t idx10 = (size_t)w.x1_idx + (size_t)y0 * orig_w;
+        size_t idx01 = (size_t)w.x0 + (size_t)y1_idx * orig_w;
+        size_t idx11 = (size_t)w.x1_idx + (size_t)y1_idx * orig_w;
+        size_t dst_idx = dst_base + x;
+
+        for (int c = 0; c < 3; ++c) {
+          size_t c_off = (size_t)std::min(c, nch - 1) * plane_src;
+          float p00 = (float)dbl_ptr[idx00 + c_off];
+          float p10 = (float)dbl_ptr[idx10 + c_off];
+          float p01 = (float)dbl_ptr[idx01 + c_off];
+          float p11 = (float)dbl_ptr[idx11 + c_off];
+          out_ptr[(size_t)c * plane_size + dst_idx] = (w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11) * val_scale;
+        }
+      }
+    }
+  }
+}
+
 // [[Rcpp::export]]
 Rcpp::List run_yolo_cpp(
-    Rcpp::NumericVector tensor_vec,
+    SEXP tensor_vec,
     double orig_w,
     double orig_h,
     double conf_threshold = 0.25,
@@ -3100,7 +3367,8 @@ Rcpp::List run_yolo_cpp(
     int device_id = -1,
     bool need_masks = true,
     bool return_features = false,
-    Rcpp::Nullable<Rcpp::NumericVector> txt_feats = R_NilValue
+    Rcpp::Nullable<Rcpp::NumericVector> txt_feats = R_NilValue,
+    int target_size = 640
 ) {
   const OrtApi* ort = get_ort_api(lib_path);
   CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
@@ -3111,32 +3379,61 @@ Rcpp::List run_yolo_cpp(
   std::vector<const char*> in_names, out_names;
   get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
 
-  size_t total_floats = tensor_vec.size();
+  static std::vector<float> input_vals;
   int64_t in_w = 640;
   int64_t in_h = 640;
-  if (tensor_vec.hasAttribute("target_size")) {
-    int ts = Rcpp::as<int>(tensor_vec.attr("target_size"));
-    in_w = ts;
-    in_h = ts;
-  } else if (tensor_vec.hasAttribute("dims")) {
-    Rcpp::IntegerVector d = tensor_vec.attr("dims");
-    if (d.size() >= 4) {
-      in_h = d[2];
-      in_w = d[3];
+  size_t total_floats = 0;
+  bool has_pre_gain = false;
+  double pre_gain = 1.0, pre_pad_x = 0.0, pre_pad_y = 0.0;
+
+  SEXP dim_attr = Rf_getAttrib(tensor_vec, R_DimSymbol);
+  SEXP ts_attr = Rf_getAttrib(tensor_vec, Rf_install("target_size"));
+  bool is_raw_image = (TYPEOF(tensor_vec) == RAWSXP) ||
+                      (dim_attr != R_NilValue && Rf_length(dim_attr) >= 2 && Rf_length(dim_attr) <= 3 && ts_attr == R_NilValue);
+
+  if (is_raw_image) {
+    int ow_img = 0, oh_img = 0;
+    int eff_ts = (target_size > 0) ? target_size : 640;
+    preprocess_yolo_to_float_vec(tensor_vec, eff_ts, input_vals, ow_img, oh_img, pre_gain, pre_pad_x, pre_pad_y);
+    if (orig_w <= 0) orig_w = (double)ow_img;
+    if (orig_h <= 0) orig_h = (double)oh_img;
+    in_w = eff_ts;
+    in_h = eff_ts;
+    total_floats = input_vals.size();
+    has_pre_gain = true;
+  } else {
+    Rcpp::NumericVector tv(tensor_vec);
+    total_floats = tv.size();
+    if (tv.hasAttribute("target_size")) {
+      int ts = Rcpp::as<int>(tv.attr("target_size"));
+      in_w = ts;
+      in_h = ts;
+    } else if (tv.hasAttribute("dims")) {
+      Rcpp::IntegerVector d = tv.attr("dims");
+      if (d.size() >= 4) {
+        in_h = d[2];
+        in_w = d[3];
+      }
+    } else if (total_floats > 0) {
+      int64_t plane = (int64_t)(total_floats / 3);
+      int64_t side = (int64_t)std::round(std::sqrt((double)plane));
+      if (side * side == plane) {
+        in_w = side;
+        in_h = side;
+      }
     }
-  } else if (total_floats > 0) {
-    int64_t plane = (int64_t)(total_floats / 3);
-    int64_t side = (int64_t)std::round(std::sqrt((double)plane));
-    if (side * side == plane) {
-      in_w = side;
-      in_h = side;
+    if (tv.hasAttribute("gain") && tv.hasAttribute("pad_x") && tv.hasAttribute("pad_y")) {
+      pre_gain = Rcpp::as<double>(tv.attr("gain"));
+      pre_pad_x = Rcpp::as<double>(tv.attr("pad_x"));
+      pre_pad_y = Rcpp::as<double>(tv.attr("pad_y"));
+      has_pre_gain = true;
     }
+    input_vals.resize(total_floats);
+    const double* t_ptr = REAL(tv);
+    #pragma omp parallel for schedule(static) if(total_floats > 10000)
+    for (int i = 0; i < (int)total_floats; ++i) input_vals[i] = (float)t_ptr[i];
   }
   int64_t in_shape[4] = {1, 3, in_h, in_w};
-  std::vector<float> input_vals(total_floats);
-  const double* t_ptr = REAL(tensor_vec);
-  #pragma omp parallel for schedule(static) if(total_floats > 10000)
-  for (int i = 0; i < (int)total_floats; ++i) input_vals[i] = (float)t_ptr[i];
 
   OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
@@ -3458,10 +3755,10 @@ Rcpp::List run_yolo_cpp(
   double gain = 1.0;
   double pad_x = 0.0;
   double pad_y = 0.0;
-  if (tensor_vec.hasAttribute("gain") && tensor_vec.hasAttribute("pad_x") && tensor_vec.hasAttribute("pad_y")) {
-    gain = Rcpp::as<double>(tensor_vec.attr("gain"));
-    pad_x = Rcpp::as<double>(tensor_vec.attr("pad_x"));
-    pad_y = Rcpp::as<double>(tensor_vec.attr("pad_y"));
+  if (has_pre_gain) {
+    gain = pre_gain;
+    pad_x = pre_pad_x;
+    pad_y = pre_pad_y;
   } else {
     gain = std::min((double)in_w / orig_w, (double)in_h / orig_h);
     pad_x = ((double)in_w - orig_w * gain) / 2.0;

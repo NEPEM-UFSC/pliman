@@ -2313,24 +2313,27 @@ BEGIN_RCPP
 END_RCPP
 }
 // get_onnx_model_io_shape_cpp
-Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_path);
-RcppExport SEXP _pliman_get_onnx_model_io_shape_cpp(SEXP model_pathSEXP, SEXP lib_pathSEXP) {
+Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id);
+RcppExport SEXP _pliman_get_onnx_model_io_shape_cpp(SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< std::string >::type model_path(model_pathSEXP);
     Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
-    rcpp_result_gen = Rcpp::wrap(get_onnx_model_io_shape_cpp(model_path, lib_path));
+    Rcpp::traits::input_parameter< int >::type num_threads(num_threadsSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_gpu(use_gpuSEXP);
+    Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
+    rcpp_result_gen = Rcpp::wrap(get_onnx_model_io_shape_cpp(model_path, lib_path, num_threads, use_gpu, device_id));
     return rcpp_result_gen;
 END_RCPP
 }
 // run_yolo_cpp
-Rcpp::List run_yolo_cpp(Rcpp::NumericVector tensor_vec, double orig_w, double orig_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, bool need_masks, bool return_features, Rcpp::Nullable<Rcpp::NumericVector> txt_feats);
-RcppExport SEXP _pliman_run_yolo_cpp(SEXP tensor_vecSEXP, SEXP orig_wSEXP, SEXP orig_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP need_masksSEXP, SEXP return_featuresSEXP, SEXP txt_featsSEXP) {
+Rcpp::List run_yolo_cpp(SEXP tensor_vec, double orig_w, double orig_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, bool need_masks, bool return_features, Rcpp::Nullable<Rcpp::NumericVector> txt_feats, int target_size);
+RcppExport SEXP _pliman_run_yolo_cpp(SEXP tensor_vecSEXP, SEXP orig_wSEXP, SEXP orig_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP need_masksSEXP, SEXP return_featuresSEXP, SEXP txt_featsSEXP, SEXP target_sizeSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type tensor_vec(tensor_vecSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type tensor_vec(tensor_vecSEXP);
     Rcpp::traits::input_parameter< double >::type orig_w(orig_wSEXP);
     Rcpp::traits::input_parameter< double >::type orig_h(orig_hSEXP);
     Rcpp::traits::input_parameter< double >::type conf_threshold(conf_thresholdSEXP);
@@ -2343,7 +2346,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type need_masks(need_masksSEXP);
     Rcpp::traits::input_parameter< bool >::type return_features(return_featuresSEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericVector> >::type txt_feats(txt_featsSEXP);
-    rcpp_result_gen = Rcpp::wrap(run_yolo_cpp(tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats));
+    Rcpp::traits::input_parameter< int >::type target_size(target_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_yolo_cpp(tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -3087,8 +3091,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_depth_anything_cpp", (DL_FUNC) &_pliman_run_depth_anything_cpp, 10},
     {"_pliman_run_yolo_sem_cpp", (DL_FUNC) &_pliman_run_yolo_sem_cpp, 10},
     {"_pliman_run_dinov2_cpp", (DL_FUNC) &_pliman_run_dinov2_cpp, 10},
-    {"_pliman_get_onnx_model_io_shape_cpp", (DL_FUNC) &_pliman_get_onnx_model_io_shape_cpp, 2},
-    {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 13},
+    {"_pliman_get_onnx_model_io_shape_cpp", (DL_FUNC) &_pliman_get_onnx_model_io_shape_cpp, 5},
+    {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 14},
     {"_pliman_run_yolo_cls_cpp", (DL_FUNC) &_pliman_run_yolo_cls_cpp, 6},
     {"_pliman_run_clip_vision_cpp", (DL_FUNC) &_pliman_run_clip_vision_cpp, 8},
     {"_pliman_run_clip_text_cpp", (DL_FUNC) &_pliman_run_clip_text_cpp, 9},
