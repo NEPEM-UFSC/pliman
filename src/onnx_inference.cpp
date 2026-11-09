@@ -3032,6 +3032,61 @@ Rcpp::List run_dinov2_cpp(
 }
 
 // [[Rcpp::export]]
+Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_path = "") {
+  try {
+    const OrtApi* ort = get_ort_api(lib_path);
+    CachedSession cs = get_or_create_cached_session(ort, model_path, 1, false, -1);
+    OrtSession* session = cs.session;
+
+    OrtTypeInfo* type_info = NULL;
+    if (ort->SessionGetInputTypeInfo(session, 0, &type_info) != NULL || type_info == NULL) {
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = true,
+        Rcpp::Named("expected_w") = 640,
+        Rcpp::Named("expected_h") = 640
+      );
+    }
+
+    const OrtTensorTypeAndShapeInfo* tensor_info = NULL;
+    if (ort->CastTypeInfoToTensorInfo(type_info, &tensor_info) != NULL || tensor_info == NULL) {
+      ort->ReleaseTypeInfo(type_info);
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = true,
+        Rcpp::Named("expected_w") = 640,
+        Rcpp::Named("expected_h") = 640
+      );
+    }
+
+    size_t num_dims = 0;
+    (void)ort->GetDimensionsCount(tensor_info, &num_dims);
+    std::vector<int64_t> dims(num_dims);
+    (void)ort->GetDimensions(tensor_info, dims.data(), num_dims);
+    ort->ReleaseTypeInfo(type_info);
+
+    bool is_dyn = true;
+    int exp_h = 640, exp_w = 640;
+    if (num_dims >= 4) {
+      if (dims[2] > 0 && dims[3] > 0) {
+        is_dyn = false;
+        exp_h = (int)dims[2];
+        exp_w = (int)dims[3];
+      }
+    }
+    return Rcpp::List::create(
+      Rcpp::Named("dynamic") = is_dyn,
+      Rcpp::Named("expected_w") = exp_w,
+      Rcpp::Named("expected_h") = exp_h
+    );
+  } catch (...) {
+    return Rcpp::List::create(
+      Rcpp::Named("dynamic") = true,
+      Rcpp::Named("expected_w") = 640,
+      Rcpp::Named("expected_h") = 640
+    );
+  }
+}
+
+// [[Rcpp::export]]
 Rcpp::List run_yolo_cpp(
     Rcpp::NumericVector tensor_vec,
     double orig_w,
@@ -3130,6 +3185,11 @@ Rcpp::List run_yolo_cpp(
     ort->ReleaseStatus(status);
     ort->ReleaseRunOptions(run_options);
     ort->ReleaseValue(in_tensor);
+    if (msg.find("invalid dimensions for input") != std::string::npos) {
+      Rcpp::stop("YOLO run failed: The model has fixed static input dimensions.\n" + msg +
+                 "\nTo run at different resolutions (e.g. imgsz = " + std::to_string(in_w) +
+                 "), re-export the model with dynamic axes: yolo_export(model, dynamic = TRUE)");
+    }
     Rcpp::stop("YOLO run failed: " + msg);
   }
 

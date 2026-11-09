@@ -52,7 +52,7 @@ video_detect_dl(
   kpt_threshold = 0.3,
   kpt_radius = 4,
   bbox = TRUE,
-  show_box = bbox,
+  show_box = NULL,
   show_point = FALSE,
   point_radius = 4,
   point_col = NULL,
@@ -61,7 +61,7 @@ video_detect_dl(
   show = NULL,
   show_fps = TRUE,
   telemetry = c("detailed", "simple", "none"),
-  smoot_stat = 30,
+  smoot_stat = 20,
   hud_pos = c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom"),
   hud_layout = c("vertical", "horizontal"),
   infer_every = 1L,
@@ -127,7 +127,7 @@ video_detect(
   kpt_threshold = 0.3,
   kpt_radius = 4,
   bbox = TRUE,
-  show_box = bbox,
+  show_box = NULL,
   show_point = FALSE,
   point_radius = 4,
   point_col = NULL,
@@ -136,7 +136,7 @@ video_detect(
   show = NULL,
   show_fps = TRUE,
   telemetry = c("detailed", "simple", "none"),
-  smoot_stat = 30,
+  smoot_stat = 20,
   hud_pos = c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom"),
   hud_layout = c("vertical", "horizontal"),
   infer_every = 1L,
@@ -288,7 +288,7 @@ Default is \code{interactive()}.}
 
 \item{telemetry}{Telemetry HUD display mode: \code{"detailed"} (default, glassmorphic diagnostic HUD card with real-time FPS, latency breakdown (inference, tracking, GUI), object counts, confidence statistics, flow rate, motion velocity, ROI occupancy, and 20-frame sparkline trend), \code{"simple"} (compact FPS, in-zone, and count badges), or \code{"none"} (disables HUD overlay).}
 
-\item{smoot_stat}{Window size (in frames) for moving average of telemetry statistics (default \code{30}).
+\item{smoot_stat}{Window size (in frames) for moving average of telemetry statistics (default \code{20}).
 Internally, the moving average of metrics (SPEED, LATENCY, INF, TRK, GUI, CONF, FLOW, MOTION, SIZE, ROI OCC)
 is updated on every single frame, but displayed values on the telemetry HUD are refreshed every \code{smoot_stat} frames.
 Frame number, in-zone count, counted total, and active tracks are displayed instantaneously on every frame.

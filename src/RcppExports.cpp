@@ -2298,6 +2298,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// get_onnx_model_io_shape_cpp
+Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_path);
+RcppExport SEXP _pliman_get_onnx_model_io_shape_cpp(SEXP model_pathSEXP, SEXP lib_pathSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type model_path(model_pathSEXP);
+    Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
+    rcpp_result_gen = Rcpp::wrap(get_onnx_model_io_shape_cpp(model_path, lib_path));
+    return rcpp_result_gen;
+END_RCPP
+}
 // run_yolo_cpp
 Rcpp::List run_yolo_cpp(Rcpp::NumericVector tensor_vec, double orig_w, double orig_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, bool need_masks, bool return_features, Rcpp::Nullable<Rcpp::NumericVector> txt_feats);
 RcppExport SEXP _pliman_run_yolo_cpp(SEXP tensor_vecSEXP, SEXP orig_wSEXP, SEXP orig_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP need_masksSEXP, SEXP return_featuresSEXP, SEXP txt_featsSEXP) {
@@ -3060,6 +3072,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_depth_anything_cpp", (DL_FUNC) &_pliman_run_depth_anything_cpp, 10},
     {"_pliman_run_yolo_sem_cpp", (DL_FUNC) &_pliman_run_yolo_sem_cpp, 10},
     {"_pliman_run_dinov2_cpp", (DL_FUNC) &_pliman_run_dinov2_cpp, 10},
+    {"_pliman_get_onnx_model_io_shape_cpp", (DL_FUNC) &_pliman_get_onnx_model_io_shape_cpp, 2},
     {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 13},
     {"_pliman_run_yolo_cls_cpp", (DL_FUNC) &_pliman_run_yolo_cls_cpp, 6},
     {"_pliman_run_clip_vision_cpp", (DL_FUNC) &_pliman_run_clip_vision_cpp, 8},
