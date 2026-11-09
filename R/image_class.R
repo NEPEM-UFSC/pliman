@@ -388,6 +388,9 @@ image_data.default <- function(x, ...) {
 #' @export
 image_data.image <- function(x, type = c("same", "numeric", "normalized", "raw"), ...) {
   type <- match.arg(type)
+  if (type == "same") {
+    return(unclass(x))
+  }
   u <- unclass(x)
   d <- dim(u)
 
@@ -395,10 +398,8 @@ image_data.image <- function(x, type = c("same", "numeric", "normalized", "raw")
     if (is.raw(u)) as.integer(u) else as.integer(round(u * 255))
   } else if (type == "normalized") {
     if (is.raw(u)) as.numeric(u) / 255 else as.numeric(u)
-  } else if (type == "raw") {
-    if (is.raw(u)) u else as.raw(pmin(pmax(round(as.numeric(u) * 255), 0), 255))
   } else {
-    u
+    if (is.raw(u)) u else as.raw(pmin(pmax(round(as.numeric(u) * 255), 0), 255))
   }
 
   dim(res) <- d

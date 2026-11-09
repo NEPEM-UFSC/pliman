@@ -119,8 +119,14 @@ NULL
 #' @export
 #' @examples
 #' pliman_model_dir()
+.onnx_meta_cache <- new.env(parent = emptyenv())
+
 pliman_model_dir <- function(dir = NULL) {
   if (!is.null(dir)) {
+    if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE) &&
+        identical(dir, .onnx_meta_cache$default_model_dir)) {
+      return(dir)
+    }
     dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
     if (!dir.exists(dir)) {
       dir.create(dir, recursive = TRUE, showWarnings = FALSE)
@@ -128,11 +134,17 @@ pliman_model_dir <- function(dir = NULL) {
     return(dir)
   }
 
+  if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_dir <- .onnx_meta_cache$default_model_dir
+    if (dir.exists(cached_dir)) return(cached_dir)
+  }
+
   default_dir <- file.path(tools::R_user_dir("pliman", which = "data"), "models")
   default_dir <- normalizePath(default_dir, winslash = "/", mustWork = FALSE)
   if (!dir.exists(default_dir)) {
     dir.create(default_dir, recursive = TRUE, showWarnings = FALSE)
   }
+  .onnx_meta_cache$default_model_dir <- default_dir
   return(default_dir)
 }
 
@@ -143,11 +155,26 @@ pliman_model_dir <- function(dir = NULL) {
   if (grepl("^https?://", m_str)) return(NULL)
   dir <- pliman_model_dir(dir)
 
+  cache_key <- paste0("local_model::", dir, "::", m_str)
+  if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_path <- get(cache_key, envir = .onnx_meta_cache, inherits = FALSE)
+    if (!is.null(cached_path) && file.exists(cached_path)) {
+      return(cached_path)
+    }
+  }
+
+  .cache_and_return <- function(res_path) {
+    if (!is.null(res_path)) {
+      assign(cache_key, res_path, envir = .onnx_meta_cache)
+    }
+    res_path
+  }
+
   # 1. Exact path or relative path exists on disk
   if (file.exists(m_str) && !dir.exists(m_str)) {
     finfo <- file.info(m_str)
     if (!is.na(finfo$size) && finfo$size > 1000) {
-      return(normalizePath(m_str, winslash = "/"))
+      return(.cache_and_return(normalizePath(m_str, winslash = "/")))
     }
   }
 
@@ -156,17 +183,21 @@ pliman_model_dir <- function(dir = NULL) {
   if (file.exists(in_dir) && !dir.exists(in_dir)) {
     finfo <- file.info(in_dir)
     if (!is.na(finfo$size) && finfo$size > 1000) {
-      return(normalizePath(in_dir, winslash = "/"))
+      return(.cache_and_return(normalizePath(in_dir, winslash = "/")))
     }
   }
 
-  # 3. Direct extension append (.onnx or .pt)
-  for (ext in c(".onnx", ".pt")) {
-    cand <- file.path(dir, paste0(m_str, ext))
-    if (file.exists(cand) && !dir.exists(cand)) {
-      finfo <- file.info(cand)
-      if (!is.na(finfo$size) && finfo$size > 1000) {
-        return(normalizePath(cand, winslash = "/"))
+  # 3. Direct extension append (.onnx or .pt), including resolved alias
+  m_resolved <- .resolve_model_name(m_str)
+  cand_bases <- unique(c(m_str, m_resolved))
+  for (cb in cand_bases) {
+    for (ext in c(".onnx", ".pt")) {
+      cand <- file.path(dir, paste0(cb, ext))
+      if (file.exists(cand) && !dir.exists(cand)) {
+        finfo <- file.info(cand)
+        if (!is.na(finfo$size) && finfo$size > 1000) {
+          return(.cache_and_return(normalizePath(cand, winslash = "/")))
+        }
       }
     }
   }
@@ -175,7 +206,7 @@ pliman_model_dir <- function(dir = NULL) {
   local_files <- list.files(dir, pattern = "\\.(onnx|pt)$", ignore.case = TRUE, full.names = FALSE)
   if (length(local_files) == 0L) return(NULL)
 
-  m_clean <- sub("\\.(onnx|pt)$", "", basename(m_str), ignore.case = TRUE)
+  m_clean <- sub("\\.(onnx|pt)$", "", basename(m_resolved), ignore.case = TRUE)
   files_clean <- sub("\\.(onnx|pt)$", "", local_files, ignore.case = TRUE)
 
   # Helper to choose best candidate (prefer non-int8 unless requested, prefer .onnx)
@@ -185,7 +216,7 @@ pliman_model_dir <- function(dir = NULL) {
     }
     ord <- order(grepl("\\.onnx$", cands, ignore.case = TRUE), decreasing = TRUE)
     best_file <- cands[ord[1]]
-    normalizePath(file.path(dir, best_file), winslash = "/")
+    .cache_and_return(normalizePath(file.path(dir, best_file), winslash = "/"))
   }
 
   # 4. Case-insensitive exact match
@@ -504,7 +535,10 @@ pliman_model_dir <- function(dir = NULL) {
   )
   vapply(model, function(m) {
     ml <- tolower(m)
-    if (ml %in% names(aliases)) aliases[[ml]] else m
+    if (ml %in% names(aliases)) return(aliases[[ml]])
+    ml_norm <- sub("^yolov(11|26)", "yolo\\1", ml)
+    if (ml_norm %in% names(aliases)) return(aliases[[ml_norm]])
+    m
   }, character(1), USE.NAMES = FALSE)
 }
 
@@ -529,8 +563,13 @@ pliman_model_dir <- function(dir = NULL) {
 .get_onnx_classes <- function(model_file) {
   if (is.null(model_file) || !file.exists(model_file)) return(NULL)
   tryCatch({
-    sz <- file.info(model_file)$size
+    sz <- file.size(model_file)
     if (is.na(sz) || sz < 1024) return(NULL)
+    cache_key <- paste0("classes::", model_file, "::", sz)
+    if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+      return(get(cache_key, envir = .onnx_meta_cache, inherits = FALSE))
+    }
+
     read_sz <- min(sz, 262144L)
     con <- file(model_file, "rb")
     seek(con, max(0, sz - read_sz))
@@ -539,6 +578,7 @@ pliman_model_dir <- function(dir = NULL) {
 
     txt <- rawToChar(chunk[chunk >= 32 & chunk <= 126])
     pos <- regexpr("names[^{]*\\{([^}]+)\\}", txt)
+    res <- NULL
     if (pos > 0) {
       match_full <- substr(txt, pos, pos + attr(pos, "match.length") - 1)
       inner <- sub("^[^{]*\\{", "", match_full)
@@ -550,18 +590,24 @@ pliman_model_dir <- function(dir = NULL) {
         class_names <- sub("^\\d+\\s*:\\s*['\"]", "", matched_tokens, perl = TRUE)
         class_names <- sub("['\"]\\s*$", "", class_names, perl = TRUE)
         ord <- order(indices)
-        return(class_names[ord])
+        res <- class_names[ord]
       }
     }
-    NULL
+    assign(cache_key, res, envir = .onnx_meta_cache)
+    res
   }, error = function(e) NULL)
 }
 
 .get_onnx_imgsz <- function(model_file) {
   if (is.null(model_file) || !file.exists(model_file)) return(NULL)
   tryCatch({
-    sz <- as.numeric(file.info(model_file)$size[1])
+    sz <- as.numeric(file.size(model_file)[1])
     if (is.na(sz) || sz < 1024) return(NULL)
+    cache_key <- paste0("imgsz::", model_file, "::", sz)
+    if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+      return(get(cache_key, envir = .onnx_meta_cache, inherits = FALSE))
+    }
+
     read_sz <- as.integer(min(sz, 262144L))
     con <- file(model_file, "rb")
     seek(con, as.integer(max(0, sz - read_sz)))
@@ -571,11 +617,13 @@ pliman_model_dir <- function(dir = NULL) {
     txt <- rawToChar(chunk[chunk >= 32 & chunk <= 126])
     m <- regexec("imgsz\\s*\\[?\\s*(\\d+)", txt)
     matches <- regmatches(txt, m)[[1]]
+    res <- NULL
     if (length(matches) >= 2) {
       val <- as.integer(matches[2])
-      if (!is.na(val) && val > 0L) return(val)
+      if (!is.na(val) && val > 0L) res <- val
     }
-    NULL
+    assign(cache_key, res, envir = .onnx_meta_cache)
+    res
   }, error = function(e) NULL)
 }
 
@@ -2099,11 +2147,17 @@ pliman_onnx_dir <- function(dir = NULL) {
     return(dir)
   }
 
+  if (exists("default_onnx_dir", envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_dir <- .onnx_meta_cache$default_onnx_dir
+    if (dir.exists(cached_dir)) return(cached_dir)
+  }
+
   default_dir <- file.path(tools::R_user_dir("pliman", which = "data"), "bin")
   default_dir <- normalizePath(default_dir, winslash = "/", mustWork = FALSE)
   if (!dir.exists(default_dir)) {
     dir.create(default_dir, recursive = TRUE, showWarnings = FALSE)
   }
+  .onnx_meta_cache$default_onnx_dir <- default_dir
   return(default_dir)
 }
 
@@ -2295,12 +2349,20 @@ pliman_install_onnx <- function(version = "1.20.1", force = FALSE, engine = c("g
 #' @export
 pliman_onnx_lib_path <- function(engine = c("gpu", "cpu")) {
   engine <- match.arg(engine)
+  cache_key <- paste0("onnx_lib_path::", engine)
+  if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_p <- get(cache_key, envir = .onnx_meta_cache, inherits = FALSE)
+    if (!is.null(cached_p) && file.exists(cached_p)) return(cached_p)
+  }
+
   os <- tolower(Sys.info()[["sysname"]])
 
   if (os == "windows") {
     p_gpu <- file.path(pliman_onnx_dir(), "onnxruntime-directml.dll")
     if (file.exists(p_gpu)) {
-      return(normalizePath(p_gpu, winslash = "/"))
+      res <- normalizePath(p_gpu, winslash = "/")
+      assign(cache_key, res, envir = .onnx_meta_cache)
+      return(res)
     }
     if (engine == "gpu") {
       return(NULL)
@@ -2318,7 +2380,11 @@ pliman_onnx_lib_path <- function(engine = c("gpu", "cpu")) {
   )
 
   p1 <- file.path(pliman_onnx_dir(), lib_name)
-  if (file.exists(p1)) return(normalizePath(p1, winslash = "/"))
+  if (file.exists(p1)) {
+    res <- normalizePath(p1, winslash = "/")
+    assign(cache_key, res, envir = .onnx_meta_cache)
+    return(res)
+  }
 
   ort_root <- Sys.getenv("ORT_ROOT", "")
   if (nzchar(ort_root)) {
@@ -5179,7 +5245,7 @@ image_remove_bg_dl <- function(img,
 
   # Resolve input resolution (imgsz)
   model_shape_info <- tryCatch(
-    get_onnx_model_io_shape_cpp(model_file, lib_path),
+    get_onnx_model_io_shape_cpp(model_file, lib_path, as.integer(threads), use_gpu, as.integer(device_id)),
     error = function(e) list(dynamic = TRUE, expected_w = 640L, expected_h = 640L)
   )
   target_size <- if (!is.null(imgsz)) {
@@ -5215,17 +5281,21 @@ image_remove_bg_dl <- function(img,
     }
   }
 
-  tensor <- tryCatch(
-    preprocess_yolo_cpp(mat, target_size = target_size),
-    error = function(e) .preprocess_yolo(mat, target_size = target_size)
-  )
-  orig_w <- attr(tensor, "orig_w")
-  if (is.null(orig_w)) orig_w <- dim(mat)[1]
-  orig_h <- attr(tensor, "orig_h")
-  if (is.null(orig_h)) orig_h <- dim(mat)[2]
+  dims_mat <- dim(mat)
+  orig_w <- dims_mat[1]
+  orig_h <- dims_mat[2]
+
+  tensor_in <- if (is.raw(mat) || is.double(mat)) {
+    mat
+  } else {
+    tryCatch(
+      preprocess_yolo_cpp(mat, target_size = target_size),
+      error = function(e) .preprocess_yolo(mat, target_size = target_size)
+    )
+  }
 
   raw_res <- run_yolo_cpp(
-    tensor_vec = tensor,
+    tensor_vec = tensor_in,
     orig_w = orig_w,
     orig_h = orig_h,
     conf_threshold = conf_threshold,
@@ -5237,7 +5307,8 @@ image_remove_bg_dl <- function(img,
     device_id = as.integer(device_id),
     need_masks = isTRUE(need_masks),
     return_features = isTRUE(return_features),
-    txt_feats = txt_feats
+    txt_feats = txt_feats,
+    target_size = as.integer(target_size)
   )
 
   if (isTRUE(need_masks) && (is.null(raw_res$labels) || !is.matrix(raw_res$labels) || nrow(raw_res$labels) == 0L || ncol(raw_res$labels) == 0L)) {
@@ -7337,6 +7408,9 @@ pliman_clear_sessions <- function() {
   if (exists(".pliman_vocab_cache")) {
     rm(list = ls(envir = .pliman_vocab_cache), envir = .pliman_vocab_cache)
   }
+  if (exists(".onnx_meta_cache")) {
+    rm(list = ls(envir = .onnx_meta_cache), envir = .onnx_meta_cache)
+  }
   invisible(NULL)
 }
 
@@ -7817,10 +7891,10 @@ image_detect_dl <- function(img,
     return(res)
   }
 
-  mat <- if (inherits(img, c("Image", "image"))) image_data(img) else img
+  mat <- if (isS4(img) && methods::.hasSlot(img, ".Data")) methods::slot(img, ".Data") else img
   if (is.character(img) && file.exists(img[1])) {
     img_obj <- image_import(img[1])
-    mat <- image_data(img_obj)
+    mat <- if (isS4(img_obj) && methods::.hasSlot(img_obj, ".Data")) methods::slot(img_obj, ".Data") else img_obj
   }
   dims <- dim(mat)
   if (is.null(dims) || length(dims) < 2) {
@@ -7900,13 +7974,6 @@ image_detect_dl <- function(img,
     ))
   }
 
-  if (isTRUE(verbose)) {
-    pb <- cli::cli_process_start(
-      "Running YOLO object detection [{toupper(engine)}]...",
-      on_exit = "failed"
-    )
-  }
-
   is_seg_model <- grepl("-seg", model_str)
   wants_mask <- (!is.null(dots$type) && dots$type %in% c("highlight", "mask", "segment")) || isTRUE(dots$mask)
   need_masks <- is_seg_model && wants_mask
@@ -7945,12 +8012,13 @@ image_detect_dl <- function(img,
   }
 
   if (isTRUE(verbose)) {
+    tick <- cli::col_green(cli::symbol$tick)
     sum_txt <- if (!is.null(res$summary) && nzchar(res$summary) && res$summary != "0 objects") {
-      paste0("pliman detected {.bold ", res$summary, "} in the image.")
+      paste0(tick, " pliman detected ", cli::style_bold(res$summary), " in the image.")
     } else {
-      "No objects detected in the image."
+      paste0(tick, " No objects detected in the image.")
     }
-    cli::cli_process_done(id = pb, msg_done = sum_txt)
+    message(sum_txt)
   }
 
   df_boxes <- res$boxes
@@ -9051,7 +9119,7 @@ video_detect_dl <- function(video = 0,
     }
     # Inference resolution (imgsz)
     model_shape_info <- tryCatch(
-      get_onnx_model_io_shape_cpp(model_file, lib_path),
+      get_onnx_model_io_shape_cpp(model_file, lib_path, as.integer(threads), use_gpu, as.integer(device_id)),
       error = function(e) list(dynamic = TRUE, expected_w = 640L, expected_h = 640L)
     )
     target_size <- if (!is.null(imgsz)) {
@@ -9353,13 +9421,8 @@ video_detect_dl <- function(video = 0,
           feed_h <- feed_dims[3]
 
           t_infer_start <- Sys.time()
-          tensor <- tryCatch(
-            preprocess_yolo_cpp(bm_feed, target_size = target_size),
-            error = function(e) preprocess_yolo_cpp(bm, target_size = target_size)
-          )
-
           raw_res <- run_yolo_cpp(
-            tensor_vec = tensor,
+            tensor_vec = bm_feed,
             orig_w = feed_w,
             orig_h = feed_h,
             conf_threshold = conf_threshold,
@@ -9369,7 +9432,8 @@ video_detect_dl <- function(video = 0,
             num_threads = as.integer(threads),
             use_gpu = use_gpu,
             device_id = as.integer(device_id),
-            need_masks = isTRUE(mask)
+            need_masks = isTRUE(mask),
+            target_size = as.integer(target_size)
           )
           t_infer_end <- Sys.time()
           t_inf_ms <- as.numeric(t_infer_end - t_infer_start, units = "secs") * 1000
@@ -10039,16 +10103,8 @@ video_detect_dl <- function(video = 0,
           feed_h <- feed_dims[3]
 
           t_inf_start <- Sys.time()
-          tensor <- tryCatch(
-            preprocess_yolo_cpp(bm_feed, target_size = target_size),
-            error = function(e) {
-              f_mat <- image_data(image_import(f_path))
-              preprocess_yolo_cpp(f_mat, target_size = target_size)
-            }
-          )
-
           raw_res <- run_yolo_cpp(
-            tensor_vec = tensor,
+            tensor_vec = bm_feed,
             orig_w = feed_w,
             orig_h = feed_h,
             conf_threshold = conf_threshold,
@@ -10058,7 +10114,8 @@ video_detect_dl <- function(video = 0,
             num_threads = as.integer(threads),
             use_gpu = use_gpu,
             device_id = as.integer(device_id),
-            need_masks = isTRUE(mask)
+            need_masks = isTRUE(mask),
+            target_size = as.integer(target_size)
           )
           t_inf_end <- Sys.time()
           t_inf_ms <<- as.numeric(t_inf_end - t_inf_start, units = "secs") * 1000
@@ -11324,6 +11381,7 @@ video_detect <- video_detect_dl
 #'
 #' @param img An `Image` object, a 2D/3D numeric array, a path to an image file, or a list of images.
 #' @param model Model name or path to a custom ONNX file. Defaults to `"yolo26n-pose"`.
+#'   Options include `"yolo26n-pose"`, `"yolo26s-pose"`, `"yolo26m-pose"`, `"yolo26l-pose"`, `
 #'   Options include `"yolo26n-pose"`, `"yolo26s-pose"`, `"yolo26m-pose"`, `"yolo26l-pose"`, `"yolo26x-pose"`.
 #' @param conf_threshold Minimum confidence score for candidate person detections (default 0.25).
 #' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.45).
