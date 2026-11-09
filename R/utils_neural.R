@@ -5178,13 +5178,42 @@ image_remove_bg_dl <- function(img,
   is_nas_model  <- grepl("nas", model_lower)
 
   # Resolve input resolution (imgsz)
+  model_shape_info <- tryCatch(
+    get_onnx_model_io_shape_cpp(model_file, lib_path),
+    error = function(e) list(dynamic = TRUE, expected_w = 640L, expected_h = 640L)
+  )
   target_size <- if (!is.null(imgsz)) {
     as.integer(imgsz[1])
   } else {
     model_imgsz <- .get_onnx_imgsz(model_file)
-    if (!is.null(model_imgsz) && length(model_imgsz) > 0L) as.integer(model_imgsz[1]) else 640L
+    if (!is.null(model_imgsz) && length(model_imgsz) > 0L) as.integer(model_imgsz[1]) else model_shape_info$expected_w
   }
   if (is.na(target_size) || target_size <= 0L) target_size <- 640L
+
+  if (!isTRUE(model_shape_info$dynamic) && target_size != model_shape_info$expected_w) {
+    cand_pt <- file.path(dirname(model_file), "best.pt")
+    if (!file.exists(cand_pt)) cand_pt <- sub("\\.onnx$", ".pt", model_file)
+    reexported <- FALSE
+    if (file.exists(cand_pt)) {
+      cli::cli_alert_info("Model {.file {basename(model_file)}} has fixed static input shape ({model_shape_info$expected_w}x{model_shape_info$expected_h}). Auto-upgrading to dynamic ONNX via {.file {basename(cand_pt)}}...")
+      tryCatch({
+        new_ox <- yolo_export(cand_pt, output_dir = dirname(model_file), output_name = basename(model_file), dynamic = TRUE, auto_install = FALSE)
+        if (file.exists(new_ox)) {
+          model_file <- new_ox
+          reexported <- TRUE
+          cli::cli_alert_success("Model upgraded to dynamic ONNX: now supports any imgsz (e.g., {target_size})!")
+        }
+      }, error = function(e) NULL)
+    }
+    if (!reexported) {
+      cli::cli_alert_warning(c(
+        "!" = "Model {.file {basename(model_file)}} has fixed static input resolution of {model_shape_info$expected_w}x{model_shape_info$expected_h}.",
+        "i" = "Requested {.code imgsz = {target_size}} cannot be applied to a static model. Automatically using native resolution ({model_shape_info$expected_w}).",
+        ">" = "To enable dynamic multi-resolution inference, export with: {.code yolo_export(model, dynamic = TRUE)}"
+      ))
+      target_size <- model_shape_info$expected_w
+    }
+  }
 
   tensor <- tryCatch(
     preprocess_yolo_cpp(mat, target_size = target_size),
@@ -8624,7 +8653,7 @@ video_detect_dl <- function(video = 0,
                             kpt_threshold = 0.3,
                             kpt_radius = 4,
                             bbox = TRUE,
-                            show_box = bbox,
+                            show_box = NULL,
                             show_point = FALSE,
                             point_radius = 4,
                             point_col = NULL,
@@ -8815,12 +8844,20 @@ video_detect_dl <- function(video = 0,
   smoot_stat <- suppressWarnings(as.integer(smoot_stat[1]))
   if (is.na(smoot_stat) || smoot_stat < 1L) smoot_stat <- 1L
 
-  if ("show_box" %in% names(dots)) bbox <- isTRUE(dots$show_box)
-  if ("show_boxes" %in% names(dots)) bbox <- isTRUE(dots$show_boxes)
-  if ("box" %in% names(dots)) bbox <- isTRUE(dots$box)
-  if ("boxes" %in% names(dots)) bbox <- isTRUE(dots$boxes)
-  if ("bbox" %in% names(dots)) bbox <- isTRUE(dots$bbox)
-  bbox <- isTRUE(bbox)
+  if (is.null(show_box)) {
+    if ("show_boxes" %in% names(dots)) {
+      show_box <- isTRUE(dots$show_boxes)
+    } else {
+      show_box <- isTRUE(bbox)
+    }
+  } else {
+    show_box <- isTRUE(show_box)
+  }
+  if ("box" %in% names(dots)) show_box <- isTRUE(dots$box)
+  if ("boxes" %in% names(dots)) show_box <- isTRUE(dots$boxes)
+  if ("bbox" %in% names(dots)) show_box <- isTRUE(dots$bbox)
+  if ("show_box" %in% names(dots)) show_box <- isTRUE(dots$show_box)
+  bbox <- isTRUE(show_box)
 
   if ("show_point" %in% names(dots)) show_point <- isTRUE(dots$show_point)
   if ("show_points" %in% names(dots)) show_point <- isTRUE(dots$show_points)
@@ -9012,13 +9049,42 @@ video_detect_dl <- function(video = 0,
       }
     }
     # Inference resolution (imgsz)
+    model_shape_info <- tryCatch(
+      get_onnx_model_io_shape_cpp(model_file, lib_path),
+      error = function(e) list(dynamic = TRUE, expected_w = 640L, expected_h = 640L)
+    )
     target_size <- if (!is.null(imgsz)) {
       as.integer(imgsz[1])
     } else {
       model_imgsz <- .get_onnx_imgsz(model_file)
-      if (!is.null(model_imgsz) && length(model_imgsz) > 0L) as.integer(model_imgsz[1]) else 640L
+      if (!is.null(model_imgsz) && length(model_imgsz) > 0L) as.integer(model_imgsz[1]) else model_shape_info$expected_w
     }
     if (is.na(target_size) || target_size <= 0L) target_size <- 640L
+
+    if (!isTRUE(model_shape_info$dynamic) && target_size != model_shape_info$expected_w) {
+      cand_pt <- file.path(dirname(model_file), "best.pt")
+      if (!file.exists(cand_pt)) cand_pt <- sub("\\.onnx$", ".pt", model_file)
+      reexported <- FALSE
+      if (file.exists(cand_pt)) {
+        cli::cli_alert_info("Model {.file {basename(model_file)}} has fixed static input shape ({model_shape_info$expected_w}x{model_shape_info$expected_h}). Auto-upgrading to dynamic ONNX via {.file {basename(cand_pt)}}...")
+        tryCatch({
+          new_ox <- yolo_export(cand_pt, output_dir = dirname(model_file), output_name = basename(model_file), dynamic = TRUE, auto_install = FALSE)
+          if (file.exists(new_ox)) {
+            model_file <- new_ox
+            reexported <- TRUE
+            cli::cli_alert_success("Model upgraded to dynamic ONNX: now supports any imgsz (e.g., {target_size})!")
+          }
+        }, error = function(e) NULL)
+      }
+      if (!reexported) {
+        cli::cli_alert_warning(c(
+          "!" = "Model {.file {basename(model_file)}} has fixed static input resolution of {model_shape_info$expected_w}x{model_shape_info$expected_h}.",
+          "i" = "Requested {.code imgsz = {target_size}} cannot be applied to a static model. Automatically using native resolution ({model_shape_info$expected_w}).",
+          ">" = "To enable dynamic multi-resolution inference, export with: {.code yolo_export(model, dynamic = TRUE)}"
+        ))
+        target_size <- model_shape_info$expected_w
+      }
+    }
   } else {
     model_file <- "None"
     class_names <- character(0)
@@ -9663,7 +9729,7 @@ video_detect_dl <- function(video = 0,
             kpt_threshold = as.numeric(kpt_threshold),
             kpt_radius = as.integer(kpt_radius),
             draw_skeleton = isTRUE(skeleton),
-            draw_boxes = isTRUE(bbox),
+            draw_boxes = isTRUE(show_box),
             track_ids = track_ids_pass,
             flash = flash_pass,
             history_x = history_x_pass,
@@ -10402,7 +10468,7 @@ video_detect_dl <- function(video = 0,
             kpt_threshold = as.numeric(kpt_threshold),
             kpt_radius = as.integer(kpt_radius),
             draw_skeleton = isTRUE(skeleton),
-            draw_boxes = isTRUE(bbox),
+            draw_boxes = isTRUE(show_box),
             track_ids = track_ids_pass,
             flash = flash_pass,
             history_x = history_x_pass,

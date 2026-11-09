@@ -7107,7 +7107,7 @@ yolo_train <- function(data = "yolo_dataset",
     "                    if checkpoint_onnx:\n",
     "                        try:\n",
     "                            ckpt_m = YOLO(f_best)\n",
-    "                            ckpt_m.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=False)\n",
+    "                            ckpt_m.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=True)\n",
     "                            src_ox = os.path.splitext(f_best)[0] + '.onnx'\n",
     "                            if os.path.isfile(src_ox):\n",
     "                                shutil.copy2(src_ox, os.path.join(cw_dir, 'best.onnx'))\n",
@@ -7154,10 +7154,10 @@ yolo_train <- function(data = "yolo_dataset",
     "    best_pt = r'", run_dir_norm, "/train_run/weights/best.pt'\n",
     "    best_model = YOLO(best_pt)\n",
     "    try:\n",
-    "        exported_path = best_model.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=False)\n",
+    "        exported_path = best_model.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=True)\n",
     "    except Exception as e:\n",
     "        print(f'Standard export notice: {e}. Retrying with opset=17...')\n",
-    "        exported_path = best_model.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=False, opset=17)\n\n",
+    "        exported_path = best_model.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=True, opset=17)\n\n",
     "    import csv, os, numpy as np\n",
     "    from pathlib import Path\n",
     "    target_dir = r'", run_dir_norm, "/train_run'\n",
@@ -9445,7 +9445,7 @@ yolo_checkpoint_recover <- function(path = NULL,
         export_py <- paste0(
           "from ultralytics import YOLO\n",
           "model = YOLO(r'", normalizePath(model_to_export, winslash = "/", mustWork = FALSE), "')\n",
-          "model.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=False)\n"
+          "model.export(format='onnx', imgsz=", as.integer(imgsz), ", dynamic=True)\n"
         )
         t_py <- file.path(tempdir(), "temp_recover_export.py")
         writeLines(export_py, t_py)
