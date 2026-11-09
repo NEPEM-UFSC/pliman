@@ -3878,31 +3878,16 @@ image_remove_bg_dl <- function(img,
     th <- abs(graphics::strheight("Ag", units = "user", cex = cex_val, font = 2))
     if (th <= 0) th <- abs(graphics::strheight(lbl_txt, units = "user", cex = cex_val, font = 2))
 
-    # Calculate character-proportional width to prevent oversized badges across different devices/DPI
-    chars <- strsplit(lbl_txt, "")[[1]]
-    char_weights <- vapply(chars, function(ch) {
-      if (ch %in% c(" ", ".", ",", ":", ";", "!", "|", "'", "\"", "`", "(", ")", "[", "]", "{", "}", "/", "\\", "-")) {
-        0.28
-      } else if (ch %in% c("i", "l", "t", "r", "f", "j", "I", "1")) {
-        0.35
-      } else if (ch %in% c("#", "@", "%", "&", "m", "w", "M", "W")) {
-        0.75
-      } else if (grepl("[A-Z]", ch)) {
-        0.60
-      } else if (grepl("[0-9]", ch)) {
-        0.54
-      } else {
-        0.50
-      }
-    }, numeric(1))
-    approx_tw <- sum(char_weights) * th
+    # Accurate text width using graphics::strwidth with fallback
+    tw <- if (raw_tw > 0) raw_tw else abs(graphics::strwidth(lbl_txt, units = "user", cex = cex_val))
+    if (tw <= 0) {
+      tw <- nchar(lbl_txt) * th * 0.55
+    }
 
-    # Snug fit: adapt tightly to text width without oversized trailing background
-    tw <- if (raw_tw > 0 && approx_tw > 0) min(raw_tw, approx_tw * 1.08) else max(raw_tw, approx_tw)
-    pad_x <- th * 0.18 * pad_mult_x
-    pad_y <- th * 0.12 * pad_mult_y
+    pad_x <- th * 0.25 * pad_mult_x
+    pad_y <- th * 0.15 * pad_mult_y
 
-    badge_w <- tw + 5 * pad_x
+    badge_w <- tw + 2 * pad_x
     badge_h <- th + 2 * pad_y
 
     # Text contrast color (black on bright badges, white on dark badges)
@@ -5311,7 +5296,7 @@ image_remove_bg_dl <- function(img,
     target_size = as.integer(target_size)
   )
 
-  if (isTRUE(need_masks) && (is.null(raw_res$labels) || !is.matrix(raw_res$labels) || nrow(raw_res$labels) == 0L || ncol(raw_res$labels) == 0L)) {
+  if (isTRUE(need_masks) && !isTRUE(raw_res$is_seg) && (is.null(raw_res$labels) || !is.matrix(raw_res$labels) || nrow(raw_res$labels) == 0L || ncol(raw_res$labels) == 0L)) {
     seg_suggestion <- sub("(\\.(onnx|pt))?$", "-seg\\1", basename(model))
     if (!grepl("-seg", seg_suggestion)) seg_suggestion <- paste0(sub("\\.(onnx|pt)$", "", basename(model)), "-seg")
     cli::cli_abort(c(
@@ -5443,7 +5428,9 @@ image_remove_bg_dl <- function(img,
     as_image(lbl_mat, colormode = "Grayscale", storage = "integer")
   } else NULL
 
-  contornos <- if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && any(lbl_mat > 0L)) contour(labels_img) else list()
+  contornos <- if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && any(lbl_mat > 0L)) {
+    extract_contours_cpp(lbl_mat)
+  } else list()
   if (is.list(contornos)) {
     contornos <- contornos[!vapply(contornos, is.null, logical(1))]
   }
@@ -6017,14 +6004,15 @@ plot_yolo_heatmap <- function(img,
 
   if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
     lbl_mat <- image_data(gs_res$labels)
-    new_lbl <- matrix(0L, nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
-    for (k in seq_along(keep_idx)) {
-      orig_id <- keep_idx[k]
-      new_lbl[lbl_mat == orig_id] <- as.integer(k)
-    }
-    gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
-    if (!is.null(gs_res$mask)) {
-      gs_res$mask <- as_image(new_lbl > 0L)
+    max_id <- max(lbl_mat)
+    if (max_id > 0L) {
+      lut <- integer(max_id + 1L)
+      lut[keep_idx + 1L] <- seq_along(keep_idx)
+      new_lbl <- matrix(lut[lbl_mat + 1L], nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
+      gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
+      if (!is.null(gs_res$mask)) {
+        gs_res$mask <- as_image(new_lbl > 0L)
+      }
     }
   }
 
@@ -6721,13 +6709,15 @@ image_segment_dl <- function(img,
         }
         if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
           lbl_mat <- image_data(gs_res$labels)
-          new_lbl <- matrix(0L, nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
-          for (k in seq_along(idx_keep)) {
-            new_lbl[lbl_mat == idx_keep[k]] <- as.integer(k)
-          }
-          gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
-          if (!is.null(gs_res$mask)) {
-            gs_res$mask <- as_image(new_lbl > 0L)
+          max_id <- max(lbl_mat)
+          if (max_id > 0L) {
+            lut <- integer(max_id + 1L)
+            lut[idx_keep + 1L] <- seq_along(idx_keep)
+            new_lbl <- matrix(lut[lbl_mat + 1L], nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
+            gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
+            if (!is.null(gs_res$mask)) {
+              gs_res$mask <- as_image(new_lbl > 0L)
+            }
           }
         }
         if (nrow(gs_res$boxes) > 0) {
@@ -6991,65 +6981,47 @@ image_segment_dl <- function(img,
       has_boxes <- !is.null(gs_res$boxes) && is.data.frame(gs_res$boxes) &&
                    nrow(gs_res$boxes) == num_inst && all(c("xmin", "ymin", "xmax", "ymax") %in% names(gs_res$boxes))
 
-      if (isTRUE(mask) && !is.null(gs_res$labels) && num_inst > 0) {
+      if (!is.null(gs_res$contours) && length(gs_res$contours) == num_inst) {
+        conts_all <- gs_res$contours
+      } else if (isTRUE(mask) && !is.null(gs_res$labels) && num_inst > 0) {
         lbl_mat <- image_data(gs_res$labels)
         if (is.matrix(lbl_mat) && nrow(lbl_mat) == orig_w && ncol(lbl_mat) == orig_h) {
-          crop_pad <- 2L
-          for (k in seq_len(num_inst)) {
-            if (has_boxes) {
-              bx <- gs_res$boxes[k, ]
-              x1 <- max(1L, floor(bx$xmin) - crop_pad)
-              x2 <- min(orig_w, ceiling(bx$xmax) + crop_pad)
-              y1 <- max(1L, floor(bx$ymin) - crop_pad)
-              y2 <- min(orig_h, ceiling(bx$ymax) + crop_pad)
-              sub_lbl <- lbl_mat[x1:x2, y1:y2, drop = FALSE]
-              sub_m <- (sub_lbl == k)
-              if (!any(sub_m)) next
-              lbls <- bwlabel_cpp(sub_m)
-              conts <- list()
-              if (max(lbls) > 0) {
-                conts <- contour(lbls)
-                for (ci in seq_along(conts)) {
-                  if (is.matrix(conts[[ci]])) {
-                    conts[[ci]][, 1] <- conts[[ci]][, 1] + (x1 - 1L)
-                    conts[[ci]][, 2] <- conts[[ci]][, 2] + (y1 - 1L)
-                  }
-                }
-              }
-            } else {
-              inst_m <- (lbl_mat == k)
-              if (!any(inst_m)) next
-              lbls <- bwlabel_cpp(inst_m)
-              conts <- if (max(lbls) > 0) contour(lbls) else list()
-            }
-            conts_all[[k]] <- conts
-          }
+          conts_all <- extract_contours_cpp(lbl_mat)
         }
       }
 
-      # Compute instance centroids using poly_mass (center of mass)
+      instance_conts <- vector("list", num_inst)
+      for (k in seq_len(num_inst)) {
+        ck <- conts_all[[k]]
+        if (is.matrix(ck) && nrow(ck) >= 3L) {
+          instance_conts[[k]] <- ck
+        } else if (is.list(ck) && length(ck) > 0L) {
+          pt_counts <- vapply(ck, function(m) if (is.matrix(m)) nrow(m) else 0L, integer(1))
+          instance_conts[[k]] <- ck[[which.max(pt_counts)]]
+        } else if (has_boxes && k <= nrow(gs_res$boxes)) {
+          bx <- gs_res$boxes[k, ]
+          instance_conts[[k]] <- matrix(c(bx$xmin, bx$xmax, bx$xmax, bx$xmin, bx$ymin, bx$ymin, bx$ymax, bx$ymax), ncol = 2)
+        }
+      }
+
+      feats <- if (length(instance_conts) > 0) {
+        tryCatch(poly_measures(instance_conts), error = function(e) data.frame())
+      } else {
+        data.frame()
+      }
+
       cx <- numeric(num_inst)
       cy <- numeric(num_inst)
-      for (k in seq_len(num_inst)) {
-        conts_k <- conts_all[[k]]
-        pm <- NULL
-        if (is.list(conts_k) && length(conts_k) > 0L) {
-          pt_counts <- vapply(conts_k, function(p) if (is.matrix(p)) nrow(p) else 0L, integer(1))
-          if (max(pt_counts) >= 3L) {
-            main_p <- conts_k[[which.max(pt_counts)]]
-            pm <- tryCatch(poly_mass(main_p), error = function(e) NULL)
-          }
-        }
-        if (!is.null(pm) && is.matrix(pm) && nrow(pm) >= 1L && is.finite(pm[1, "x"]) && is.finite(pm[1, "y"])) {
-          cx[k] <- pm[1, "x"]
-          cy[k] <- pm[1, "y"]
-        } else if (has_boxes && k <= nrow(gs_res$boxes)) {
-          cx[k] <- (gs_res$boxes$xmin[k] + gs_res$boxes$xmax[k]) / 2
-          cy[k] <- (gs_res$boxes$ymin[k] + gs_res$boxes$ymax[k]) / 2
-        } else {
-          cx[k] <- 0
-          cy[k] <- 0
-        }
+      if (is.data.frame(feats) && nrow(feats) == num_inst && all(c("mass_x", "mass_y") %in% names(feats))) {
+        cx <- feats$mass_x
+        cy <- feats$mass_y
+      } else if (is.data.frame(feats) && nrow(feats) > 0L && "id" %in% names(feats) && all(c("mass_x", "mass_y") %in% names(feats))) {
+        m_idx <- match(seq_len(num_inst), feats$id)
+        cx <- ifelse(!is.na(m_idx), feats$mass_x[m_idx], if (has_boxes) (gs_res$boxes$xmin + gs_res$boxes$xmax) / 2 else 0)
+        cy <- ifelse(!is.na(m_idx), feats$mass_y[m_idx], if (has_boxes) (gs_res$boxes$ymin + gs_res$boxes$ymax) / 2 else 0)
+      } else if (has_boxes) {
+        cx <- (gs_res$boxes$xmin + gs_res$boxes$xmax) / 2
+        cy <- (gs_res$boxes$ymin + gs_res$boxes$ymax) / 2
       }
 
       if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
@@ -7086,7 +7058,7 @@ image_segment_dl <- function(img,
               poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha)
               cur_border <- if (is.na(border)) NA else k_col
 
-              for (p in conts) {
+              for (p in (if (is.matrix(conts)) list(conts) else conts)) {
                 if (is.matrix(p) && nrow(p) >= 3) {
                   p_plot <- .decimate_poly(p)
                   graphics::polygon(p_plot[, 1], p_plot[, 2], col = poly_col, border = cur_border, lwd = lwd)
@@ -7125,32 +7097,6 @@ image_segment_dl <- function(img,
       }
       if (isTRUE(verbose)) {
         .print_detection_summary(gs_res$summary, title = sum_title)
-      }
-      instance_conts <- vector("list", num_inst)
-      for (k in seq_len(num_inst)) {
-        ck <- conts_all[[k]]
-        if (is.list(ck) && length(ck) > 0L) {
-          pt_counts <- vapply(ck, function(m) if (is.matrix(m)) nrow(m) else 0L, integer(1))
-          instance_conts[[k]] <- ck[[which.max(pt_counts)]]
-        } else if (is.matrix(ck) && nrow(ck) >= 3L) {
-          instance_conts[[k]] <- ck
-        } else {
-          if (has_boxes) {
-            bx <- gs_res$boxes[k, ]
-            instance_conts[[k]] <- matrix(c(bx$xmin, bx$xmax, bx$xmax, bx$xmin, bx$ymin, bx$ymin, bx$ymax, bx$ymax), ncol = 2)
-          } else {
-            instance_conts[[k]] <- NULL
-          }
-        }
-      }
-      feats <- if (length(instance_conts) > 0) {
-        tryCatch(poly_measures(instance_conts), error = function(e) data.frame())
-      } else {
-        data.frame()
-      }
-      if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
-        gs_res$boxes$cx <- round(cx, 1)
-        gs_res$boxes$cy <- round(cy, 1)
       }
       res_df <- if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) > 0) {
         bx <- gs_res$boxes

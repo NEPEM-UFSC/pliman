@@ -3850,7 +3850,7 @@ Rcpp::List run_yolo_cpp(
   }
 
   if ((need_masks || return_features) && is_seg) {
-    if (need_masks && num_kept > 0) {
+    if (need_masks) {
       labels = Rcpp::IntegerMatrix(ow, oh);
       mask = Rcpp::LogicalMatrix(ow, oh);
     }
@@ -3936,6 +3936,10 @@ Rcpp::List run_yolo_cpp(
     }
 
     if (num_kept > 0) {
+      int* lbl_ptr = (need_masks && labels.size() > 0) ? INTEGER(labels) : NULL;
+      int* mask_ptr = (need_masks && mask.size() > 0) ? LOGICAL(mask) : NULL;
+      double* hm_ptr = (return_features && heatmap_mat.size() > 0) ? REAL(heatmap_mat) : NULL;
+
       for (int i = 0; i < num_kept; ++i) {
         if (kept[i].mask_coeffs.empty()) continue;
         int ox1 = std::max(0, (int)std::floor(boxes(i, 0)));
@@ -3950,12 +3954,33 @@ Rcpp::List run_yolo_cpp(
           float coeff = kept[i].mask_coeffs[m];
           if (std::abs(coeff) < 1e-7f) continue;
           const float* p_plane = proto_data + (size_t)m * proto_plane;
+          #pragma omp simd
           for (size_t p = 0; p < proto_plane; ++p) {
             inst_proto[p] += coeff * p_plane[p];
           }
         }
 
-        // 2. High-resolution continuous bilinear interpolation on the original image grid
+        // Precompute continuous bilinear x-sampling LUT for this bounding box
+        int span_x = ox2 - ox1 + 1;
+        std::vector<int> cx0_tab(span_x);
+        std::vector<int> cx1_tab(span_x);
+        std::vector<float> wx_tab(span_x);
+        for (int k = 0; k < span_x; ++k) {
+          int ox = ox1 + k;
+          float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
+          float proto_x = (can_x * scale_proto_x) - 0.5f;
+          int x0 = (int)std::floor(proto_x);
+          int x1 = x0 + 1;
+          wx_tab[k] = proto_x - (float)x0;
+          cx0_tab[k] = std::max(0, std::min(proto_w - 1, x0));
+          cx1_tab[k] = std::max(0, std::min(proto_w - 1, x1));
+        }
+
+        int inst_label = i + 1;
+        float inst_score = kept[i].score;
+
+        // 2. High-speed multi-threaded continuous bilinear interpolation on the original image grid
+        #pragma omp parallel for schedule(dynamic, 8) if(oy2 - oy1 > 16)
         for (int oy = oy1; oy <= oy2; ++oy) {
           float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
           float proto_y = (can_y * scale_proto_y) - 0.5f;
@@ -3965,35 +3990,39 @@ Rcpp::List run_yolo_cpp(
           int cy0 = std::max(0, std::min(proto_h - 1, y0));
           int cy1 = std::max(0, std::min(proto_h - 1, y1));
 
-          for (int ox = ox1; ox <= ox2; ++ox) {
-            float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
-            float proto_x = (can_x * scale_proto_x) - 0.5f;
-            int x0 = (int)std::floor(proto_x);
-            int x1 = x0 + 1;
-            float wx = proto_x - (float)x0;
-            int cx0 = std::max(0, std::min(proto_w - 1, x0));
-            int cx1 = std::max(0, std::min(proto_w - 1, x1));
+          const float* row0 = inst_proto.data() + (size_t)cy0 * proto_w;
+          const float* row1 = inst_proto.data() + (size_t)cy1 * proto_w;
+          float one_minus_wy = 1.0f - wy;
+          size_t row_offset = (size_t)oy * ow;
 
-            float v00 = inst_proto[(size_t)cy0 * proto_w + cx0];
-            float v10 = inst_proto[(size_t)cy0 * proto_w + cx1];
-            float v01 = inst_proto[(size_t)cy1 * proto_w + cx0];
-            float v11 = inst_proto[(size_t)cy1 * proto_w + cx1];
+          for (int k = 0; k < span_x; ++k) {
+            int ox = ox1 + k;
+            int cx0 = cx0_tab[k];
+            int cx1 = cx1_tab[k];
+            float wx = wx_tab[k];
 
-            float val = (1.0f - wx) * (1.0f - wy) * v00 +
-                        wx * (1.0f - wy) * v10 +
+            float v00 = row0[cx0];
+            float v10 = row0[cx1];
+            float v01 = row1[cx0];
+            float v11 = row1[cx1];
+
+            float val = (1.0f - wx) * one_minus_wy * v00 +
+                        wx * one_minus_wy * v10 +
                         (1.0f - wx) * wy * v01 +
                         wx * wy * v11;
 
-            if (need_masks && val > 0.0f) {
-              labels(ox, oy) = i + 1;
-              mask(ox, oy) = true;
+            if (need_masks && lbl_ptr && val > 0.0f) {
+              size_t pixel_idx = row_offset + ox;
+              lbl_ptr[pixel_idx] = inst_label;
+              if (mask_ptr) mask_ptr[pixel_idx] = 1;
             }
 
-            if (return_features) {
+            if (return_features && hm_ptr) {
               float prob = 1.0f / (1.0f + std::exp(-val));
-              double act = (double)(prob * kept[i].score);
-              if (act > heatmap_mat(ox, oy)) {
-                heatmap_mat(ox, oy) = act;
+              double act = (double)(prob * inst_score);
+              size_t pixel_idx = row_offset + ox;
+              if (act > hm_ptr[pixel_idx]) {
+                hm_ptr[pixel_idx] = act;
               }
             }
           }
@@ -4055,6 +4084,7 @@ Rcpp::List run_yolo_cpp(
     Rcpp::Named("corners") = is_obb ? Rcpp::wrap(corners_mat) : R_NilValue,
     Rcpp::Named("labels") = need_masks ? Rcpp::wrap(labels) : R_NilValue,
     Rcpp::Named("mask") = need_masks ? Rcpp::wrap(mask) : R_NilValue,
+    Rcpp::Named("is_seg") = is_seg,
     Rcpp::Named("keypoints") = keypoints_mat,
     Rcpp::Named("heatmap") = return_features ? Rcpp::wrap(heatmap_mat) : R_NilValue,
     Rcpp::Named("feature_energy") = (return_features && is_seg) ? Rcpp::wrap(energy_mat) : R_NilValue,

@@ -260,6 +260,13 @@
 #' @param crop_to_objects Logical. If `TRUE`, crops the image to the bounding box containing all detected objects plus a margin (default: `FALSE`).
 #' @param crop_margin Numeric. Margin fraction added around the object bounding box when `crop_to_objects = TRUE` (default: `0.05`, i.e., 5%).
 #' @param box_margin Safety margin (padding proportion) added around detected bounding boxes before segmenting with Meta SAM 2.1 (e.g. `0.05` expands 5% on each side). Prevents masks from cutting off object borders. Defaults to `0.05` (5%).
+#' @param sahi Logical. If `TRUE`, applies Slicing-Aided Hyper Inference (SAHI) during YOLO pre-labeling,
+#'   dividing high-resolution images into overlapping slices to detect small and crowded objects with high precision. Defaults to `FALSE`.
+#' @param slice_height,slice_width Integer dimensions (in pixels) for SAHI slices. Defaults to `640`.
+#' @param overlap_height_ratio,overlap_width_ratio Overlap ratio between adjacent slices along height and width. Defaults to `0.20` (20%).
+#' @param match_metric Match metric used for merging slice predictions across boundaries: `"IOS"` (Intersection over Smaller, default) or `"IOU"`.
+#' @param match_threshold Threshold for match metric to merge overlapping slice predictions. Defaults to `0.50`.
+#' @param full_image_inference Logical. If `TRUE` (default), runs an additional full-image inference pass alongside slice predictions to ensure large objects spanning across multiple slices are captured.
 #' @param show_similarity Logical. If `TRUE`, displays a side-by-side 2-panel preview showing the detected
 #'   objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidencia") on the right. Defaults to `FALSE`.
 #' @param split_ratio Numeric vector of length 3 for `c(train, val, test)` split.
@@ -367,6 +374,14 @@ yolo_dataset_export <- function(img,
                                 crop_to_objects = FALSE,
                                 crop_margin = 0.05,
                                 box_margin = 0.05,
+                                sahi = FALSE,
+                                slice_height = 640,
+                                slice_width = 640,
+                                overlap_height_ratio = 0.20,
+                                overlap_width_ratio = 0.20,
+                                match_metric = c("IOS", "IOU"),
+                                match_threshold = 0.50,
+                                full_image_inference = TRUE,
                                 lower_size = NULL,
                                 upper_size = NULL,
                                 size_mode = c("relative", "absolute"),
@@ -419,6 +434,15 @@ yolo_dataset_export <- function(img,
   }
   if ("box_margin" %in% names(dots)) box_margin <- as.numeric(dots$box_margin[1])
   if ("margin" %in% names(dots)) box_margin <- as.numeric(dots$margin[1])
+  if ("sahi" %in% names(dots)) sahi <- isTRUE(dots$sahi)
+  if ("slice_height" %in% names(dots)) slice_height <- as.integer(dots$slice_height[1])
+  if ("slice_width" %in% names(dots)) slice_width <- as.integer(dots$slice_width[1])
+  if ("overlap_height_ratio" %in% names(dots)) overlap_height_ratio <- as.numeric(dots$overlap_height_ratio[1])
+  if ("overlap_width_ratio" %in% names(dots)) overlap_width_ratio <- as.numeric(dots$overlap_width_ratio[1])
+  match_metric <- match.arg(match_metric)
+  if ("match_metric" %in% names(dots)) match_metric <- dots$match_metric[1]
+  if ("match_threshold" %in% names(dots)) match_threshold <- as.numeric(dots$match_threshold[1])
+  if ("full_image_inference" %in% names(dots)) full_image_inference <- isTRUE(dots$full_image_inference)
   dilate_val <- if ("dilate" %in% names(dots)) as.integer(dots$dilate[1]) else 0L
   erode_val  <- if ("erode" %in% names(dots)) as.integer(dots$erode[1]) else 0L
   if ("lower_size" %in% names(dots)) lower_size <- dots$lower_size
@@ -433,7 +457,8 @@ yolo_dataset_export <- function(img,
     "train_prop", "show_labels", "show_scores", "show_class", "show_conf", "label_box",
     "crop_to_objects", "crop_margin", "box_margin", "margin", "show_bbox", "bbox", "show_boxes",
     "show_polygon", "polygon", "show_points", "points", "point", "show_point", "labels",
-    "lower_size", "upper_size", "size_mode"
+    "lower_size", "upper_size", "size_mode", "sahi", "slice_height", "slice_width",
+    "overlap_height_ratio", "overlap_width_ratio", "match_metric", "match_threshold", "full_image_inference"
   ))]
   split_ratio <- as.numeric(split_ratio)
   if (length(split_ratio) == 1L) {
@@ -1020,41 +1045,90 @@ yolo_dataset_export <- function(img,
     } else if (is_yolo) {
       if (identical(task, "detect")) {
         pad_val <- if (is.numeric(box_margin) && length(box_margin) >= 1L && !is.na(box_margin[1]) && box_margin[1] > 0) box_margin[1] else 0
-        y_res <- image_detect_dl(
-          curr_img,
-          model = model[1],
-          conf_threshold = box_threshold,
-          iou_threshold = iou_threshold,
-          pad = pad_val,
-          plot = FALSE,
-          verbose = FALSE,
-          engine = engine,
-          device_id = device_id
-        )
+        if (isTRUE(sahi)) {
+          y_res <- image_detect_sahi(
+            curr_img,
+            model = model[1],
+            slice_height = slice_height,
+            slice_width = slice_width,
+            overlap_height_ratio = overlap_height_ratio,
+            overlap_width_ratio = overlap_width_ratio,
+            conf_threshold = box_threshold,
+            iou_threshold = iou_threshold,
+            match_metric = match_metric,
+            match_threshold = match_threshold,
+            full_image_inference = full_image_inference,
+            pad = pad_val,
+            plot = FALSE,
+            verbose = FALSE,
+            engine = engine,
+            device_id = device_id
+          )
+        } else {
+          y_res <- image_detect_dl(
+            curr_img,
+            model = model[1],
+            conf_threshold = box_threshold,
+            iou_threshold = iou_threshold,
+            pad = pad_val,
+            plot = FALSE,
+            verbose = FALSE,
+            engine = engine,
+            device_id = device_id
+          )
+        }
         bx_df <- as.data.frame(y_res)
       } else {
         # Task is segment!
         is_seg_model <- grepl("[-_]seg", tolower(model[1]))
         y_res <- NULL
         if (is_seg_model) {
-          y_res <- tryCatch(
-            image_segment_dl(
-              curr_img,
-              model = model[1],
-              type = "highlight",
-              box_threshold = box_threshold,
-              iou_threshold = iou_threshold,
-              plot = FALSE,
-              verbose = FALSE,
-              engine = engine,
-              device_id = device_id
-            ),
-            error = function(e) NULL
-          )
+          y_res <- tryCatch({
+            if (isTRUE(sahi)) {
+              image_segment_sahi(
+                curr_img,
+                model = model[1],
+                slice_height = slice_height,
+                slice_width = slice_width,
+                overlap_height_ratio = overlap_height_ratio,
+                overlap_width_ratio = overlap_width_ratio,
+                conf_threshold = box_threshold,
+                iou_threshold = iou_threshold,
+                match_metric = match_metric,
+                match_threshold = match_threshold,
+                full_image_inference = full_image_inference,
+                type = "highlight",
+                plot = FALSE,
+                verbose = FALSE,
+                engine = engine,
+                device_id = device_id
+              )
+            } else {
+              image_segment_dl(
+                curr_img,
+                model = model[1],
+                type = "highlight",
+                box_threshold = box_threshold,
+                iou_threshold = iou_threshold,
+                plot = FALSE,
+                verbose = FALSE,
+                engine = engine,
+                device_id = device_id
+              )
+            }
+          }, error = function(e) NULL)
         }
-        if (!is.null(y_res) && !is.null(y_res$contours) && length(y_res$contours) > 0L) {
-          bx_df <- if (!is.null(y_res$results)) as.data.frame(y_res$results) else if (!is.null(y_res$boxes)) as.data.frame(y_res$boxes) else data.frame()
-          conts_list <- y_res$contours
+        conts_cand <- if (!is.null(y_res)) {
+          if (!is.null(y_res$contours) && length(y_res$contours) > 0L) {
+            y_res$contours
+          } else if (!is.null(attr(y_res, "contours")) && length(attr(y_res, "contours")) > 0L) {
+            attr(y_res, "contours")
+          } else list()
+        } else list()
+
+        if (length(conts_cand) > 0L) {
+          bx_df <- if (!is.null(y_res$results)) as.data.frame(y_res$results) else if (!is.null(y_res$boxes)) as.data.frame(y_res$boxes) else as.data.frame(y_res)
+          conts_list <- conts_cand
         } else {
           # Model is a detection model (or custom detection weights).
           # Automatically run object detection + Meta SAM 2.1 polygon refinement!
@@ -1062,18 +1136,39 @@ yolo_dataset_export <- function(img,
             bm_info <- if (is.numeric(box_margin) && box_margin[1] > 0) {
               paste0(" (margin: ", round(box_margin[1] * (if (box_margin[1] <= 1) 100 else 1)), "%)")
             } else ""
-            cli::cli_alert_info("YOLO detection model detected with {.code task = 'segment'}. Automatically activating {.strong Meta SAM 2.1} to segment bounding boxes into polygon masks{bm_info}!")
+            sahi_info <- if (isTRUE(sahi)) " with SAHI" else ""
+            cli::cli_alert_info("YOLO detection model detected with {.code task = 'segment'}. Automatically activating {.strong Meta SAM 2.1} to segment bounding boxes{sahi_info} into polygon masks{bm_info}!")
           }
-          det_res <- image_detect_dl(
-            curr_img,
-            model = model[1],
-            conf_threshold = box_threshold,
-            iou_threshold = iou_threshold,
-            plot = FALSE,
-            verbose = FALSE,
-            engine = engine,
-            device_id = device_id
-          )
+          if (isTRUE(sahi)) {
+            det_res <- image_detect_sahi(
+              curr_img,
+              model = model[1],
+              slice_height = slice_height,
+              slice_width = slice_width,
+              overlap_height_ratio = overlap_height_ratio,
+              overlap_width_ratio = overlap_width_ratio,
+              conf_threshold = box_threshold,
+              iou_threshold = iou_threshold,
+              match_metric = match_metric,
+              match_threshold = match_threshold,
+              full_image_inference = full_image_inference,
+              plot = FALSE,
+              verbose = FALSE,
+              engine = engine,
+              device_id = device_id
+            )
+          } else {
+            det_res <- image_detect_dl(
+              curr_img,
+              model = model[1],
+              conf_threshold = box_threshold,
+              iou_threshold = iou_threshold,
+              plot = FALSE,
+              verbose = FALSE,
+              engine = engine,
+              device_id = device_id
+            )
+          }
           bx_df <- as.data.frame(det_res)
           if (!is.null(bx_df) && nrow(bx_df) > 0L) {
             sam_res <- .sam_segment_boxes(
@@ -2743,16 +2838,37 @@ yolo_dataset_edit <- function(dir = "yolo_dataset",
       } else if (is_yolo) {
         if (isTRUE(verbose)) cli::cli_alert_info("Running YOLO inference ({basename(model[1])}) on {.file {base_stem}}...")
         if (identical(task, "detect")) {
-          y_res <- image_detect_dl(
-            curr_img,
-            model = model[1],
-            conf_threshold = box_threshold,
-            iou_threshold = iou_threshold,
-            plot = FALSE,
-            verbose = FALSE,
-            engine = engine,
-            device_id = device_id
-          )
+          use_sahi <- isTRUE(dots$sahi)
+          if (use_sahi) {
+            y_res <- image_detect_sahi(
+              curr_img,
+              model = model[1],
+              slice_height = if (!is.null(dots$slice_height)) as.integer(dots$slice_height[1]) else 640L,
+              slice_width = if (!is.null(dots$slice_width)) as.integer(dots$slice_width[1]) else 640L,
+              overlap_height_ratio = if (!is.null(dots$overlap_height_ratio)) as.numeric(dots$overlap_height_ratio[1]) else 0.20,
+              overlap_width_ratio = if (!is.null(dots$overlap_width_ratio)) as.numeric(dots$overlap_width_ratio[1]) else 0.20,
+              conf_threshold = box_threshold,
+              iou_threshold = iou_threshold,
+              match_metric = if (!is.null(dots$match_metric)) dots$match_metric[1] else "IOS",
+              match_threshold = if (!is.null(dots$match_threshold)) as.numeric(dots$match_threshold[1]) else 0.50,
+              full_image_inference = if (!is.null(dots$full_image_inference)) isTRUE(dots$full_image_inference) else TRUE,
+              plot = FALSE,
+              verbose = FALSE,
+              engine = engine,
+              device_id = device_id
+            )
+          } else {
+            y_res <- image_detect_dl(
+              curr_img,
+              model = model[1],
+              conf_threshold = box_threshold,
+              iou_threshold = iou_threshold,
+              plot = FALSE,
+              verbose = FALSE,
+              engine = engine,
+              device_id = device_id
+            )
+          }
           df_y <- as.data.frame(y_res)
           if (nrow(df_y) > 0L) {
             pred_boxes <- data.frame(
@@ -2770,18 +2886,40 @@ yolo_dataset_edit <- function(dir = "yolo_dataset",
             )
           }
         } else {
-          y_res <- image_segment_dl(
-            curr_img,
-            model = model[1],
-            type = "highlight",
-            box_threshold = box_threshold,
-            iou_threshold = iou_threshold,
-            plot = FALSE,
-            verbose = FALSE,
-            engine = engine,
-            device_id = device_id
-          )
-          y_boxes <- if (!is.null(y_res$results)) y_res$results else y_res$boxes
+          use_sahi <- isTRUE(dots$sahi)
+          if (use_sahi) {
+            y_res <- image_segment_sahi(
+              curr_img,
+              model = model[1],
+              slice_height = if (!is.null(dots$slice_height)) as.integer(dots$slice_height[1]) else 640L,
+              slice_width = if (!is.null(dots$slice_width)) as.integer(dots$slice_width[1]) else 640L,
+              overlap_height_ratio = if (!is.null(dots$overlap_height_ratio)) as.numeric(dots$overlap_height_ratio[1]) else 0.20,
+              overlap_width_ratio = if (!is.null(dots$overlap_width_ratio)) as.numeric(dots$overlap_width_ratio[1]) else 0.20,
+              conf_threshold = box_threshold,
+              iou_threshold = iou_threshold,
+              match_metric = if (!is.null(dots$match_metric)) dots$match_metric[1] else "IOS",
+              match_threshold = if (!is.null(dots$match_threshold)) as.numeric(dots$match_threshold[1]) else 0.50,
+              full_image_inference = if (!is.null(dots$full_image_inference)) isTRUE(dots$full_image_inference) else TRUE,
+              type = "highlight",
+              plot = FALSE,
+              verbose = FALSE,
+              engine = engine,
+              device_id = device_id
+            )
+          } else {
+            y_res <- image_segment_dl(
+              curr_img,
+              model = model[1],
+              type = "highlight",
+              box_threshold = box_threshold,
+              iou_threshold = iou_threshold,
+              plot = FALSE,
+              verbose = FALSE,
+              engine = engine,
+              device_id = device_id
+            )
+          }
+          y_boxes <- if (!is.null(y_res$results)) y_res$results else if (!is.null(y_res$boxes)) y_res$boxes else as.data.frame(y_res)
           if (!is.null(y_boxes) && nrow(y_boxes) > 0L) {
             df_b <- as.data.frame(y_boxes)
             pred_boxes <- data.frame(
@@ -2797,7 +2935,7 @@ yolo_dataset_edit <- function(dir = "yolo_dataset",
               conf = if (!is.null(df_b$score)) round(as.numeric(df_b$score), 3) else 1.0,
               stringsAsFactors = FALSE
             )
-            pred_polys <- if (!is.null(y_res$contours)) y_res$contours else list()
+            pred_polys <- if (!is.null(y_res$contours)) y_res$contours else if (!is.null(attr(y_res, "contours"))) attr(y_res, "contours") else list()
           }
         }
       } else if (is_salient) {
