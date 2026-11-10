@@ -65,7 +65,7 @@
 #' @param det_thresh Pixel binarization threshold for DBNet detection. Default is \code{0.30}.
 #' @param box_thresh Bounding box confidence threshold. Default is \code{0.50}.
 #' @param unclip_ratio Polygon expansion ratio. Default is \code{1.30}.
-#' @param text_threshold CRAFT character threshold. Default is \code{0.70}.
+#' @param text_threshold CRAFT character threshold. Default is \code{0.50}.
 #' @param link_threshold CRAFT link threshold. Default is \code{0.40}.
 #' @param low_text CRAFT low text threshold. Default is \code{0.40}.
 #' @param engine Compute engine: \code{"gpu"} (default) or \code{"cpu"}.
@@ -133,7 +133,7 @@ image_rename_ocr <- function(dir = ".",
                              det_thresh = 0.30,
                              box_thresh = 0.50,
                              unclip_ratio = 1.30,
-                             text_threshold = 0.70,
+                             text_threshold = 0.50,
                              link_threshold = 0.40,
                              low_text = 0.40,
                              engine = c("gpu", "cpu"),
