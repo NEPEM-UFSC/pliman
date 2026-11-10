@@ -2595,6 +2595,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// remap_labels_cpp
+void remap_labels_cpp(Rcpp::IntegerMatrix labels, Rcpp::IntegerVector keep_ids);
+RcppExport SEXP _pliman_remap_labels_cpp(SEXP labelsSEXP, SEXP keep_idsSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::IntegerMatrix >::type labels(labelsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type keep_ids(keep_idsSEXP);
+    remap_labels_cpp(labels, keep_ids);
+    return R_NilValue;
+END_RCPP
+}
 // canny_edge_detector
 List canny_edge_detector(IntegerVector image, int X, int Y, double s, double low_thr, double high_thr, bool accGrad);
 RcppExport SEXP _pliman_canny_edge_detector(SEXP imageSEXP, SEXP XSEXP, SEXP YSEXP, SEXP sSEXP, SEXP low_thrSEXP, SEXP high_thrSEXP, SEXP accGradSEXP) {
@@ -3106,6 +3117,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_density_map_cpp", (DL_FUNC) &_pliman_run_density_map_cpp, 8},
     {"_pliman_run_ocr_det_cpp", (DL_FUNC) &_pliman_run_ocr_det_cpp, 8},
     {"_pliman_run_ocr_rec_cpp", (DL_FUNC) &_pliman_run_ocr_rec_cpp, 9},
+    {"_pliman_remap_labels_cpp", (DL_FUNC) &_pliman_remap_labels_cpp, 2},
     {"_pliman_canny_edge_detector", (DL_FUNC) &_pliman_canny_edge_detector, 7},
     {"_pliman_skeleton_mat_cpp", (DL_FUNC) &_pliman_skeleton_mat_cpp, 7},
     {"_pliman_analyze_root_system_cpp", (DL_FUNC) &_pliman_analyze_root_system_cpp, 15},

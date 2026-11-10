@@ -3852,7 +3852,6 @@ Rcpp::List run_yolo_cpp(
   if ((need_masks || return_features) && is_seg) {
     if (need_masks) {
       labels = Rcpp::IntegerMatrix(ow, oh);
-      mask = Rcpp::LogicalMatrix(ow, oh);
     }
     float* proto_data = NULL;
     (void)ort->GetTensorMutableData(out_tensors[1], (void**)&proto_data);
@@ -3937,7 +3936,6 @@ Rcpp::List run_yolo_cpp(
 
     if (num_kept > 0) {
       int* lbl_ptr = (need_masks && labels.size() > 0) ? INTEGER(labels) : NULL;
-      int* mask_ptr = (need_masks && mask.size() > 0) ? LOGICAL(mask) : NULL;
       double* hm_ptr = (return_features && heatmap_mat.size() > 0) ? REAL(heatmap_mat) : NULL;
 
       for (int i = 0; i < num_kept; ++i) {
@@ -3947,18 +3945,6 @@ Rcpp::List run_yolo_cpp(
         int ox2 = std::min(ow - 1, (int)std::ceil(boxes(i, 2)));
         int oy2 = std::min(oh - 1, (int)std::ceil(boxes(i, 3)));
         if (ox1 > ox2 || oy1 > oy2) continue;
-
-        // 1. Precompute linear combination of 32 prototype channels for instance i
-        std::vector<float> inst_proto(proto_plane, 0.0f);
-        for (int m = 0; m < 32; ++m) {
-          float coeff = kept[i].mask_coeffs[m];
-          if (std::abs(coeff) < 1e-7f) continue;
-          const float* p_plane = proto_data + (size_t)m * proto_plane;
-          #pragma omp simd
-          for (size_t p = 0; p < proto_plane; ++p) {
-            inst_proto[p] += coeff * p_plane[p];
-          }
-        }
 
         // Precompute continuous bilinear x-sampling LUT for this bounding box
         int span_x = ox2 - ox1 + 1;
@@ -3974,6 +3960,30 @@ Rcpp::List run_yolo_cpp(
           wx_tab[k] = proto_x - (float)x0;
           cx0_tab[k] = std::max(0, std::min(proto_w - 1, x0));
           cx1_tab[k] = std::max(0, std::min(proto_w - 1, x1));
+        }
+
+        // Compute prototype space bounding box [px_min..px_max, py_min..py_max]
+        int px_min = cx0_tab[0];
+        int px_max = cx1_tab[span_x - 1];
+        float py_start = ((((float)oy1 + 0.5f) * (float)gain + (float)pad_y) * scale_proto_y) - 0.5f;
+        float py_end   = ((((float)oy2 + 0.5f) * (float)gain + (float)pad_y) * scale_proto_y) - 0.5f;
+        int py_min = std::max(0, std::min(proto_h - 1, (int)std::floor(py_start)));
+        int py_max = std::max(0, std::min(proto_h - 1, (int)std::floor(py_end) + 1));
+
+        // 1. Precompute linear combination of 32 prototype channels ONLY within box [px_min..px_max, py_min..py_max]
+        std::vector<float> inst_proto(proto_plane, 0.0f);
+        for (int m = 0; m < 32; ++m) {
+          float coeff = kept[i].mask_coeffs[m];
+          if (std::abs(coeff) < 1e-7f) continue;
+          const float* p_plane = proto_data + (size_t)m * proto_plane;
+          for (int py = py_min; py <= py_max; ++py) {
+            float* dst_row = inst_proto.data() + (size_t)py * proto_w;
+            const float* src_row = p_plane + (size_t)py * proto_w;
+            #pragma omp simd
+            for (int px = px_min; px <= px_max; ++px) {
+              dst_row[px] += coeff * src_row[px];
+            }
+          }
         }
 
         int inst_label = i + 1;
@@ -4012,9 +4022,7 @@ Rcpp::List run_yolo_cpp(
                         wx * wy * v11;
 
             if (need_masks && lbl_ptr && val > 0.0f) {
-              size_t pixel_idx = row_offset + ox;
-              lbl_ptr[pixel_idx] = inst_label;
-              if (mask_ptr) mask_ptr[pixel_idx] = 1;
+              lbl_ptr[row_offset + ox] = inst_label;
             }
 
             if (return_features && hm_ptr) {
@@ -6061,6 +6069,29 @@ Rcpp::List run_ocr_rec_cpp(
   ort->ReleaseValue(out_tensor);
   return results;
 }
+
+// [[Rcpp::export]]
+void remap_labels_cpp(Rcpp::IntegerMatrix labels, Rcpp::IntegerVector keep_ids) {
+  int N = labels.nrow() * labels.ncol();
+  int* p = INTEGER(labels);
+  int max_keep = 0;
+  for (int i = 0; i < keep_ids.size(); ++i) {
+    if (keep_ids[i] > max_keep) max_keep = keep_ids[i];
+  }
+  std::vector<int> lut(max_keep + 1, 0);
+  for (int i = 0; i < keep_ids.size(); ++i) {
+    int id = keep_ids[i];
+    if (id > 0 && id <= max_keep) lut[id] = i + 1;
+  }
+  #pragma omp parallel for schedule(static) if(N > 50000)
+  for (int i = 0; i < N; ++i) {
+    int id = p[i];
+    if (id > 0) {
+      p[i] = (id <= max_keep) ? lut[id] : 0;
+    }
+  }
+}
+
 
 
 

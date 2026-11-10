@@ -953,6 +953,10 @@ run_ocr_rec_cpp <- function(crops_vec, batch_size, crop_w, crop_h, model_path, l
     .Call(`_pliman_run_ocr_rec_cpp`, crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
+remap_labels_cpp <- function(labels, keep_ids) {
+    invisible(.Call(`_pliman_remap_labels_cpp`, labels, keep_ids))
+}
+
 canny_edge_detector <- function(image, X, Y, s = 2, low_thr = 3, high_thr = 10, accGrad = FALSE) {
     .Call(`_pliman_canny_edge_detector`, image, X, Y, s, low_thr, high_thr, accGrad)
 }
