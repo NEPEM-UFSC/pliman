@@ -1541,6 +1541,7 @@ bool draw_yolo_detections_bgr_cpp(
       int by1 = std::max(0, std::min(orig_h - 1, y1));
       int by2 = std::max(0, std::min(orig_h - 1, y2));
 
+      #pragma omp parallel for schedule(static) if(by2 - by1 > 32)
       for (int y = by1; y <= by2; ++y) {
         int my = y - mask_offset_y - isy;
         if (my < 0 || my >= mh) continue;
@@ -2140,4 +2141,119 @@ Rcpp::LogicalVector convert_frames_to_jpg_cpp(Rcpp::CharacterVector src_files,
   Rcpp::LogicalVector res(n);
   for (int i = 0; i < n; ++i) res[i] = (ok[i] != 0);
   return res;
+}
+
+// [[Rcpp::export]]
+void update_video_heatmap_cpp(Rcpp::NumericMatrix heatmap,
+                              Rcpp::NumericVector xmin,
+                              Rcpp::NumericVector ymin,
+                              Rcpp::NumericVector xmax,
+                              Rcpp::NumericVector ymax,
+                              Rcpp::NumericVector scores,
+                              double decay = 0.98,
+                              bool draw_on_bm = false,
+                              Rcpp::Nullable<Rcpp::RawVector> bm = R_NilValue,
+                              double alpha = 0.40) {
+  int hm_w = heatmap.nrow();
+  int hm_h = heatmap.ncol();
+  if (hm_w <= 0 || hm_h <= 0) return;
+  double* hm = REAL(heatmap);
+  size_t total_hm = (size_t)hm_w * hm_h;
+
+  if (decay > 0.0 && decay < 1.0) {
+    for (size_t k = 0; k < total_hm; ++k) {
+      hm[k] *= decay;
+    }
+  }
+
+  int n_dets = xmin.size();
+  for (int i = 0; i < n_dets; ++i) {
+    double x1 = xmin[i], y1 = ymin[i], x2 = xmax[i], y2 = ymax[i];
+    double sc = (i < scores.size()) ? scores[i] : 1.0;
+    double cx = 0.5 * (x1 + x2);
+    double cy = 0.5 * (y1 + y2);
+    double sx = std::max(4.0, (x2 - x1) * 0.35);
+    double sy = std::max(4.0, (y2 - y1) * 0.35);
+    double inv_2sx2 = 1.0 / (2.0 * sx * sx);
+    double inv_2sy2 = 1.0 / (2.0 * sy * sy);
+
+    int bx1 = std::max(0, (int)std::floor(cx - 2.5 * sx));
+    int bx2 = std::min(hm_w - 1, (int)std::ceil(cx + 2.5 * sx));
+    int by1 = std::max(0, (int)std::floor(cy - 2.5 * sy));
+    int by2 = std::min(hm_h - 1, (int)std::ceil(cy + 2.5 * sy));
+
+    for (int y = by1; y <= by2; ++y) {
+      double dy = (double)y - cy;
+      double dy2 = dy * dy * inv_2sy2;
+      for (int x = bx1; x <= bx2; ++x) {
+        double dx = (double)x - cx;
+        double val = sc * std::exp(-(dx * dx * inv_2sx2 + dy2));
+        hm[(size_t)y * hm_w + x] += val;
+      }
+    }
+  }
+
+  if (draw_on_bm && bm.isNotNull()) {
+    Rcpp::RawVector bm_vec(bm);
+    SEXP dim_attr = Rf_getAttrib(bm_vec, R_DimSymbol);
+    if (dim_attr == R_NilValue || Rf_length(dim_attr) < 3) return;
+    int* dims = INTEGER(dim_attr);
+    int ch = dims[0];
+    int orig_w = dims[1];
+    int orig_h = dims[2];
+    if (orig_w <= 0 || orig_h <= 0) return;
+
+    double max_v = 0.0;
+    for (size_t k = 0; k < total_hm; ++k) {
+      if (hm[k] > max_v) max_v = hm[k];
+    }
+    if (max_v < 1e-4) return;
+    double inv_max = 1.0 / max_v;
+    unsigned char* p = RAW(bm_vec);
+    double scale_x = (double)hm_w / (double)orig_w;
+    double scale_y = (double)hm_h / (double)orig_h;
+
+    #pragma omp parallel for schedule(static) if(orig_h > 100)
+    for (int y = 0; y < orig_h; ++y) {
+      int hy = std::min(hm_h - 1, (int)(y * scale_y));
+      size_t row_off = (size_t)y * orig_w * ch;
+      for (int x = 0; x < orig_w; ++x) {
+        int hx = std::min(hm_w - 1, (int)(x * scale_x));
+        double v = hm[(size_t)hy * hm_w + hx] * inv_max;
+        if (v < 0.05) continue;
+        if (v > 1.0) v = 1.0;
+
+        // Jet/Turbo thermal colormap (blue -> cyan -> yellow -> red)
+        uint8_t cr = 0, cg = 0, cb = 0;
+        if (v < 0.25) {
+          double t = v * 4.0;
+          cr = 0; cg = (uint8_t)(t * 255.0); cb = 255;
+        } else if (v < 0.5) {
+          double t = (v - 0.25) * 4.0;
+          cr = 0; cg = 255; cb = (uint8_t)((1.0 - t) * 255.0);
+        } else if (v < 0.75) {
+          double t = (v - 0.5) * 4.0;
+          cr = (uint8_t)(t * 255.0); cg = 255; cb = 0;
+        } else {
+          double t = (v - 0.75) * 4.0;
+          cr = 255; cg = (uint8_t)((1.0 - t) * 255.0); cb = 0;
+        }
+
+        int a_eff = (int)std::round(alpha * std::min(1.0, v * 1.4) * 256.0);
+        int inv_a = 256 - a_eff;
+        size_t idx = row_off + (size_t)x * ch;
+        if (ch == 4) {
+          // BGR32 buffer
+          p[idx + 0] = (uint8_t)(((int)p[idx + 0] * inv_a + (int)cb * a_eff) >> 8);
+          p[idx + 1] = (uint8_t)(((int)p[idx + 1] * inv_a + (int)cg * a_eff) >> 8);
+          p[idx + 2] = (uint8_t)(((int)p[idx + 2] * inv_a + (int)cr * a_eff) >> 8);
+        } else {
+          // RGB24 buffer
+          p[idx + 0] = (uint8_t)(((int)p[idx + 0] * inv_a + (int)cr * a_eff) >> 8);
+          p[idx + 1] = (uint8_t)(((int)p[idx + 1] * inv_a + (int)cg * a_eff) >> 8);
+          p[idx + 2] = (uint8_t)(((int)p[idx + 2] * inv_a + (int)cb * a_eff) >> 8);
+        }
+      }
+    }
+  }
 }
