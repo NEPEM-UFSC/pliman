@@ -623,6 +623,10 @@ convert_frames_to_jpg_cpp <- function(src_files, dst_files, quality = 95L, remov
     .Call(`_pliman_convert_frames_to_jpg_cpp`, src_files, dst_files, quality, remove_src)
 }
 
+update_video_heatmap_cpp <- function(heatmap, xmin, ymin, xmax, ymax, scores, decay = 0.98, draw_on_bm = FALSE, bm = NULL, alpha = 0.40) {
+    invisible(.Call(`_pliman_update_video_heatmap_cpp`, heatmap, xmin, ymin, xmax, ymax, scores, decay, draw_on_bm, bm, alpha))
+}
+
 perspective_matrix_cpp <- function(W, H, theta_x, theta_y, theta_z, scale = 1.0, focal_fac = 1.0, keep_size = TRUE) {
     .Call(`_pliman_perspective_matrix_cpp`, W, H, theta_x, theta_y, theta_z, scale, focal_fac, keep_size)
 }
@@ -815,6 +819,14 @@ open_native_video_reader_cpp <- function(video_path) {
 
 get_video_reader_info_cpp <- function(reader_ptr) {
     .Call(`_pliman_get_video_reader_info_cpp`, reader_ptr)
+}
+
+start_native_video_prefetch_cpp <- function(reader_ptr, target_fps = 0.0, start_time = 0.0, end_time = 0.0) {
+    .Call(`_pliman_start_native_video_prefetch_cpp`, reader_ptr, target_fps, start_time, end_time)
+}
+
+get_video_reader_timestamp_cpp <- function(reader_ptr) {
+    .Call(`_pliman_get_video_reader_timestamp_cpp`, reader_ptr)
 }
 
 read_native_video_frame_cpp <- function(reader_ptr, out_bm) {

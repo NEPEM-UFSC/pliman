@@ -3823,6 +3823,7 @@ Rcpp::List run_yolo_cpp(
   int oh = (int)std::round(orig_h);
   Rcpp::IntegerMatrix labels;
   Rcpp::LogicalMatrix mask;
+  Rcpp::NumericMatrix seg_stats;
   Rcpp::NumericMatrix heatmap_mat;
   Rcpp::NumericMatrix energy_mat;
   Rcpp::NumericVector raw_proto;
@@ -3849,7 +3850,9 @@ Rcpp::List run_yolo_cpp(
     }
   }
 
-  if ((need_masks || return_features) && is_seg) {
+  if (is_seg) {
+    seg_stats = Rcpp::NumericMatrix(num_kept, 8);
+    std::fill(seg_stats.begin(), seg_stats.end(), NA_REAL);
     if (need_masks) {
       labels = Rcpp::IntegerMatrix(ow, oh);
     }
@@ -3937,6 +3940,14 @@ Rcpp::List run_yolo_cpp(
     if (num_kept > 0) {
       int* lbl_ptr = (need_masks && labels.size() > 0) ? INTEGER(labels) : NULL;
       double* hm_ptr = (return_features && heatmap_mat.size() > 0) ? REAL(heatmap_mat) : NULL;
+      std::vector<float> inst_proto(proto_plane, 0.0f);
+      std::vector<std::pair<double, double>> bnd_pts;
+      bnd_pts.reserve(512);
+
+      double step_x = 1.0 / ((double)gain * (double)scale_proto_x);
+      double step_y = 1.0 / ((double)gain * (double)scale_proto_y);
+      double step_avg = 0.5 * (step_x + step_y);
+      double cell_area = step_x * step_y;
 
       for (int i = 0; i < num_kept; ++i) {
         if (kept[i].mask_coeffs.empty()) continue;
@@ -3946,32 +3957,22 @@ Rcpp::List run_yolo_cpp(
         int oy2 = std::min(oh - 1, (int)std::ceil(boxes(i, 3)));
         if (ox1 > ox2 || oy1 > oy2) continue;
 
-        // Precompute continuous bilinear x-sampling LUT for this bounding box
-        int span_x = ox2 - ox1 + 1;
-        std::vector<int> cx0_tab(span_x);
-        std::vector<int> cx1_tab(span_x);
-        std::vector<float> wx_tab(span_x);
-        for (int k = 0; k < span_x; ++k) {
-          int ox = ox1 + k;
-          float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
-          float proto_x = (can_x * scale_proto_x) - 0.5f;
-          int x0 = (int)std::floor(proto_x);
-          int x1 = x0 + 1;
-          wx_tab[k] = proto_x - (float)x0;
-          cx0_tab[k] = std::max(0, std::min(proto_w - 1, x0));
-          cx1_tab[k] = std::max(0, std::min(proto_w - 1, x1));
-        }
-
         // Compute prototype space bounding box [px_min..px_max, py_min..py_max]
-        int px_min = cx0_tab[0];
-        int px_max = cx1_tab[span_x - 1];
+        float px_start = ((((float)ox1 + 0.5f) * (float)gain + (float)pad_x) * scale_proto_x) - 0.5f;
+        float px_end   = ((((float)ox2 + 0.5f) * (float)gain + (float)pad_x) * scale_proto_x) - 0.5f;
         float py_start = ((((float)oy1 + 0.5f) * (float)gain + (float)pad_y) * scale_proto_y) - 0.5f;
         float py_end   = ((((float)oy2 + 0.5f) * (float)gain + (float)pad_y) * scale_proto_y) - 0.5f;
+        int px_min = std::max(0, std::min(proto_w - 1, (int)std::floor(px_start)));
+        int px_max = std::max(0, std::min(proto_w - 1, (int)std::floor(px_end) + 1));
         int py_min = std::max(0, std::min(proto_h - 1, (int)std::floor(py_start)));
         int py_max = std::max(0, std::min(proto_h - 1, (int)std::floor(py_end) + 1));
 
+        // Zero only the ROI in inst_proto
+        for (int py = py_min; py <= py_max; ++py) {
+          std::memset(inst_proto.data() + (size_t)py * proto_w + px_min, 0, (size_t)(px_max - px_min + 1) * sizeof(float));
+        }
+
         // 1. Precompute linear combination of 32 prototype channels ONLY within box [px_min..px_max, py_min..py_max]
-        std::vector<float> inst_proto(proto_plane, 0.0f);
         for (int m = 0; m < 32; ++m) {
           float coeff = kept[i].mask_coeffs[m];
           if (std::abs(coeff) < 1e-7f) continue;
@@ -3986,51 +3987,153 @@ Rcpp::List run_yolo_cpp(
           }
         }
 
-        int inst_label = i + 1;
-        float inst_score = kept[i].score;
+        // Fast O(ROI) morphological metrics directly from prototype mask
+        int fg_count = 0;
+        double sum_x = 0.0, sum_y = 0.0, sum_xx = 0.0, sum_yy = 0.0, sum_xy = 0.0;
+        double perim = 0.0;
+        bnd_pts.clear();
+        for (int py = py_min; py <= py_max; ++py) {
+          const float* r_cur = inst_proto.data() + (size_t)py * proto_w;
+          const float* r_up  = (py > py_min) ? (r_cur - proto_w) : NULL;
+          const float* r_dn  = (py < py_max) ? (r_cur + proto_w) : NULL;
+          double oy_c = (((double)py + 0.5) / (double)scale_proto_y - (double)pad_y) / (double)gain;
+          oy_c = std::max((double)oy1, std::min((double)oy2, oy_c));
 
-        // 2. High-speed multi-threaded continuous bilinear interpolation on the original image grid
-        #pragma omp parallel for schedule(dynamic, 8) if(oy2 - oy1 > 16)
-        for (int oy = oy1; oy <= oy2; ++oy) {
-          float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
-          float proto_y = (can_y * scale_proto_y) - 0.5f;
-          int y0 = (int)std::floor(proto_y);
-          int y1 = y0 + 1;
-          float wy = proto_y - (float)y0;
-          int cy0 = std::max(0, std::min(proto_h - 1, y0));
-          int cy1 = std::max(0, std::min(proto_h - 1, y1));
+          for (int px = px_min; px <= px_max; ++px) {
+            if (r_cur[px] > 0.0f) {
+              fg_count++;
+              double ox_c = (((double)px + 0.5) / (double)scale_proto_x - (double)pad_x) / (double)gain;
+              ox_c = std::max((double)ox1, std::min((double)ox2, ox_c));
+              sum_x += ox_c;
+              sum_y += oy_c;
+              sum_xx += ox_c * ox_c;
+              sum_yy += oy_c * oy_c;
+              sum_xy += ox_c * oy_c;
 
-          const float* row0 = inst_proto.data() + (size_t)cy0 * proto_w;
-          const float* row1 = inst_proto.data() + (size_t)cy1 * proto_w;
-          float one_minus_wy = 1.0f - wy;
-          size_t row_offset = (size_t)oy * ow;
+              bool b_up = (!r_up || r_up[px] <= 0.0f);
+              bool b_dn = (!r_dn || r_dn[px] <= 0.0f);
+              bool b_lf = (px == px_min || r_cur[px - 1] <= 0.0f);
+              bool b_rt = (px == px_max || r_cur[px + 1] <= 0.0f);
+              if (b_up || b_dn || b_lf || b_rt) {
+                bnd_pts.push_back({ox_c, oy_c});
+                int n_exp = (int)b_up + (int)b_dn + (int)b_lf + (int)b_rt;
+                perim += step_avg * (0.75 + 0.20 * n_exp);
+              }
+            }
+          }
+        }
 
+        if (fg_count > 0) {
+          double n_d = (double)fg_count;
+          double area = n_d * cell_area;
+          double cx = sum_x / n_d;
+          double cy = sum_y / n_d;
+          double mu20 = (sum_xx / n_d) - cx * cx + (step_x * step_x) / 12.0;
+          double mu02 = (sum_yy / n_d) - cy * cy + (step_y * step_y) / 12.0;
+          double mu11 = (sum_xy / n_d) - cx * cy;
+          double common = std::sqrt((mu20 - mu02) * (mu20 - mu02) + 4.0 * mu11 * mu11);
+          double lambda1 = std::max(1e-9, 0.5 * (mu20 + mu02 + common));
+          double lambda2 = std::max(1e-9, 0.5 * (mu20 + mu02 - common));
+          double theta = 0.5 * std::atan2(2.0 * mu11, mu20 - mu02);
+          double cos_t = std::cos(theta);
+          double sin_t = std::sin(theta);
+
+          double min_maj = 1e18, max_maj = -1e18;
+          double min_min = 1e18, max_min = -1e18;
+          double r_sum = 0.0;
+          for (const auto& pt : bnd_pts) {
+            double dx = pt.first - cx;
+            double dy = pt.second - cy;
+            r_sum += std::sqrt(dx * dx + dy * dy);
+            double pmaj = dx * cos_t + dy * sin_t;
+            double pmin = -dx * sin_t + dy * cos_t;
+            if (pmaj < min_maj) min_maj = pmaj;
+            if (pmaj > max_maj) max_maj = pmaj;
+            if (pmin < min_min) min_min = pmin;
+            if (pmin > max_min) max_min = pmin;
+          }
+          double r_mean = bnd_pts.empty() ? 0.0 : (r_sum / (double)bnd_pts.size());
+          double len_val = bnd_pts.empty() ? step_avg : (max_maj - min_maj + step_avg);
+          double wid_val = bnd_pts.empty() ? step_avg : (max_min - min_min + step_avg);
+          if (len_val < wid_val) std::swap(len_val, wid_val);
+          double circ = (perim > 1e-6) ? std::min(1.0, (4.0 * 3.14159265358979323846 * area) / (perim * perim)) : NA_REAL;
+          double ecc  = (lambda1 > 1e-9) ? std::sqrt(std::max(0.0, 1.0 - lambda2 / lambda1)) : 0.0;
+          double ar   = (wid_val > 1e-6) ? (len_val / wid_val) : NA_REAL;
+
+          // Columns: 0=area, 1=perimeter, 2=radius_mean, 3=length, 4=width, 5=circularity, 6=eccentricity, 7=asp_ratio
+          seg_stats(i, 0) = area;
+          seg_stats(i, 1) = perim;
+          seg_stats(i, 2) = r_mean;
+          seg_stats(i, 3) = len_val;
+          seg_stats(i, 4) = wid_val;
+          seg_stats(i, 5) = circ;
+          seg_stats(i, 6) = ecc;
+          seg_stats(i, 7) = ar;
+        }
+
+        if (need_masks || return_features) {
+          // Precompute continuous bilinear x-sampling LUT for this bounding box
+          int span_x = ox2 - ox1 + 1;
+          std::vector<int> cx0_tab(span_x);
+          std::vector<int> cx1_tab(span_x);
+          std::vector<float> wx_tab(span_x);
           for (int k = 0; k < span_x; ++k) {
             int ox = ox1 + k;
-            int cx0 = cx0_tab[k];
-            int cx1 = cx1_tab[k];
-            float wx = wx_tab[k];
+            float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
+            float proto_x = (can_x * scale_proto_x) - 0.5f;
+            int x0 = (int)std::floor(proto_x);
+            int x1 = x0 + 1;
+            wx_tab[k] = proto_x - (float)x0;
+            cx0_tab[k] = std::max(0, std::min(proto_w - 1, x0));
+            cx1_tab[k] = std::max(0, std::min(proto_w - 1, x1));
+          }
 
-            float v00 = row0[cx0];
-            float v10 = row0[cx1];
-            float v01 = row1[cx0];
-            float v11 = row1[cx1];
+          int inst_label = i + 1;
+          float inst_score = kept[i].score;
 
-            float val = (1.0f - wx) * one_minus_wy * v00 +
-                        wx * one_minus_wy * v10 +
-                        (1.0f - wx) * wy * v01 +
-                        wx * wy * v11;
+          // 2. High-speed multi-threaded continuous bilinear interpolation on the original image grid
+          #pragma omp parallel for schedule(dynamic, 8) if(oy2 - oy1 > 16)
+          for (int oy = oy1; oy <= oy2; ++oy) {
+            float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
+            float proto_y = (can_y * scale_proto_y) - 0.5f;
+            int y0 = (int)std::floor(proto_y);
+            int y1 = y0 + 1;
+            float wy = proto_y - (float)y0;
+            int cy0 = std::max(0, std::min(proto_h - 1, y0));
+            int cy1 = std::max(0, std::min(proto_h - 1, y1));
 
-            if (need_masks && lbl_ptr && val > 0.0f) {
-              lbl_ptr[row_offset + ox] = inst_label;
-            }
+            const float* row0 = inst_proto.data() + (size_t)cy0 * proto_w;
+            const float* row1 = inst_proto.data() + (size_t)cy1 * proto_w;
+            float one_minus_wy = 1.0f - wy;
+            size_t row_offset = (size_t)oy * ow;
 
-            if (return_features && hm_ptr) {
-              float prob = 1.0f / (1.0f + std::exp(-val));
-              double act = (double)(prob * inst_score);
-              size_t pixel_idx = row_offset + ox;
-              if (act > hm_ptr[pixel_idx]) {
-                hm_ptr[pixel_idx] = act;
+            for (int k = 0; k < span_x; ++k) {
+              int ox = ox1 + k;
+              int cx0 = cx0_tab[k];
+              int cx1 = cx1_tab[k];
+              float wx = wx_tab[k];
+
+              float v00 = row0[cx0];
+              float v10 = row0[cx1];
+              float v01 = row1[cx0];
+              float v11 = row1[cx1];
+
+              float val = (1.0f - wx) * one_minus_wy * v00 +
+                          wx * one_minus_wy * v10 +
+                          (1.0f - wx) * wy * v01 +
+                          wx * wy * v11;
+
+              if (need_masks && lbl_ptr && val > 0.0f) {
+                lbl_ptr[row_offset + ox] = inst_label;
+              }
+
+              if (return_features && hm_ptr) {
+                float prob = 1.0f / (1.0f + std::exp(-val));
+                double act = (double)(prob * inst_score);
+                size_t pixel_idx = row_offset + ox;
+                if (act > hm_ptr[pixel_idx]) {
+                  hm_ptr[pixel_idx] = act;
+                }
               }
             }
           }
@@ -4092,6 +4195,7 @@ Rcpp::List run_yolo_cpp(
     Rcpp::Named("corners") = is_obb ? Rcpp::wrap(corners_mat) : R_NilValue,
     Rcpp::Named("labels") = need_masks ? Rcpp::wrap(labels) : R_NilValue,
     Rcpp::Named("mask") = need_masks ? Rcpp::wrap(mask) : R_NilValue,
+    Rcpp::Named("seg_stats") = is_seg ? Rcpp::wrap(seg_stats) : R_NilValue,
     Rcpp::Named("is_seg") = is_seg,
     Rcpp::Named("keypoints") = keypoints_mat,
     Rcpp::Named("heatmap") = return_features ? Rcpp::wrap(heatmap_mat) : R_NilValue,

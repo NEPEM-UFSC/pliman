@@ -1512,6 +1512,25 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// update_video_heatmap_cpp
+void update_video_heatmap_cpp(Rcpp::NumericMatrix heatmap, Rcpp::NumericVector xmin, Rcpp::NumericVector ymin, Rcpp::NumericVector xmax, Rcpp::NumericVector ymax, Rcpp::NumericVector scores, double decay, bool draw_on_bm, Rcpp::Nullable<Rcpp::RawVector> bm, double alpha);
+RcppExport SEXP _pliman_update_video_heatmap_cpp(SEXP heatmapSEXP, SEXP xminSEXP, SEXP yminSEXP, SEXP xmaxSEXP, SEXP ymaxSEXP, SEXP scoresSEXP, SEXP decaySEXP, SEXP draw_on_bmSEXP, SEXP bmSEXP, SEXP alphaSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type heatmap(heatmapSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type xmin(xminSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type ymin(yminSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type xmax(xmaxSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type ymax(ymaxSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type scores(scoresSEXP);
+    Rcpp::traits::input_parameter< double >::type decay(decaySEXP);
+    Rcpp::traits::input_parameter< bool >::type draw_on_bm(draw_on_bmSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::RawVector> >::type bm(bmSEXP);
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    update_video_heatmap_cpp(heatmap, xmin, ymin, xmax, ymax, scores, decay, draw_on_bm, bm, alpha);
+    return R_NilValue;
+END_RCPP
+}
 // perspective_matrix_cpp
 List perspective_matrix_cpp(int W, int H, double theta_x, double theta_y, double theta_z, double scale, double focal_fac, bool keep_size);
 RcppExport SEXP _pliman_perspective_matrix_cpp(SEXP WSEXP, SEXP HSEXP, SEXP theta_xSEXP, SEXP theta_ySEXP, SEXP theta_zSEXP, SEXP scaleSEXP, SEXP focal_facSEXP, SEXP keep_sizeSEXP) {
@@ -2017,6 +2036,31 @@ BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< SEXP >::type reader_ptr(reader_ptrSEXP);
     rcpp_result_gen = Rcpp::wrap(get_video_reader_info_cpp(reader_ptr));
+    return rcpp_result_gen;
+END_RCPP
+}
+// start_native_video_prefetch_cpp
+bool start_native_video_prefetch_cpp(SEXP reader_ptr, double target_fps, double start_time, double end_time);
+RcppExport SEXP _pliman_start_native_video_prefetch_cpp(SEXP reader_ptrSEXP, SEXP target_fpsSEXP, SEXP start_timeSEXP, SEXP end_timeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type reader_ptr(reader_ptrSEXP);
+    Rcpp::traits::input_parameter< double >::type target_fps(target_fpsSEXP);
+    Rcpp::traits::input_parameter< double >::type start_time(start_timeSEXP);
+    Rcpp::traits::input_parameter< double >::type end_time(end_timeSEXP);
+    rcpp_result_gen = Rcpp::wrap(start_native_video_prefetch_cpp(reader_ptr, target_fps, start_time, end_time));
+    return rcpp_result_gen;
+END_RCPP
+}
+// get_video_reader_timestamp_cpp
+double get_video_reader_timestamp_cpp(SEXP reader_ptr);
+RcppExport SEXP _pliman_get_video_reader_timestamp_cpp(SEXP reader_ptrSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type reader_ptr(reader_ptrSEXP);
+    rcpp_result_gen = Rcpp::wrap(get_video_reader_timestamp_cpp(reader_ptr));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -3045,6 +3089,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_image_blur_cpp", (DL_FUNC) &_pliman_image_blur_cpp, 2},
     {"_pliman_images_blur_cpp", (DL_FUNC) &_pliman_images_blur_cpp, 2},
     {"_pliman_convert_frames_to_jpg_cpp", (DL_FUNC) &_pliman_convert_frames_to_jpg_cpp, 4},
+    {"_pliman_update_video_heatmap_cpp", (DL_FUNC) &_pliman_update_video_heatmap_cpp, 10},
     {"_pliman_perspective_matrix_cpp", (DL_FUNC) &_pliman_perspective_matrix_cpp, 8},
     {"_pliman_image_warp_perspective_cpp", (DL_FUNC) &_pliman_image_warp_perspective_cpp, 5},
     {"_pliman_image_perspective_cpp", (DL_FUNC) &_pliman_image_perspective_cpp, 8},
@@ -3083,6 +3128,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_has_native_video_reader_cpp", (DL_FUNC) &_pliman_has_native_video_reader_cpp, 0},
     {"_pliman_open_native_video_reader_cpp", (DL_FUNC) &_pliman_open_native_video_reader_cpp, 1},
     {"_pliman_get_video_reader_info_cpp", (DL_FUNC) &_pliman_get_video_reader_info_cpp, 1},
+    {"_pliman_start_native_video_prefetch_cpp", (DL_FUNC) &_pliman_start_native_video_prefetch_cpp, 4},
+    {"_pliman_get_video_reader_timestamp_cpp", (DL_FUNC) &_pliman_get_video_reader_timestamp_cpp, 1},
     {"_pliman_read_native_video_frame_cpp", (DL_FUNC) &_pliman_read_native_video_frame_cpp, 2},
     {"_pliman_extract_native_frame_to_image_cpp", (DL_FUNC) &_pliman_extract_native_frame_to_image_cpp, 2},
     {"_pliman_close_native_video_reader_cpp", (DL_FUNC) &_pliman_close_native_video_reader_cpp, 1},
