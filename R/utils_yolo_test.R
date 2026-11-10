@@ -613,6 +613,8 @@ yolo_model_test <- function(model,
       f1_curve = f1_curve_df,
       iou_distribution = all_matched_ious,
       predictions = preds_df,
+      ground_truth = flat_gt,
+      gt_list = gt_list,
       info = list(
         model = if (is.character(model_path)) basename(model_path) else "in-memory",
         data = data_dir,

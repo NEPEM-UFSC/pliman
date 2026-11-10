@@ -6143,11 +6143,18 @@ Rcpp::List run_ocr_rec_cpp(
         }
       }
 
-      float sum_exp = 0.0f;
-      for (int c = 0; c < C; ++c) {
-        sum_exp += std::exp(out_data[t_off + c] - max_val);
+      float sum_val = 0.0f;
+      for (int c = 0; c < C; ++c) sum_val += out_data[t_off + c];
+      float prob = 0.0f;
+      if (std::abs(sum_val - 1.0f) < 0.1f) {
+        prob = max_val;
+      } else {
+        float sum_exp = 0.0f;
+        for (int c = 0; c < C; ++c) {
+          sum_exp += std::exp(out_data[t_off + c] - max_val);
+        }
+        prob = (sum_exp > 0.0f) ? (1.0f / sum_exp) : 0.0f;
       }
-      float prob = 1.0f / sum_exp;
 
       if (max_c != 0 && max_c != prev_c) {
         char_ids.push_back(max_c);
