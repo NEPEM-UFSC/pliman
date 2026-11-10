@@ -530,7 +530,28 @@ NULL
     "ifcnn-max"              = "ifcnn",
     "ifcnn_max"              = "ifcnn",
     "mfif"                   = "ifcnn",
-    "focus-stack"            = "ifcnn"
+    "focus-stack"            = "ifcnn",
+    # Optical Character Recognition (PP-OCRv4 / DBNet)
+    "ppocr"                  = "ch_PP-OCRv4_det",
+    "pp-ocr"                 = "ch_PP-OCRv4_det",
+    "ppocr_det"              = "ch_PP-OCRv4_det",
+    "ppocr-det"              = "ch_PP-OCRv4_det",
+    "ppocr_rec"              = "ch_PP-OCRv4_rec",
+    "ppocr-rec"              = "ch_PP-OCRv4_rec",
+    "ch_pp-ocrv4_det"        = "ch_PP-OCRv4_det",
+    "ch_pp-ocrv4-det"        = "ch_PP-OCRv4_det",
+    "ch_pp-ocrv4_rec"        = "ch_PP-OCRv4_rec",
+    "ch_pp-ocrv4-rec"        = "ch_PP-OCRv4_rec",
+    # Image Restoration (Zero-DCE & NAFNet)
+    "zero_dce"               = "zero_dce",
+    "zero-dce"               = "zero_dce",
+    "zerodce"                = "zero_dce",
+    "lowlight"               = "zero_dce",
+    "low-light"              = "zero_dce",
+    "nafnet"                 = "nafnet",
+    "naf-net"                = "nafnet",
+    "deblur"                 = "nafnet",
+    "denoise"                = "nafnet"
   )
   vapply(model, function(m) {
     ml <- tolower(m)
@@ -7735,8 +7756,8 @@ image_features_dl <- function(img,
 #'   Options are `"clip-vit-b32"` (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
 #'   `"dinov2"` (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).
 #' @param plot_features Logical. If `TRUE` and `return_features = TRUE`, visualizes the dense spatial PCA feature map. Defaults to `FALSE`.
-#' @param filter_nested Logical. If `TRUE` (the default), removes larger container bounding boxes
-#'   that enclose smaller boxes of the same class.
+#' @param filter_nested Logical. If `TRUE`, removes larger container bounding boxes
+#'   that enclose smaller boxes of the same class. Defaults to `FALSE`.
 #' @param threads Number of CPU threads (default 0 for auto-tuning).
 #' @param engine Execution engine: `"cpu"` or `"gpu"` (DirectML).
 #' @param device_id GPU device ID (default -1 for auto).
@@ -7783,7 +7804,7 @@ image_detect_dl <- function(img,
                             return_features = FALSE,
                             feature_model = c("yolo", "clip-vit-b32", "dinov2"),
                             plot_features = FALSE,
-                            filter_nested = TRUE,
+                            filter_nested = FALSE,
                             threads = 0,
                             engine = c("gpu", "cpu"),
                             device_id = -1,
@@ -9764,5 +9785,463 @@ image_inpaint_dl <- function(img,
 
   return(res_img)
 }
+
+# ==============================================================================
+# SECTION 10: NEURAL IMAGE RESTORATION AND SUPER-RESOLUTION
+# ==============================================================================
+
+#' Neural Image Restoration and Enhancement
+#'
+#' In-field botanical imagery frequently suffers from adverse optical conditions,
+#' including severe underexposure under dense closed canopies, twilight illumination,
+#' motion blur from drone vibrations, and optical defocus. `image_restore_dl()`
+#' provides deep neural restorers to recover degraded imagery prior to phenotyping:
+#' \itemize{
+#'   \item \strong{Low-Light Enhancement (\code{"lowlight"}, Zero-DCE)}: Zero-Reference
+#'   Deep Curve Estimation enhances underexposed images dynamically without
+#'   over-amplifying noise or distorting color balance.
+#'   \item \strong{Defocus and Motion Deblurring (\code{"deblur"} / \code{"denoise"}, NAFNet)}:
+#'   Nonlinear Activation Free Network removes optical and motion blur.
+#' }
+#'
+#' @references
+#' \itemize{
+#'   \item Guo, C., Li, C., Guo, J., Loy, C. C., Hou, J., Kwong, S., & Cong, R. (2020).
+#'   Zero-reference deep curve estimation for low-light image enhancement.
+#'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 1780–1789.
+#'   \item Chen, L., Chu, X., Zhang, X., & Sun, J. (2022).
+#'   Simple baselines for image restoration.
+#'   \emph{European Conference on Computer Vision (ECCV)}, 17–33.
+#' }
+#'
+#' @param img An `Image` object or character string path to an image file.
+#' @param method Restoration method: `"lowlight"` (Zero-DCE curve enhancement, default),
+#'   `"denoise"`, or `"deblur"` (NAFNet).
+#' @param tile_size Tile dimension in pixels for memory-efficient tiled processing
+#'   of large images (default `512L`).
+#' @param tile_pad Overlap padding between adjacent processing tiles to prevent boundary
+#'   seams (default `16L`).
+#' @param threads Number of CPU execution threads (default `0` for auto-detect).
+#' @param engine Compute engine: `"gpu"` (default) or `"cpu"`.
+#' @param device_id GPU device ID (default `-1` for auto).
+#' @param verbose Logical. Whether to display progress messages (default `TRUE`).
+#' @param plot Logical. Whether to render the visual restoration plot (default `TRUE`).
+#' @param dir Model directory (default `pliman_model_dir()`).
+#' @param ... Additional arguments passed to [graphics::plot()].
+#' @return An `Image` object containing the restored image.
+#' @export
+#' @examplesIf interactive()
+#'   library(pliman)
+#'   subsposed <- image_import("subesposta")
+#'   restored <- image_restore_dl(subsposed, method = "lowlight")
+image_restore_dl <- function(img,
+                             method = c("lowlight", "denoise", "deblur"),
+                             tile_size = 512L,
+                             tile_pad = 16L,
+                             threads = 0,
+                             engine = c("gpu", "cpu"),
+                             device_id = -1,
+                             verbose = TRUE,
+                             plot = TRUE,
+                             dir = pliman_model_dir(),
+                             ...) {
+  method <- match.arg(method)
+  engine <- match.arg(engine)
+
+  if (is.list(img) && !inherits(img, c("Image", "image"))) {
+    res <- lapply(img, function(x) {
+      image_restore_dl(
+        x, method = method, tile_size = tile_size, tile_pad = tile_pad,
+        threads = threads, engine = engine, device_id = device_id,
+        verbose = verbose, plot = FALSE, dir = dir, ...
+      )
+    })
+    return(res)
+  }
+
+  mat <- if (inherits(img, c("Image", "image"))) image_data(img) else img
+  if (is.character(img) && file.exists(img[1])) {
+    img_obj <- image_import(img[1])
+    mat <- image_data(img_obj)
+  }
+  dims <- dim(mat)
+  if (is.null(dims) || length(dims) < 2) {
+    stop("img must be a 2D matrix, 3D array, or an 'image' object.")
+  }
+  orig_w <- dims[1]
+  orig_h <- dims[2]
+  nch <- if (length(dims) >= 3) dims[3] else 1
+
+  model_name <- if (method == "lowlight") "zero_dce" else "nafnet"
+  model_file <- .find_local_model(model_name, dir = dir)
+  if (is.null(model_file)) {
+    model_file <- pliman_download_model(model = model_name, dir = dir, verbose = verbose)
+  }
+
+  lib_path <- pliman_onnx_lib_path(engine = engine)
+  use_gpu <- (engine == "gpu")
+
+  if (isTRUE(verbose)) {
+    method_label <- if (method == "lowlight") "Zero-DCE Low-Light Enhancement" else paste0("NAFNet ", toupper(method))
+    cli::cli_progress_step(
+      msg = paste0("Running ", method_label, " [{toupper(engine)}]..."),
+      msg_done = paste0(method_label, " complete")
+    )
+  }
+
+  if (is.raw(mat)) {
+    val_scale <- 1 / 255.0
+  } else {
+    max_val <- max(mat[1:min(1000, length(mat))], na.rm = TRUE)
+    val_scale <- if (max_val > 1.5) (1 / 255.0) else 1.0
+  }
+
+  if (nch >= 3) {
+    R <- as.numeric(mat[, , 1]) * val_scale
+    G <- as.numeric(mat[, , 2]) * val_scale
+    B <- as.numeric(mat[, , 3]) * val_scale
+  } else {
+    R <- G <- B <- as.numeric(mat) * val_scale
+  }
+  tensor <- c(R, G, B)
+
+  raw_vec <- run_image_restore_cpp(
+    tensor_vec = tensor,
+    in_w = orig_w,
+    in_h = orig_h,
+    model_path = model_file,
+    lib_path = lib_path,
+    num_threads = as.integer(threads),
+    use_gpu = use_gpu,
+    device_id = as.integer(device_id),
+    tile_size = as.integer(tile_size),
+    tile_pad = as.integer(tile_pad)
+  )
+
+  plane <- orig_w * orig_h
+  out_arr <- array(0.0, dim = c(orig_w, orig_h, 3L))
+  out_arr[, , 1] <- matrix(raw_vec[1:plane], nrow = orig_w, ncol = orig_h)
+  out_arr[, , 2] <- matrix(raw_vec[(plane + 1):(2 * plane)], nrow = orig_w, ncol = orig_h)
+  out_arr[, , 3] <- matrix(raw_vec[(2 * plane + 1):(3 * plane)], nrow = orig_w, ncol = orig_h)
+
+  out_img <- as_image(out_arr)
+
+  if (isTRUE(plot)) {
+    plot(out_img, ...)
+  }
+
+  invisible(out_img)
+}
+
+# ==============================================================================
+# SECTION 11: FIELD OPTICAL CHARACTER RECOGNITION (OCR)
+# ==============================================================================
+
+#' Field Optical Character Recognition (OCR)
+#'
+#' Agronomic trials and breeding nurseries routinely track experimental entries using
+#' physical plot stakes, barcode tags, seed packet labels, and ear tags in livestock.
+#' In `pliman`, `image_ocr_dl()` integrates deep neural text detection (DBNet) and text
+#' recognition (CRNN/SVTR) models to automatically extract text strings and their spatial
+#' coordinates directly from field imagery.
+#'
+#' @references
+#' \itemize{
+#'   \item Liao, M., Wan, Z., Yao, C., Chen, K., & Bai, X. (2020).
+#'   Real-time scene text detection with differentiable binarization.
+#'   \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, 34(07), 11474–11481.
+#'   \item Du, Y., Li, C., Guo, R., Yin, X., Liu, W., Zhou, J., ... & Hu, B. (2020).
+#'   PP-OCR: A practical ultra lightweight OCR system.
+#'   \emph{arXiv preprint arXiv:2009.09941}.
+#' }
+#'
+#' @param img An `Image` object or character string path to an image file.
+#' @param det_model Text detection backbone model (default `"ppocr_det"` or `"ch_PP-OCRv4_det"`).
+#' @param rec_model Text recognition backbone model (default `"ppocr_rec"` or `"ch_PP-OCRv4_rec"`).
+#' @param det_thresh Pixel binarization threshold for text polygon detection (default `0.30`).
+#' @param box_thresh Minimum confidence threshold for retaining detected text bounding boxes (default `0.50`).
+#' @param unclip_ratio Polygon expansion ratio to prevent cropping character boundaries (default `1.60`).
+#' @param min_size Minimum text box height in pixels to filter out noise (default `5L`).
+#' @param col Border color for recognized text bounding polygons (default `"forestgreen"`).
+#' @param lwd Line width for rendering detected text polygon borders (default `2L`).
+#' @param cex Character expansion factor for recognized text labels (default `0.80`).
+#' @param badge Logical. Whether to render filled background badges behind transcribed text (default `TRUE`).
+#' @param threads Number of CPU execution threads (default `0` for auto-detect).
+#' @param engine Compute engine: `"gpu"` (default) or `"cpu"`.
+#' @param plot Logical. Whether to render the visual OCR annotation plot (default `TRUE`).
+#' @param dir Model directory (default `pliman_model_dir()`).
+#' @param verbose Logical. Whether to show progress messages (default `TRUE`).
+#' @param ... Additional arguments passed to [graphics::plot()].
+#' @return A `data.frame` of class `c("pliman_ocr", "data.frame")` containing:
+#' \itemize{
+#'   \item \code{id}: Sequential text region identifier.
+#'   \item \code{text}: Transcribed character string.
+#'   \item \code{score}: Recognition confidence score (0 to 1).
+#'   \item \code{det_score}: Detection polygon confidence score (0 to 1).
+#'   \item \code{xmin}, \code{ymin}, \code{xmax}, \code{ymax}: Spatial bounding box coordinates.
+#' }
+#' With attributes \code{"image"} (original image).
+#' @export
+#' @examplesIf interactive()
+#'   library(pliman)
+#'   img <- image_import("flaxtext")
+#'   ocr_res <- image_ocr_dl(img)
+#'   print(ocr_res)
+image_ocr_dl <- function(img,
+                         det_model = "ppocr_det",
+                         rec_model = "ppocr_rec",
+                         det_thresh = 0.30,
+                         box_thresh = 0.50,
+                         unclip_ratio = 1.60,
+                         min_size = 5L,
+                         col = "forestgreen",
+                         lwd = 2L,
+                         cex = 0.80,
+                         badge = TRUE,
+                         threads = 0,
+                         engine = c("gpu", "cpu"),
+                         plot = TRUE,
+                         dir = pliman_model_dir(),
+                         verbose = TRUE,
+                         ...) {
+  engine <- match.arg(engine)
+
+  if (is.list(img) && !inherits(img, c("Image", "image"))) {
+    res <- lapply(img, function(x) {
+      image_ocr_dl(
+        x, det_model = det_model, rec_model = rec_model,
+        det_thresh = det_thresh, box_thresh = box_thresh,
+        unclip_ratio = unclip_ratio, min_size = min_size,
+        col = col, lwd = lwd, cex = cex, badge = badge,
+        threads = threads, engine = engine, plot = FALSE,
+        dir = dir, verbose = verbose, ...
+      )
+    })
+    return(res)
+  }
+
+  img_obj <- if (inherits(img, c("Image", "image"))) img else image_import(img[1])
+  mat <- image_data(img_obj)
+  dims <- dim(mat)
+  if (is.null(dims) || length(dims) < 2) {
+    stop("img must be a 2D matrix, 3D array, or an 'image' object.")
+  }
+  orig_w <- dims[1]
+  orig_h <- dims[2]
+  nch <- if (length(dims) >= 3) dims[3] else 1
+
+  det_file <- .find_local_model(det_model, dir = dir)
+  if (is.null(det_file)) det_file <- .find_local_model("ch_PP-OCRv4_det", dir = dir)
+  if (is.null(det_file)) det_file <- pliman_download_model(det_model, dir = dir, verbose = verbose)
+
+  rec_file <- .find_local_model(rec_model, dir = dir)
+  if (is.null(rec_file)) rec_file <- .find_local_model("ch_PP-OCRv4_rec", dir = dir)
+  if (is.null(rec_file)) rec_file <- pliman_download_model(rec_model, dir = dir, verbose = verbose)
+
+  dict_file <- file.path(dir, "ppocr_dict.txt")
+  if (!file.exists(dict_file)) dict_file <- system.file("ppocr_dict.txt", package = "pliman")
+  dict <- if (file.exists(dict_file)) readLines(dict_file, encoding = "UTF-8", warn = FALSE) else character(0)
+
+  lib_path <- pliman_onnx_lib_path(engine = engine)
+  use_gpu <- (engine == "gpu")
+
+  if (isTRUE(verbose)) {
+    cli::cli_progress_step(
+      msg = paste0("Running PP-OCR text detection & recognition [{toupper(engine)}]..."),
+      msg_done = "OCR inference complete"
+    )
+  }
+
+  val_scale <- if (is.raw(mat)) (1 / 255.0) else (if (max(mat[1:min(1000, length(mat))], na.rm = TRUE) > 1.5) (1 / 255.0) else 1.0)
+  m_num <- as.numeric(mat) * val_scale
+  dim(m_num) <- dims
+
+  # DBNet detection input normalization: (x - mean) / std
+  R <- (m_num[, , 1] - 0.485) / 0.229
+  G <- (m_num[, , min(2, nch)] - 0.456) / 0.224
+  B <- (m_num[, , min(3, nch)] - 0.406) / 0.225
+  tensor <- c(as.numeric(R), as.numeric(G), as.numeric(B))
+
+  prob_map <- run_ocr_det_cpp(
+    tensor_vec = tensor,
+    in_w = orig_w,
+    in_h = orig_h,
+    model_path = det_file,
+    lib_path = lib_path,
+    num_threads = as.integer(threads),
+    use_gpu = use_gpu
+  )
+
+  bin_mask <- prob_map >= det_thresh
+  labels <- bwlabel_cpp(bin_mask)
+  n_cand <- max(labels)
+
+  valid_boxes <- list()
+  if (n_cand > 0) {
+    for (i in seq_len(n_cand)) {
+      idx <- which(labels == i, arr.ind = TRUE)
+      if (nrow(idx) < 10) next
+      bx1 <- min(idx[, 1]); bx2 <- max(idx[, 1])
+      by1 <- min(idx[, 2]); by2 <- max(idx[, 2])
+      bw <- bx2 - bx1 + 1; bh <- by2 - by1 + 1
+      if (min(bw, bh) < min_size) next
+      mean_s <- mean(prob_map[idx])
+      if (mean_s < box_thresh) next
+
+      peri <- 2 * (bw + bh)
+      dist <- (nrow(idx) * unclip_ratio) / peri
+      bx1 <- max(1L, as.integer(round(bx1 - dist)))
+      bx2 <- min(orig_w, as.integer(round(bx2 + dist)))
+      by1 <- max(1L, as.integer(round(by1 - dist)))
+      by2 <- min(orig_h, as.integer(round(by2 + dist)))
+
+      valid_boxes[[length(valid_boxes) + 1L]] <- list(
+        xmin = bx1, ymin = by1, xmax = bx2, ymax = by2, det_score = mean_s
+      )
+    }
+  }
+
+  if (length(valid_boxes) == 0L) {
+    res_df <- data.frame(
+      id = integer(0), text = character(0), score = numeric(0),
+      det_score = numeric(0), xmin = numeric(0), ymin = numeric(0),
+      xmax = numeric(0), ymax = numeric(0), stringsAsFactors = FALSE
+    )
+    class(res_df) <- c("pliman_ocr", "data.frame")
+    attr(res_df, "image") <- img_obj
+    if (isTRUE(verbose)) cli::cli_alert_info("No text detected in the image.")
+    if (isTRUE(plot)) plot(res_df, col = col, lwd = lwd, cex = cex, badge = badge, ...)
+    return(invisible(res_df))
+  }
+
+  n_b <- length(valid_boxes)
+  txts <- character(n_b)
+  scores <- numeric(n_b)
+
+  for (k in seq_len(n_b)) {
+    b <- valid_boxes[[k]]
+    crop <- m_num[b$xmin:b$xmax, b$ymin:b$ymax, , drop = FALSE]
+    cw <- b$xmax - b$xmin + 1; ch <- b$ymax - b$ymin + 1
+    crop_img <- as_image(crop)
+    if (ch > cw * 1.2) {
+      crop_img <- image_rotate(crop_img, angle = 90, plot = FALSE)
+      cw_old <- cw; cw <- ch; ch <- cw_old
+    }
+    imgH <- 48L
+    imgW <- max(16L, as.integer(round((imgH * (cw / ch)) / 8) * 8))
+    if (imgW > 640L) imgW <- 640L
+
+    resized <- image_resize(crop_img, width = imgW, height = imgH, plot = FALSE)
+    rmat <- as.numeric(image_data(resized))
+    dim(rmat) <- c(imgW, imgH, 3)
+
+    norm_c <- (rmat - 0.5) / 0.5
+    tensor_crop <- c(
+      as.numeric(norm_c[, , min(3, nch)]),
+      as.numeric(norm_c[, , min(2, nch)]),
+      as.numeric(norm_c[, , 1])
+    )
+
+    rec_res <- run_ocr_rec_cpp(
+      crops_vec = tensor_crop,
+      batch_size = 1L,
+      crop_w = imgW,
+      crop_h = imgH,
+      model_path = rec_file,
+      lib_path = lib_path,
+      num_threads = as.integer(threads),
+      use_gpu = use_gpu
+    )
+
+    ids <- rec_res[[1]]$char_ids
+    if (length(ids) > 0 && length(dict) > 0) {
+      txts[k] <- paste0(vapply(ids, function(id) if (id <= length(dict)) dict[id] else " ", character(1)), collapse = "")
+      scores[k] <- rec_res[[1]]$score
+    }
+  }
+
+  res_df <- data.frame(
+    id = seq_len(n_b),
+    text = txts,
+    score = scores,
+    det_score = vapply(valid_boxes, function(b) b$det_score, numeric(1)),
+    xmin = vapply(valid_boxes, function(b) b$xmin, numeric(1)),
+    ymin = vapply(valid_boxes, function(b) b$ymin, numeric(1)),
+    xmax = vapply(valid_boxes, function(b) b$xmax, numeric(1)),
+    ymax = vapply(valid_boxes, function(b) b$ymax, numeric(1)),
+    stringsAsFactors = FALSE
+  )
+  class(res_df) <- c("pliman_ocr", "data.frame")
+  attr(res_df, "image") <- img_obj
+
+  if (isTRUE(verbose)) {
+    n_rec <- sum(nzchar(res_df$text))
+    cli::cli_alert_success("pliman OCR recognized {n_rec} text instance{?s} across {n_b} detected region{?s}.")
+  }
+
+  if (isTRUE(plot)) {
+    plot(res_df, col = col, lwd = lwd, cex = cex, badge = badge, ...)
+  }
+
+  invisible(res_df)
+}
+
+#' @export
+print.pliman_ocr <- function(x, ...) {
+  n <- nrow(x)
+  if (n == 0L) {
+    cli::cli_alert_info("No text detected in the image.")
+  } else {
+    n_rec <- sum(nzchar(x$text))
+    cli::cli_alert_success("pliman OCR recognized {n_rec} text instance{?s} across {n} region{?s}:")
+    print.data.frame(x[, c("id", "text", "score", "xmin", "ymin", "xmax", "ymax")], row.names = FALSE)
+  }
+  invisible(x)
+}
+
+#' @export
+plot.pliman_ocr <- function(x,
+                            col = "forestgreen",
+                            lwd = 2L,
+                            cex = 0.80,
+                            badge = TRUE,
+                            badge_col = col,
+                            text_col = "white",
+                            ...) {
+  img <- attr(x, "image")
+  if (!is.null(img)) {
+    plot(img, ...)
+  }
+  if (is.null(x) || nrow(x) == 0L) return(invisible(x))
+
+  for (i in seq_len(nrow(x))) {
+    bx1 <- x$xmin[i]; by1 <- x$ymin[i]
+    bx2 <- x$xmax[i]; by2 <- x$ymax[i]
+    graphics::rect(bx1, by1, bx2, by2, border = col, lwd = lwd)
+
+    txt <- x$text[i]
+    if (nzchar(txt)) {
+      tw <- graphics::strwidth(txt, cex = cex)
+      th <- graphics::strheight(txt, cex = cex)
+      pad_x <- max(4, tw * 0.15)
+      pad_y <- max(2, th * 0.25)
+
+      ty1 <- if (by1 - th - 2 * pad_y >= 0) (by1 - th - 2 * pad_y) else by1
+      ty2 <- ty1 + th + 2 * pad_y
+      tx1 <- bx1
+      tx2 <- bx1 + tw + 2 * pad_x
+
+      if (isTRUE(badge)) {
+        graphics::rect(tx1, ty1, tx2, ty2, col = badge_col, border = NA)
+        graphics::text(tx1 + pad_x, ty1 + pad_y + th / 2, labels = txt, col = text_col, cex = cex, adj = c(0, 0.5), font = 2)
+      } else {
+        graphics::text(tx1 + 1, ty1 + 1, labels = txt, col = "black", cex = cex, adj = c(0, 0), font = 2)
+        graphics::text(tx1, ty1, labels = txt, col = col, cex = cex, adj = c(0, 0), font = 2)
+      }
+    }
+  }
+  invisible(x)
+}
+
 
 
