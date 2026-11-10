@@ -1594,7 +1594,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 80.4,
       input_size = "dynamic",
       filename = "craft.onnx",
-      url = "https://huggingface.co/itextresearch/itext-EasyOCR-craft_mlt_25k/resolve/main/craft_mlt_25k.onnx"
+      url = "https://huggingface.co/KvaytG/craft-mlt-25k-onnx/resolve/main/craft.onnx"
     ),
     list(
       name = "ppocr_rec",
@@ -10007,7 +10007,7 @@ image_restore_dl <- function(img,
 #' @param det_thresh Pixel binarization threshold for DBNet text polygon detection (default `0.30`).
 #' @param box_thresh Minimum confidence threshold for retaining detected text bounding boxes (default `0.50`).
 #' @param unclip_ratio Polygon expansion ratio to prevent cropping character boundaries (DBNet models, default `1.30`).
-#' @param text_threshold Character center confidence threshold for CRAFT detector (default `0.70`).
+#' @param text_threshold Character center confidence threshold for CRAFT detector (default `0.50`).
 #' @param link_threshold Character affinity link threshold for CRAFT detector (default `0.40`).
 #' @param low_text Lower bound text score threshold for CRAFT detector (default `0.40`).
 #' @param min_size Minimum text box height in pixels to filter out noise (default `5L`).
@@ -10042,7 +10042,7 @@ image_ocr_dl <- function(img,
                          det_thresh = 0.30,
                          box_thresh = 0.50,
                          unclip_ratio = 1.30,
-                         text_threshold = 0.70,
+                         text_threshold = 0.50,
                          link_threshold = 0.40,
                          low_text = 0.40,
                          min_size = 5L,
@@ -10155,7 +10155,8 @@ image_ocr_dl <- function(img,
     score_text <- craft_res$score_text
     score_link <- craft_res$score_link
 
-    bin_mask <- (score_text >= text_threshold) | (score_link >= link_threshold & score_text >= low_text)
+    # Official CRAFT connected components: combine character center map with affinity link map
+    bin_mask <- (score_text >= low_text) | (score_link >= link_threshold)
     labels <- bwlabel_cpp(bin_mask)
     n_cand <- max(labels)
 
@@ -10163,21 +10164,23 @@ image_ocr_dl <- function(img,
       for (i in seq_len(n_cand)) {
         idx <- which(labels == i, arr.ind = TRUE)
         if (nrow(idx) < 10) next
+        max_s <- max(score_text[idx])
+        if (max_s < text_threshold) next
+
         bx1 <- min(idx[, 1]); bx2 <- max(idx[, 1])
         by1 <- min(idx[, 2]); by2 <- max(idx[, 2])
         bw <- bx2 - bx1 + 1; bh <- by2 - by1 + 1
         if (min(bw, bh) < min_size) next
-        mean_s <- mean(score_text[idx])
-        if (mean_s < box_thresh) next
 
-        pad_px <- max(2L, as.integer(round(bh * 0.10)))
-        bx1 <- max(1L, bx1 - pad_px)
-        bx2 <- min(orig_w, bx2 + pad_px)
-        by1 <- max(1L, by1 - pad_px)
-        by2 <- min(orig_h, by2 + pad_px)
+        pad_x <- max(3L, as.integer(round(bw * 0.08)))
+        pad_y <- max(5L, as.integer(round(bh * 0.20)))
+        bx1 <- max(1L, bx1 - pad_x)
+        bx2 <- min(orig_w, bx2 + pad_x)
+        by1 <- max(1L, by1 - pad_y)
+        by2 <- min(orig_h, by2 + pad_y)
 
         valid_boxes[[length(valid_boxes) + 1L]] <- list(
-          xmin = bx1, ymin = by1, xmax = bx2, ymax = by2, det_score = mean_s
+          xmin = bx1, ymin = by1, xmax = bx2, ymax = by2, det_score = max_s
         )
       }
     }
