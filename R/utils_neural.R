@@ -5379,14 +5379,16 @@ image_remove_bg_dl <- function(img,
   }
 
   lbl_mat <- raw_res$labels
-  if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && nrow(lbl_mat) == orig_w && ncol(lbl_mat) == orig_h && any(lbl_mat > 0L)) {
+  has_morph_ops <- (filter > 0) || (erode > 0) || (dilate > 0) || (opening > 0) || (closing > 0) || (min_area > 0)
+  if (has_morph_ops && num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && nrow(lbl_mat) == orig_w && ncol(lbl_mat) == orig_h) {
     for (k in seq_len(num_boxes)) {
       bx <- df_boxes[k, ]
       x1 <- max(1L, floor(bx$xmin) - 2L)
       x2 <- min(orig_w, ceiling(bx$xmax) + 2L)
       y1 <- max(1L, floor(bx$ymin) - 2L)
       y2 <- min(orig_h, ceiling(bx$ymax) + 2L)
-      sub_m <- (lbl_mat[x1:x2, y1:y2] == k)
+      sub_lbl <- lbl_mat[x1:x2, y1:y2]
+      sub_m <- (sub_lbl == k)
       if (!any(sub_m)) next
 
       if (isTRUE(fill_hull)) {
@@ -5419,8 +5421,9 @@ image_remove_bg_dl <- function(img,
           sub_m <- matrix(lbls %in% keep_ids, nrow = nrow(sub_m), ncol = ncol(sub_m))
         }
       }
-      lbl_mat[x1:x2, y1:y2][lbl_mat[x1:x2, y1:y2] == k] <- 0L
-      lbl_mat[x1:x2, y1:y2][sub_m] <- as.integer(k)
+      sub_lbl[sub_lbl == k] <- 0L
+      sub_lbl[sub_m] <- as.integer(k)
+      lbl_mat[x1:x2, y1:y2] <- sub_lbl
     }
   }
 
@@ -5428,7 +5431,7 @@ image_remove_bg_dl <- function(img,
     as_image(lbl_mat, colormode = "Grayscale", storage = "integer")
   } else NULL
 
-  contornos <- if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && any(lbl_mat > 0L)) {
+  contornos <- if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat)) {
     extract_contours_cpp(lbl_mat)
   } else list()
   if (is.list(contornos)) {
@@ -5471,7 +5474,7 @@ image_remove_bg_dl <- function(img,
     summary = summary_str,
     contours = contornos,
     labels = labels_img,
-    mask = if (!is.null(lbl_mat) && is.matrix(lbl_mat)) (lbl_mat > 0L) else NULL,
+    mask = NULL,
     features = feats,
     keypoints = kpts_list,
     raw_keypoints = if (has_kpts) raw_res$keypoints else NULL
@@ -6001,18 +6004,16 @@ plot_yolo_heatmap <- function(img,
   if (!is.null(gs_res$contours) && length(gs_res$contours) == n) {
     gs_res$contours <- gs_res$contours[keep_idx]
   }
+  if (!is.null(gs_res$features) && is.data.frame(gs_res$features) && nrow(gs_res$features) == n) {
+    gs_res$features <- gs_res$features[keep_idx, , drop = FALSE]
+    gs_res$features$id <- seq_len(nrow(gs_res$features))
+    rownames(gs_res$features) <- NULL
+  }
 
   if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
-    lbl_mat <- image_data(gs_res$labels)
-    max_id <- max(lbl_mat)
-    if (max_id > 0L) {
-      lut <- integer(max_id + 1L)
-      lut[keep_idx + 1L] <- seq_along(keep_idx)
-      new_lbl <- matrix(lut[lbl_mat + 1L], nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
-      gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
-      if (!is.null(gs_res$mask)) {
-        gs_res$mask <- as_image(new_lbl > 0L)
-      }
+    remap_labels_cpp(gs_res$labels, as.integer(keep_idx))
+    if (!is.null(gs_res$mask)) {
+      gs_res$mask <- NULL
     }
   }
 
@@ -6707,17 +6708,15 @@ image_segment_dl <- function(img,
         if (!is.null(gs_res$contours) && length(gs_res$contours) > 0) {
           gs_res$contours <- gs_res$contours[idx_keep]
         }
+        if (!is.null(gs_res$features) && is.data.frame(gs_res$features) && nrow(gs_res$features) >= max(idx_keep, 0L)) {
+          gs_res$features <- gs_res$features[idx_keep, , drop = FALSE]
+          if (nrow(gs_res$features) > 0L) gs_res$features$id <- seq_len(nrow(gs_res$features))
+          rownames(gs_res$features) <- NULL
+        }
         if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
-          lbl_mat <- image_data(gs_res$labels)
-          max_id <- max(lbl_mat)
-          if (max_id > 0L) {
-            lut <- integer(max_id + 1L)
-            lut[idx_keep + 1L] <- seq_along(idx_keep)
-            new_lbl <- matrix(lut[lbl_mat + 1L], nrow = nrow(lbl_mat), ncol = ncol(lbl_mat))
-            gs_res$labels <- as_image(new_lbl, colormode = "Grayscale", storage = "integer")
-            if (!is.null(gs_res$mask)) {
-              gs_res$mask <- as_image(new_lbl > 0L)
-            }
+          remap_labels_cpp(gs_res$labels, as.integer(idx_keep))
+          if (!is.null(gs_res$mask)) {
+            gs_res$mask <- NULL
           }
         }
         if (nrow(gs_res$boxes) > 0) {
@@ -6886,8 +6885,8 @@ image_segment_dl <- function(img,
         tolower(as.character(col_background[1])) %in% c("transparent", "transp", "none") ||
         tryCatch(grDevices::col2rgb(col_background[1], alpha = TRUE)[4, 1] == 0, error = function(e) FALSE)
       )
-      if (isTRUE(mask) && !is.null(gs_res$mask)) {
-        m_fg <- gs_res$mask > 0
+      if (isTRUE(mask) && (!is.null(gs_res$mask) || !is.null(gs_res$labels))) {
+        m_fg <- if (!is.null(gs_res$mask)) (gs_res$mask > 0) else (image_data(gs_res$labels) > 0L)
         if (is_transparent) {
           if (length(dims) == 3 && dims[3] >= 3) {
             orig_alpha <- if (dims[3] >= 4) {
@@ -7004,7 +7003,9 @@ image_segment_dl <- function(img,
         }
       }
 
-      feats <- if (length(instance_conts) > 0) {
+      feats <- if (!is.null(gs_res$features) && is.data.frame(gs_res$features) && nrow(gs_res$features) == num_inst) {
+        gs_res$features
+      } else if (length(instance_conts) > 0) {
         tryCatch(poly_measures(instance_conts), error = function(e) data.frame())
       } else {
         data.frame()
