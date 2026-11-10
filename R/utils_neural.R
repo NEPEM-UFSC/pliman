@@ -9960,7 +9960,7 @@ image_restore_dl <- function(img,
 #' @param rec_model Text recognition backbone model (default `"ppocr_rec"` or `"ch_PP-OCRv4_rec"`).
 #' @param det_thresh Pixel binarization threshold for text polygon detection (default `0.30`).
 #' @param box_thresh Minimum confidence threshold for retaining detected text bounding boxes (default `0.50`).
-#' @param unclip_ratio Polygon expansion ratio to prevent cropping character boundaries (default `1.60`).
+#' @param unclip_ratio Polygon expansion ratio to prevent cropping character boundaries (default `1.30`).
 #' @param min_size Minimum text box height in pixels to filter out noise (default `5L`).
 #' @param col Border color for recognized text bounding polygons (default `"forestgreen"`).
 #' @param lwd Line width for rendering detected text polygon borders (default `2L`).
@@ -9992,7 +9992,7 @@ image_ocr_dl <- function(img,
                          rec_model = "ppocr_rec",
                          det_thresh = 0.30,
                          box_thresh = 0.50,
-                         unclip_ratio = 1.60,
+                         unclip_ratio = 1.30,
                          min_size = 5L,
                          col = "forestgreen",
                          lwd = 2L,
@@ -10055,6 +10055,14 @@ image_ocr_dl <- function(img,
   val_scale <- if (is.raw(mat)) (1 / 255.0) else (if (max(mat[1:min(1000, length(mat))], na.rm = TRUE) > 1.5) (1 / 255.0) else 1.0)
   m_num <- as.numeric(mat) * val_scale
   dim(m_num) <- dims
+
+  # If image has alpha channel (RGBA), blend over white background
+  if (nch >= 4L) {
+    alpha <- m_num[, , 4]
+    for (c_idx in 1:3) {
+      m_num[, , c_idx] <- m_num[, , c_idx] * alpha + (1.0 - alpha)
+    }
+  }
 
   # DBNet detection input normalization: (x - mean) / std
   R <- (m_num[, , 1] - 0.485) / 0.229
@@ -10120,26 +10128,37 @@ image_ocr_dl <- function(img,
 
   for (k in seq_len(n_b)) {
     b <- valid_boxes[[k]]
-    crop <- m_num[b$xmin:b$xmax, b$ymin:b$ymax, , drop = FALSE]
+    crop <- m_num[b$xmin:b$xmax, b$ymin:b$ymax, 1:min(3, nch), drop = FALSE]
     cw <- b$xmax - b$xmin + 1; ch <- b$ymax - b$ymin + 1
+    if (dim(crop)[3] == 1L) {
+      crop <- array(rep(crop, 3), dim = c(cw, ch, 3))
+    }
     crop_img <- as_image(crop)
     if (ch > cw * 1.2) {
       crop_img <- image_rotate(crop_img, angle = 90, plot = FALSE)
       cw_old <- cw; cw <- ch; ch <- cw_old
     }
     imgH <- 48L
-    imgW <- max(16L, as.integer(round((imgH * (cw / ch)) / 8) * 8))
-    if (imgW > 640L) imgW <- 640L
+    imgW <- 320L
+    ratio <- cw / ch
+    resized_w <- min(imgW, max(16L, as.integer(ceiling(imgH * ratio))))
 
-    resized <- image_resize(crop_img, width = imgW, height = imgH, plot = FALSE)
+    resized <- image_resize(crop_img, width = resized_w, height = imgH, plot = FALSE)
     rmat <- as.numeric(image_data(resized))
-    dim(rmat) <- c(imgW, imgH, 3)
+    if (is.raw(rmat)) {
+      rmat <- as.numeric(rmat) / 255.0
+    } else if (max(rmat[1:min(1000, length(rmat))], na.rm = TRUE) > 1.5) {
+      rmat <- rmat / 255.0
+    }
+    dim(rmat) <- c(resized_w, imgH, 3)
 
-    norm_c <- (rmat - 0.5) / 0.5
+    pad_arr <- array(0.0, dim = c(imgW, imgH, 3))
+    pad_arr[1:resized_w, , ] <- (rmat - 0.5) / 0.5
+
     tensor_crop <- c(
-      as.numeric(norm_c[, , min(3, nch)]),
-      as.numeric(norm_c[, , min(2, nch)]),
-      as.numeric(norm_c[, , 1])
+      as.numeric(pad_arr[, , 3]),
+      as.numeric(pad_arr[, , 2]),
+      as.numeric(pad_arr[, , 1])
     )
 
     rec_res <- run_ocr_rec_cpp(
@@ -10155,8 +10174,9 @@ image_ocr_dl <- function(img,
 
     ids <- rec_res[[1]]$char_ids
     if (length(ids) > 0 && length(dict) > 0) {
-      txts[k] <- paste0(vapply(ids, function(id) if (id <= length(dict)) dict[id] else " ", character(1)), collapse = "")
-      scores[k] <- rec_res[[1]]$score
+      chars <- vapply(ids, function(id) if (id <= length(dict)) dict[id] else "", character(1))
+      txts[k] <- trimws(paste0(chars, collapse = ""))
+      scores[k] <- round(rec_res[[1]]$score, 4)
     }
   }
 

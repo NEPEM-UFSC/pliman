@@ -227,6 +227,14 @@ image_detect_dl_batch <- function(data,
                                   pattern = NULL,
                                   path = NULL,
                                   parallel = FALSE,
+                                  sahi = FALSE,
+                                  slice_height = 640,
+                                  slice_width = 640,
+                                  overlap_height_ratio = 0.20,
+                                  overlap_width_ratio = 0.20,
+                                  match_metric = "IOS",
+                                  match_threshold = 0.50,
+                                  postprocess_type = "GREEDY_NMM",
                                   show_point = FALSE,
                                   keep_images = FALSE,
                                   save_image = FALSE,
@@ -248,6 +256,14 @@ image_detect_dl_batch <- function(data,
           pattern = pattern,
           path = path,
           parallel = parallel,
+          sahi = sahi,
+          slice_height = slice_height,
+          slice_width = slice_width,
+          overlap_height_ratio = overlap_height_ratio,
+          overlap_width_ratio = overlap_width_ratio,
+          match_metric = match_metric,
+          match_threshold = match_threshold,
+          postprocess_type = postprocess_type,
           show_point = show_point,
           keep_images = keep_images,
           save_image = save_image,
@@ -350,7 +366,19 @@ image_detect_dl_batch <- function(data,
   }
 
   worker_detect_fn <- function(im, args) {
-    do.call(pliman::image_detect_dl, c(list(img = im), args))
+    if (isTRUE(sahi)) {
+      sahi_args <- args
+      sahi_args$slice_height <- slice_height
+      sahi_args$slice_width <- slice_width
+      sahi_args$overlap_height_ratio <- overlap_height_ratio
+      sahi_args$overlap_width_ratio <- overlap_width_ratio
+      sahi_args$match_metric <- match_metric
+      sahi_args$match_threshold <- match_threshold
+      sahi_args$postprocess_type <- postprocess_type
+      do.call(pliman::image_detect_sahi, c(list(img = im), sahi_args))
+    } else {
+      do.call(pliman::image_detect_dl, c(list(img = im), args))
+    }
   }
 
   # 2. Execution: Parallel vs Sequential
@@ -1188,6 +1216,14 @@ image_segment_dl_batch <- function(data,
                                    pattern = NULL,
                                    path = NULL,
                                    parallel = FALSE,
+                                   sahi = FALSE,
+                                   slice_height = 640,
+                                   slice_width = 640,
+                                   overlap_height_ratio = 0.20,
+                                   overlap_width_ratio = 0.20,
+                                   match_metric = "IOS",
+                                   match_threshold = 0.50,
+                                   postprocess_type = "GREEDY_NMM",
                                    measure = TRUE,
                                    pixel_size = NULL,
                                    show_point = FALSE,
@@ -1211,6 +1247,14 @@ image_segment_dl_batch <- function(data,
           pattern = pattern,
           path = path,
           parallel = parallel,
+          sahi = sahi,
+          slice_height = slice_height,
+          slice_width = slice_width,
+          overlap_height_ratio = overlap_height_ratio,
+          overlap_width_ratio = overlap_width_ratio,
+          match_metric = match_metric,
+          match_threshold = match_threshold,
+          postprocess_type = postprocess_type,
           measure = measure,
           pixel_size = pixel_size,
           show_point = show_point,
@@ -1309,7 +1353,19 @@ image_segment_dl_batch <- function(data,
     } else {
       im
     }
-    do.call(pliman::image_segment_dl, c(list(img = im_obj), args))
+    if (isTRUE(sahi)) {
+      sahi_args <- args
+      sahi_args$slice_height <- slice_height
+      sahi_args$slice_width <- slice_width
+      sahi_args$overlap_height_ratio <- overlap_height_ratio
+      sahi_args$overlap_width_ratio <- overlap_width_ratio
+      sahi_args$match_metric <- match_metric
+      sahi_args$match_threshold <- match_threshold
+      sahi_args$postprocess_type <- postprocess_type
+      do.call(pliman::image_segment_sahi, c(list(img = im_obj), sahi_args))
+    } else {
+      do.call(pliman::image_segment_dl, c(list(img = im_obj), args))
+    }
   }
 
   # 2. Execution: Parallel vs Sequential

@@ -31,7 +31,7 @@ image_detect_dl(
   return_features = FALSE,
   feature_model = c("yolo", "clip-vit-b32", "dinov2"),
   plot_features = FALSE,
-  filter_nested = TRUE,
+  filter_nested = FALSE,
   threads = 0,
   engine = c("gpu", "cpu"),
   device_id = -1,
@@ -107,8 +107,8 @@ Options are \code{"clip-vit-b32"} (default, OpenAI CLIP ViT-B/32 producing 512-D
 
 \item{plot_features}{Logical. If \code{TRUE} and \code{return_features = TRUE}, visualizes the dense spatial PCA feature map. Defaults to \code{FALSE}.}
 
-\item{filter_nested}{Logical. If \code{TRUE} (the default), removes larger container bounding boxes
-that enclose smaller boxes of the same class.}
+\item{filter_nested}{Logical. If \code{TRUE}, removes larger container bounding boxes
+that enclose smaller boxes of the same class. Defaults to \code{FALSE}.}
 
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 
