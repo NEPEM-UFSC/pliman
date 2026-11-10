@@ -1629,6 +1629,7 @@ video_detect_dl <- function(video = 0,
           if (file.exists(new_ox)) {
             model_file <- new_ox
             reexported <- TRUE
+            model_shape_info$dynamic <- TRUE
             cli::cli_alert_success("Model upgraded to dynamic ONNX: now supports any imgsz (e.g., {target_size})!")
           }
         }, error = function(e) NULL)
@@ -1648,39 +1649,169 @@ video_detect_dl <- function(video = 0,
     target_size <- 640L
   }
 
-  .nms_boxes_sahi <- function(boxes, scores, class_ids, iou_thresh = 0.45, ios_thresh = 0.70) {
+  .filter_nested_mat <- function(boxes, scores, class_ids, stats = NULL,
+                                 containment_thresh = 0.85, max_area_ratio = 0.70, conf_floor = 0.50) {
     n <- nrow(boxes)
-    if (is.null(n) || n <= 1L) return(seq_len(max(0L, n)))
-    ord <- order(scores, decreasing = TRUE)
-    x1 <- boxes[, 1]
-    y1 <- boxes[, 2]
-    x2 <- boxes[, 3]
-    y2 <- boxes[, 4]
-    areas <- pmax(0, x2 - x1) * pmax(0, y2 - y1)
-    suppressed <- logical(n)
-    keep <- integer(0)
-    for (idx in ord) {
-      if (suppressed[idx]) next
-      keep <- c(keep, idx)
-      rem <- ord[!suppressed[ord] & ord != idx & class_ids[ord] == class_ids[idx]]
-      if (length(rem) == 0L) next
-      xx1 <- pmax(x1[idx], x1[rem])
-      yy1 <- pmax(y1[idx], y1[rem])
-      xx2 <- pmin(x2[idx], x2[rem])
-      yy2 <- pmin(y2[idx], y2[rem])
-      inter <- pmax(0, xx2 - xx1) * pmax(0, yy2 - yy1)
-      union_a <- areas[idx] + areas[rem] - inter
-      iou <- ifelse(union_a > 0, inter / union_a, 0)
-      min_a <- pmin(areas[idx], areas[rem])
-      ios <- ifelse(min_a > 0, inter / min_a, 0)
-      suppressed[rem[iou > iou_thresh | ios > ios_thresh]] <- TRUE
+    if (is.null(n) || n <= 1L) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
+    x1 <- boxes[, 1]; y1 <- boxes[, 2]; x2 <- boxes[, 3]; y2 <- boxes[, 4]
+    areas <- pmax(0.0, x2 - x1) * pmax(0.0, y2 - y1)
+    valid_child <- which(scores >= conf_floor & areas > 0.0)
+    if (length(valid_child) == 0L) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
+    keep <- rep(TRUE, n)
+    for (i in seq_len(n)) {
+      ai <- areas[i]
+      if (ai <= 0.0) next
+      bx1 <- x1[i]; by1 <- y1[i]; bx2 <- x2[i]; by2 <- y2[i]
+      ci <- valid_child[valid_child != i & areas[valid_child] < ai * max_area_ratio]
+      if (length(ci) == 0L) next
+      ci <- ci[x2[ci] > bx1 & x1[ci] < bx2 & y2[ci] > by1 & y1[ci] < by2]
+      if (length(ci) == 0L) next
+      iw <- pmin(bx2, x2[ci]) - pmax(bx1, x1[ci])
+      ih <- pmin(by2, y2[ci]) - pmax(by1, y1[ci])
+      inter <- pmax(0.0, iw) * pmax(0.0, ih)
+      if (any(inter / areas[ci] >= containment_thresh)) keep[i] <- FALSE
     }
-    keep
+    if (all(keep)) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
+    list(
+      boxes = boxes[keep, , drop = FALSE],
+      scores = scores[keep],
+      class_ids = class_ids[keep],
+      seg_stats = if (!is.null(stats) && nrow(stats) == n) stats[keep, , drop = FALSE] else stats
+    )
+  }
+
+  .sahi_merge_video <- function(boxes, scores, class_ids, is_full, stats = NULL,
+                                match_threshold = 0.50) {
+    n <- nrow(boxes)
+    if (is.null(n) || n <= 1L) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
+    has_stats <- !is.null(stats) && nrow(stats) == n
+    cls_groups <- split(seq_len(n), class_ids)
+
+    out_b_list <- list()
+    out_s_list <- list()
+    out_c_list <- list()
+    out_st_list <- list()
+
+    for (g_idx in cls_groups) {
+      x1 <- boxes[g_idx, 1]; y1 <- boxes[g_idx, 2]
+      x2 <- boxes[g_idx, 3]; y2 <- boxes[g_idx, 4]
+      cf <- scores[g_idx]
+      cid <- class_ids[g_idx[1L]]
+      isf <- is_full[g_idx]
+      st_g <- if (has_stats) stats[g_idx, , drop = FALSE] else NULL
+
+      # Step 1: Subsume slice fragments into full-image detections
+      if (any(isf)) {
+        full_idx <- which(isf)
+        slice_idx <- which(!isf)
+        if (length(slice_idx) > 0L) {
+          sx1 <- x1[slice_idx]; sy1 <- y1[slice_idx]
+          sx2 <- x2[slice_idx]; sy2 <- y2[slice_idx]
+          scf <- cf[slice_idx]
+          s_area <- (sx2 - sx1 + 1.0) * (sy2 - sy1 + 1.0)
+          absorbed <- logical(length(slice_idx))
+          for (fi in full_idx) {
+            rem_s <- which(!absorbed)
+            if (length(rem_s) == 0L) break
+            fx1 <- x1[fi]; fy1 <- y1[fi]; fx2 <- x2[fi]; fy2 <- y2[fi]
+            rem_s <- rem_s[sx2[rem_s] >= fx1 & sx1[rem_s] <= fx2 & sy2[rem_s] >= fy1 & sy1[rem_s] <= fy2]
+            if (length(rem_s) == 0L) next
+            f_area <- (fx2 - fx1 + 1.0) * (fy2 - fy1 + 1.0)
+            iw <- pmin(fx2, sx2[rem_s]) - pmax(fx1, sx1[rem_s]) + 1.0
+            ih <- pmin(fy2, sy2[rem_s]) - pmax(fy1, sy1[rem_s]) + 1.0
+            inter <- iw * ih
+            sa <- s_area[rem_s]
+            ios <- inter / pmin(f_area, sa)
+            iou <- inter / (f_area + sa - inter)
+            hit <- rem_s[ios >= 0.40 | iou >= 0.35]
+            if (length(hit) > 0L) {
+              max_s <- max(scf[hit])
+              if (max_s > cf[fi]) cf[fi] <- max_s
+              absorbed[hit] <- TRUE
+            }
+          }
+          if (any(absorbed)) {
+            keep_r <- rep(TRUE, length(x1))
+            keep_r[slice_idx[absorbed]] <- FALSE
+            x1 <- x1[keep_r]; y1 <- y1[keep_r]; x2 <- x2[keep_r]; y2 <- y2[keep_r]
+            cf <- cf[keep_r]
+            if (has_stats) st_g <- st_g[keep_r, , drop = FALSE]
+          }
+        }
+      }
+
+      n_rem <- length(x1)
+      if (n_rem == 0L) next
+
+      # Step 2: Vectorized Greedy NMM with IOS
+      ord <- order(cf, decreasing = TRUE)
+      x1 <- x1[ord]; y1 <- y1[ord]; x2 <- x2[ord]; y2 <- y2[ord]; cf <- cf[ord]
+      if (has_stats) st_g <- st_g[ord, , drop = FALSE]
+      areas <- (x2 - x1 + 1.0) * (y2 - y1 + 1.0)
+
+      alive <- rep(TRUE, n_rem)
+      keep_seeds <- integer(n_rem)
+      ox1 <- numeric(n_rem); oy1 <- numeric(n_rem)
+      ox2 <- numeric(n_rem); oy2 <- numeric(n_rem)
+      ocf <- numeric(n_rem)
+      n_out <- 0L
+
+      for (seed in seq_len(n_rem)) {
+        if (!alive[seed]) next
+        alive[seed] <- FALSE
+        n_out <- n_out + 1L
+        keep_seeds[n_out] <- seed
+        bx1 <- x1[seed]; by1 <- y1[seed]; bx2 <- x2[seed]; by2 <- y2[seed]
+        b_area <- areas[seed]
+
+        cand <- which(alive)
+        if (length(cand) > 0L) {
+          cand <- cand[x2[cand] >= bx1 & x1[cand] <= bx2]
+          if (length(cand) > 0L) cand <- cand[y2[cand] >= by1 & y1[cand] <= by2]
+        }
+        if (length(cand) > 0L) {
+          iw <- pmin(bx2, x2[cand]) - pmax(bx1, x1[cand]) + 1.0
+          ih <- pmin(by2, y2[cand]) - pmax(by1, y1[cand]) + 1.0
+          inter <- iw * ih
+          ca <- areas[cand]
+          iou <- inter / (b_area + ca - inter)
+          ios <- inter / pmin(b_area, ca)
+          matched <- cand[ios >= match_threshold & iou >= 0.30]
+        } else {
+          matched <- integer(0)
+        }
+        if (length(matched) > 0L) {
+          alive[matched] <- FALSE
+          m_idx <- c(seed, matched)
+          ox1[n_out] <- min(x1[m_idx]); oy1[n_out] <- min(y1[m_idx])
+          ox2[n_out] <- max(x2[m_idx]); oy2[n_out] <- max(y2[m_idx])
+          ocf[n_out] <- max(cf[m_idx])
+        } else {
+          ox1[n_out] <- bx1; oy1[n_out] <- by1
+          ox2[n_out] <- bx2; oy2[n_out] <- by2
+          ocf[n_out] <- cf[seed]
+        }
+      }
+      if (n_out > 0L) {
+        s_idx <- seq_len(n_out)
+        out_b_list[[length(out_b_list) + 1L]] <- cbind(ox1[s_idx], oy1[s_idx], ox2[s_idx], oy2[s_idx])
+        out_s_list[[length(out_s_list) + 1L]] <- ocf[s_idx]
+        out_c_list[[length(out_c_list) + 1L]] <- rep(cid, n_out)
+        if (has_stats) out_st_list[[length(out_st_list) + 1L]] <- st_g[keep_seeds[s_idx], , drop = FALSE]
+      }
+    }
+
+    list(
+      boxes = if (length(out_b_list) == 1L) out_b_list[[1L]] else do.call(rbind, out_b_list),
+      scores = unlist(out_s_list),
+      class_ids = unlist(out_c_list),
+      seg_stats = if (has_stats && length(out_st_list) > 0L) do.call(rbind, out_st_list) else stats
+    )
   }
 
   .run_video_yolo <- function(bm_feed, feed_w, feed_h, need_masks_flag) {
     if (!sahi) {
-      return(run_yolo_cpp(
+      res_single <- run_yolo_cpp(
         tensor_vec = bm_feed,
         orig_w = feed_w,
         orig_h = feed_h,
@@ -1693,12 +1824,33 @@ video_detect_dl <- function(video = 0,
         device_id = as.integer(device_id),
         need_masks = need_masks_flag,
         target_size = as.integer(target_size)
-      ))
+      )
+      if (!need_masks_flag && nrow(res_single$boxes) > 1L) {
+        fn <- .filter_nested_mat(res_single$boxes, res_single$scores, res_single$class_ids, res_single$seg_stats)
+        res_single$boxes <- fn$boxes
+        res_single$scores <- fn$scores
+        res_single$class_ids <- fn$class_ids
+        res_single$seg_stats <- fn$seg_stats
+      }
+      return(res_single)
     }
-    sh <- if (!is.null(slice_height) && slice_height > 0) as.integer(slice_height[1]) else as.integer(target_size)
-    sw <- if (!is.null(slice_width) && slice_width > 0) as.integer(slice_width[1]) else as.integer(target_size)
+    sh <- if (!is.null(slice_height) && slice_height > 0) {
+      as.integer(slice_height[1])
+    } else {
+      min(640L, max(256L, as.integer(round(feed_h * 0.60))))
+    }
+    sw <- if (!is.null(slice_width) && slice_width > 0) {
+      as.integer(slice_width[1])
+    } else {
+      min(640L, max(256L, as.integer(round(feed_w * 0.58))))
+    }
     sh <- min(sh, feed_h)
     sw <- min(sw, feed_w)
+    tile_target_size <- if (isTRUE(model_shape_info$dynamic)) {
+      min(as.integer(target_size), max(640L, ((max(sw, sh) + 31L) %/% 32L) * 32L))
+    } else {
+      as.integer(target_size)
+    }
     ov <- max(0.0, min(0.8, as.numeric(overlap_ratio[1])))
     step_x <- max(1L, as.integer(round(sw * (1.0 - ov))))
     step_y <- max(1L, as.integer(round(sh * (1.0 - ov))))
@@ -1719,9 +1871,17 @@ video_detect_dl <- function(video = 0,
       need_masks = need_masks_flag,
       target_size = as.integer(target_size)
     )
+    if (nrow(full_res$boxes) > 1L) {
+      fn <- .filter_nested_mat(full_res$boxes, full_res$scores, full_res$class_ids, full_res$seg_stats)
+      full_res$boxes <- fn$boxes
+      full_res$scores <- fn$scores
+      full_res$class_ids <- fn$class_ids
+      full_res$seg_stats <- fn$seg_stats
+    }
     boxes_list <- list(full_res$boxes)
     scores_list <- list(full_res$scores)
     cls_list <- list(full_res$class_ids)
+    isf_list <- list(rep(TRUE, nrow(full_res$boxes)))
     stats_list <- if (!is.null(full_res$seg_stats)) list(full_res$seg_stats) else NULL
 
     for (ty in ys) {
@@ -1739,9 +1899,16 @@ video_detect_dl <- function(video = 0,
           use_gpu = use_gpu,
           device_id = as.integer(device_id),
           need_masks = FALSE,
-          target_size = as.integer(target_size)
+          target_size = tile_target_size
         )
         if (nrow(tres$boxes) > 0L) {
+          if (nrow(tres$boxes) > 1L) {
+            fn_t <- .filter_nested_mat(tres$boxes, tres$scores, tres$class_ids, tres$seg_stats)
+            tres$boxes <- fn_t$boxes
+            tres$scores <- fn_t$scores
+            tres$class_ids <- fn_t$class_ids
+            tres$seg_stats <- fn_t$seg_stats
+          }
           tb <- tres$boxes
           tb[, 1] <- tb[, 1] + tx
           tb[, 2] <- tb[, 2] + ty
@@ -1750,6 +1917,7 @@ video_detect_dl <- function(video = 0,
           boxes_list[[length(boxes_list) + 1L]] <- tb
           scores_list[[length(scores_list) + 1L]] <- tres$scores
           cls_list[[length(cls_list) + 1L]] <- tres$class_ids
+          isf_list[[length(isf_list) + 1L]] <- rep(FALSE, nrow(tb))
           if (!is.null(stats_list) && !is.null(tres$seg_stats)) {
             stats_list[[length(stats_list) + 1L]] <- tres$seg_stats
           }
@@ -1759,16 +1927,15 @@ video_detect_dl <- function(video = 0,
     all_b <- do.call(rbind, boxes_list)
     all_s <- unlist(scores_list)
     all_c <- unlist(cls_list)
+    all_isf <- unlist(isf_list)
+    all_st <- if (!is.null(stats_list)) do.call(rbind, stats_list) else NULL
     if (nrow(all_b) > 0L) {
-      keep_nms <- .nms_boxes_sahi(all_b, all_s, all_c, iou_threshold)
-      full_res$boxes <- all_b[keep_nms, , drop = FALSE]
-      full_res$scores <- all_s[keep_nms]
-      full_res$class_ids <- all_c[keep_nms]
+      m_res <- .sahi_merge_video(all_b, all_s, all_c, all_isf, all_st, match_threshold = 0.50)
+      full_res$boxes <- m_res$boxes
+      full_res$scores <- m_res$scores
+      full_res$class_ids <- m_res$class_ids
       if (!is.null(stats_list)) {
-        all_st <- do.call(rbind, stats_list)
-        if (nrow(all_st) >= max(keep_nms)) {
-          full_res$seg_stats <- all_st[keep_nms, , drop = FALSE]
-        }
+        full_res$seg_stats <- m_res$seg_stats
       }
     }
     full_res

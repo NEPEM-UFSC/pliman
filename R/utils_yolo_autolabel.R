@@ -2909,7 +2909,9 @@ yolo_dataset_autolabel <- function(input_dir,
                              size_mode = size_mode,
                              plot = FALSE, verbose = FALSE,
                              dir = model_dir_ctx,
-                             engine = used_eng, device_id = device_id), silent = TRUE)
+                             engine = used_eng,
+                             device_id = device_id,
+                             ...), silent = TRUE)
         }
         if (inherits(det, "try-error")) {
           if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
@@ -2947,7 +2949,9 @@ yolo_dataset_autolabel <- function(input_dir,
                               size_mode = size_mode,
                               plot = FALSE, verbose = FALSE,
                               dir = model_dir_ctx,
-                              engine = used_eng, device_id = device_id), silent = TRUE)
+                              engine = used_eng,
+                              device_id = device_id,
+                              ...), silent = TRUE)
         }
         if (inherits(seg, "try-error")) {
           if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
@@ -2999,7 +3003,7 @@ yolo_dataset_autolabel <- function(input_dir,
     } else {
       pred <- try(yolo_fewshot_predict(model, im_path, task = task, conf_threshold = conf_t, max_objects = max_objects,
                                        lower_size = lower_size, upper_size = upper_size, size_mode = size_mode,
-                                       engine = engine, device_id = device_id, plot = FALSE), silent = TRUE)
+                                       engine = engine, device_id = device_id, plot = FALSE, ...), silent = TRUE)
       if (inherits(pred, "try-error")) {
         if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
         next

@@ -23,9 +23,9 @@
 
   # Standardize score and confidence
   c_vals <- if (!is.null(candidates_df$conf)) {
-    candidates_df$conf
+    as.numeric(candidates_df$conf)
   } else if (!is.null(candidates_df$score)) {
-    candidates_df$score
+    as.numeric(candidates_df$score)
   } else {
     rep(1.0, nrow(candidates_df))
   }
@@ -44,146 +44,171 @@
 
   final_boxes_list <- list()
   final_conts_list <- list()
+  is_nmm <- (postprocess_type == "GREEDY_NMM")
+  is_ios <- (match_metric == "IOS")
 
   for (cls_idx in class_groups) {
     cls_df <- candidates_df[cls_idx, , drop = FALSE]
     cls_conts <- if (has_conts) contours[cls_idx] else NULL
 
-    # ------------------------------------------------------------------
-    # Step 1: Subsume slice fragments into full-image detections
-    # When full-image inference detected a whole object, slice fragments
-    # that overlap significantly with it are absorbed into the full object
-    # (retaining the full unbroken contour and absorbing higher confidence).
-    # ------------------------------------------------------------------
-    if (any(cls_df$is_full)) {
-      full_idx <- which(cls_df$is_full)
-      slice_idx <- which(!cls_df$is_full)
+    x1 <- as.numeric(cls_df$xmin)
+    y1 <- as.numeric(cls_df$ymin)
+    x2 <- as.numeric(cls_df$xmax)
+    y2 <- as.numeric(cls_df$ymax)
+    cf <- as.numeric(cls_df$conf)
+    isf <- as.logical(cls_df$is_full)
 
+    # ------------------------------------------------------------------
+    # Step 1: Vectorized subsumption of slice fragments into full-image detections
+    # ------------------------------------------------------------------
+    if (any(isf)) {
+      full_idx <- which(isf)
+      slice_idx <- which(!isf)
       if (length(slice_idx) > 0L) {
-        absorbed_slice <- logical(length(slice_idx))
+        sx1 <- x1[slice_idx]; sy1 <- y1[slice_idx]
+        sx2 <- x2[slice_idx]; sy2 <- y2[slice_idx]
+        scf <- cf[slice_idx]
+        s_area <- (sx2 - sx1 + 1.0) * (sy2 - sy1 + 1.0)
+        absorbed <- logical(length(slice_idx))
 
         for (fi in full_idx) {
-          fx1 <- cls_df$xmin[fi]; fy1 <- cls_df$ymin[fi]
-          fx2 <- cls_df$xmax[fi]; fy2 <- cls_df$ymax[fi]
-          f_area <- (fx2 - fx1 + 1) * (fy2 - fy1 + 1)
-
-          for (si_pos in seq_along(slice_idx)) {
-            if (absorbed_slice[si_pos]) next
-            si <- slice_idx[si_pos]
-
-            sx1 <- cls_df$xmin[si]; sy1 <- cls_df$ymin[si]
-            sx2 <- cls_df$xmax[si]; sy2 <- cls_df$ymax[si]
-            s_area <- (sx2 - sx1 + 1) * (sy2 - sy1 + 1)
-
-            # Bounding box intersection
-            ix1 <- max(fx1, sx1); iy1 <- max(fy1, sy1)
-            ix2 <- min(fx2, sx2); iy2 <- min(fy2, sy2)
-            iw <- max(0, ix2 - ix1 + 1)
-            ih <- max(0, iy2 - iy1 + 1)
-            inter_area <- iw * ih
-
-            if (inter_area > 0) {
-              ios <- inter_area / min(f_area, s_area)
-              iou <- inter_area / (f_area + s_area - inter_area)
-
-              if (ios >= 0.40 || iou >= 0.35) {
-                cls_df$conf[fi] <- max(cls_df$conf[fi], cls_df$conf[si])
-                cls_df$score[fi] <- cls_df$conf[fi]
-                absorbed_slice[si_pos] <- TRUE
-              }
-            }
+          rem_s <- which(!absorbed)
+          if (length(rem_s) == 0L) break
+          fx1 <- x1[fi]; fy1 <- y1[fi]; fx2 <- x2[fi]; fy2 <- y2[fi]
+          rem_s <- rem_s[sx2[rem_s] >= fx1 & sx1[rem_s] <= fx2 & sy2[rem_s] >= fy1 & sy1[rem_s] <= fy2]
+          if (length(rem_s) == 0L) next
+          f_area <- (fx2 - fx1 + 1.0) * (fy2 - fy1 + 1.0)
+          iw <- pmin(fx2, sx2[rem_s]) - pmax(fx1, sx1[rem_s]) + 1.0
+          ih <- pmin(fy2, sy2[rem_s]) - pmax(fy1, sy1[rem_s]) + 1.0
+          inter <- iw * ih
+          sa <- s_area[rem_s]
+          ios <- inter / pmin(f_area, sa)
+          iou <- inter / (f_area + sa - inter)
+          hit <- rem_s[ios >= 0.40 | iou >= 0.35]
+          if (length(hit) > 0L) {
+            max_s <- max(scf[hit])
+            if (max_s > cf[fi]) cf[fi] <- max_s
+            absorbed[hit] <- TRUE
           }
         }
-
-        if (any(absorbed_slice)) {
-          drop_rows <- slice_idx[absorbed_slice]
-          keep_rows <- setdiff(seq_len(nrow(cls_df)), drop_rows)
+        cls_df$conf <- cf
+        cls_df$score <- cf
+        if (any(absorbed)) {
+          keep_rows <- rep(TRUE, nrow(cls_df))
+          keep_rows[slice_idx[absorbed]] <- FALSE
           cls_df <- cls_df[keep_rows, , drop = FALSE]
           if (has_conts) cls_conts <- cls_conts[keep_rows]
+          x1 <- x1[keep_rows]; y1 <- y1[keep_rows]
+          x2 <- x2[keep_rows]; y2 <- y2[keep_rows]
+          cf <- cf[keep_rows]; isf <- isf[keep_rows]
         }
       }
     }
 
-    if (nrow(cls_df) == 0L) next
+    n_rem <- nrow(cls_df)
+    if (n_rem == 0L) next
 
     # ------------------------------------------------------------------
-    # Step 2: Greedy NMM / NMS with IOS (cluster-based, no snowballing)
+    # Step 2: Vectorized Greedy NMM / NMS with IOS (cluster-based)
     # ------------------------------------------------------------------
-    ord <- order(cls_df$conf, decreasing = TRUE)
+    ord <- order(cf, decreasing = TRUE)
     cls_df <- cls_df[ord, , drop = FALSE]
     if (has_conts) cls_conts <- cls_conts[ord]
+    x1 <- x1[ord]; y1 <- y1[ord]; x2 <- x2[ord]; y2 <- y2[ord]
+    cf <- cf[ord]; isf <- isf[ord]
+    areas <- (x2 - x1 + 1.0) * (y2 - y1 + 1.0)
 
-    while (nrow(cls_df) > 0L) {
-      best_box <- c(cls_df$xmin[1], cls_df$ymin[1], cls_df$xmax[1], cls_df$ymax[1])
-      best_area <- (best_box[3] - best_box[1] + 1) * (best_box[4] - best_box[2] + 1)
+    alive <- rep(TRUE, n_rem)
+    keep_seeds <- integer(n_rem)
+    out_x1 <- numeric(n_rem); out_y1 <- numeric(n_rem)
+    out_x2 <- numeric(n_rem); out_y2 <- numeric(n_rem)
+    out_cf <- numeric(n_rem)
+    n_out <- 0L
 
-      matched_idx <- 1L
+    for (seed in seq_len(n_rem)) {
+      if (!alive[seed]) next
+      alive[seed] <- FALSE
+      n_out <- n_out + 1L
+      keep_seeds[n_out] <- seed
 
-      if (nrow(cls_df) > 1L) {
-        for (k in 2:nrow(cls_df)) {
-          o_box <- c(cls_df$xmin[k], cls_df$ymin[k], cls_df$xmax[k], cls_df$ymax[k])
-          o_area <- (o_box[3] - o_box[1] + 1) * (o_box[4] - o_box[2] + 1)
+      bx1 <- x1[seed]; by1 <- y1[seed]; bx2 <- x2[seed]; by2 <- y2[seed]
+      b_area <- areas[seed]
 
-          ix1 <- max(best_box[1], o_box[1]); iy1 <- max(best_box[2], o_box[2])
-          ix2 <- min(best_box[3], o_box[3]); iy2 <- min(best_box[4], o_box[4])
-          iw <- max(0, ix2 - ix1 + 1)
-          ih <- max(0, iy2 - iy1 + 1)
-          inter <- iw * ih
-
-          if (inter > 0) {
-            ios <- inter / min(best_area, o_area)
-            iou <- inter / (best_area + o_area - inter)
-
-            matched <- if (match_metric == "IOS") {
-              (ios >= match_threshold && iou >= 0.30)
-            } else {
-              (iou >= match_threshold)
-            }
-
-            if (matched) {
-              matched_idx <- c(matched_idx, k)
-            }
-          }
+      cand <- which(alive)
+      if (length(cand) > 0L) {
+        cand <- cand[x2[cand] >= bx1 & x1[cand] <= bx2]
+        if (length(cand) > 0L) {
+          cand <- cand[y2[cand] >= by1 & y1[cand] <= by2]
         }
       }
 
-      if (postprocess_type == "GREEDY_NMM") {
-        m_df <- cls_df[matched_idx, , drop = FALSE]
-        merged_row <- m_df[1, , drop = FALSE]
-        merged_row$xmin <- min(m_df$xmin)
-        merged_row$ymin <- min(m_df$ymin)
-        merged_row$xmax <- max(m_df$xmax)
-        merged_row$ymax <- max(m_df$ymax)
-        merged_row$conf <- max(m_df$conf)
-        if (!is.null(merged_row$score)) merged_row$score <- merged_row$conf
-
-        merged_cnt <- NULL
-        if (has_conts) {
-          m_cnts <- cls_conts[matched_idx]
-          if (isTRUE(m_df$is_full[1]) && is.matrix(m_cnts[[1]]) && nrow(m_cnts[[1]]) >= 3L) {
-            merged_cnt <- m_cnts[[1]]
-          } else {
-            all_pts <- do.call(rbind, lapply(m_cnts, function(p) if (is.matrix(p) && nrow(p) >= 3L) p else NULL))
-            if (!is.null(all_pts) && nrow(all_pts) >= 3L) {
-              ch <- chull(all_pts)
-              merged_cnt <- all_pts[c(ch, ch[1]), , drop = FALSE]
-            } else if (length(m_cnts) > 0 && is.matrix(m_cnts[[1]])) {
-              merged_cnt <- m_cnts[[1]]
-            }
-          }
+      if (length(cand) > 0L) {
+        iw <- pmin(bx2, x2[cand]) - pmax(bx1, x1[cand]) + 1.0
+        ih <- pmin(by2, y2[cand]) - pmax(by1, y1[cand]) + 1.0
+        inter <- iw * ih
+        ca <- areas[cand]
+        iou <- inter / (b_area + ca - inter)
+        matched <- if (is_ios) {
+          ios <- inter / pmin(b_area, ca)
+          cand[ios >= match_threshold & iou >= 0.30]
+        } else {
+          cand[iou >= match_threshold]
         }
-
-        final_boxes_list[[length(final_boxes_list) + 1L]] <- merged_row
-        if (has_conts) final_conts_list[[length(final_conts_list) + 1L]] <- merged_cnt
       } else {
-        # Standard NMS: keep only highest-scoring candidate in cluster
-        final_boxes_list[[length(final_boxes_list) + 1L]] <- cls_df[1, , drop = FALSE]
-        if (has_conts) final_conts_list[[length(final_conts_list) + 1L]] <- cls_conts[[1]]
+        matched <- integer(0)
       }
 
-      # Drop all matched candidates
-      cls_df <- cls_df[-matched_idx, , drop = FALSE]
-      if (has_conts) cls_conts <- cls_conts[-matched_idx]
+      if (length(matched) > 0L) {
+        alive[matched] <- FALSE
+        if (is_nmm) {
+          m_idx <- c(seed, matched)
+          out_x1[n_out] <- min(x1[m_idx])
+          out_y1[n_out] <- min(y1[m_idx])
+          out_x2[n_out] <- max(x2[m_idx])
+          out_y2[n_out] <- max(y2[m_idx])
+          out_cf[n_out] <- max(cf[m_idx])
+          if (has_conts) {
+            m_cnts <- cls_conts[m_idx]
+            merged_cnt <- NULL
+            if (isTRUE(isf[seed]) && is.matrix(m_cnts[[1]]) && nrow(m_cnts[[1]]) >= 3L) {
+              merged_cnt <- m_cnts[[1]]
+            } else {
+              all_pts <- do.call(rbind, lapply(m_cnts, function(p) if (is.matrix(p) && nrow(p) >= 3L) p else NULL))
+              if (!is.null(all_pts) && nrow(all_pts) >= 3L) {
+                ch <- chull(all_pts)
+                merged_cnt <- all_pts[c(ch, ch[1]), , drop = FALSE]
+              } else if (length(m_cnts) > 0L && is.matrix(m_cnts[[1]])) {
+                merged_cnt <- m_cnts[[1]]
+              }
+            }
+            final_conts_list[[length(final_conts_list) + 1L]] <- merged_cnt
+          }
+        } else {
+          out_x1[n_out] <- bx1; out_y1[n_out] <- by1
+          out_x2[n_out] <- bx2; out_y2[n_out] <- by2
+          out_cf[n_out] <- cf[seed]
+          if (has_conts) final_conts_list[[length(final_conts_list) + 1L]] <- cls_conts[[seed]]
+        }
+      } else {
+        out_x1[n_out] <- bx1; out_y1[n_out] <- by1
+        out_x2[n_out] <- bx2; out_y2[n_out] <- by2
+        out_cf[n_out] <- cf[seed]
+        if (has_conts) final_conts_list[[length(final_conts_list) + 1L]] <- cls_conts[[seed]]
+      }
+    }
+
+    if (n_out > 0L) {
+      idx_k <- keep_seeds[seq_len(n_out)]
+      res_cls <- cls_df[idx_k, , drop = FALSE]
+      if (is_nmm) {
+        res_cls$xmin <- out_x1[seq_len(n_out)]
+        res_cls$ymin <- out_y1[seq_len(n_out)]
+        res_cls$xmax <- out_x2[seq_len(n_out)]
+        res_cls$ymax <- out_y2[seq_len(n_out)]
+        res_cls$conf <- out_cf[seq_len(n_out)]
+        if (!is.null(res_cls$score)) res_cls$score <- res_cls$conf
+      }
+      final_boxes_list[[length(final_boxes_list) + 1L]] <- res_cls
     }
   }
 
@@ -193,7 +218,7 @@
     return(list(boxes = empty_df, contours = list()))
   }
 
-  out_df <- do.call(rbind, final_boxes_list)
+  out_df <- if (length(final_boxes_list) == 1L) final_boxes_list[[1L]] else do.call(rbind, final_boxes_list)
   rownames(out_df) <- NULL
   out_df$is_full <- NULL
 
@@ -381,6 +406,7 @@ image_detect_sahi <- function(img,
   }
 
   all_candidates <- list()
+  raw_im <- if (isS4(im) && methods::.hasSlot(im, ".Data")) methods::slot(im, ".Data") else im
 
   # 1. Sliding window slice inference
   for (i in seq_len(n_slices)) {
@@ -389,7 +415,7 @@ image_detect_sahi <- function(img,
     sx2 <- min(orig_w, sx1 + slice_w - 1L)
     sy2 <- min(orig_h, sy1 + slice_h - 1L)
 
-    sub_im <- if (length(dims) >= 3L) im[sx1:sx2, sy1:sy2, , drop = FALSE] else im[sx1:sx2, sy1:sy2, drop = FALSE]
+    sub_im <- if (length(dims) >= 3L) raw_im[sx1:sx2, sy1:sy2, , drop = FALSE] else raw_im[sx1:sx2, sy1:sy2, drop = FALSE]
 
     det <- try(
       image_detect_dl(
@@ -504,7 +530,7 @@ image_detect_sahi <- function(img,
   }
 
   # 3. SAHI Post-Processing (Greedy NMM / NMS)
-  cli::cli_progress_step("SAHI Post-Processing")
+  if (isTRUE(verbose)) cli::cli_progress_step("SAHI Post-Processing")
   res_post <- .sahi_postprocess(
     candidates_df = merged_df,
     contours = NULL,
@@ -728,6 +754,7 @@ image_segment_sahi <- function(img,
 
   all_candidates <- list()
   all_contours <- list()
+  raw_im <- if (isS4(im) && methods::.hasSlot(im, ".Data")) methods::slot(im, ".Data") else im
 
   for (i in seq_len(n_slices)) {
     sx1 <- grid$x[i]
@@ -735,7 +762,7 @@ image_segment_sahi <- function(img,
     sx2 <- min(orig_w, sx1 + slice_w - 1L)
     sy2 <- min(orig_h, sy1 + slice_h - 1L)
 
-    sub_im <- if (length(dims) >= 3L) im[sx1:sx2, sy1:sy2, , drop = FALSE] else im[sx1:sx2, sy1:sy2, drop = FALSE]
+    sub_im <- if (length(dims) >= 3L) raw_im[sx1:sx2, sy1:sy2, , drop = FALSE] else raw_im[sx1:sx2, sy1:sy2, drop = FALSE]
 
     det <- try(
       image_segment_dl(
@@ -817,12 +844,9 @@ image_segment_sahi <- function(img,
       }
     }
 
-    for (k in seq_len(n_b)) {
-      row_k <- df_b[k, , drop = FALSE]
-      row_k$is_full <- FALSE
-      all_candidates[[length(all_candidates) + 1L]] <- row_k
-      all_contours[[length(all_contours) + 1L]] <- shifted_c[[k]]
-    }
+    df_b$is_full <- FALSE
+    all_candidates[[length(all_candidates) + 1L]] <- df_b
+    all_contours <- c(all_contours, shifted_c)
   }
 
   # Optional full-image global pass
@@ -865,10 +889,9 @@ image_segment_sahi <- function(img,
         if (is.null(f_df$class_name) && !is.null(f_df$label)) f_df$class_name <- f_df$label
         if (is.null(f_df$label) && !is.null(f_df$class_name)) f_df$label <- f_df$class_name
         if (is.null(f_df$class_id)) f_df$class_id <- 0L
-        for (k in seq_len(nrow(f_df))) {
-          row_k <- f_df[k, , drop = FALSE]
-          row_k$is_full <- TRUE
-          all_candidates[[length(all_candidates) + 1L]] <- row_k
+        n_f <- nrow(f_df)
+        f_shifted_c <- vector("list", n_f)
+        for (k in seq_len(n_f)) {
           valid_cnt <- FALSE
           if (length(f_conts) >= k && is.matrix(f_conts[[k]]) && nrow(f_conts[[k]]) >= 3L) {
             c_mat <- f_conts[[k]]
@@ -879,13 +902,15 @@ image_segment_sahi <- function(img,
               valid_cnt <- TRUE
             }
           }
-          c_mat <- if (valid_cnt) {
+          f_shifted_c[[k]] <- if (valid_cnt) {
             f_conts[[k]]
           } else {
             matrix(c(f_df$xmin[k], f_df$xmax[k], f_df$xmax[k], f_df$xmin[k], f_df$ymin[k], f_df$ymin[k], f_df$ymax[k], f_df$ymax[k]), ncol = 2)
           }
-          all_contours[[length(all_contours) + 1L]] <- c_mat
         }
+        f_df$is_full <- TRUE
+        all_candidates[[length(all_candidates) + 1L]] <- f_df
+        all_contours <- c(all_contours, f_shifted_c)
       }
     }
   }
