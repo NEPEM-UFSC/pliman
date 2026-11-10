@@ -746,7 +746,7 @@ frame_to_img <- function(video,
 #'
 #' Performs real-time object detection and tracking on video files (.mp4, .avi,
 #' .mov) or live camera feeds (webcam) using YOLO models via native C++ ONNX
-#' Runtime.When `return_data = TRUE`, it computes an extensive ecological and
+#' Runtime. When `return_data = TRUE`, it computes an extensive ecological and
 #' temporal community profile (richness, abundance, Shannon diversity, Simpson
 #' index, Pielou evenness, species accumulation curves, and class persistence
 #' rates).
@@ -957,6 +957,8 @@ frame_to_img <- function(video,
 #' @param point_col Optional color for centroid markers. If `NULL` (default), matches the object's class/instance palette.
 #' @param mask Logical. Whether to render semi-transparent instance segmentation masks when using segmentation models (default `TRUE`).
 #' @param alpha Opacity/transparency of instance segmentation masks (default `0.4`, range `0` to `1`).
+#' @param saturation Numeric color saturation multiplier applied in-place via native C++ OpenMP fixed-point arithmetic (default `1.0`). Values `> 1.0` (e.g., `1.3` or `1.5`) boost vividness on flat/washed-out `.raw` or log-profile footage with zero FPS penalty.
+#' @param contrast Numeric contrast multiplier around midpoint luma applied in-place via native C++ OpenMP fixed-point arithmetic (default `1.0`). Values `> 1.0` (e.g., `1.2` or `1.4`) enhance dynamic range on flat footage with zero FPS penalty.
 #' @param show Logical. Whether to display the video feed with bounding boxes in real time.
 #'   Default is `interactive()`.
 #' @param show_fps Logical. Whether to overlay a real-time FPS and detection counter badge (default `TRUE`).
@@ -1122,6 +1124,8 @@ video_detect_dl <- function(video = 0,
                             point_col = NULL,
                             mask = TRUE,
                             alpha = 0.4,
+                            saturation = 1,
+                            contrast = 1,
                             heatmap = FALSE,
                             heatmap_alpha = 0.40,
                             heatmap_decay = 0.98,
@@ -1347,7 +1351,7 @@ video_detect_dl <- function(video = 0,
   if ("min_frames" %in% names(dots)) min_frames <- dots$min_frames
   if ("min_hits" %in% names(dots)) min_frames <- dots$min_hits
   min_hits_val <- if (!is.null(min_frames) && as.integer(min_frames) > 0L) as.integer(min_frames) else 1L
-  if (min_hits_val > 1L) {
+  if ((!missing(min_frames) || "min_frames" %in% names(dots) || "min_hits" %in% names(dots)) && min_hits_val > 1L) {
     track <- TRUE
   }
 
@@ -1467,6 +1471,13 @@ video_detect_dl <- function(video = 0,
   roi_mode <- match.arg(roi_mode)
   backend <- match.arg(backend)
   if (backend == "auto") backend <- "native"
+  if ("sat" %in% names(dots) && missing(saturation)) saturation <- dots$sat
+  if ("cont" %in% names(dots) && missing(contrast)) contrast <- dots$cont
+  saturation_val <- max(0.0, as.numeric(saturation[1]))
+  contrast_val <- max(0.0, as.numeric(contrast[1]))
+  if (is.na(saturation_val)) saturation_val <- 1.0
+  if (is.na(contrast_val)) contrast_val <- 1.0
+  need_color_adj <- (abs(saturation_val - 1.0) > 0.005 || abs(contrast_val - 1.0) > 0.005)
   heatmap <- isTRUE(heatmap)
   heatmap_alpha <- max(0.05, min(1.0, as.numeric(heatmap_alpha[1])))
   heatmap_decay <- max(0.0, min(1.0, as.numeric(heatmap_decay[1])))
@@ -1637,6 +1648,36 @@ video_detect_dl <- function(video = 0,
     target_size <- 640L
   }
 
+  .nms_boxes_sahi <- function(boxes, scores, class_ids, iou_thresh = 0.45, ios_thresh = 0.70) {
+    n <- nrow(boxes)
+    if (is.null(n) || n <= 1L) return(seq_len(max(0L, n)))
+    ord <- order(scores, decreasing = TRUE)
+    x1 <- boxes[, 1]
+    y1 <- boxes[, 2]
+    x2 <- boxes[, 3]
+    y2 <- boxes[, 4]
+    areas <- pmax(0, x2 - x1) * pmax(0, y2 - y1)
+    suppressed <- logical(n)
+    keep <- integer(0)
+    for (idx in ord) {
+      if (suppressed[idx]) next
+      keep <- c(keep, idx)
+      rem <- ord[!suppressed[ord] & ord != idx & class_ids[ord] == class_ids[idx]]
+      if (length(rem) == 0L) next
+      xx1 <- pmax(x1[idx], x1[rem])
+      yy1 <- pmax(y1[idx], y1[rem])
+      xx2 <- pmin(x2[idx], x2[rem])
+      yy2 <- pmin(y2[idx], y2[rem])
+      inter <- pmax(0, xx2 - xx1) * pmax(0, yy2 - yy1)
+      union_a <- areas[idx] + areas[rem] - inter
+      iou <- ifelse(union_a > 0, inter / union_a, 0)
+      min_a <- pmin(areas[idx], areas[rem])
+      ios <- ifelse(min_a > 0, inter / min_a, 0)
+      suppressed[rem[iou > iou_thresh | ios > ios_thresh]] <- TRUE
+    }
+    keep
+  }
+
   .run_video_yolo <- function(bm_feed, feed_w, feed_h, need_masks_flag) {
     if (!sahi) {
       return(run_yolo_cpp(
@@ -1719,7 +1760,7 @@ video_detect_dl <- function(video = 0,
     all_s <- unlist(scores_list)
     all_c <- unlist(cls_list)
     if (nrow(all_b) > 0L) {
-      keep_nms <- nms_boxes_cpp(all_b, all_s, all_c, iou_threshold)
+      keep_nms <- .nms_boxes_sahi(all_b, all_s, all_c, iou_threshold)
       full_res$boxes <- all_b[keep_nms, , drop = FALSE]
       full_res$scores <- all_s[keep_nms]
       full_res$class_ids <- all_c[keep_nms]
@@ -1733,7 +1774,7 @@ video_detect_dl <- function(video = 0,
     full_res
   }
 
-  has_video_ext <- is.character(video) && tolower(tools::file_ext(video[1])) %in% c("mp4", "avi", "mov", "mkv", "wmv", "flv", "webm", "m4v")
+  has_video_ext <- is.character(video) && tolower(tools::file_ext(video[1])) %in% c("mp4", "avi", "mov", "mkv", "wmv", "flv", "webm", "m4v", "raw", "braw", "mts", "m2ts", "ts", "mpg", "mpeg", "3gp")
   is_camera <- is.numeric(video) || (is.character(video) && !has_video_ext && (
     tolower(video[1]) %in% c("0", "1", "2", "3", "4", "5", "camera", "live", "webcam") ||
     !file.exists(video[1])
@@ -2102,6 +2143,8 @@ video_detect_dl <- function(video = 0,
                 n_trk <- length(track_res$track_ids)
                 if (n_trk > 0) {
                   df_b <- data.frame(
+                    frame = rep(frame_count, n_trk),
+                    timestamp = rep(round(t_elapsed, 3), n_trk),
                     id = as.integer(track_res$track_ids),
                     xmin = as.numeric(track_res$xmin),
                     ymin = as.numeric(track_res$ymin),
@@ -2156,6 +2199,8 @@ video_detect_dl <- function(video = 0,
                 n_trk <- length(track_res$track_ids)
                 if (n_trk > 0) {
                   df_b <- data.frame(
+                    frame = rep(frame_count, n_trk),
+                    timestamp = rep(round(t_elapsed, 3), n_trk),
                     id = as.integer(track_res$track_ids),
                     xmin = as.numeric(track_res$xmin),
                     ymin = as.numeric(track_res$ymin),
@@ -2251,8 +2296,12 @@ video_detect_dl <- function(video = 0,
         }
 
         if (detect && return_data) {
-          if (nrow(df_b) > 0) df_b$color <- palette_colors
-          frame_records[[frame_count]] <- df_b
+          if (nrow(df_b) > 0) {
+            df_rec <- df_b
+            df_rec$orig_idx <- NULL
+            df_rec$color <- palette_colors
+            frame_records[[frame_count]] <- df_rec
+          }
           if (has_kpts) {
             kpts_list_frame <- lapply(seq_len(nrow(raw_res$keypoints)), function(k) {
               vals <- raw_res$keypoints[k, ]
@@ -2268,6 +2317,10 @@ video_detect_dl <- function(video = 0,
             })
             frame_keypoints[[frame_count]] <- do.call(rbind, kpts_list_frame)
           }
+        }
+
+        if (need_color_adj && (isTRUE(show) || isTRUE(save_video))) {
+          adjust_frame_color_cpp(bm, saturation = saturation_val, contrast = contrast_val)
         }
 
         if (heatmap && !is.null(heatmap_accum)) {
@@ -2433,8 +2486,10 @@ video_detect_dl <- function(video = 0,
         }
       }
 
-    all_dets <- if (length(frame_records) > 0) do.call(rbind, frame_records) else data.frame()
-    all_kpts <- if (length(frame_keypoints) > 0) do.call(rbind, frame_keypoints) else NULL
+    valid_records <- frame_records[!sapply(frame_records, is.null)]
+    valid_kpts <- frame_keypoints[!sapply(frame_keypoints, is.null)]
+    all_dets <- if (length(valid_records) > 0) do.call(rbind, valid_records) else data.frame()
+    all_kpts <- if (length(valid_kpts) > 0) do.call(rbind, valid_kpts) else NULL
     total_time <- as.numeric(Sys.time() - t_start, units = "secs")
     avg_fps <- if (total_time > 0 && frame_count > 0) (frame_count / total_time) else fps_smooth
 
@@ -3007,8 +3062,12 @@ video_detect_dl <- function(video = 0,
         }
 
         if (detect && return_data) {
-          if (nrow(df_b) > 0) df_b$color <- palette_colors
-          frame_records[[i]] <<- df_b
+          if (nrow(df_b) > 0) {
+            df_rec <- df_b
+            df_rec$orig_idx <- NULL
+            df_rec$color <- palette_colors
+            frame_records[[i]] <<- df_rec
+          }
           if (has_kpts) {
             kpts_list_frame <- lapply(seq_len(nrow(df_b)), function(k) {
               vals <- raw_res$keypoints[k, ]
@@ -3024,6 +3083,10 @@ video_detect_dl <- function(video = 0,
             })
             frame_keypoints[[i]] <<- do.call(rbind, kpts_list_frame)
           }
+        }
+
+        if (need_color_adj && (isTRUE(show) || isTRUE(save_video))) {
+          adjust_frame_color_cpp(bm, saturation = saturation_val, contrast = contrast_val)
         }
 
         if (heatmap && !is.null(heatmap_accum)) {

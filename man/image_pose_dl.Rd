@@ -36,7 +36,7 @@ image_pose_dl(
 \item{img}{An \code{Image} object, a 2D/3D numeric array, a path to an image file, or a list of images.}
 
 \item{model}{Model name or path to a custom ONNX file. Defaults to \code{"yolo26n-pose"}.
-Options include \code{"yolo26n-pose"}, \code{"yolo26s-pose"}, \code{"yolo26m-pose"}, \code{"yolo26l-pose"}, \code{"yolo26x-pose"}.}
+Options include \code{"yolo26n-pose"}, \code{"yolo26s-pose"}, \code{"yolo26m-pose"}, \code{"yolo26l-pose"}, \verb{Options include}"yolo26n-pose"\verb{, }"yolo26s-pose"\verb{, }"yolo26m-pose"\verb{, }"yolo26l-pose"\verb{, }"yolo26x-pose"`.}
 
 \item{conf_threshold}{Minimum confidence score for candidate person detections (default 0.25).}
 
