@@ -5947,23 +5947,28 @@ plot_yolo_heatmap <- function(img,
 
   areas <- pmax(0, xmax - xmin) * pmax(0, ymax - ymin)
   remove_idx <- logical(n)
+  inv_ratio <- 1.0 / area_ratio_thresh
 
-  for (i in seq_len(n)) {
-    if (areas[i] <= 0) next
-    for (j in seq_len(n)) {
-      if (i == j) next
-      if (identical(labels[i], labels[j]) && areas[i] >= (areas[j] * area_ratio_thresh)) {
-        ix1 <- max(xmin[i], xmin[j])
-        iy1 <- max(ymin[i], ymin[j])
-        ix2 <- min(xmax[i], xmax[j])
-        iy2 <- min(ymax[i], ymax[j])
-        iw <- max(0, ix2 - ix1)
-        ih <- max(0, iy2 - iy1)
-        inter_area <- iw * ih
-        if (areas[j] > 0 && (inter_area / areas[j]) >= containment_thresh) {
-          remove_idx[i] <- TRUE
-          break
-        }
+  u_lbls <- unique(labels)
+  for (lbl in u_lbls) {
+    idx <- if (length(u_lbls) == 1L) which(areas > 0) else which(labels == lbl & areas > 0)
+    m <- length(idx)
+    if (m <= 1L) next
+    x1 <- xmin[idx]; y1 <- ymin[idx]; x2 <- xmax[idx]; y2 <- ymax[idx]; a <- areas[idx]
+    req_a <- a * containment_thresh
+    min_a_req <- min(a) * area_ratio_thresh
+    cand_i <- which(a >= min_a_req)
+    for (i in cand_i) {
+      bx1 <- x1[i]; bx2 <- x2[i]
+      cj <- which(x2 > bx1 & x1 < bx2)
+      if (length(cj) == 0L) next
+      by1 <- y1[i]; by2 <- y2[i]; max_aj <- a[i] * inv_ratio
+      cj <- cj[y2[cj] > by1 & y1[cj] < by2 & a[cj] <= max_aj]
+      if (length(cj) == 0L) next
+      iw <- pmin(bx2, x2[cj]) - pmax(bx1, x1[cj])
+      ih <- pmin(by2, y2[cj]) - pmax(by1, y1[cj])
+      if (any((iw * ih) >= req_a[cj])) {
+        remove_idx[idx[i]] <- TRUE
       }
     }
   }
