@@ -1,5 +1,47 @@
 # utils_neural.R - Pre-trained Deep Learning Segmentation and Background Removal for pliman
-#
+# ==============================================================================
+# SECTION 1: MODEL MANAGEMENT & DIRECTORY MANAGEMENT
+# ==============================================================================
+
+#' Model Directory Management for pliman Deep Learning Models
+#'
+#' Gets or sets the local directory where pre-trained ONNX models are stored.
+#' Defaults to the standard R user data directory:
+#' `tools::R_user_dir("pliman", which = "data")/models`.
+#'
+#' @param dir Optional character string specifying a custom directory path.
+#'   If provided, creates the directory if it does not exist.
+#' @return A character string with the normalized absolute path to the model directory.
+#' @export
+#' @examples
+#' pliman_model_dir()
+pliman_model_dir <- function(dir = NULL) {
+  if (!is.null(dir)) {
+    if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE) &&
+        identical(dir, .onnx_meta_cache$default_model_dir)) {
+      return(dir)
+    }
+    dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+    if (!dir.exists(dir)) {
+      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+    }
+    return(dir)
+  }
+
+  if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_dir <- .onnx_meta_cache$default_model_dir
+    if (dir.exists(cached_dir)) return(cached_dir)
+  }
+
+  default_dir <- file.path(tools::R_user_dir("pliman", which = "data"), "models")
+  default_dir <- normalizePath(default_dir, winslash = "/", mustWork = FALSE)
+  if (!dir.exists(default_dir)) {
+    dir.create(default_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  .onnx_meta_cache$default_model_dir <- default_dir
+  return(default_dir)
+}
+.onnx_meta_cache <- new.env(parent = emptyenv())
 # ==============================================================================
 # DEEP LEARNING ARCHITECTURE & ONNX RUNTIME DOCUMENTATION
 # ==============================================================================
@@ -103,50 +145,7 @@
 #' ```
 NULL
 
-# ==============================================================================
-# SECTION 1: MODEL MANAGEMENT & DIRECTORY MANAGEMENT
-# ==============================================================================
 
-#' Model Directory Management for pliman Deep Learning Models
-#'
-#' Gets or sets the local directory where pre-trained ONNX models are stored.
-#' Defaults to the standard R user data directory:
-#' `tools::R_user_dir("pliman", which = "data")/models`.
-#'
-#' @param dir Optional character string specifying a custom directory path.
-#'   If provided, creates the directory if it does not exist.
-#' @return A character string with the normalized absolute path to the model directory.
-#' @export
-#' @examples
-#' pliman_model_dir()
-.onnx_meta_cache <- new.env(parent = emptyenv())
-
-pliman_model_dir <- function(dir = NULL) {
-  if (!is.null(dir)) {
-    if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE) &&
-        identical(dir, .onnx_meta_cache$default_model_dir)) {
-      return(dir)
-    }
-    dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
-    if (!dir.exists(dir)) {
-      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-    }
-    return(dir)
-  }
-
-  if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE)) {
-    cached_dir <- .onnx_meta_cache$default_model_dir
-    if (dir.exists(cached_dir)) return(cached_dir)
-  }
-
-  default_dir <- file.path(tools::R_user_dir("pliman", which = "data"), "models")
-  default_dir <- normalizePath(default_dir, winslash = "/", mustWork = FALSE)
-  if (!dir.exists(default_dir)) {
-    dir.create(default_dir, recursive = TRUE, showWarnings = FALSE)
-  }
-  .onnx_meta_cache$default_model_dir <- default_dir
-  return(default_dir)
-}
 
 # Internal helper to find an installed or local model file before hitting the network
 .find_local_model <- function(m, dir = pliman_model_dir(), verbose = FALSE) {

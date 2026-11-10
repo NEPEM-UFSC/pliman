@@ -30,6 +30,14 @@ yolo_dataset_export(
   crop_to_objects = FALSE,
   crop_margin = 0.05,
   box_margin = 0.05,
+  sahi = FALSE,
+  slice_height = 640,
+  slice_width = 640,
+  overlap_height_ratio = 0.2,
+  overlap_width_ratio = 0.2,
+  match_metric = c("IOS", "IOU"),
+  match_threshold = 0.5,
+  full_image_inference = TRUE,
   lower_size = NULL,
   upper_size = NULL,
   size_mode = c("relative", "absolute"),
@@ -137,6 +145,19 @@ compact and clean.}
 \item{crop_margin}{Numeric. Margin fraction added around the object bounding box when \code{crop_to_objects = TRUE} (default: \code{0.05}, i.e., 5\%).}
 
 \item{box_margin}{Safety margin (padding proportion) added around detected bounding boxes before segmenting with Meta SAM 2.1 (e.g. \code{0.05} expands 5\% on each side). Prevents masks from cutting off object borders. Defaults to \code{0.05} (5\%).}
+
+\item{sahi}{Logical. If \code{TRUE}, applies Slicing-Aided Hyper Inference (SAHI) during YOLO pre-labeling,
+dividing high-resolution images into overlapping slices to detect small and crowded objects with high precision. Defaults to \code{FALSE}.}
+
+\item{slice_height, slice_width}{Integer dimensions (in pixels) for SAHI slices. Defaults to \code{640}.}
+
+\item{overlap_height_ratio, overlap_width_ratio}{Overlap ratio between adjacent slices along height and width. Defaults to \code{0.20} (20\%).}
+
+\item{match_metric}{Match metric used for merging slice predictions across boundaries: \code{"IOS"} (Intersection over Smaller, default) or \code{"IOU"}.}
+
+\item{match_threshold}{Threshold for match metric to merge overlapping slice predictions. Defaults to \code{0.50}.}
+
+\item{full_image_inference}{Logical. If \code{TRUE} (default), runs an additional full-image inference pass alongside slice predictions to ensure large objects spanning across multiple slices are captured.}
 
 \item{lower_size}{Optional numeric value to filter out small detected objects.
 When \code{size_mode = "relative"} (default), objects with a bounding box area

@@ -68,7 +68,7 @@ directly from calibrated multi-view photos, an SfM reconstruction (\code{colmap_
 point cloud (\code{colmap_dense}).
 
 100\% native execution in C++ using COLMAP with direct NVIDIA GPU (CUDA) acceleration
-for dense stereo depth estimation, with zero Python or external runtime dependencies.
+for dense stereo depth estimation.
 
 Supports:
 \itemize{

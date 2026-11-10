@@ -376,7 +376,7 @@ image_detect_sahi <- function(img,
   slice_borders_y <- sort(unique(c(grid$y, grid$y + slice_h - 1L)))
 
   if (isTRUE(verbose)) {
-    cli::cli_h2("SAHI (Slicing Aided Hyper Inference) - Object Detection")
+    cli::cli_progress_step("SAHI (Slicing Aided Hyper Inference) - Object Detection")
     cli::cli_alert_info("Canvas: {orig_w}x{orig_h} | Slice: {slice_w}x{slice_h} | Total slices: {.val {n_slices}}")
   }
 
@@ -504,6 +504,7 @@ image_detect_sahi <- function(img,
   }
 
   # 3. SAHI Post-Processing (Greedy NMM / NMS)
+  cli::cli_progress_step("SAHI Post-Processing")
   res_post <- .sahi_postprocess(
     candidates_df = merged_df,
     contours = NULL,
@@ -545,6 +546,7 @@ image_detect_sahi <- function(img,
   attr(final_df, "counts") <- counts
 
   if (isTRUE(verbose)) {
+    cli::cli_progress_done()
     cli::cli_alert_success("SAHI finished! Merged {nrow(final_df)} global detection(s) across slices.")
   }
 
