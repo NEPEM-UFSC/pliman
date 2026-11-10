@@ -10011,10 +10011,14 @@ image_restore_dl <- function(img,
 #' @param link_threshold Character affinity link threshold for CRAFT detector (default `0.40`).
 #' @param low_text Lower bound text score threshold for CRAFT detector (default `0.40`).
 #' @param min_size Minimum text box height in pixels to filter out noise (default `5L`).
+#' @param min_score Minimum recognition confidence score to retain text boxes (default `0.0`).
+#' @param sort Logical. Whether to sort detected text regions in natural reading order
+#'   (top-to-bottom, line-by-line, left-to-right). Default is \code{TRUE}.
 #' @param col Border color for recognized text bounding polygons (default `"forestgreen"`).
 #' @param lwd Line width for rendering detected text polygon borders (default `2L`).
 #' @param cex Character expansion factor for recognized text labels (default `0.80`).
 #' @param badge Logical. Whether to render filled background badges behind transcribed text (default `TRUE`).
+#' @param labels Label type to display on the plot: \code{"text"} (default), \code{"id"}, \code{"both"}, or \code{"none"}.
 #' @param threads Number of CPU execution threads (default `0` for auto-detect).
 #' @param engine Compute engine: `"gpu"` (default) or `"cpu"`.
 #' @param plot Logical. Whether to render the visual OCR annotation plot (default `TRUE`).
@@ -10046,10 +10050,13 @@ image_ocr_dl <- function(img,
                          link_threshold = 0.40,
                          low_text = 0.40,
                          min_size = 5L,
+                         min_score = 0.0,
+                         sort = TRUE,
                          col = "forestgreen",
                          lwd = 2L,
                          cex = 0.80,
                          badge = TRUE,
+                         labels = c("text", "id", "both", "none"),
                          threads = 0,
                          engine = c("gpu", "cpu"),
                          plot = TRUE,
@@ -10057,6 +10064,12 @@ image_ocr_dl <- function(img,
                          verbose = TRUE,
                          ...) {
   engine <- match.arg(engine)
+  if (missing(labels) || is.null(labels) || !is.character(labels) || length(labels) == 0L) {
+    labels <- "text"
+  } else {
+    labels <- labels[1L]
+    if (!labels %in% c("text", "id", "both", "none")) labels <- "text"
+  }
   if (is.character(det_model) && length(det_model) > 1L) {
     det_model <- det_model[1L]
   }
@@ -10069,7 +10082,8 @@ image_ocr_dl <- function(img,
         unclip_ratio = unclip_ratio,
         text_threshold = text_threshold, link_threshold = link_threshold,
         low_text = low_text, min_size = min_size,
-        col = col, lwd = lwd, cex = cex, badge = badge,
+        min_score = min_score, sort = sort,
+        col = col, lwd = lwd, cex = cex, badge = badge, labels = labels,
         threads = threads, engine = engine, plot = FALSE,
         dir = dir, verbose = verbose, ...
       )
@@ -10306,16 +10320,49 @@ image_ocr_dl <- function(img,
     ymax = vapply(valid_boxes, function(b) b$ymax, numeric(1)),
     stringsAsFactors = FALSE
   )
+
+  # Sort in natural reading order (top-to-bottom, line-by-line, left-to-right)
+  if (isTRUE(sort) && nrow(res_df) > 1L) {
+    res_df$cy <- (res_df$ymin + res_df$ymax) / 2
+    med_h <- stats::median(res_df$ymax - res_df$ymin + 1)
+    res_df <- res_df[order(res_df$cy), ]
+    line_ids <- integer(nrow(res_df))
+    cur_line <- 1L
+    cur_y <- res_df$cy[1]
+    for (idx_s in seq_len(nrow(res_df))) {
+      if (idx_s == 1L) {
+        line_ids[1] <- cur_line
+      } else {
+        if (abs(res_df$cy[idx_s] - cur_y) > (0.50 * med_h)) {
+          cur_line <- cur_line + 1L
+          cur_y <- res_df$cy[idx_s]
+        }
+        line_ids[idx_s] <- cur_line
+      }
+    }
+    res_df$line <- line_ids
+    res_df <- res_df[order(res_df$line, res_df$xmin), ]
+    res_df$id <- seq_len(nrow(res_df))
+    res_df$line <- NULL
+    res_df$cy <- NULL
+    rownames(res_df) <- NULL
+  }
+
+  if (min_score > 0) {
+    res_df <- res_df[res_df$score >= min_score | is.na(res_df$score), , drop = FALSE]
+    if (nrow(res_df) > 0L) res_df$id <- seq_len(nrow(res_df))
+  }
+
   class(res_df) <- c("pliman_ocr", "data.frame")
   attr(res_df, "image") <- img_obj
 
   if (isTRUE(verbose)) {
     n_rec <- sum(nzchar(res_df$text))
-    cli::cli_alert_success("pliman OCR recognized {n_rec} text instance{?s} across {n_b} detected region{?s}.")
+    cli::cli_alert_success("pliman OCR recognized {n_rec} text instance{?s} across {nrow(res_df)} region{?s}.")
   }
 
   if (isTRUE(plot)) {
-    plot(res_df, col = col, lwd = lwd, cex = cex, badge = badge, ...)
+    plot(res_df, col = col, lwd = lwd, cex = cex, badge = badge, labels = labels, min_score = min_score, ...)
   }
 
   invisible(res_df)
@@ -10342,24 +10389,47 @@ plot.pliman_ocr <- function(x,
                             badge = TRUE,
                             badge_col = col,
                             text_col = "white",
+                            labels = c("text", "id", "both", "none"),
+                            min_score = 0.0,
                             ...) {
+  if (missing(labels) || is.null(labels) || !is.character(labels) || length(labels) == 0L) {
+    labels <- "text"
+  } else {
+    labels <- labels[1L]
+    if (!labels %in% c("text", "id", "both", "none")) labels <- "text"
+  }
+
   img <- attr(x, "image")
   if (!is.null(img)) {
     plot(img, ...)
   }
   if (is.null(x) || nrow(x) == 0L) return(invisible(x))
 
+  if (min_score > 0) {
+    x <- x[x$score >= min_score | is.na(x$score), , drop = FALSE]
+    if (nrow(x) == 0L) return(invisible(x))
+  }
+
   for (i in seq_len(nrow(x))) {
     bx1 <- x$xmin[i]; by1 <- x$ymin[i]
     bx2 <- x$xmax[i]; by2 <- x$ymax[i]
     graphics::rect(bx1, by1, bx2, by2, border = col, lwd = lwd)
 
-    txt <- x$text[i]
-    if (nzchar(txt)) {
-      tw <- graphics::strwidth(txt, cex = cex)
-      th <- graphics::strheight(txt, cex = cex)
-      pad_x <- max(4, tw * 0.15)
-      pad_y <- max(2, th * 0.25)
+    if (labels == "none") next
+
+    lbl <- switch(
+      labels,
+      "text" = x$text[i],
+      "id"   = as.character(x$id[i]),
+      "both" = paste0(x$id[i], ": ", x$text[i]),
+      x$text[i]
+    )
+
+    if (nzchar(lbl)) {
+      tw <- graphics::strwidth(lbl, cex = cex)
+      th <- graphics::strheight(lbl, cex = cex)
+      pad_x <- max(3, tw * 0.12)
+      pad_y <- max(2, th * 0.20)
 
       ty1 <- if (by1 - th - 2 * pad_y >= 0) (by1 - th - 2 * pad_y) else by1
       ty2 <- ty1 + th + 2 * pad_y
@@ -10368,10 +10438,10 @@ plot.pliman_ocr <- function(x,
 
       if (isTRUE(badge)) {
         graphics::rect(tx1, ty1, tx2, ty2, col = badge_col, border = NA)
-        graphics::text(tx1 + pad_x, ty1 + pad_y + th / 2, labels = txt, col = text_col, cex = cex, adj = c(0, 0.5), font = 2)
+        graphics::text(tx1 + pad_x, ty1 + pad_y + th / 2, labels = lbl, col = text_col, cex = cex, adj = c(0, 0.5), font = 2)
       } else {
-        graphics::text(tx1 + 1, ty1 + 1, labels = txt, col = "black", cex = cex, adj = c(0, 0), font = 2)
-        graphics::text(tx1, ty1, labels = txt, col = col, cex = cex, adj = c(0, 0), font = 2)
+        graphics::text(tx1 + 1, ty1 + 1, labels = lbl, col = "black", cex = cex, adj = c(0, 0), font = 2)
+        graphics::text(tx1, ty1, labels = lbl, col = col, cex = cex, adj = c(0, 0), font = 2)
       }
     }
   }

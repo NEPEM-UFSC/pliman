@@ -6,16 +6,22 @@
 \usage{
 image_ocr_dl(
   img,
-  det_model = "ppocr_det",
+  det_model = c("ppocr_det", "ppocr_det_server", "craft"),
   rec_model = "ppocr_rec",
   det_thresh = 0.3,
   box_thresh = 0.5,
   unclip_ratio = 1.3,
+  text_threshold = 0.5,
+  link_threshold = 0.4,
+  low_text = 0.4,
   min_size = 5L,
+  min_score = 0,
+  sort = TRUE,
   col = "forestgreen",
   lwd = 2L,
   cex = 0.8,
   badge = TRUE,
+  labels = c("text", "id", "both", "none"),
   threads = 0,
   engine = c("gpu", "cpu"),
   plot = TRUE,
@@ -27,17 +33,31 @@ image_ocr_dl(
 \arguments{
 \item{img}{An \code{Image} object or character string path to an image file.}
 
-\item{det_model}{Text detection backbone model (default \code{"ppocr_det"} or \code{"ch_PP-OCRv4_det"}).}
+\item{det_model}{Text detection backbone model. Options are \code{"ppocr_det"}
+(PP-OCRv4 Mobile DBNet, fast and lightweight), \code{"ppocr_det_server"}
+(PP-OCRv4 Server DBNet, high capacity for complex scenes), or \code{"craft"}
+(Clova AI CRAFT character-affinity heatmap detector). Default is \code{"ppocr_det"}.}
 
 \item{rec_model}{Text recognition backbone model (default \code{"ppocr_rec"} or \code{"ch_PP-OCRv4_rec"}).}
 
-\item{det_thresh}{Pixel binarization threshold for text polygon detection (default \code{0.30}).}
+\item{det_thresh}{Pixel binarization threshold for DBNet text polygon detection (default \code{0.30}).}
 
 \item{box_thresh}{Minimum confidence threshold for retaining detected text bounding boxes (default \code{0.50}).}
 
-\item{unclip_ratio}{Polygon expansion ratio to prevent cropping character boundaries (default \code{1.30}).}
+\item{unclip_ratio}{Polygon expansion ratio to prevent cropping character boundaries (DBNet models, default \code{1.30}).}
+
+\item{text_threshold}{Character center confidence threshold for CRAFT detector (default \code{0.50}).}
+
+\item{link_threshold}{Character affinity link threshold for CRAFT detector (default \code{0.40}).}
+
+\item{low_text}{Lower bound text score threshold for CRAFT detector (default \code{0.40}).}
 
 \item{min_size}{Minimum text box height in pixels to filter out noise (default \code{5L}).}
+
+\item{min_score}{Minimum recognition confidence score to retain text boxes (default \code{0.0}).}
+
+\item{sort}{Logical. Whether to sort detected text regions in natural reading order
+(top-to-bottom, line-by-line, left-to-right). Default is \code{TRUE}.}
 
 \item{col}{Border color for recognized text bounding polygons (default \code{"forestgreen"}).}
 
@@ -46,6 +66,8 @@ image_ocr_dl(
 \item{cex}{Character expansion factor for recognized text labels (default \code{0.80}).}
 
 \item{badge}{Logical. Whether to render filled background badges behind transcribed text (default \code{TRUE}).}
+
+\item{labels}{Label type to display on the plot: \code{"text"} (default), \code{"id"}, \code{"both"}, or \code{"none"}.}
 
 \item{threads}{Number of CPU execution threads (default \code{0} for auto-detect).}
 
@@ -93,5 +115,8 @@ Real-time scene text detection with differentiable binarization.
 \item Du, Y., Li, C., Guo, R., Yin, X., Liu, W., Zhou, J., ... & Hu, B. (2020).
 PP-OCR: A practical ultra lightweight OCR system.
 \emph{arXiv preprint arXiv:2009.09941}.
+\item Baek, Y., Lee, B., Han, D., Yun, S., & Lee, H. (2019).
+Character region awareness for text detection.
+\emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365–9374.
 }
 }
