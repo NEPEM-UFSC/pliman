@@ -2620,6 +2620,24 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// run_craft_det_cpp
+Rcpp::List run_craft_det_cpp(Rcpp::NumericVector tensor_vec, int in_w, int in_h, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id);
+RcppExport SEXP _pliman_run_craft_det_cpp(SEXP tensor_vecSEXP, SEXP in_wSEXP, SEXP in_hSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type tensor_vec(tensor_vecSEXP);
+    Rcpp::traits::input_parameter< int >::type in_w(in_wSEXP);
+    Rcpp::traits::input_parameter< int >::type in_h(in_hSEXP);
+    Rcpp::traits::input_parameter< std::string >::type model_path(model_pathSEXP);
+    Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
+    Rcpp::traits::input_parameter< int >::type num_threads(num_threadsSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_gpu(use_gpuSEXP);
+    Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_craft_det_cpp(tensor_vec, in_w, in_h, model_path, lib_path, num_threads, use_gpu, device_id));
+    return rcpp_result_gen;
+END_RCPP
+}
 // run_ocr_rec_cpp
 Rcpp::List run_ocr_rec_cpp(Rcpp::NumericVector crops_vec, int batch_size, int crop_w, int crop_h, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id);
 RcppExport SEXP _pliman_run_ocr_rec_cpp(SEXP crops_vecSEXP, SEXP batch_sizeSEXP, SEXP crop_wSEXP, SEXP crop_hSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
@@ -3163,6 +3181,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_image_restore_cpp", (DL_FUNC) &_pliman_run_image_restore_cpp, 10},
     {"_pliman_run_density_map_cpp", (DL_FUNC) &_pliman_run_density_map_cpp, 8},
     {"_pliman_run_ocr_det_cpp", (DL_FUNC) &_pliman_run_ocr_det_cpp, 8},
+    {"_pliman_run_craft_det_cpp", (DL_FUNC) &_pliman_run_craft_det_cpp, 8},
     {"_pliman_run_ocr_rec_cpp", (DL_FUNC) &_pliman_run_ocr_rec_cpp, 9},
     {"_pliman_remap_labels_cpp", (DL_FUNC) &_pliman_remap_labels_cpp, 2},
     {"_pliman_canny_edge_detector", (DL_FUNC) &_pliman_canny_edge_detector, 7},

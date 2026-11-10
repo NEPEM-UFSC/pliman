@@ -542,6 +542,14 @@ NULL
     "ch_pp-ocrv4-det"        = "ch_PP-OCRv4_det",
     "ch_pp-ocrv4_rec"        = "ch_PP-OCRv4_rec",
     "ch_pp-ocrv4-rec"        = "ch_PP-OCRv4_rec",
+    "ppocr_det_server"       = "ch_PP-OCRv4_det_server",
+    "ppocr-det-server"       = "ch_PP-OCRv4_det_server",
+    "ppocr_server"           = "ch_PP-OCRv4_det_server",
+    "ch_pp-ocrv4_det_server" = "ch_PP-OCRv4_det_server",
+    "ch_pp-ocrv4-det-server" = "ch_PP-OCRv4_det_server",
+    "craft"                  = "craft",
+    "craft_mlt"              = "craft",
+    "craft-mlt"              = "craft",
     # Image Restoration (Zero-DCE & NAFNet)
     "zero_dce"               = "zero_dce",
     "zero-dce"               = "zero_dce",
@@ -1563,6 +1571,38 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       input_size = "dynamic",
       filename = "ifcnn.onnx",
       url = paste0(base_url, "ifcnn.onnx")
+    ),
+    list(
+      name = "ppocr_det",
+      description = "PP-OCRv4 Mobile Detector: Ultra-lightweight scene text detection (DBNet MobileNetV3)",
+      size_mb = 4.7,
+      input_size = "dynamic",
+      filename = "ch_PP-OCRv4_det.onnx",
+      url = paste0(base_url, "ch_PP-OCRv4_det.onnx")
+    ),
+    list(
+      name = "ppocr_det_server",
+      description = "PP-OCRv4 Server Detector: High-accuracy deep scene text detection (DBNet ResNet/DPH, 113 MB)",
+      size_mb = 113.2,
+      input_size = "dynamic",
+      filename = "ch_PP-OCRv4_det_server.onnx",
+      url = paste0(base_url, "ch_PP-OCRv4_det_server.onnx")
+    ),
+    list(
+      name = "craft",
+      description = "CRAFT: Character Region Awareness for Text Detection (Clova AI / CVPR, VGG-16, 80 MB)",
+      size_mb = 80.4,
+      input_size = "dynamic",
+      filename = "craft.onnx",
+      url = "https://huggingface.co/itextresearch/itext-EasyOCR-craft_mlt_25k/resolve/main/craft_mlt_25k.onnx"
+    ),
+    list(
+      name = "ppocr_rec",
+      description = "PP-OCRv4 Text Recognition: Compact SVTR text recognition model (48x320, 10 MB)",
+      size_mb = 10.8,
+      input_size = "48x320",
+      filename = "ch_PP-OCRv4_rec.onnx",
+      url = paste0(base_url, "ch_PP-OCRv4_rec.onnx")
     )
   )
 
@@ -9953,14 +9993,23 @@ image_restore_dl <- function(img,
 #'   \item Du, Y., Li, C., Guo, R., Yin, X., Liu, W., Zhou, J., ... & Hu, B. (2020).
 #'   PP-OCR: A practical ultra lightweight OCR system.
 #'   \emph{arXiv preprint arXiv:2009.09941}.
+#'   \item Baek, Y., Lee, B., Han, D., Yun, S., & Lee, H. (2019).
+#'   Character region awareness for text detection.
+#'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365–9374.
 #' }
 #'
 #' @param img An `Image` object or character string path to an image file.
-#' @param det_model Text detection backbone model (default `"ppocr_det"` or `"ch_PP-OCRv4_det"`).
+#' @param det_model Text detection backbone model. Options are \code{"ppocr_det"}
+#'   (PP-OCRv4 Mobile DBNet, fast and lightweight), \code{"ppocr_det_server"}
+#'   (PP-OCRv4 Server DBNet, high capacity for complex scenes), or \code{"craft"}
+#'   (Clova AI CRAFT character-affinity heatmap detector). Default is \code{"ppocr_det"}.
 #' @param rec_model Text recognition backbone model (default `"ppocr_rec"` or `"ch_PP-OCRv4_rec"`).
-#' @param det_thresh Pixel binarization threshold for text polygon detection (default `0.30`).
+#' @param det_thresh Pixel binarization threshold for DBNet text polygon detection (default `0.30`).
 #' @param box_thresh Minimum confidence threshold for retaining detected text bounding boxes (default `0.50`).
-#' @param unclip_ratio Polygon expansion ratio to prevent cropping character boundaries (default `1.30`).
+#' @param unclip_ratio Polygon expansion ratio to prevent cropping character boundaries (DBNet models, default `1.30`).
+#' @param text_threshold Character center confidence threshold for CRAFT detector (default `0.70`).
+#' @param link_threshold Character affinity link threshold for CRAFT detector (default `0.40`).
+#' @param low_text Lower bound text score threshold for CRAFT detector (default `0.40`).
 #' @param min_size Minimum text box height in pixels to filter out noise (default `5L`).
 #' @param col Border color for recognized text bounding polygons (default `"forestgreen"`).
 #' @param lwd Line width for rendering detected text polygon borders (default `2L`).
@@ -9988,11 +10037,14 @@ image_restore_dl <- function(img,
 #'   ocr_res <- image_ocr_dl(img)
 #'   print(ocr_res)
 image_ocr_dl <- function(img,
-                         det_model = "ppocr_det",
+                         det_model = c("ppocr_det", "ppocr_det_server", "craft"),
                          rec_model = "ppocr_rec",
                          det_thresh = 0.30,
                          box_thresh = 0.50,
                          unclip_ratio = 1.30,
+                         text_threshold = 0.70,
+                         link_threshold = 0.40,
+                         low_text = 0.40,
                          min_size = 5L,
                          col = "forestgreen",
                          lwd = 2L,
@@ -10005,13 +10057,18 @@ image_ocr_dl <- function(img,
                          verbose = TRUE,
                          ...) {
   engine <- match.arg(engine)
+  if (is.character(det_model) && length(det_model) > 1L) {
+    det_model <- det_model[1L]
+  }
 
   if (is.list(img) && !inherits(img, c("Image", "image"))) {
     res <- lapply(img, function(x) {
       image_ocr_dl(
         x, det_model = det_model, rec_model = rec_model,
         det_thresh = det_thresh, box_thresh = box_thresh,
-        unclip_ratio = unclip_ratio, min_size = min_size,
+        unclip_ratio = unclip_ratio,
+        text_threshold = text_threshold, link_threshold = link_threshold,
+        low_text = low_text, min_size = min_size,
         col = col, lwd = lwd, cex = cex, badge = badge,
         threads = threads, engine = engine, plot = FALSE,
         dir = dir, verbose = verbose, ...
@@ -10030,9 +10087,21 @@ image_ocr_dl <- function(img,
   orig_h <- dims[2]
   nch <- if (length(dims) >= 3) dims[3] else 1
 
-  det_file <- .find_local_model(det_model, dir = dir)
-  if (is.null(det_file)) det_file <- .find_local_model("ch_PP-OCRv4_det", dir = dir)
-  if (is.null(det_file)) det_file <- pliman_download_model(det_model, dir = dir, verbose = verbose)
+  is_craft <- grepl("craft", tolower(det_model))
+  is_server <- grepl("server", tolower(det_model))
+
+  if (is_craft) {
+    det_file <- .find_local_model(det_model, dir = dir)
+    if (is.null(det_file)) det_file <- .find_local_model("craft", dir = dir)
+    if (is.null(det_file)) det_file <- pliman_download_model("craft", dir = dir, verbose = verbose)
+  } else {
+    det_file <- .find_local_model(det_model, dir = dir)
+    if (is.null(det_file)) {
+      fallback_name <- if (is_server) "ch_PP-OCRv4_det_server" else "ch_PP-OCRv4_det"
+      det_file <- .find_local_model(fallback_name, dir = dir)
+    }
+    if (is.null(det_file)) det_file <- pliman_download_model(det_model, dir = dir, verbose = verbose)
+  }
 
   rec_file <- .find_local_model(rec_model, dir = dir)
   if (is.null(rec_file)) rec_file <- .find_local_model("ch_PP-OCRv4_rec", dir = dir)
@@ -10045,9 +10114,10 @@ image_ocr_dl <- function(img,
   lib_path <- pliman_onnx_lib_path(engine = engine)
   use_gpu <- (engine == "gpu")
 
+  det_tag <- if (is_craft) "CRAFT" else (if (is_server) "PP-OCRv4-Server" else "PP-OCRv4")
   if (isTRUE(verbose)) {
     cli::cli_progress_step(
-      msg = paste0("Running PP-OCR text detection & recognition [{toupper(engine)}]..."),
+      msg = paste0("Running ", det_tag, " text detection & PP-OCR recognition [{toupper(engine)}]..."),
       msg_done = "OCR inference complete"
     )
   }
@@ -10064,48 +10134,90 @@ image_ocr_dl <- function(img,
     }
   }
 
-  # DBNet detection input normalization: (x - mean) / std
+  # Text detection input normalization: (x - mean) / std
   R <- (m_num[, , 1] - 0.485) / 0.229
   G <- (m_num[, , min(2, nch)] - 0.456) / 0.224
   B <- (m_num[, , min(3, nch)] - 0.406) / 0.225
   tensor <- c(as.numeric(R), as.numeric(G), as.numeric(B))
 
-  prob_map <- run_ocr_det_cpp(
-    tensor_vec = tensor,
-    in_w = orig_w,
-    in_h = orig_h,
-    model_path = det_file,
-    lib_path = lib_path,
-    num_threads = as.integer(threads),
-    use_gpu = use_gpu
-  )
-
-  bin_mask <- prob_map >= det_thresh
-  labels <- bwlabel_cpp(bin_mask)
-  n_cand <- max(labels)
-
   valid_boxes <- list()
-  if (n_cand > 0) {
-    for (i in seq_len(n_cand)) {
-      idx <- which(labels == i, arr.ind = TRUE)
-      if (nrow(idx) < 10) next
-      bx1 <- min(idx[, 1]); bx2 <- max(idx[, 1])
-      by1 <- min(idx[, 2]); by2 <- max(idx[, 2])
-      bw <- bx2 - bx1 + 1; bh <- by2 - by1 + 1
-      if (min(bw, bh) < min_size) next
-      mean_s <- mean(prob_map[idx])
-      if (mean_s < box_thresh) next
 
-      peri <- 2 * (bw + bh)
-      dist <- (nrow(idx) * unclip_ratio) / peri
-      bx1 <- max(1L, as.integer(round(bx1 - dist)))
-      bx2 <- min(orig_w, as.integer(round(bx2 + dist)))
-      by1 <- max(1L, as.integer(round(by1 - dist)))
-      by2 <- min(orig_h, as.integer(round(by2 + dist)))
+  if (is_craft) {
+    craft_res <- run_craft_det_cpp(
+      tensor_vec = tensor,
+      in_w = orig_w,
+      in_h = orig_h,
+      model_path = det_file,
+      lib_path = lib_path,
+      num_threads = as.integer(threads),
+      use_gpu = use_gpu
+    )
+    score_text <- craft_res$score_text
+    score_link <- craft_res$score_link
 
-      valid_boxes[[length(valid_boxes) + 1L]] <- list(
-        xmin = bx1, ymin = by1, xmax = bx2, ymax = by2, det_score = mean_s
-      )
+    bin_mask <- (score_text >= text_threshold) | (score_link >= link_threshold & score_text >= low_text)
+    labels <- bwlabel_cpp(bin_mask)
+    n_cand <- max(labels)
+
+    if (n_cand > 0) {
+      for (i in seq_len(n_cand)) {
+        idx <- which(labels == i, arr.ind = TRUE)
+        if (nrow(idx) < 10) next
+        bx1 <- min(idx[, 1]); bx2 <- max(idx[, 1])
+        by1 <- min(idx[, 2]); by2 <- max(idx[, 2])
+        bw <- bx2 - bx1 + 1; bh <- by2 - by1 + 1
+        if (min(bw, bh) < min_size) next
+        mean_s <- mean(score_text[idx])
+        if (mean_s < box_thresh) next
+
+        pad_px <- max(2L, as.integer(round(bh * 0.10)))
+        bx1 <- max(1L, bx1 - pad_px)
+        bx2 <- min(orig_w, bx2 + pad_px)
+        by1 <- max(1L, by1 - pad_px)
+        by2 <- min(orig_h, by2 + pad_px)
+
+        valid_boxes[[length(valid_boxes) + 1L]] <- list(
+          xmin = bx1, ymin = by1, xmax = bx2, ymax = by2, det_score = mean_s
+        )
+      }
+    }
+  } else {
+    prob_map <- run_ocr_det_cpp(
+      tensor_vec = tensor,
+      in_w = orig_w,
+      in_h = orig_h,
+      model_path = det_file,
+      lib_path = lib_path,
+      num_threads = as.integer(threads),
+      use_gpu = use_gpu
+    )
+
+    bin_mask <- prob_map >= det_thresh
+    labels <- bwlabel_cpp(bin_mask)
+    n_cand <- max(labels)
+
+    if (n_cand > 0) {
+      for (i in seq_len(n_cand)) {
+        idx <- which(labels == i, arr.ind = TRUE)
+        if (nrow(idx) < 10) next
+        bx1 <- min(idx[, 1]); bx2 <- max(idx[, 1])
+        by1 <- min(idx[, 2]); by2 <- max(idx[, 2])
+        bw <- bx2 - bx1 + 1; bh <- by2 - by1 + 1
+        if (min(bw, bh) < min_size) next
+        mean_s <- mean(prob_map[idx])
+        if (mean_s < box_thresh) next
+
+        peri <- 2 * (bw + bh)
+        dist <- (nrow(idx) * unclip_ratio) / peri
+        bx1 <- max(1L, as.integer(round(bx1 - dist)))
+        bx2 <- min(orig_w, as.integer(round(bx2 + dist)))
+        by1 <- max(1L, as.integer(round(by1 - dist)))
+        by2 <- min(orig_h, as.integer(round(by2 + dist)))
+
+        valid_boxes[[length(valid_boxes) + 1L]] <- list(
+          xmin = bx1, ymin = by1, xmax = bx2, ymax = by2, det_score = mean_s
+        )
+      }
     }
   }
 

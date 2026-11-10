@@ -6057,6 +6057,152 @@ Rcpp::NumericMatrix run_ocr_det_cpp(
 }
 
 // [[Rcpp::export]]
+Rcpp::List run_craft_det_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int pad_w = (in_w % 32 == 0) ? in_w : (((in_w / 32) + 1) * 32);
+  int pad_h = (in_h % 32 == 0) ? in_h : (((in_h / 32) + 1) * 32);
+  size_t pad_plane = (size_t)pad_w * pad_h;
+  size_t total_floats = 3 * pad_plane;
+  size_t plane_src = (size_t)in_w * in_h;
+
+  std::vector<float> in_vals(total_floats, 0.0f);
+  for (int c = 0; c < 3; ++c) {
+    size_t c_src = (size_t)c * plane_src;
+    size_t c_dst = (size_t)c * pad_plane;
+    for (int y = 0; y < in_h; ++y) {
+      for (int x = 0; x < in_w; ++x) {
+        in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+      }
+    }
+  }
+
+  int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("CRAFT text detection inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+
+  int out_h = pad_h / 2;
+  int out_w = pad_w / 2;
+  bool is_nhwc = true;
+  if (num_dims == 4) {
+    if (out_dims[3] == 2) {
+      is_nhwc = true;
+      out_h = (int)out_dims[1];
+      out_w = (int)out_dims[2];
+    } else if (out_dims[1] == 2) {
+      is_nhwc = false;
+      out_h = (int)out_dims[2];
+      out_w = (int)out_dims[3];
+    }
+  }
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix text_map(in_w, in_h);
+  Rcpp::NumericMatrix link_map(in_w, in_h);
+
+  auto get_val = [&](int c, int px, int py) -> float {
+    if (px < 0) px = 0;
+    if (px >= out_w) px = out_w - 1;
+    if (py < 0) py = 0;
+    if (py >= out_h) py = out_h - 1;
+    if (is_nhwc) {
+      return out_data[((size_t)py * out_w + px) * 2 + c];
+    } else {
+      return out_data[(size_t)c * ((size_t)out_h * out_w) + (size_t)py * out_w + px];
+    }
+  };
+
+  for (int y = 0; y < in_h; ++y) {
+    float oy = (float)y * (float)out_h / (float)pad_h;
+    int y0 = (int)std::floor(oy);
+    int y1 = std::min(y0 + 1, out_h - 1);
+    float wy = oy - (float)y0;
+
+    for (int x = 0; x < in_w; ++x) {
+      float ox = (float)x * (float)out_w / (float)pad_w;
+      int x0 = (int)std::floor(ox);
+      int x1 = std::min(x0 + 1, out_w - 1);
+      float wx = ox - (float)x0;
+
+      // Bilinear interpolation for text (c=0)
+      float t00 = get_val(0, x0, y0);
+      float t10 = get_val(0, x1, y0);
+      float t01 = get_val(0, x0, y1);
+      float t11 = get_val(0, x1, y1);
+      float vt = (1.0f - wx) * (1.0f - wy) * t00 +
+                 wx * (1.0f - wy) * t10 +
+                 (1.0f - wx) * wy * t01 +
+                 wx * wy * t11;
+      text_map(x, y) = (double)vt;
+
+      // Bilinear interpolation for link (c=1)
+      float l00 = get_val(1, x0, y0);
+      float l10 = get_val(1, x1, y0);
+      float l01 = get_val(1, x0, y1);
+      float l11 = get_val(1, x1, y1);
+      float vl = (1.0f - wx) * (1.0f - wy) * l00 +
+                 wx * (1.0f - wy) * l10 +
+                 (1.0f - wx) * wy * l01 +
+                 wx * wy * l11;
+      link_map(x, y) = (double)vl;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+
+  return Rcpp::List::create(
+    Rcpp::Named("score_text") = text_map,
+    Rcpp::Named("score_link") = link_map
+  );
+}
+
+// [[Rcpp::export]]
 Rcpp::List run_ocr_rec_cpp(
     Rcpp::NumericVector crops_vec,
     int batch_size,
