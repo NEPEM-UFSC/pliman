@@ -82,7 +82,7 @@ An invisible object of class \code{c("yolo_dataset_backup_delete", "list")} cont
 \description{
 \code{yolo_dataset_backup_delete()} scans a YOLO dataset directory (recursively across
 \verb{labels/}, \verb{images/}, and dataset root) and safely deletes backup files generated
-during manual editing (e.g., \verb{<stem>.txt.bak} from \code{\link[=yolo_dataset_edit]{yolo_dataset_edit()}}), previous
+during manual editing (e.g., \verb{<stem>.txt.bak} from \code{\link[=yolo_dataset_review]{yolo_dataset_review()}}), previous
 version copies (\verb{*.old}, \verb{*.backup}, \verb{*~}), and history manifest files (\code{.yolo_history.rds}).
 
 This helps clean up disk space, prevents repository clutter, and ensures a pristine
@@ -97,5 +97,5 @@ yolo_dataset_backup_delete("dataset_capsulas")
 }
 }
 \seealso{
-\code{\link[=yolo_dataset_edit]{yolo_dataset_edit()}}, \code{\link[=yolo_dataset_undo]{yolo_dataset_undo()}}
+\code{\link[=yolo_dataset_review]{yolo_dataset_review()}}, \code{\link[=yolo_dataset_undo]{yolo_dataset_undo()}}
 }

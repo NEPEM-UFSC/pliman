@@ -2344,18 +2344,18 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
 }
 
 
-#' @title Interactively or Programmatically Edit YOLO Dataset Annotations
-#' @name yolo_dataset_edit
-#' @aliases yolo_image_edit
+#' @title Interactively or Programmatically Review YOLO Dataset Annotations
+#' @name yolo_dataset_review
+#' @aliases yolo_review
 #' @description
-#' Edits annotations for a specific image in a YOLO dataset. Supports interactive inspection,
+#' Revies annotations for a specific image in a YOLO dataset. Supports interactive inspection,
 #' removing false positive objects (by clicking on boxes/masks, center dots, or by index),
 #' adding missed objects, re-labeling from scratch or appending detections using deep learning models
 #' (e.g., PerSAM one-shot visual exemplars, YOLO ONNX/PT models, Grounded-SAM text prompts, or classical
 #' segmentation via [analyze_objects()]), and synchronizing updated labels with visual review previews.
 #'
 #' @details
-#' `yolo_dataset_edit()` follows the exact same engine and argument conventions as [yolo_dataset_export()].
+#' `yolo_dataset_review()` follows the exact same engine and argument conventions as [yolo_dataset_export()].
 #' It can be used in two complementary modes:
 #' \itemize{
 #'   \item \strong{Interactive GUI}: Launches an interactive graphics session where the user can click on
@@ -2436,18 +2436,18 @@ yolo_dataset_preview <- function(dir = "yolo_dataset",
 #' @examples
 #' \dontrun{
 #' # 1. Interactive editing: click to remove broken/unwanted seeds, press [c] to save
-#' yolo_dataset_edit("meu_dataset", image = "img_005.jpg")
+#' yolo_dataset_review("meu_dataset", image = "img_005.jpg")
 #'
 #' # 2. Relabel image with PerSAM (click 1 exemplar object to re-segment all instances)
-#' yolo_dataset_edit("meu_dataset", image = "img_005.jpg", model = "persam")
+#' yolo_dataset_review("meu_dataset", image = "img_005.jpg", model = "persam")
 #'
 #' # 3. Relabel using a custom trained ONNX model
-#' yolo_dataset_edit("meu_dataset", image = "img_005.jpg", model = "yolo11n.onnx")
+#' yolo_dataset_review("meu_dataset", image = "img_005.jpg", model = "yolo11n.onnx")
 #'
 #' # 4. Programmatic removal of objects #2 and #5 without opening GUI
-#' yolo_dataset_edit("meu_dataset", image = "img_005.jpg", remove = c(2, 5))
+#' yolo_dataset_review("meu_dataset", image = "img_005.jpg", remove = c(2, 5))
 #' }
-yolo_dataset_edit <- function(dir = "yolo_dataset",
+yolo_dataset_review <- function(dir = "yolo_dataset",
                               image = NULL,
                               model = NULL,
                               task = c("detect", "segment"),
@@ -3575,9 +3575,9 @@ yolo_dataset_edit <- function(dir = "yolo_dataset",
   }
 }
 
-#' @rdname yolo_dataset_edit
+#' @rdname yolo_dataset_review
 #' @export
-yolo_image_edit <- yolo_dataset_edit
+yolo_image_edit <- yolo_dataset_review
 
 
 .yolo_render_edit_canvas <- function(img,

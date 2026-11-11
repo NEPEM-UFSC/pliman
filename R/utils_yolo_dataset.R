@@ -6928,7 +6928,7 @@ yolo_dataset_label_undo <- yolo_dataset_undo
 #' @description
 #' `yolo_dataset_backup_delete()` scans a YOLO dataset directory (recursively across
 #' `labels/`, `images/`, and dataset root) and safely deletes backup files generated
-#' during manual editing (e.g., `<stem>.txt.bak` from [yolo_dataset_edit()]), previous
+#' during manual editing (e.g., `<stem>.txt.bak` from [yolo_dataset_review()]), previous
 #' version copies (`*.old`, `*.backup`, `*~`), and history manifest files (`.yolo_history.rds`).
 #'
 #' This helps clean up disk space, prevents repository clutter, and ensures a pristine
@@ -6957,7 +6957,7 @@ yolo_dataset_label_undo <- yolo_dataset_undo
 #'   * `reclaimed_mb`: Megabytes freed.
 #'
 #' @aliases yolo_backup_delete yolo_dataset_delete_backup yolo_delete_backup
-#' @seealso [yolo_dataset_edit()], [yolo_dataset_undo()]
+#' @seealso [yolo_dataset_review()], [yolo_dataset_undo()]
 #' @export
 #' @examples
 #' \dontrun{
