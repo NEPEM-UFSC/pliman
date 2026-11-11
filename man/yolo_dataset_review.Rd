@@ -3,10 +3,84 @@
 \name{yolo_dataset_review}
 \alias{yolo_dataset_review}
 \alias{yolo_review}
+\alias{yolo_dataset_edit}
+\alias{yolo_image_review}
 \alias{yolo_image_edit}
 \title{Interactively or Programmatically Review YOLO Dataset Annotations}
 \usage{
 yolo_dataset_review(
+  dir = "yolo_dataset",
+  image = NULL,
+  model = NULL,
+  task = c("detect", "segment"),
+  mode = c("edit", "replace", "append"),
+  class_names = NULL,
+  class_id = NULL,
+  prompt = NULL,
+  interactive = base::interactive(),
+  remove = NULL,
+  keep = NULL,
+  delete_image = FALSE,
+  box_threshold = 0.25,
+  text_threshold = 0.25,
+  sim_threshold = 0.5,
+  min_dist = 20,
+  iou_threshold = 0.5,
+  min_area = 15,
+  filter_edge = FALSE,
+  backup = TRUE,
+  review = TRUE,
+  rainbow = TRUE,
+  show_bbox = TRUE,
+  show_polygon = TRUE,
+  show_points = FALSE,
+  show_labels = TRUE,
+  show_indices = TRUE,
+  point_pch = 19,
+  point_cex = 1.6,
+  engine = c("gpu", "cpu"),
+  device_id = -1,
+  verbose = TRUE,
+  ...
+)
+
+yolo_dataset_edit(
+  dir = "yolo_dataset",
+  image = NULL,
+  model = NULL,
+  task = c("detect", "segment"),
+  mode = c("edit", "replace", "append"),
+  class_names = NULL,
+  class_id = NULL,
+  prompt = NULL,
+  interactive = base::interactive(),
+  remove = NULL,
+  keep = NULL,
+  delete_image = FALSE,
+  box_threshold = 0.25,
+  text_threshold = 0.25,
+  sim_threshold = 0.5,
+  min_dist = 20,
+  iou_threshold = 0.5,
+  min_area = 15,
+  filter_edge = FALSE,
+  backup = TRUE,
+  review = TRUE,
+  rainbow = TRUE,
+  show_bbox = TRUE,
+  show_polygon = TRUE,
+  show_points = FALSE,
+  show_labels = TRUE,
+  show_indices = TRUE,
+  point_pch = 19,
+  point_cex = 1.6,
+  engine = c("gpu", "cpu"),
+  device_id = -1,
+  verbose = TRUE,
+  ...
+)
+
+yolo_image_review(
   dir = "yolo_dataset",
   image = NULL,
   model = NULL,
