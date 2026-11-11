@@ -353,6 +353,47 @@ struct CachedIOShape {
 };
 static std::map<std::string, CachedIOShape> g_io_shape_cache;
 
+// Portable bitwise IEEE 754 float32 <-> float16 (half-precision) converters
+static inline uint16_t float_to_half(float f) {
+  uint32_t x;
+  std::memcpy(&x, &f, sizeof(float));
+  uint32_t sign = (x >> 16) & 0x8000;
+  int32_t exp = ((x >> 23) & 0xff) - 127 + 15;
+  uint32_t mant = x & 0x7fffff;
+  if (exp <= 0) {
+    if (exp < -10) return (uint16_t)sign;
+    mant = (mant | 0x800000) >> (1 - exp);
+    return (uint16_t)(sign | (mant >> 13));
+  } else if (exp >= 31) {
+    return (uint16_t)(sign | 0x7c00);
+  }
+  return (uint16_t)(sign | (exp << 10) | (mant >> 13));
+}
+
+static inline float half_to_float(uint16_t h) {
+  uint32_t sign = (uint32_t)(h & 0x8000) << 16;
+  int32_t exp = (h >> 10) & 0x1f;
+  uint32_t mant = h & 0x3ff;
+  if (exp == 0) {
+    if (mant == 0) {
+      float zero = 0.0f;
+      if (sign) { uint32_t neg = sign; std::memcpy(&zero, &neg, sizeof(float)); }
+      return zero;
+    }
+    while (!(mant & 0x400)) { mant <<= 1; exp--; }
+    exp++;
+    mant &= ~0x400;
+  } else if (exp == 31) {
+    exp = 255;
+  } else {
+    exp = exp - 15 + 127;
+  }
+  uint32_t x = sign | ((uint32_t)exp << 23) | (mant << 13);
+  float f;
+  std::memcpy(&f, &x, sizeof(float));
+  return f;
+}
+
 static void clear_onnx_sessions_internal() {
   if (g_ort_api == NULL) return;
   g_cached_encoder.valid = false;
@@ -539,16 +580,43 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
     input_tensor_values[i] = (float)tensor_vec[i];
   }
 
+  OrtTypeInfo* in_ti = NULL;
+  (void)ort->SessionGetInputTypeInfo(session, 0, &in_ti);
+  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  if (in_ti) {
+    const OrtTensorTypeAndShapeInfo* in_si = NULL;
+    (void)ort->CastTypeInfoToTensorInfo(in_ti, &in_si);
+    if (in_si) {
+      (void)ort->GetTensorElementType(in_si, &in_elem_type);
+    }
+    ort->ReleaseTypeInfo(in_ti);
+  }
+
   OrtValue* input_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info,
-    input_tensor_values.data(),
-    total_elements * sizeof(float),
-    input_shape,
-    4,
-    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
-    &input_tensor
-  );
+  std::vector<uint16_t> in_fp16;
+  if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    in_fp16.resize(total_elements);
+    for (size_t i = 0; i < total_elements; ++i) in_fp16[i] = float_to_half(input_tensor_values[i]);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info,
+      in_fp16.data(),
+      total_elements * sizeof(uint16_t),
+      input_shape,
+      4,
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16,
+      &input_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info,
+      input_tensor_values.data(),
+      total_elements * sizeof(float),
+      input_shape,
+      4,
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+      &input_tensor
+    );
+  }
 
   const char* input_names[] = { input_name };
   const char* output_names[] = { output_name };
@@ -3435,11 +3503,34 @@ Rcpp::List run_yolo_cpp(
   }
   int64_t in_shape[4] = {1, 3, in_h, in_w};
 
+  OrtTypeInfo* in_ti = NULL;
+  (void)ort->SessionGetInputTypeInfo(session, 0, &in_ti);
+  const OrtTensorTypeAndShapeInfo* in_si = NULL;
+  (void)ort->CastTypeInfoToTensorInfo(in_ti, &in_si);
+  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  if (in_si) {
+    (void)ort->GetTensorElementType(in_si, &in_elem_type);
+  }
+  ort->ReleaseTypeInfo(in_ti);
+
   OrtValue* in_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, input_vals.data(), total_floats * sizeof(float),
-    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
-  );
+  std::vector<uint16_t> in_fp16;
+  if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    in_fp16.resize(total_floats);
+    #pragma omp parallel for schedule(static) if(total_floats > 10000)
+    for (int i = 0; i < (int)total_floats; ++i) {
+      in_fp16[i] = float_to_half(input_vals[i]);
+    }
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_fp16.data(), total_floats * sizeof(uint16_t),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, input_vals.data(), total_floats * sizeof(float),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    );
+  }
 
   std::vector<const char*> run_in_names;
   std::vector<OrtValue*> run_in_tensors;
@@ -3496,7 +3587,14 @@ Rcpp::List run_yolo_cpp(
   (void)ort->GetDimensionsCount(shape_info0, &dims0_cnt);
   std::vector<int64_t> dims0(dims0_cnt);
   (void)ort->GetDimensions(shape_info0, dims0.data(), dims0_cnt);
+  ONNXTensorElementDataType out_elem_type0 = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  (void)ort->GetTensorElementType(shape_info0, &out_elem_type0);
   ort->ReleaseTensorTypeAndShapeInfo(shape_info0);
+
+  size_t total_out0 = 1;
+  for (size_t d = 0; d < dims0_cnt; ++d) {
+    if (dims0[d] > 0) total_out0 *= (size_t)dims0[d];
+  }
 
   bool is_end2end = false;
   int e2e_num_dets = 0;
@@ -3548,7 +3646,19 @@ Rcpp::List run_yolo_cpp(
   if (num_classes < 1) num_classes = 1;
 
   float* data0 = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  std::vector<float> data0_conv;
+  if (out_elem_type0 == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    const uint16_t* raw_fp16 = NULL;
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&raw_fp16);
+    data0_conv.resize(total_out0);
+    #pragma omp parallel for schedule(static) if(total_out0 > 10000)
+    for (int i = 0; i < (int)total_out0; ++i) {
+      data0_conv[i] = half_to_float(raw_fp16[i]);
+    }
+    data0 = data0_conv.data();
+  } else {
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  }
 
   struct YoloCand {
     float x1, y1, x2, y2;
@@ -3562,10 +3672,27 @@ Rcpp::List run_yolo_cpp(
   };
   std::vector<YoloCand> candidates;
 
+  std::vector<float> data1_conv;
   if (is_nas) {
     int nas_anchors = (int)dims0[1];
     float* data1 = NULL;
-    (void)ort->GetTensorMutableData(out_tensors[1], (void**)&data1);
+    OrtTensorTypeAndShapeInfo* shape_info_nas = NULL;
+    (void)ort->GetTensorTypeAndShape(out_tensors[1], &shape_info_nas);
+    ONNXTensorElementDataType out_elem_type_nas = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    if (shape_info_nas) {
+      (void)ort->GetTensorElementType(shape_info_nas, &out_elem_type_nas);
+      ort->ReleaseTensorTypeAndShapeInfo(shape_info_nas);
+    }
+    if (out_elem_type_nas == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+      const uint16_t* raw_p16 = NULL;
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&raw_p16);
+      size_t total_out1 = (size_t)nas_anchors * (size_t)num_classes;
+      data1_conv.resize(total_out1);
+      for (size_t i = 0; i < total_out1; ++i) data1_conv[i] = half_to_float(raw_p16[i]);
+      data1 = data1_conv.data();
+    } else {
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&data1);
+    }
 
     for (int a = 0; a < nas_anchors; ++a) {
       float x1 = data0[(size_t)a * 4 + 0];
@@ -3850,14 +3977,13 @@ Rcpp::List run_yolo_cpp(
     }
   }
 
+  std::vector<float> proto_conv;
   if (is_seg) {
     seg_stats = Rcpp::NumericMatrix(num_kept, 8);
     std::fill(seg_stats.begin(), seg_stats.end(), NA_REAL);
     if (need_masks) {
       labels = Rcpp::IntegerMatrix(ow, oh);
     }
-    float* proto_data = NULL;
-    (void)ort->GetTensorMutableData(out_tensors[1], (void**)&proto_data);
 
     OrtTensorTypeAndShapeInfo* shape_info1 = NULL;
     (void)ort->GetTensorTypeAndShape(out_tensors[1], &shape_info1);
@@ -3865,6 +3991,8 @@ Rcpp::List run_yolo_cpp(
     (void)ort->GetDimensionsCount(shape_info1, &dims1_cnt);
     std::vector<int64_t> dims1(dims1_cnt);
     (void)ort->GetDimensions(shape_info1, dims1.data(), dims1_cnt);
+    ONNXTensorElementDataType out_elem_type1 = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    (void)ort->GetTensorElementType(shape_info1, &out_elem_type1);
     ort->ReleaseTensorTypeAndShapeInfo(shape_info1);
 
     int proto_h = (dims1_cnt >= 4) ? (int)dims1[2] : ((dims1_cnt >= 3) ? (int)dims1[1] : 160);
@@ -3873,6 +4001,20 @@ Rcpp::List run_yolo_cpp(
     const size_t proto_total = 32 * proto_plane;
     float scale_proto_y = (float)proto_h / (float)in_h;
     float scale_proto_x = (float)proto_w / (float)in_w;
+
+    float* proto_data = NULL;
+    if (out_elem_type1 == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+      const uint16_t* raw_p16 = NULL;
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&raw_p16);
+      proto_conv.resize(proto_total);
+      #pragma omp parallel for schedule(static) if(proto_total > 10000)
+      for (int p = 0; p < (int)proto_total; ++p) {
+        proto_conv[p] = half_to_float(raw_p16[p]);
+      }
+      proto_data = proto_conv.data();
+    } else {
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&proto_data);
+    }
 
     if (return_features) {
       // 1. Raw Proto-Feature Tensor [proto_w, proto_h, 32]
@@ -4227,10 +4369,12 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   int64_t in_w = 224;
   OrtTypeInfo* in_ti = NULL;
   (void)ort->SessionGetInputTypeInfo(session, 0, &in_ti);
+  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
   if (in_ti) {
     const OrtTensorTypeAndShapeInfo* in_si = NULL;
     (void)ort->CastTypeInfoToTensorInfo(in_ti, &in_si);
     if (in_si) {
+      (void)ort->GetTensorElementType(in_si, &in_elem_type);
       size_t in_dims_cnt = 0;
       (void)ort->GetDimensionsCount(in_si, &in_dims_cnt);
       if (in_dims_cnt >= 4) {
@@ -4250,10 +4394,20 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   for (size_t i = 0; i < n_copy; ++i) input_vals[i] = (float)tensor_vec[i];
 
   OrtValue* in_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, input_vals.data(), total_floats * sizeof(float),
-    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
-  );
+  std::vector<uint16_t> in_fp16;
+  if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    in_fp16.resize(total_floats);
+    for (size_t i = 0; i < total_floats; ++i) in_fp16[i] = float_to_half(input_vals[i]);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_fp16.data(), total_floats * sizeof(uint16_t),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, input_vals.data(), total_floats * sizeof(float),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    );
+  }
 
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
@@ -4280,7 +4434,14 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   (void)ort->GetDimensionsCount(shape_info0, &dims0_cnt);
   std::vector<int64_t> dims0(dims0_cnt);
   (void)ort->GetDimensions(shape_info0, dims0.data(), dims0_cnt);
+  ONNXTensorElementDataType out_elem_type0 = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  (void)ort->GetTensorElementType(shape_info0, &out_elem_type0);
   ort->ReleaseTensorTypeAndShapeInfo(shape_info0);
+
+  size_t total_out0 = 1;
+  for (size_t d = 0; d < dims0_cnt; ++d) {
+    if (dims0[d] > 0) total_out0 *= (size_t)dims0[d];
+  }
 
   int num_classes = 1000;
   if (dims0_cnt == 2) {
@@ -4290,7 +4451,16 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   }
 
   float* data0 = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  std::vector<float> data0_conv;
+  if (out_elem_type0 == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    const uint16_t* raw_p16 = NULL;
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&raw_p16);
+    data0_conv.resize(num_classes);
+    for (int c = 0; c < num_classes; ++c) data0_conv[c] = half_to_float(raw_p16[c]);
+    data0 = data0_conv.data();
+  } else {
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  }
 
   float max_val = data0[0];
   for (int c = 1; c < num_classes; ++c) {
@@ -6324,6 +6494,164 @@ Rcpp::List run_ocr_rec_cpp(
   }
 
   ort->ReleaseValue(out_tensor);
+  return results;
+}
+
+// [[Rcpp::export]]
+Rcpp::List run_trocr_rec_cpp(
+    Rcpp::NumericVector crops_vec,
+    int batch_size,
+    std::string encoder_path,
+    std::string decoder_path,
+    std::string lib_path,
+    int max_length = 32,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  if (batch_size <= 0) return Rcpp::List::create();
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, use_gpu, device_id);
+  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path, num_threads, use_gpu, device_id);
+  OrtSession* session_enc = cs_enc.session;
+  OrtSession* session_dec = cs_dec.session;
+  OrtMemoryInfo* memory_info = cs_enc.mem_info;
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  size_t floats_per_crop = (size_t)3 * 384 * 384;
+  Rcpp::List results(batch_size);
+
+  const char* enc_in_names[] = {"pixel_values"};
+  const char* enc_out_names[] = {"last_hidden_state"};
+  const char* dec_in_names[] = {"input_ids", "encoder_hidden_states"};
+  const char* dec_out_names[] = {"logits"};
+
+  int64_t enc_in_shape[4] = {1, 3, 384, 384};
+
+  for (int b = 0; b < batch_size; ++b) {
+    size_t b_off = (size_t)b * floats_per_crop;
+    std::vector<float> in_vals(floats_per_crop);
+    for (size_t i = 0; i < floats_per_crop; ++i) {
+      in_vals[i] = (float)crops_vec[b_off + i];
+    }
+
+    OrtValue* enc_in_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_vals.data(), floats_per_crop * sizeof(float),
+      enc_in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_in_tensor
+    );
+
+    OrtValue* enc_out_tensor = NULL;
+    OrtStatus* st_enc = ort->Run(
+      session_enc, run_options, enc_in_names, (const OrtValue* const*)&enc_in_tensor,
+      1, enc_out_names, 1, &enc_out_tensor
+    );
+    ort->ReleaseValue(enc_in_tensor);
+
+    if (st_enc != NULL) {
+      std::string msg = ort->GetErrorMessage(st_enc);
+      ort->ReleaseStatus(st_enc);
+      ort->ReleaseRunOptions(run_options);
+      Rcpp::stop("TrOCR encoder inference failed: " + msg);
+    }
+
+    // Autoregressive token generation loop
+    std::vector<int64_t> current_ids = { 2 }; // decoder_start_token_id = 2 (</s>)
+    std::vector<int> generated_tokens;
+    std::vector<double> token_probs;
+
+    for (int step = 0; step < max_length; ++step) {
+      int64_t ids_shape[2] = {1, (int64_t)current_ids.size()};
+      OrtValue* ids_tensor = NULL;
+      (void)ort->CreateTensorWithDataAsOrtValue(
+        memory_info, current_ids.data(), current_ids.size() * sizeof(int64_t),
+        ids_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, &ids_tensor
+      );
+
+      const OrtValue* dec_in_tensors[2] = {ids_tensor, enc_out_tensor};
+      OrtValue* dec_out_tensor = NULL;
+      OrtStatus* st_dec = ort->Run(
+        session_dec, run_options, dec_in_names, dec_in_tensors,
+        2, dec_out_names, 1, &dec_out_tensor
+      );
+      ort->ReleaseValue(ids_tensor);
+
+      if (st_dec != NULL) {
+        std::string msg = ort->GetErrorMessage(st_dec);
+        ort->ReleaseStatus(st_dec);
+        ort->ReleaseValue(enc_out_tensor);
+        ort->ReleaseRunOptions(run_options);
+        Rcpp::stop("TrOCR decoder inference failed: " + msg);
+      }
+
+      OrtTensorTypeAndShapeInfo* shape_info = NULL;
+      (void)ort->GetTensorTypeAndShape(dec_out_tensor, &shape_info);
+      size_t num_dims = 0;
+      (void)ort->GetDimensionsCount(shape_info, &num_dims);
+      std::vector<int64_t> out_dims(num_dims);
+      (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+      ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+      int64_t V = (num_dims >= 3) ? out_dims[2] : 64044;
+      float* logits_data = NULL;
+      (void)ort->GetTensorMutableData(dec_out_tensor, (void**)&logits_data);
+
+      size_t last_offset = ((size_t)current_ids.size() - 1) * (size_t)V;
+
+      int best_id = 0;
+      float best_val = logits_data[last_offset];
+      for (int64_t v = 1; v < V; ++v) {
+        float val = logits_data[last_offset + (size_t)v];
+        if (val > best_val) {
+          best_val = val;
+          best_id = (int)v;
+        }
+      }
+
+      float sum_exp = 0.0f;
+      for (int64_t v = 0; v < V; ++v) {
+        sum_exp += std::exp(logits_data[last_offset + (size_t)v] - best_val);
+      }
+      double prob = (sum_exp > 0.0f) ? (1.0 / (double)sum_exp) : 0.0;
+
+      ort->ReleaseValue(dec_out_tensor);
+
+      // eos_token_id = 2
+      if (best_id == 2) {
+        break;
+      }
+      // bos = 0, pad = 1: append to context for next step, but do not record as visible character
+      if (best_id == 0 || best_id == 1) {
+        current_ids.push_back((int64_t)best_id);
+        continue;
+      }
+
+      current_ids.push_back((int64_t)best_id);
+      generated_tokens.push_back(best_id);
+      token_probs.push_back(prob);
+    }
+
+    ort->ReleaseValue(enc_out_tensor);
+
+    double mean_score = 0.0;
+    if (!token_probs.empty()) {
+      double sum_p = 0.0;
+      for (double p : token_probs) sum_p += p;
+      mean_score = sum_p / (double)token_probs.size();
+    }
+
+    results[b] = Rcpp::List::create(
+      Rcpp::Named("token_ids") = generated_tokens,
+      Rcpp::Named("token_probs") = token_probs,
+      Rcpp::Named("score") = mean_score
+    );
+  }
+
+  ort->ReleaseRunOptions(run_options);
   return results;
 }
 

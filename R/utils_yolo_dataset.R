@@ -9396,21 +9396,21 @@ plot.yolo_dataset_desc <- function(x,
 #'   When specified alongside `replacement`, standardizes names by regex substitution rather than
 #'   sequential numbering (e.g., `pattern_replace = "DSC_", replacement = "leaf_"`).
 #' @param replacement Character or `NULL`. Replacement string used when `pattern_replace` is provided.
-#' @param prefix Character. Prefix to add to the new filenames (default: `"img_"`).
+#' @param prefix Character. Prefix to add to the new filenames (default: `""`).
 #' @param suffix Character. Optional suffix added before the file extension (default: `""`).
 #' @param start_index Integer. Starting number for sequential numbering (default: `1L`).
 #' @param pad Logical. If `TRUE` (default), pads numbers with leading zeros (e.g. `img_001.jpg` ... `img_381.jpg`)
 #'   so that alphabetical sorting matches numerical sorting.
 #' @param digits Integer or `NULL`. Number of digits for zero-padding. If `NULL` (default) and `pad = TRUE`,
 #'   it is automatically determined from the total number of files (e.g., 3 digits for up to 999 files).
-#' @param uuid Logical. If `TRUE`, appends or uses a unique UUID (default: `FALSE`).
+#' @param uuid Logical. If `TRUE` (default), generates a unique UUID for each file.
 #' @param uuid_hyphen Logical. If `FALSE` (default), hyphens are removed from the UUID string
-#'   (e.g., 32 hexadecimal characters: `"e4d909c290d046888607f6276b00a0d1"`).
+#'   (e.g., hexadecimal characters: `"e4d909c290"`).
 #' @param uuid_position Character. Where to place the UUID relative to the prefix and index:
-#'   `"suffix"` (default, e.g. `img_001_e4d909c2...`), `"prefix"` (e.g. `e4d909c2..._img_001`),
-#'   or `"only"` (e.g. `img_e4d909c2...` without sequential index).
-#' @param uuid_length Integer. Length of the UUID string to keep (default: `32L` for full UUID).
-#'   Common values are 8, 12, 16, or 32.
+#'   `"only"` (default, e.g. `e4d909c290.jpg` or with prefix), `"suffix"` (e.g. `001_e4d909c290`),
+#'   or `"prefix"` (e.g. `e4d909c290_001`).
+#' @param uuid_length Integer. Length of the UUID string to keep (default: `10L`).
+#'   Common values are 8, 10, 12, 16, or 32.
 #' @param keep_prefix Logical or Character. If `TRUE` (default), automatically preserves characteristic prefixes
 #'   and tags that identify synthetic backgrounds (`synth_bg_`, `bg_`, `background_`), negative samples (`neg_`, `empty_`),
 #'   tiling slices (`_tile_0_0`), and data augmentations (`_aug1`, `_aug2_rot90`, `_mosaic`, `_cutout`).
@@ -9460,15 +9460,15 @@ image_rename <- function(dir = ".",
                          pattern = NULL,
                          pattern_replace = NULL,
                          replacement = NULL,
-                         prefix = "img_",
+                         prefix = "",
                          suffix = "",
                          start_index = 1L,
                          digits = NULL,
                          pad = TRUE,
-                         uuid = FALSE,
+                         uuid = TRUE,
                          uuid_hyphen = FALSE,
-                         uuid_position = c("suffix", "prefix", "only"),
-                         uuid_length = 32L,
+                         uuid_position = c("only", "suffix", "prefix"),
+                         uuid_length = 10L,
                          keep_prefix = TRUE,
                          rename_labels = TRUE,
                          recursive = FALSE,
@@ -9803,7 +9803,7 @@ yolo_dataset_rename <- function(dir = ".",
                                 uuid = TRUE,
                                 uuid_hyphen = FALSE,
                                 uuid_position = c("only", "suffix", "prefix"),
-                                uuid_length = 16L,
+                                uuid_length = 10L,
                                 keep_prefix = TRUE,
                                 rename_labels = TRUE,
                                 recursive = FALSE,

@@ -15,7 +15,7 @@ onnx_quantize(
 \item{model_path}{Character string. File path to the input FP32 \code{.onnx} model.}
 
 \item{output_path}{Optional file path for the quantized INT8 model. If \code{NULL} (default),
-appends \code{"_int8.onnx"} to the original model name.}
+saves the model in \code{\link[=pliman_model_dir]{pliman_model_dir()}} appending \code{"_int8.onnx"} to the original model name.}
 
 \item{weight_type}{Precision type: \code{"QUInt8"} (unsigned 8-bit, default) or \code{"QInt8"} (signed 8-bit).}
 

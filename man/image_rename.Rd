@@ -11,15 +11,15 @@ image_rename(
   pattern = NULL,
   pattern_replace = NULL,
   replacement = NULL,
-  prefix = "img_",
+  prefix = "",
   suffix = "",
   start_index = 1L,
   digits = NULL,
   pad = TRUE,
-  uuid = FALSE,
+  uuid = TRUE,
   uuid_hyphen = FALSE,
-  uuid_position = c("suffix", "prefix", "only"),
-  uuid_length = 32L,
+  uuid_position = c("only", "suffix", "prefix"),
+  uuid_length = 10L,
   keep_prefix = TRUE,
   rename_labels = TRUE,
   recursive = FALSE,
@@ -33,15 +33,15 @@ yolo_image_rename(
   pattern = NULL,
   pattern_replace = NULL,
   replacement = NULL,
-  prefix = "img_",
+  prefix = "",
   suffix = "",
   start_index = 1L,
   digits = NULL,
   pad = TRUE,
-  uuid = FALSE,
+  uuid = TRUE,
   uuid_hyphen = FALSE,
-  uuid_position = c("suffix", "prefix", "only"),
-  uuid_length = 32L,
+  uuid_position = c("only", "suffix", "prefix"),
+  uuid_length = 10L,
   keep_prefix = TRUE,
   rename_labels = TRUE,
   recursive = FALSE,
@@ -63,7 +63,7 @@ yolo_dataset_rename(
   uuid = TRUE,
   uuid_hyphen = FALSE,
   uuid_position = c("only", "suffix", "prefix"),
-  uuid_length = 16L,
+  uuid_length = 10L,
   keep_prefix = TRUE,
   rename_labels = TRUE,
   recursive = FALSE,
@@ -86,7 +86,7 @@ sequential numbering (e.g., \verb{pattern_replace = "DSC_", replacement = "leaf_
 
 \item{replacement}{Character or \code{NULL}. Replacement string used when \code{pattern_replace} is provided.}
 
-\item{prefix}{Character. Prefix to add to the new filenames (default: \code{"img_"}).}
+\item{prefix}{Character. Prefix to add to the new filenames (default: \code{""}).}
 
 \item{suffix}{Character. Optional suffix added before the file extension (default: \code{""}).}
 
@@ -98,17 +98,17 @@ it is automatically determined from the total number of files (e.g., 3 digits fo
 \item{pad}{Logical. If \code{TRUE} (default), pads numbers with leading zeros (e.g. \code{img_001.jpg} ... \code{img_381.jpg})
 so that alphabetical sorting matches numerical sorting.}
 
-\item{uuid}{Logical. If \code{TRUE}, appends or uses a unique UUID (default: \code{FALSE}).}
+\item{uuid}{Logical. If \code{TRUE} (default), generates a unique UUID for each file.}
 
 \item{uuid_hyphen}{Logical. If \code{FALSE} (default), hyphens are removed from the UUID string
-(e.g., 32 hexadecimal characters: \code{"e4d909c290d046888607f6276b00a0d1"}).}
+(e.g., hexadecimal characters: \code{"e4d909c290"}).}
 
 \item{uuid_position}{Character. Where to place the UUID relative to the prefix and index:
-\code{"suffix"} (default, e.g. \code{img_001_e4d909c2...}), \code{"prefix"} (e.g. \code{e4d909c2..._img_001}),
-or \code{"only"} (e.g. \code{img_e4d909c2...} without sequential index).}
+\code{"only"} (default, e.g. \code{e4d909c290.jpg} or with prefix), \code{"suffix"} (e.g. \verb{001_e4d909c290}),
+or \code{"prefix"} (e.g. \code{e4d909c290_001}).}
 
-\item{uuid_length}{Integer. Length of the UUID string to keep (default: \code{32L} for full UUID).
-Common values are 8, 12, 16, or 32.}
+\item{uuid_length}{Integer. Length of the UUID string to keep (default: \code{10L}).
+Common values are 8, 10, 12, 16, or 32.}
 
 \item{keep_prefix}{Logical or Character. If \code{TRUE} (default), automatically preserves characteristic prefixes
 and tags that identify synthetic backgrounds (\code{synth_bg_}, \code{bg_}, \code{background_}), negative samples (\code{neg_}, \code{empty_}),

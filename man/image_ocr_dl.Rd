@@ -6,8 +6,9 @@
 \usage{
 image_ocr_dl(
   img,
-  det_model = c("ppocr_det", "ppocr_det_server", "craft"),
-  rec_model = "ppocr_rec",
+  det_model = c("ppocr_det", "ppocr_det_server", "craft", "trocr_small"),
+  rec_model = c("ppocr_rec", "trocr_small"),
+  language = c("latin", "english"),
   det_thresh = 0.3,
   box_thresh = 0.5,
   unclip_ratio = 1.3,
@@ -33,12 +34,23 @@ image_ocr_dl(
 \arguments{
 \item{img}{An \code{Image} object or character string path to an image file.}
 
-\item{det_model}{Text detection backbone model. Options are \code{"ppocr_det"}
-(PP-OCRv4 Mobile DBNet, fast and lightweight), \code{"ppocr_det_server"}
-(PP-OCRv4 Server DBNet, high capacity for complex scenes), or \code{"craft"}
-(Clova AI CRAFT character-affinity heatmap detector). Default is \code{"ppocr_det"}.}
+\item{det_model}{Text detection backbone model. Options are:
+\itemize{
+\item \code{"ppocr_det"}: PP-OCRv4 Mobile DBNet (default, fast, printed text).
+\item \code{"ppocr_det_server"}: PP-OCRv4 Server DBNet (high capacity).
+\item \code{"craft"}: Clova AI CRAFT (best for handwriting, irregular/tilted tags).
+\item \code{"trocr_small"}: Alias running CRAFT detection with TrOCR Small recognition.
+}}
 
-\item{rec_model}{Text recognition backbone model (default \code{"ppocr_rec"} or \code{"ch_PP-OCRv4_rec"}).}
+\item{rec_model}{Text recognition backbone model:
+\itemize{
+\item \code{"ppocr_rec"}: PP-OCRv4 recognition (default, printed text, numbers, codes).
+\item \code{"trocr_small"}: TrOCR Small encoder-decoder (handwriting recognition).
+}}
+
+\item{language}{Language family for handwriting recognition (TrOCR):
+\code{"latin"} (default; specialized for Latin/Portuguese handwriting and diacritics)
+or \code{"english"} (English IAM handwriting).}
 
 \item{det_thresh}{Pixel binarization threshold for DBNet text polygon detection (default \code{0.30}).}
 
@@ -85,9 +97,9 @@ image_ocr_dl(
 A \code{data.frame} of class \code{c("pliman_ocr", "data.frame")} containing:
 \itemize{
 \item \code{id}: Sequential text region identifier.
+\item \code{line}: Visual text line index (when \code{sort = TRUE}).
 \item \code{text}: Transcribed character string.
 \item \code{score}: Recognition confidence score (0 to 1).
-\item \code{det_score}: Detection polygon confidence score (0 to 1).
 \item \code{xmin}, \code{ymin}, \code{xmax}, \code{ymax}: Spatial bounding box coordinates.
 }
 With attributes \code{"image"} (original image).
@@ -95,16 +107,63 @@ With attributes \code{"image"} (original image).
 \description{
 Agronomic trials and breeding nurseries routinely track experimental entries using
 physical plot stakes, barcode tags, seed packet labels, and ear tags in livestock.
-In \code{pliman}, \code{image_ocr_dl()} integrates deep neural text detection (DBNet) and text
-recognition (CRNN/SVTR) models to automatically extract text strings and their spatial
-coordinates directly from field imagery.
+In \code{pliman}, \code{image_ocr_dl()} integrates deep neural text detection (DBNet / CRAFT)
+and text recognition (CRNN/SVTR / TrOCR) models to automatically extract text strings
+and their spatial coordinates directly from field imagery.
+}
+\details{
+The OCR pipeline operates in two independent, modular stages:
+\enumerate{
+\item \strong{Text Detection (\code{det_model})}: Identifies bounding boxes or polygons
+encapsulating text instances on the image.
+\itemize{
+\item \code{"ppocr_det"}: PP-OCRv4 Mobile DBNet (default). Ultra-fast, lightweight
+(~4.7 MB), ideal for printed field stakes, labels, and seed packets.
+\item \code{"ppocr_det_server"}: PP-OCRv4 Server DBNet (~113 MB). Higher parameter
+capacity for dense documents, distant plot markers, or cluttered backgrounds.
+\item \code{"craft"}: Clova AI CRAFT (Character Region Awareness for Text Detection, ~80 MB).
+Uses dual Gaussian heatmaps (character center score + inter-character affinity link).
+Superior for irregular, curved, tilted labels, handwritten notes, and cursive tags.
+\item \code{"trocr_small"}: Shortcut convenience alias. Automatically pairs the \code{"craft"}
+detector with the \code{"trocr_small"} recognition model.
+}
+\item \strong{Text Recognition (\code{rec_model})}: Transcribes cropped image patches into character strings.
+\itemize{
+\item \code{"ppocr_rec"}: PP-OCRv4 SVTR/LCNet model (default, ~12 MB). Optimized for
+printed typography, alphanumeric entry codes (e.g. \code{"G196"}, \code{"TAG-042"}),
+seed packet labels, and plot stakes.
+\item \code{"trocr_small"}: Microsoft TrOCR Small (~140 MB total: encoder + autoregressive
+RoBERTa decoder). Transformer-based model designed specifically for English continuous
+cursive handwriting (trained on IAM Handwriting dataset).
+}
+}
+
+\strong{Reading Order Sorting}:
+When \code{sort = TRUE} (the default), detected boxes are organized using spatial vertical IoU
+line-clustering (> 0.35 overlap threshold) to group words belonging to the same text line,
+followed by left-to-right sorting within each line, reproducing natural human reading order.
+
+\strong{S3 Methods}:
+The returned object of class \code{"pliman_ocr"} supports:
+\itemize{
+\item \code{print(x)}: Displays a clean tabular summary with line assignments and coordinates.
+\item \code{plot(x)}: Renders the annotated image with colored bounding boxes and badges.
+\item \code{as.character(x)}: Returns the complete transcribed text with newline (\code{"\n"}) breaks.
+}
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("flaxtext")
+  # Default: PP-OCRv4 detection + recognition
   ocr_res <- image_ocr_dl(img)
   print(ocr_res)
+
+  # Handwritten tag: CRAFT detection
+  ocr_craft <- image_ocr_dl(img, det_model = "craft")
+
+  # Convert to plain text string with line breaks
+  cat(as.character(ocr_res))
 \dontshow{\}) # examplesIf}
 }
 \references{
@@ -118,5 +177,8 @@ PP-OCR: A practical ultra lightweight OCR system.
 \item Baek, Y., Lee, B., Han, D., Yun, S., & Lee, H. (2019).
 Character region awareness for text detection.
 \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365–9374.
+\item Li, M., Lv, T., Chen, J., Cui, L., Lu, Y., Florencio, D., Zhang, C., & Wei, F. (2023).
+TrOCR: Transformer-based optical character recognition with pre-trained models.
+\emph{AAAI Conference on Human Computation and Crowdsourcing}.
 }
 }

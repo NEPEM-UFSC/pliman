@@ -59,6 +59,7 @@ yolo_dataset_export(
   device_id = -1,
   move = TRUE,
   overwrite = TRUE,
+  as_job = FALSE,
   verbose = TRUE,
   ...
 )
@@ -210,6 +211,8 @@ to limit the number of review images generated.}
 \item{move}{Logical. If \code{TRUE} (default), moves the source images directly into the dataset's \verb{images/} split directories instead of copying them.}
 
 \item{overwrite}{Logical. If \code{TRUE} (default), overwrites existing dataset files in \code{dir}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, runs the dataset export as an RStudio Background Job in the Jobs tab, keeping the current R session free. Defaults to \code{FALSE}.}
 
 \item{verbose}{Logical. If \code{TRUE} (default), displays live progress information.}
 

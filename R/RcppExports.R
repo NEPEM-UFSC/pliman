@@ -969,6 +969,10 @@ run_ocr_rec_cpp <- function(crops_vec, batch_size, crop_w, crop_h, model_path, l
     .Call(`_pliman_run_ocr_rec_cpp`, crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
+run_trocr_rec_cpp <- function(crops_vec, batch_size, encoder_path, decoder_path, lib_path, max_length = 32L, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_trocr_rec_cpp`, crops_vec, batch_size, encoder_path, decoder_path, lib_path, max_length, num_threads, use_gpu, device_id)
+}
+
 remap_labels_cpp <- function(labels, keep_ids) {
     invisible(.Call(`_pliman_remap_labels_cpp`, labels, keep_ids))
 }

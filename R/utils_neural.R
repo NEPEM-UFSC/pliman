@@ -550,6 +550,29 @@ NULL
     "craft"                  = "craft",
     "craft_mlt"              = "craft",
     "craft-mlt"              = "craft",
+    "trocr"                  = "trocr_small",
+    "trocr_small"            = "trocr_small",
+    "trocr-small"            = "trocr_small",
+    "trocr_lat"              = "trocr_small_lat",
+    "trocr_small_lat"        = "trocr_small_lat",
+    "trocr-small-lat"        = "trocr_small_lat",
+    "trocr_encoder"          = "trocr_encoder",
+    "trocr-encoder"          = "trocr_encoder",
+    "trocr_decoder"          = "trocr_decoder",
+    "trocr-decoder"          = "trocr_decoder",
+    "trocr_vocab"            = "trocr_vocab",
+    "trocr-vocab"            = "trocr_vocab",
+    "trocr_dict"             = "trocr_vocab",
+    "trocr_encoder_lat"      = "trocr_encoder_lat",
+    "trocr-encoder-lat"      = "trocr_encoder_lat",
+    "trocr_decoder_lat"      = "trocr_decoder_lat",
+    "trocr-decoder-lat"      = "trocr_decoder_lat",
+    "trocr_vocab_lat"        = "trocr_vocab_lat",
+    "trocr-vocab-lat"        = "trocr_vocab_lat",
+    "trocr_dict_lat"         = "trocr_vocab_lat",
+    "tocr_encoder_lat"       = "trocr_encoder_lat",
+    "tocr_decoder_lat"       = "trocr_decoder_lat",
+    "tocr_vocab_lat"         = "trocr_vocab_lat",
     # Image Restoration (Zero-DCE & NAFNet)
     "zero_dce"               = "zero_dce",
     "zero-dce"               = "zero_dce",
@@ -1594,7 +1617,55 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 80.4,
       input_size = "dynamic",
       filename = "craft.onnx",
-      url = "https://huggingface.co/KvaytG/craft-mlt-25k-onnx/resolve/main/craft.onnx"
+      url = paste0(base_url, "craft.onnx")
+    ),
+    list(
+      name = "trocr_encoder",
+      description = "TrOCR Small Encoder: DeiT Vision Transformer for handwriting recognition (384x384, 23 MB)",
+      size_mb = 23.1,
+      input_size = "384x384",
+      filename = "trocr_encoder.onnx",
+      url = paste0(base_url, "trocr_encoder.onnx")
+    ),
+    list(
+      name = "trocr_decoder",
+      description = "TrOCR Small Decoder: Autoregressive RoBERTa decoder for handwriting generation (40 MB)",
+      size_mb = 40.5,
+      input_size = "autoregressive",
+      filename = "trocr_decoder.onnx",
+      url = paste0(base_url, "trocr_decoder.onnx")
+    ),
+    list(
+      name = "trocr_vocab",
+      description = "TrOCR Small Vocabulary: Tokenizer dictionary for text decoding (0.35 MB)",
+      size_mb = 0.35,
+      input_size = "tokens",
+      filename = "trocr_vocab.rds",
+      url = paste0(base_url, "trocr_vocab.rds")
+    ),
+    list(
+      name = "trocr_encoder_lat",
+      description = "TrOCR Latin Encoder: DeiT Vision Transformer for Latin/Portuguese handwriting recognition (384x384, 87 MB)",
+      size_mb = 87.5,
+      input_size = "384x384",
+      filename = "trocr_encoder_lat.onnx",
+      url = paste0(base_url, "trocr_encoder_lat.onnx")
+    ),
+    list(
+      name = "trocr_decoder_lat",
+      description = "TrOCR Latin Decoder: Autoregressive RoBERTa decoder for Latin/Portuguese handwriting generation (158 MB)",
+      size_mb = 158.8,
+      input_size = "autoregressive",
+      filename = "trocr_decoder_lat.onnx",
+      url = paste0(base_url, "trocr_decoder_lat.onnx")
+    ),
+    list(
+      name = "trocr_vocab_lat",
+      description = "TrOCR Latin Vocabulary: Tokenizer dictionary for Latin/Portuguese text decoding (0.35 MB)",
+      size_mb = 0.35,
+      input_size = "tokens",
+      filename = "trocr_vocab_lat.rds",
+      url = paste0(base_url, "trocr_vocab_lat.rds")
     ),
     list(
       name = "ppocr_rec",
@@ -1732,6 +1803,18 @@ pliman_download_model <- function(model = "u2netp",
   options(timeout = max(600, old_timeout))
 
   download_single <- function(m) {
+    if (tolower(m) %in% c("trocr", "trocr_small", "trocr-small")) {
+      enc <- download_single("trocr_encoder")
+      dec <- download_single("trocr_decoder")
+      voc <- download_single("trocr_vocab")
+      return(c(encoder = enc, decoder = dec, vocab = voc))
+    }
+    if (tolower(m) %in% c("trocr_lat", "trocr_small_lat", "trocr-small-lat", "trocr_latin")) {
+      enc <- download_single("trocr_encoder_lat")
+      dec <- download_single("trocr_decoder_lat")
+      voc <- download_single("trocr_vocab_lat")
+      return(c(encoder = enc, decoder = dec, vocab = voc))
+    }
     # CASE 1: Direct URL download
     if (grepl("^https?://", m)) {
       clean_url <- sub("[?#].*$", "", m)
@@ -2104,7 +2187,19 @@ pliman_remove_model <- function(model = NULL,
   freed_bytes <- 0
 
   for (m in model) {
-    resolved_m <- .resolve_model_name(m)
+    # If m is directly an existing file path, handle it immediately
+    existing_matches <- character(0)
+    if (is.character(m) && length(m) == 1L && file.exists(m) && !dir.exists(m)) {
+      norm_m <- normalizePath(m, winslash = "/", mustWork = FALSE)
+      existing_matches <- unique(c(existing_matches, norm_m))
+      tmp_p <- paste0(norm_m, ".curltmp")
+      if (file.exists(tmp_p)) {
+        existing_matches <- unique(c(existing_matches, tmp_p))
+      }
+    }
+
+    m_base <- basename(m)
+    resolved_m <- .resolve_model_name(m_base)
     candidate_files <- character(0)
 
     # Composite models with multiple auxiliary assets
@@ -2121,19 +2216,22 @@ pliman_remove_model <- function(model = NULL,
       # Specific filename or stem
       candidate_files <- unique(c(
         m,
+        m_base,
         resolved_m,
-        paste0(m, ".onnx"),
-        paste0(m, ".pt"),
+        paste0(m_base, ".onnx"),
+        paste0(m_base, ".pt"),
+        paste0(m_base, ".engine"),
         paste0(resolved_m, ".onnx"),
-        paste0(resolved_m, ".pt")
+        paste0(resolved_m, ".pt"),
+        paste0(resolved_m, ".engine")
       ))
 
       if (!is.null(models_df)) {
         match_idx <- which(
           models_df$model == resolved_m |
           models_df$filename == resolved_m |
-          models_df$model == m |
-          models_df$filename == m
+          models_df$model == m_base |
+          models_df$filename == m_base
         )
         if (length(match_idx) > 0) {
           candidate_files <- unique(c(candidate_files, models_df$filename[match_idx]))
@@ -2142,9 +2240,8 @@ pliman_remove_model <- function(model = NULL,
     }
 
     # Match files present on disk
-    existing_matches <- character(0)
     for (cf in candidate_files) {
-      target_p <- file.path(dir, cf)
+      target_p <- if (file.exists(cf)) normalizePath(cf, winslash = "/", mustWork = FALSE) else file.path(dir, cf)
       if (file.exists(target_p)) {
         existing_matches <- unique(c(existing_matches, target_p))
       }
@@ -9981,9 +10078,49 @@ image_restore_dl <- function(img,
 #'
 #' Agronomic trials and breeding nurseries routinely track experimental entries using
 #' physical plot stakes, barcode tags, seed packet labels, and ear tags in livestock.
-#' In `pliman`, `image_ocr_dl()` integrates deep neural text detection (DBNet) and text
-#' recognition (CRNN/SVTR) models to automatically extract text strings and their spatial
-#' coordinates directly from field imagery.
+#' In `pliman`, `image_ocr_dl()` integrates deep neural text detection (DBNet / CRAFT)
+#' and text recognition (CRNN/SVTR / TrOCR) models to automatically extract text strings
+#' and their spatial coordinates directly from field imagery.
+#'
+#' @details
+#' The OCR pipeline operates in two independent, modular stages:
+#' \enumerate{
+#'   \item \strong{Text Detection (\code{det_model})}: Identifies bounding boxes or polygons
+#'         encapsulating text instances on the image.
+#'         \itemize{
+#'           \item \code{"ppocr_det"}: PP-OCRv4 Mobile DBNet (default). Ultra-fast, lightweight
+#'                 (~4.7 MB), ideal for printed field stakes, labels, and seed packets.
+#'           \item \code{"ppocr_det_server"}: PP-OCRv4 Server DBNet (~113 MB). Higher parameter
+#'                 capacity for dense documents, distant plot markers, or cluttered backgrounds.
+#'           \item \code{"craft"}: Clova AI CRAFT (Character Region Awareness for Text Detection, ~80 MB).
+#'                 Uses dual Gaussian heatmaps (character center score + inter-character affinity link).
+#'                 Superior for irregular, curved, tilted labels, handwritten notes, and cursive tags.
+#'           \item \code{"trocr_small"}: Shortcut convenience alias. Automatically pairs the \code{"craft"}
+#'                 detector with the \code{"trocr_small"} recognition model.
+#'         }
+#'   \item \strong{Text Recognition (\code{rec_model})}: Transcribes cropped image patches into character strings.
+#'         \itemize{
+#'           \item \code{"ppocr_rec"}: PP-OCRv4 SVTR/LCNet model (default, ~12 MB). Optimized for
+#'                 printed typography, alphanumeric entry codes (e.g. \code{"G196"}, \code{"TAG-042"}),
+#'                 seed packet labels, and plot stakes.
+#'           \item \code{"trocr_small"}: Microsoft TrOCR Small (~140 MB total: encoder + autoregressive
+#'                 RoBERTa decoder). Transformer-based model designed specifically for English continuous
+#'                 cursive handwriting (trained on IAM Handwriting dataset).
+#'         }
+#' }
+#'
+#' \strong{Reading Order Sorting}:
+#' When \code{sort = TRUE} (the default), detected boxes are organized using spatial vertical IoU
+#' line-clustering (> 0.35 overlap threshold) to group words belonging to the same text line,
+#' followed by left-to-right sorting within each line, reproducing natural human reading order.
+#'
+#' \strong{S3 Methods}:
+#' The returned object of class \code{"pliman_ocr"} supports:
+#' \itemize{
+#'   \item \code{print(x)}: Displays a clean tabular summary with line assignments and coordinates.
+#'   \item \code{plot(x)}: Renders the annotated image with colored bounding boxes and badges.
+#'   \item \code{as.character(x)}: Returns the complete transcribed text with newline (\code{"\n"}) breaks.
+#' }
 #'
 #' @references
 #' \itemize{
@@ -9996,14 +10133,27 @@ image_restore_dl <- function(img,
 #'   \item Baek, Y., Lee, B., Han, D., Yun, S., & Lee, H. (2019).
 #'   Character region awareness for text detection.
 #'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365–9374.
+#'   \item Li, M., Lv, T., Chen, J., Cui, L., Lu, Y., Florencio, D., Zhang, C., & Wei, F. (2023).
+#'   TrOCR: Transformer-based optical character recognition with pre-trained models.
+#'   \emph{AAAI Conference on Human Computation and Crowdsourcing}.
 #' }
 #'
 #' @param img An `Image` object or character string path to an image file.
-#' @param det_model Text detection backbone model. Options are \code{"ppocr_det"}
-#'   (PP-OCRv4 Mobile DBNet, fast and lightweight), \code{"ppocr_det_server"}
-#'   (PP-OCRv4 Server DBNet, high capacity for complex scenes), or \code{"craft"}
-#'   (Clova AI CRAFT character-affinity heatmap detector). Default is \code{"ppocr_det"}.
-#' @param rec_model Text recognition backbone model (default `"ppocr_rec"` or `"ch_PP-OCRv4_rec"`).
+#' @param det_model Text detection backbone model. Options are:
+#'   \itemize{
+#'     \item \code{"ppocr_det"}: PP-OCRv4 Mobile DBNet (default, fast, printed text).
+#'     \item \code{"ppocr_det_server"}: PP-OCRv4 Server DBNet (high capacity).
+#'     \item \code{"craft"}: Clova AI CRAFT (best for handwriting, irregular/tilted tags).
+#'     \item \code{"trocr_small"}: Alias running CRAFT detection with TrOCR Small recognition.
+#'   }
+#' @param rec_model Text recognition backbone model:
+#'   \itemize{
+#'     \item \code{"ppocr_rec"}: PP-OCRv4 recognition (default, printed text, numbers, codes).
+#'     \item \code{"trocr_small"}: TrOCR Small encoder-decoder (handwriting recognition).
+#'   }
+#' @param language Language family for handwriting recognition (TrOCR):
+#'   \code{"latin"} (default; specialized for Latin/Portuguese handwriting and diacritics)
+#'   or \code{"english"} (English IAM handwriting).
 #' @param det_thresh Pixel binarization threshold for DBNet text polygon detection (default `0.30`).
 #' @param box_thresh Minimum confidence threshold for retaining detected text bounding boxes (default `0.50`).
 #' @param unclip_ratio Polygon expansion ratio to prevent cropping character boundaries (DBNet models, default `1.30`).
@@ -10028,9 +10178,9 @@ image_restore_dl <- function(img,
 #' @return A `data.frame` of class `c("pliman_ocr", "data.frame")` containing:
 #' \itemize{
 #'   \item \code{id}: Sequential text region identifier.
+#'   \item \code{line}: Visual text line index (when \code{sort = TRUE}).
 #'   \item \code{text}: Transcribed character string.
 #'   \item \code{score}: Recognition confidence score (0 to 1).
-#'   \item \code{det_score}: Detection polygon confidence score (0 to 1).
 #'   \item \code{xmin}, \code{ymin}, \code{xmax}, \code{ymax}: Spatial bounding box coordinates.
 #' }
 #' With attributes \code{"image"} (original image).
@@ -10038,11 +10188,19 @@ image_restore_dl <- function(img,
 #' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("flaxtext")
+#'   # Default: PP-OCRv4 detection + recognition
 #'   ocr_res <- image_ocr_dl(img)
 #'   print(ocr_res)
+#'
+#'   # Handwritten tag: CRAFT detection
+#'   ocr_craft <- image_ocr_dl(img, det_model = "craft")
+#'
+#'   # Convert to plain text string with line breaks
+#'   cat(as.character(ocr_res))
 image_ocr_dl <- function(img,
-                         det_model = c("ppocr_det", "ppocr_det_server", "craft"),
-                         rec_model = "ppocr_rec",
+                         det_model = c("ppocr_det", "ppocr_det_server", "craft", "trocr_small"),
+                         rec_model = c("ppocr_rec", "trocr_small"),
+                         language = c("latin", "english"),
                          det_thresh = 0.30,
                          box_thresh = 0.50,
                          unclip_ratio = 1.30,
@@ -10064,20 +10222,38 @@ image_ocr_dl <- function(img,
                          verbose = TRUE,
                          ...) {
   engine <- match.arg(engine)
+  language <- if (missing(language) || is.null(language)) "latin" else match.arg(language)
   if (missing(labels) || is.null(labels) || !is.character(labels) || length(labels) == 0L) {
     labels <- "text"
   } else {
     labels <- labels[1L]
     if (!labels %in% c("text", "id", "both", "none")) labels <- "text"
   }
+  user_specified_rec <- !missing(rec_model) && is.character(rec_model) && length(rec_model) == 1L && nzchar(rec_model)
   if (is.character(det_model) && length(det_model) > 1L) {
     det_model <- det_model[1L]
+  }
+  if (is.character(rec_model) && length(rec_model) > 1L) {
+    rec_model <- rec_model[1L]
+  }
+
+  if (grepl("trocr", tolower(det_model))) {
+    det_model <- "craft"
+    if (!user_specified_rec) {
+      if (isTRUE(verbose)) {
+        rec_desc <- if (language == "latin") "TrOCR Latin (Portuguese/Latin handwriting)" else "TrOCR English"
+        cli::cli_alert_info("TrOCR is an encoder-decoder recognition model. Using 'craft' for text detection and {rec_desc} for recognition.")
+      }
+      rec_model <- if (language == "latin") "trocr_lat" else "trocr"
+    } else {
+      rec_model <- rec_model[1L]
+    }
   }
 
   if (is.list(img) && !inherits(img, c("Image", "image"))) {
     res <- lapply(img, function(x) {
       image_ocr_dl(
-        x, det_model = det_model, rec_model = rec_model,
+        x, det_model = det_model, rec_model = rec_model, language = language,
         det_thresh = det_thresh, box_thresh = box_thresh,
         unclip_ratio = unclip_ratio,
         text_threshold = text_threshold, link_threshold = link_threshold,
@@ -10103,6 +10279,8 @@ image_ocr_dl <- function(img,
 
   is_craft <- grepl("craft", tolower(det_model))
   is_server <- grepl("server", tolower(det_model))
+  is_trocr <- grepl("trocr", tolower(rec_model))
+  is_latin_trocr <- is_trocr && (language == "latin" || grepl("lat", tolower(rec_model)))
 
   if (is_craft) {
     det_file <- .find_local_model(det_model, dir = dir)
@@ -10117,21 +10295,44 @@ image_ocr_dl <- function(img,
     if (is.null(det_file)) det_file <- pliman_download_model(det_model, dir = dir, verbose = verbose)
   }
 
-  rec_file <- .find_local_model(rec_model, dir = dir)
-  if (is.null(rec_file)) rec_file <- .find_local_model("ch_PP-OCRv4_rec", dir = dir)
-  if (is.null(rec_file)) rec_file <- pliman_download_model(rec_model, dir = dir, verbose = verbose)
+  if (is_trocr) {
+    enc_name <- if (is_latin_trocr) "trocr_encoder_lat" else "trocr_encoder"
+    dec_name <- if (is_latin_trocr) "trocr_decoder_lat" else "trocr_decoder"
+    voc_name <- if (is_latin_trocr) "trocr_vocab_lat.rds" else "trocr_vocab.rds"
+    voc_model <- if (is_latin_trocr) "trocr_vocab_lat" else "trocr_vocab"
 
-  dict_file <- file.path(dir, "ppocr_dict.txt")
-  if (!file.exists(dict_file)) dict_file <- system.file("ppocr_dict.txt", package = "pliman")
-  dict <- if (file.exists(dict_file)) readLines(dict_file, encoding = "UTF-8", warn = FALSE) else character(0)
+    trocr_enc_file <- .find_local_model(enc_name, dir = dir)
+    if (is.null(trocr_enc_file)) trocr_enc_file <- pliman_download_model(enc_name, dir = dir, verbose = verbose)
+    trocr_dec_file <- .find_local_model(dec_name, dir = dir)
+    if (is.null(trocr_dec_file)) trocr_dec_file <- pliman_download_model(dec_name, dir = dir, verbose = verbose)
+    trocr_vocab_file <- file.path(dir, voc_name)
+    if (!file.exists(trocr_vocab_file)) {
+      pkg_vocab <- system.file(voc_name, package = "pliman")
+      if (nzchar(pkg_vocab) && file.exists(pkg_vocab)) {
+        trocr_vocab_file <- pkg_vocab
+      } else {
+        trocr_vocab_file <- pliman_download_model(voc_model, dir = dir, verbose = verbose)
+      }
+    }
+    trocr_vocab <- if (file.exists(trocr_vocab_file)) readRDS(trocr_vocab_file) else character(0)
+  } else {
+    rec_file <- .find_local_model(rec_model, dir = dir)
+    if (is.null(rec_file)) rec_file <- .find_local_model("ch_PP-OCRv4_rec", dir = dir)
+    if (is.null(rec_file)) rec_file <- pliman_download_model(rec_model, dir = dir, verbose = verbose)
+
+    dict_file <- file.path(dir, "ppocr_dict.txt")
+    if (!file.exists(dict_file)) dict_file <- system.file("ppocr_dict.txt", package = "pliman")
+    dict <- if (file.exists(dict_file)) readLines(dict_file, encoding = "UTF-8", warn = FALSE) else character(0)
+  }
 
   lib_path <- pliman_onnx_lib_path(engine = engine)
   use_gpu <- (engine == "gpu")
 
   det_tag <- if (is_craft) "CRAFT" else (if (is_server) "PP-OCRv4-Server" else "PP-OCRv4")
+  rec_tag <- if (is_trocr) (if (is_latin_trocr) "TrOCR Latin" else "TrOCR English") else "PP-OCR"
   if (isTRUE(verbose)) {
     cli::cli_progress_step(
-      msg = paste0("Running ", det_tag, " text detection & PP-OCR recognition [{toupper(engine)}]..."),
+      msg = paste0("Running ", det_tag, " text detection & ", rec_tag, " recognition [{toupper(engine)}]..."),
       msg_done = "OCR inference complete"
     )
   }
@@ -10267,45 +10468,75 @@ image_ocr_dl <- function(img,
       crop_img <- image_rotate(crop_img, angle = 90, plot = FALSE)
       cw_old <- cw; cw <- ch; ch <- cw_old
     }
-    imgH <- 48L
-    imgW <- 320L
-    ratio <- cw / ch
-    resized_w <- min(imgW, max(16L, as.integer(ceiling(imgH * ratio))))
+    if (is_trocr) {
+      resized <- image_resize(crop_img, width = 384L, height = 384L, plot = FALSE)
+      arr <- as.array(resized)
+      r_plane <- (as.numeric(arr[, , 1]) / 127.5) - 1.0
+      g_plane <- (as.numeric(arr[, , 2]) / 127.5) - 1.0
+      b_plane <- (as.numeric(arr[, , 3]) / 127.5) - 1.0
+      tensor_crop <- c(r_plane, g_plane, b_plane)
 
-    resized <- image_resize(crop_img, width = resized_w, height = imgH, plot = FALSE)
-    rmat <- as.numeric(image_data(resized))
-    if (is.raw(rmat)) {
-      rmat <- as.numeric(rmat) / 255.0
-    } else if (max(rmat[1:min(1000, length(rmat))], na.rm = TRUE) > 1.5) {
-      rmat <- rmat / 255.0
-    }
-    dim(rmat) <- c(resized_w, imgH, 3)
+      rec_res <- run_trocr_rec_cpp(
+        crops_vec = tensor_crop,
+        batch_size = 1L,
+        encoder_path = trocr_enc_file,
+        decoder_path = trocr_dec_file,
+        lib_path = lib_path,
+        max_length = 32L,
+        num_threads = as.integer(threads),
+        use_gpu = use_gpu
+      )
 
-    pad_arr <- array(0.0, dim = c(imgW, imgH, 3))
-    pad_arr[1:resized_w, , ] <- (rmat - 0.5) / 0.5
+      tok_ids <- rec_res[[1]]$token_ids
+      if (length(tok_ids) > 0 && length(trocr_vocab) > 0) {
+        pieces <- vapply(tok_ids, function(tid) {
+          idx <- tid + 1L
+          if (idx >= 1L && idx <= length(trocr_vocab)) trocr_vocab[idx] else ""
+        }, character(1))
+        txts[k] <- trimws(gsub("▁", " ", paste(pieces, collapse = "")))
+        scores[k] <- round(rec_res[[1]]$score, 4)
+      }
+    } else {
+      imgH <- 48L
+      imgW <- 320L
+      ratio <- cw / ch
+      resized_w <- min(imgW, max(16L, as.integer(ceiling(imgH * ratio))))
 
-    tensor_crop <- c(
-      as.numeric(pad_arr[, , 3]),
-      as.numeric(pad_arr[, , 2]),
-      as.numeric(pad_arr[, , 1])
-    )
+      resized <- image_resize(crop_img, width = resized_w, height = imgH, plot = FALSE)
+      rmat <- as.numeric(image_data(resized))
+      if (is.raw(rmat)) {
+        rmat <- as.numeric(rmat) / 255.0
+      } else if (max(rmat[1:min(1000, length(rmat))], na.rm = TRUE) > 1.5) {
+        rmat <- rmat / 255.0
+      }
+      dim(rmat) <- c(resized_w, imgH, 3)
 
-    rec_res <- run_ocr_rec_cpp(
-      crops_vec = tensor_crop,
-      batch_size = 1L,
-      crop_w = imgW,
-      crop_h = imgH,
-      model_path = rec_file,
-      lib_path = lib_path,
-      num_threads = as.integer(threads),
-      use_gpu = use_gpu
-    )
+      pad_arr <- array(0.0, dim = c(imgW, imgH, 3))
+      pad_arr[1:resized_w, , ] <- (rmat - 0.5) / 0.5
 
-    ids <- rec_res[[1]]$char_ids
-    if (length(ids) > 0 && length(dict) > 0) {
-      chars <- vapply(ids, function(id) if (id <= length(dict)) dict[id] else "", character(1))
-      txts[k] <- trimws(paste0(chars, collapse = ""))
-      scores[k] <- round(rec_res[[1]]$score, 4)
+      tensor_crop <- c(
+        as.numeric(pad_arr[, , 3]),
+        as.numeric(pad_arr[, , 2]),
+        as.numeric(pad_arr[, , 1])
+      )
+
+      rec_res <- run_ocr_rec_cpp(
+        crops_vec = tensor_crop,
+        batch_size = 1L,
+        crop_w = imgW,
+        crop_h = imgH,
+        model_path = rec_file,
+        lib_path = lib_path,
+        num_threads = as.integer(threads),
+        use_gpu = use_gpu
+      )
+
+      ids <- rec_res[[1]]$char_ids
+      if (length(ids) > 0 && length(dict) > 0) {
+        chars <- vapply(ids, function(id) if (id <= length(dict)) dict[id] else "", character(1))
+        txts[k] <- trimws(paste0(chars, collapse = ""))
+        scores[k] <- round(rec_res[[1]]$score, 4)
+      }
     }
   }
 
@@ -10323,28 +10554,58 @@ image_ocr_dl <- function(img,
 
   # Sort in natural reading order (top-to-bottom, line-by-line, left-to-right)
   if (isTRUE(sort) && nrow(res_df) > 1L) {
-    res_df$cy <- (res_df$ymin + res_df$ymax) / 2
-    med_h <- stats::median(res_df$ymax - res_df$ymin + 1)
-    res_df <- res_df[order(res_df$cy), ]
-    line_ids <- integer(nrow(res_df))
-    cur_line <- 1L
-    cur_y <- res_df$cy[1]
-    for (idx_s in seq_len(nrow(res_df))) {
-      if (idx_s == 1L) {
-        line_ids[1] <- cur_line
-      } else {
-        if (abs(res_df$cy[idx_s] - cur_y) > (0.50 * med_h)) {
-          cur_line <- cur_line + 1L
-          cur_y <- res_df$cy[idx_s]
+    y_min_vec <- res_df$ymin
+    x_min_vec <- res_df$xmin
+    ord <- order(y_min_vec, x_min_vec)
+    df_s <- res_df[ord, ]
+
+    lines_info <- list()
+    line_assign <- integer(nrow(df_s))
+
+    for (i in seq_len(nrow(df_s))) {
+      b_ymin <- df_s$ymin[i]
+      b_ymax <- df_s$ymax[i]
+      b_h <- b_ymax - b_ymin + 1
+      b_cy <- (b_ymin + b_ymax) / 2
+
+      best_line <- 0L
+      best_ov <- 0
+
+      if (length(lines_info) > 0) {
+        for (l in seq_along(lines_info)) {
+          l_ymin <- lines_info[[l]]$ymin
+          l_ymax <- lines_info[[l]]$ymax
+          l_h <- l_ymax - l_ymin + 1
+
+          ov_h <- max(0, min(b_ymax, l_ymax) - max(b_ymin, l_ymin) + 1)
+          ov_ratio <- ov_h / min(b_h, l_h)
+
+          if (ov_ratio > 0.35 && ov_ratio > best_ov) {
+            best_ov <- ov_ratio
+            best_line <- l
+          }
         }
-        line_ids[idx_s] <- cur_line
+      }
+
+      if (best_line > 0L) {
+        line_assign[i] <- best_line
+        lines_info[[best_line]]$ymin <- min(lines_info[[best_line]]$ymin, b_ymin)
+        lines_info[[best_line]]$ymax <- max(lines_info[[best_line]]$ymax, b_ymax)
+        lines_info[[best_line]]$cy <- (lines_info[[best_line]]$ymin + lines_info[[best_line]]$ymax) / 2
+      } else {
+        new_l <- length(lines_info) + 1L
+        line_assign[i] <- new_l
+        lines_info[[new_l]] <- list(ymin = b_ymin, ymax = b_ymax, cy = b_cy)
       }
     }
-    res_df$line <- line_ids
-    res_df <- res_df[order(res_df$line, res_df$xmin), ]
+
+    df_s$line <- line_assign
+    line_cys <- vapply(lines_info, function(l) l$cy, numeric(1))
+    line_order_map <- order(line_cys)
+    df_s$line <- match(df_s$line, line_order_map)
+
+    res_df <- df_s[order(df_s$line, df_s$xmin), ]
     res_df$id <- seq_len(nrow(res_df))
-    res_df$line <- NULL
-    res_df$cy <- NULL
     rownames(res_df) <- NULL
   }
 
@@ -10376,9 +10637,24 @@ print.pliman_ocr <- function(x, ...) {
   } else {
     n_rec <- sum(nzchar(x$text))
     cli::cli_alert_success("pliman OCR recognized {n_rec} text instance{?s} across {n} region{?s}:")
-    print.data.frame(x[, c("id", "text", "score", "xmin", "ymin", "xmax", "ymax")], row.names = FALSE)
+    cols <- intersect(c("id", "line", "text", "score", "xmin", "ymin", "xmax", "ymax"), names(x))
+    print.data.frame(x[, cols, drop = FALSE], row.names = FALSE)
   }
   invisible(x)
+}
+
+#' @export
+as.character.pliman_ocr <- function(x, collapse = "\n", ...) {
+  if (nrow(x) == 0L) return("")
+  if ("line" %in% names(x)) {
+    lines_txt <- vapply(sort(unique(x$line)), function(l) {
+      sub_t <- x$text[x$line == l & nzchar(x$text)]
+      paste(sub_t, collapse = " ")
+    }, character(1))
+    paste(lines_txt[nzchar(lines_txt)], collapse = collapse)
+  } else {
+    paste(x$text[nzchar(x$text)], collapse = " ")
+  }
 }
 
 #' @export
