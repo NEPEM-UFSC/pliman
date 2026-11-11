@@ -2657,6 +2657,25 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// run_trocr_rec_cpp
+Rcpp::List run_trocr_rec_cpp(Rcpp::NumericVector crops_vec, int batch_size, std::string encoder_path, std::string decoder_path, std::string lib_path, int max_length, int num_threads, bool use_gpu, int device_id);
+RcppExport SEXP _pliman_run_trocr_rec_cpp(SEXP crops_vecSEXP, SEXP batch_sizeSEXP, SEXP encoder_pathSEXP, SEXP decoder_pathSEXP, SEXP lib_pathSEXP, SEXP max_lengthSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type crops_vec(crops_vecSEXP);
+    Rcpp::traits::input_parameter< int >::type batch_size(batch_sizeSEXP);
+    Rcpp::traits::input_parameter< std::string >::type encoder_path(encoder_pathSEXP);
+    Rcpp::traits::input_parameter< std::string >::type decoder_path(decoder_pathSEXP);
+    Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
+    Rcpp::traits::input_parameter< int >::type max_length(max_lengthSEXP);
+    Rcpp::traits::input_parameter< int >::type num_threads(num_threadsSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_gpu(use_gpuSEXP);
+    Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_trocr_rec_cpp(crops_vec, batch_size, encoder_path, decoder_path, lib_path, max_length, num_threads, use_gpu, device_id));
+    return rcpp_result_gen;
+END_RCPP
+}
 // remap_labels_cpp
 void remap_labels_cpp(Rcpp::IntegerMatrix labels, Rcpp::IntegerVector keep_ids);
 RcppExport SEXP _pliman_remap_labels_cpp(SEXP labelsSEXP, SEXP keep_idsSEXP) {
@@ -3183,6 +3202,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_ocr_det_cpp", (DL_FUNC) &_pliman_run_ocr_det_cpp, 8},
     {"_pliman_run_craft_det_cpp", (DL_FUNC) &_pliman_run_craft_det_cpp, 8},
     {"_pliman_run_ocr_rec_cpp", (DL_FUNC) &_pliman_run_ocr_rec_cpp, 9},
+    {"_pliman_run_trocr_rec_cpp", (DL_FUNC) &_pliman_run_trocr_rec_cpp, 9},
     {"_pliman_remap_labels_cpp", (DL_FUNC) &_pliman_remap_labels_cpp, 2},
     {"_pliman_canny_edge_detector", (DL_FUNC) &_pliman_canny_edge_detector, 7},
     {"_pliman_skeleton_mat_cpp", (DL_FUNC) &_pliman_skeleton_mat_cpp, 7},

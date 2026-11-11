@@ -306,6 +306,7 @@
 #'   `"absolute"` treats values as area in pixels.
 #' @param move Logical. If `TRUE` (default), moves the source images directly into the dataset's `images/` split directories instead of copying them.
 #' @param overwrite Logical. If `TRUE` (default), overwrites existing dataset files in `dir`.
+#' @param as_job Logical. If `TRUE` and running inside RStudio, runs the dataset export as an RStudio Background Job in the Jobs tab, keeping the current R session free. Defaults to `FALSE`.
 #' @param verbose Logical. If `TRUE` (default), displays live progress information.
 #' @param ... Additional arguments passed directly to [analyze_objects()] when
 #'   `model = NULL` and `annotations = "auto"` (e.g. `index = "B"`, `watershed = TRUE`, `tolerance = 1`).
@@ -403,9 +404,92 @@ yolo_dataset_export <- function(img,
                                 device_id = -1,
                                 move = TRUE,
                                 overwrite = TRUE,
+                                as_job = FALSE,
                                 verbose = TRUE,
                                 ...) {
   dots <- list(...)
+  if ("as_job" %in% names(dots)) as_job <- isTRUE(dots$as_job)
+
+  # 0. Support for RStudio Background Jobs (as_job = TRUE)
+  if (isTRUE(as_job)) {
+    if (!requireNamespace("rstudioapi", quietly = TRUE) || !rstudioapi::isAvailable()) {
+      cli::cli_alert_warning("RStudio Job API is not available (not running inside interactive RStudio). Proceeding with dataset export in current session.")
+    } else {
+      mc <- match.call(expand.dots = TRUE)
+      eval_env <- parent.frame()
+      evaluated_args <- list()
+      arg_names <- setdiff(names(mc), c("", "as_job"))
+      for (arg_name in arg_names) {
+        arg_val <- tryCatch(eval(mc[[arg_name]], envir = eval_env), error = function(e) mc[[arg_name]])
+        evaluated_args[[arg_name]] <- arg_val
+      }
+      evaluated_args$as_job <- FALSE
+
+      if (isTRUE(evaluated_args$interactive) && is.null(evaluated_args$prompt) &&
+          !is.null(evaluated_args$model) && is.character(evaluated_args$model) &&
+          identical(tolower(evaluated_args$model[1]), "persam")) {
+        cli::cli_abort("Interactive prompt selection ({.code interactive = TRUE}) cannot be run as an RStudio background job. Please provide {.arg prompt} coordinates or run with {.code as_job = FALSE}.")
+      }
+      evaluated_args$interactive <- FALSE
+
+      job_dir <- file.path(tempdir(), "yolo_jobs")
+      if (!dir.exists(job_dir)) dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+      time_stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      job_script_path <- file.path(job_dir, paste0("yolo_export_job_", time_stamp, ".R"))
+      job_args_rds <- file.path(job_dir, paste0("yolo_export_args_", time_stamp, ".rds"))
+
+      saveRDS(list(args = evaluated_args, getwd = getwd()), job_args_rds)
+
+      target_name <- tryCatch({
+        if (!is.null(evaluated_args$dir) && is.character(evaluated_args$dir) && nzchar(evaluated_args$dir[1])) {
+          basename(evaluated_args$dir[1])
+        } else if (!is.null(evaluated_args$img) && is.character(evaluated_args$img) && nzchar(evaluated_args$img[1])) {
+          basename(evaluated_args$img[1])
+        } else {
+          "dataset"
+        }
+      }, error = function(e) "dataset")
+      j_name <- paste0("YOLO Dataset Export: ", target_name)
+
+      job_code <- paste0(
+        "# Auto-generated RStudio Background Job by pliman::yolo_dataset_export()\n",
+        "library(pliman)\n",
+        "cat('================================================================\\n')\n",
+        "cat('   pliman YOLO Dataset Export - RStudio Background Job\\n')\n",
+        "cat('================================================================\\n\\n')\n",
+        "job_info <- readRDS(", base::deparse(job_args_rds), ")\n",
+        "setwd(job_info$getwd)\n",
+        "res <- do.call(pliman::yolo_dataset_export, job_info$args)\n",
+        "target_dir <- if (!is.null(res$dir)) res$dir else job_info$args$dir\n",
+        "if (!is.null(target_dir) && dir.exists(target_dir)) {\n",
+        "  save_path <- file.path(target_dir, 'dataset_export.rds')\n",
+        "  saveRDS(res, save_path)\n",
+        "  cat('\\n[OK] Dataset S3 object successfully saved to:\\n  ', save_path, '\\n')\n",
+        "}\n",
+        "cat('\\n[OK] YOLO Dataset Export Job finished successfully!\\n')\n"
+      )
+      writeLines(job_code, job_script_path)
+
+      job_id <- rstudioapi::jobRunScript(
+        path = job_script_path,
+        name = j_name,
+        workingDir = getwd(),
+        importEnv = FALSE
+      )
+
+      cli::cli_h2("YOLO Dataset Export (pliman)")
+      cli::cli_alert_success("Dataset export has been dispatched to RStudio's {.strong Jobs} tab!")
+      cli::cli_ul(c(
+        "Job name: {.val {j_name}}",
+        "Working directory: {.path {getwd()}}",
+        "Target: {.val {target_name}}"
+      ))
+      cli::cli_alert_info("Your R console is free! You can track live export progress in the {.strong Jobs} tab.")
+      return(invisible(job_id))
+    }
+  }
+
   if (!missing(bbox)) show_bbox <- bbox
   if (!missing(polygon)) show_polygon <- polygon
   if (!missing(points)) show_points <- points
@@ -458,7 +542,8 @@ yolo_dataset_export <- function(img,
     "crop_to_objects", "crop_margin", "box_margin", "margin", "show_bbox", "bbox", "show_boxes",
     "show_polygon", "polygon", "show_points", "points", "point", "show_point", "labels",
     "lower_size", "upper_size", "size_mode", "sahi", "slice_height", "slice_width",
-    "overlap_height_ratio", "overlap_width_ratio", "match_metric", "match_threshold", "full_image_inference"
+    "overlap_height_ratio", "overlap_width_ratio", "match_metric", "match_threshold", "full_image_inference",
+    "as_job"
   ))]
   split_ratio <- as.numeric(split_ratio)
   if (length(split_ratio) == 1L) {
