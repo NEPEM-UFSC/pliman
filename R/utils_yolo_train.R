@@ -2607,14 +2607,36 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
 
     for (im_item in image) {
       if (!nzchar(trimws(im_item))) next
+      item_clean <- trimws(im_item)
+
+      # 1. Match directory path on disk
+      if (dir.exists(item_clean)) {
+        dir_norm <- normalizePath(item_clean, winslash = "/", mustWork = FALSE)
+        dir_match <- which(startsWith(norm_img_files, paste0(dir_norm, "/")) | norm_img_files == dir_norm)
+        if (length(dir_match) > 0L) {
+          matched_indices <- c(matched_indices, dir_match)
+          next
+        }
+      }
+
+      # 2. Match dataset split/subfolder (e.g., "train", "val", "test", "valid")
+      clean_sub <- tolower(sub("[./\\]+$", "", item_clean))
+      rel_segments <- strsplit(all_rel, "[/\\\\]")
+      split_match <- which(vapply(rel_segments, function(parts) {
+        any(tolower(parts) == clean_sub)
+      }, logical(1)))
+      if (length(split_match) > 0L) {
+        matched_indices <- c(matched_indices, split_match)
+        next
+      }
+
       idx <- integer(0)
-      if (file.exists(im_item)) {
-        target_norm <- normalizePath(im_item, winslash = "/", mustWork = FALSE)
+      if (file.exists(item_clean)) {
+        target_norm <- normalizePath(item_clean, winslash = "/", mustWork = FALSE)
         idx <- which(norm_img_files == target_norm)
       }
       if (length(idx) == 0L) {
-        clean_img <- sub("[./\\]+$", "", trimws(im_item))
-        if (!nzchar(clean_img)) clean_img <- trimws(im_item)
+        clean_img <- sub("[./\\]+$", "", item_clean)
         target_base <- basename(clean_img)
         target_stem <- tools::file_path_sans_ext(target_base)
         idx <- which(tolower(all_stems) == tolower(target_stem) |
@@ -2649,6 +2671,7 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
   total_imgs <- length(img_files)
   reviewed_results <- list()
   session_saved <- 0L
+  active_class_idx <- 1L
 
   repeat {
     if (step_i < 1L || step_i > total_subset) {
@@ -3171,18 +3194,22 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
           sprintf("YOLO Dataset Image Editor [%s | %s | Image %d of %d | %d obj%s]",
                   base_stem, split_name, curr_idx, total_imgs, n_cur, if (n_cur == 1) "" else "s")
         }
+        active_cl_name <- if (active_class_idx <= length(class_names)) class_names[active_class_idx] else class_names[1]
+        active_cl_id <- if (active_class_idx <= length(class_id)) class_id[active_class_idx] else class_id[1]
+
         cli::cli_rule(left = header_title)
         if (is_sequential_mode) {
           next_pos <- min(total_subset, step_i + 1L)
           prev_pos <- max(1L, step_i - 1L)
           cli::cli_bullets(c(
-            "*" = paste0(cli::col_green("[Enter] / c / n"), ": Save changes and go to {.val NEXT} image ({step_i} -> {next_pos})"),
-            "*" = paste0(cli::col_green("p"), ": Save changes and go to {.val PREVIOUS} image ({step_i} -> {prev_pos})"),
+            "*" = paste0(cli::col_green("[Enter] / c / n"), ": Save labels and go to {.val NEXT} image ({step_i} -> {next_pos})"),
+            "*" = paste0(cli::col_green("p"), ": Save labels and go to {.val PREVIOUS} image ({step_i} -> {prev_pos})"),
             "*" = paste0(cli::col_green("s / skip"), ": Skip this image (leave untouched) and go to {.val NEXT}"),
-            "*" = paste0(cli::col_red("rm"), ": ", cli::col_red("Permanently DELETE this image and label from dataset and go to NEXT")),
-            "*" = paste0(cli::col_green("r"), ": Click on objects (boxes, dots, masks) to delete them (<Esc> when finished)"),
-            "*" = paste0(cli::col_green("a"), ": Add a new bounding box by clicking 2 opposite corners (<Esc> when finished)"),
+            "*" = paste0(cli::col_red("rm"), ": ", cli::col_red("Permanently DELETE this image and labels from dataset (with confirmation)")),
+            "*" = paste0(cli::col_green("a [class]"), ": Add bounding boxes (click 2 diagonal corners per box; <Esc> when done)"),
+            "*" = paste0(cli::col_green("r"), ": Click on 1 or more objects (boxes/dots/masks) to delete them (<Esc> when finished)"),
             "*" = paste0(cli::col_green("d <numbers>"), ": Delete specific objects by index (e.g. {.code d 3} or {.code d 2,5})"),
+            "*" = paste0(cli::col_green("class <name/id>"), ": Change active class for new boxes (active: {.val {active_cl_name}} [id: {active_cl_id}])"),
             "*" = paste0(cli::col_green("clear"), ": Remove all objects (set image as background/negative)"),
             "*" = paste0(cli::col_green("goto <number/name>"), ": Jump directly to another image"),
             "*" = paste0(cli::col_green("q / finish"), ": Save current image and finish review session"),
@@ -3191,11 +3218,12 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
         } else {
           cli::cli_bullets(c(
             "*" = paste0(cli::col_green("[Enter] / c"), ": Save and apply changes to label file"),
-            "*" = paste0(cli::col_red("rm"), ": ", cli::col_red("Permanently DELETE this image and label from dataset and exit")),
+            "*" = paste0(cli::col_red("rm"), ": ", cli::col_red("Permanently DELETE this image and label from dataset (with confirmation)")),
             "*" = paste0(cli::col_green("n / p"), ": Save and navigate to {.val NEXT} or {.val PREVIOUS} image"),
-            "*" = paste0(cli::col_green("r"), ": Click on objects to delete them (<Esc> when finished)"),
-            "*" = paste0(cli::col_green("a"), ": Add a new bounding box by clicking 2 opposite corners"),
+            "*" = paste0(cli::col_green("a [class]"), ": Add bounding boxes (click 2 diagonal corners per box; <Esc> when done)"),
+            "*" = paste0(cli::col_green("r"), ": Click on 1 or more objects to delete them (<Esc> when finished)"),
             "*" = paste0(cli::col_green("d <numbers>"), ": Delete specific objects by index number (e.g. {.code d 3})"),
+            "*" = paste0(cli::col_green("class <name/id>"), ": Change active class for new boxes (active: {.val {active_cl_name}} [id: {active_cl_id}])"),
             "*" = paste0(cli::col_green("clear"), ": Remove all objects"),
             "*" = paste0(cli::col_green("q / abort"), ": Cancel editing and leave label file untouched")
           ))
@@ -3217,6 +3245,12 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
         )
 
         if (ans %in% c("rm", "del_img", "delete_img", "remove_img", "remove_image", "delete_image")) {
+          cli::cli_alert_warning("You are about to PERMANENTLY DELETE {.file {basename(target_img_path)}} and its annotations from the dataset!")
+          conf_del <- tolower(trimws(readline("Are you sure? Type 'yes' or 'y' to confirm (any other key cancels): ")))
+          if (!conf_del %in% c("y", "yes")) {
+            cli::cli_alert_info("Deletion cancelled.")
+            next
+          }
           unlink(target_img_path, force = TRUE)
           unlink(dest_lbl_path, force = TRUE)
           unlink(paste0(dest_lbl_path, ".bak"), force = TRUE)
@@ -3326,6 +3360,49 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
           next
         }
 
+        # Handle 'class' (change active class for new boxes)
+        if (grepl("^(class|cl)\\s+", ans)) {
+          cl_arg <- trimws(sub("^(class|cl)\\s+", "", ans))
+          if (grepl("^\\d+$", cl_arg)) {
+            c_num <- as.integer(cl_arg)
+            if (c_num %in% class_id) {
+              active_class_idx <- which(class_id == c_num)[1]
+            } else if (c_num >= 1L && c_num <= length(class_names)) {
+              active_class_idx <- c_num
+            } else {
+              cli::cli_alert_warning("Class ID {c_num} not found. Available IDs: {.val {class_id}}.")
+            }
+          } else {
+            m_c <- which(tolower(class_names) == tolower(cl_arg))
+            if (length(m_c) > 0L) {
+              active_class_idx <- m_c[1]
+            } else {
+              cli::cli_alert_warning("Class {.val {cl_arg}} not found. Available classes: {.val {class_names}}.")
+            }
+          }
+          cli::cli_alert_info("Active class set to: {.val {class_names[active_class_idx]}} (ID: {class_id[active_class_idx]}).")
+          next
+        } else if (ans %in% c("class", "classes")) {
+          cli::cli_alert_info("Available classes:")
+          for (cli_i in seq_along(class_names)) {
+            mark <- if (cli_i == active_class_idx) " *" else ""
+            cli::cli_bullets(c(" " = paste0("[", class_id[cli_i], "] {.val ", class_names[cli_i], "}", mark)))
+          }
+          ans_cl <- trimws(readline("Enter class name or ID to select: "))
+          if (nzchar(ans_cl)) {
+            if (grepl("^\\d+$", ans_cl)) {
+              c_num <- as.integer(ans_cl)
+              if (c_num %in% class_id) active_class_idx <- which(class_id == c_num)[1]
+              else if (c_num >= 1L && c_num <= length(class_names)) active_class_idx <- c_num
+            } else {
+              m_c <- which(tolower(class_names) == tolower(ans_cl))
+              if (length(m_c) > 0L) active_class_idx <- m_c[1]
+            }
+            cli::cli_alert_info("Active class set to: {.val {class_names[active_class_idx]}} (ID: {class_id[active_class_idx]}).")
+          }
+          next
+        }
+
         # Handle 'd <indices>'
         if (grepl("^d\\s+", ans)) {
           raw_idx <- sub("^d\\s+", "", ans)
@@ -3395,32 +3472,73 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
           next
         }
 
-        # Handle 'a' (click to add bounding box)
-        if (ans %in% c("a", "add", "new")) {
-          cli::cli_alert_info("Click TWO opposite corners of the object to add a bounding box.")
-          cli::cli_alert_info("Press <Esc> or right-click to cancel.")
-          new_pts <- tryCatch(
-            graphics::locator(n = 2, type = "p", pch = 3, col = "#00FF66", cex = 1.6, lwd = 2.5),
-            error = function(e) NULL
-          )
-          if (!is.null(new_pts) && length(new_pts$x) >= 2L) {
+        # Handle 'a' (click to add bounding boxes continuously)
+        if (ans %in% c("a", "add", "new") || grepl("^(a|add)\\s+", ans)) {
+          add_cl_idx <- active_class_idx
+          if (grepl("^(a|add)\\s+", ans)) {
+            cl_arg <- trimws(sub("^(a|add)\\s+", "", ans))
+            if (grepl("^\\d+$", cl_arg)) {
+              c_num <- as.integer(cl_arg)
+              if (c_num %in% class_id) add_cl_idx <- which(class_id == c_num)[1]
+              else if (c_num >= 1L && c_num <= length(class_names)) add_cl_idx <- c_num
+            } else {
+              m_c <- which(tolower(class_names) == tolower(cl_arg))
+              if (length(m_c) > 0L) add_cl_idx <- m_c[1]
+            }
+          }
+          target_cl_name <- if (add_cl_idx <= length(class_names)) class_names[add_cl_idx] else class_names[1]
+          target_cl_id <- if (add_cl_idx <= length(class_id)) class_id[add_cl_idx] else class_id[1]
+
+          cli::cli_alert_info("Adding bounding boxes for {.val {target_cl_name}} (2 diagonal clicks per box).")
+          cli::cli_alert_info("Click corners continuously. Press <Esc> or right-click when finished.")
+
+          n_added <- 0L
+          repeat {
+            new_pts <- tryCatch(
+              graphics::locator(n = 2, type = "p", pch = 3, col = "#00FF66", cex = 1.6, lwd = 2.5),
+              error = function(e) NULL
+            )
+            if (is.null(new_pts) || length(new_pts$x) < 2L) {
+              break
+            }
             x1 <- min(new_pts$x); x2 <- max(new_pts$x)
             y1 <- min(new_pts$y); y2 <- max(new_pts$y)
+
+            # Skip accidental clicks on virtually the same point
+            if (abs(x2 - x1) < 2 || abs(y2 - y1) < 2) {
+              cli::cli_alert_warning("Clicked points were too close. Box skipped.")
+              next
+            }
+
+            n_added <- n_added + 1L
+            new_idx <- nrow(boxes) + 1L
             new_row <- data.frame(
-              index = nrow(boxes) + 1L,
+              index = new_idx,
               xmin = x1, ymin = y1, xmax = x2, ymax = y2,
               cx = (x1 + x2) / 2, cy = (y1 + y2) / 2,
-              class_id = class_id[1],
-              class_name = class_names[1],
+              class_id = target_cl_id,
+              class_name = target_cl_name,
               conf = 1.0,
               stringsAsFactors = FALSE
             )
             boxes <- rbind(boxes, new_row)
             boxes$index <- seq_len(nrow(boxes))
             polygons[[length(polygons) + 1L]] <- NULL
-            cli::cli_alert_success("Added new bounding box for {.val {class_names[1]}}. {nrow(boxes)} total.")
+
+            # Draw the box immediately on the screen in real-time
+            graphics::rect(x1, y1, x2, y2, border = "#00FF66", lwd = 2.5, lty = 1)
+            lbl_txt <- paste0("#", new_idx, " ", target_cl_name)
+            graphics::text(x1, y1 - 8, labels = lbl_txt, col = "#00FF66", font = 2, cex = 0.9, adj = c(0, 1))
+
+            cli::cli_alert_success("Box #{new_idx} added ({target_cl_name}). Click next 2 corners, or <Esc> to finish.")
+          }
+
+          if (n_added > 0L) {
+            cli::cli_alert_success("Finished adding boxes! Added {n_added} new box{?es} ({nrow(boxes)} total).")
             .yolo_render_edit_canvas(curr_img, boxes, polygons, base_stem, split_name, task, rainbow,
                                      show_bbox, show_polygon, show_points, show_labels, show_indices, point_pch, point_cex)
+          } else {
+            cli::cli_alert_info("No boxes added.")
           }
           next
         }
@@ -3574,6 +3692,14 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
     invisible(reviewed_results)
   }
 }
+
+#' @rdname yolo_dataset_review
+#' @export
+yolo_dataset_edit <- yolo_dataset_review
+
+#' @rdname yolo_dataset_review
+#' @export
+yolo_image_review <- yolo_dataset_review
 
 #' @rdname yolo_dataset_review
 #' @export
