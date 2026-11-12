@@ -38,6 +38,9 @@ yolo_dataset_export(
   match_metric = c("IOS", "IOU"),
   match_threshold = 0.5,
   full_image_inference = TRUE,
+  sahi_if = NULL,
+  sahi_metric = c("mean", "median", "min"),
+  sahi_if_empty = TRUE,
   lower_size = NULL,
   upper_size = NULL,
   size_mode = c("relative", "absolute"),
@@ -159,6 +162,12 @@ dividing high-resolution images into overlapping slices to detect small and crow
 \item{match_threshold}{Threshold for match metric to merge overlapping slice predictions. Defaults to \code{0.50}.}
 
 \item{full_image_inference}{Logical. If \code{TRUE} (default), runs an additional full-image inference pass alongside slice predictions to ensure large objects spanning across multiple slices are captured.}
+
+\item{sahi_if}{Conditional SAHI trigger. Can be \code{NULL} (default, disabled), \code{TRUE} (activates SAHI if average relative box area <= 1\% of total image area), or a numeric threshold in \verb{(0, 1]} (e.g. \code{0.005} for 0.5\% or \code{0.02} for 2\%). When specified, standard inference runs first; if the objects are small relative to the canvas (or if no objects are detected when \code{sahi_if_empty = TRUE}), SAHI is automatically triggered to recover fine details and small instances.}
+
+\item{sahi_metric}{Character metric to aggregate relative bounding box areas when checking \code{sahi_if}. One of \code{"mean"} (default), \code{"median"}, or \code{"min"}.}
+
+\item{sahi_if_empty}{Logical. If \code{TRUE} (default), automatically triggers SAHI when standard inference finds 0 objects on an image larger than the slice dimensions.}
 
 \item{lower_size}{Optional numeric value to filter out small detected objects.
 When \code{size_mode = "relative"} (default), objects with a bounding box area

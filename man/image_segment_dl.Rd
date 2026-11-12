@@ -288,6 +288,9 @@ via \code{cli::cli_progress_step()}. Set to \code{FALSE} for silent execution in
 \item{dir}{Character string specifying the local directory where ONNX model files are stored and cached.
 Defaults to \code{pliman_model_dir()}.}
 
+\item{imgsz}{Target input image resolution for YOLO segmentation inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), inferred automatically from the model or defaults to \code{640}.}
+
 \item{...}{Additional arguments passed down to internal plotting methods.}
 }
 \value{

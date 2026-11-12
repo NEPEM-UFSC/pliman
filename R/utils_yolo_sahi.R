@@ -3,6 +3,52 @@
 # pliman: Plant Image Analysis in R
 # ==============================================================================
 
+#' Filter Detections and Masks by Bounding-Box Area
+#'
+#' Subsets bounding boxes and optional contours/polygons using relative
+#' (multiplier of mean box area) or absolute (pixel area) thresholds.
+#' @noRd
+.filter_by_size <- function(boxes,
+                            contours = NULL,
+                            polygons = NULL,
+                            lower_size = NULL,
+                            upper_size = NULL,
+                            size_mode = c("relative", "absolute")) {
+  size_mode <- match.arg(size_mode)
+  if (is.null(boxes) || !is.data.frame(boxes) || nrow(boxes) == 0L ||
+      (is.null(lower_size) && is.null(upper_size))) {
+    return(list(boxes = boxes, contours = contours, polygons = polygons))
+  }
+
+  areas <- pmax(0, as.numeric(boxes$xmax) - as.numeric(boxes$xmin)) *
+    pmax(0, as.numeric(boxes$ymax) - as.numeric(boxes$ymin))
+
+  if (identical(size_mode, "relative")) {
+    mean_area <- mean(areas, na.rm = TRUE)
+    if (!is.finite(mean_area) || mean_area <= 0) {
+      return(list(boxes = boxes, contours = contours, polygons = polygons))
+    }
+    lower_thresh <- if (!is.null(lower_size) && is.numeric(lower_size)) mean_area * lower_size[1] else -Inf
+    upper_thresh <- if (!is.null(upper_size) && is.numeric(upper_size)) mean_area * upper_size[1] else Inf
+  } else {
+    lower_thresh <- if (!is.null(lower_size) && is.numeric(lower_size)) lower_size[1] else -Inf
+    upper_thresh <- if (!is.null(upper_size) && is.numeric(upper_size)) upper_size[1] else Inf
+  }
+
+  keep <- !is.na(areas) & areas >= lower_thresh & areas <= upper_thresh
+  boxes <- boxes[keep, , drop = FALSE]
+
+  keep_idx <- which(keep)
+  if (!is.null(contours) && length(contours) > 0L) {
+    contours <- contours[keep_idx[keep_idx <= length(contours)]]
+  }
+  if (!is.null(polygons) && length(polygons) > 0L) {
+    polygons <- polygons[keep_idx[keep_idx <= length(polygons)]]
+  }
+
+  list(boxes = boxes, contours = contours, polygons = polygons)
+}
+
 #' Internal SAHI Post-Processing (Greedy NMM / NMS with IOS & Seam Merging)
 #' @noRd
 .sahi_postprocess <- function(candidates_df,

@@ -1251,7 +1251,7 @@ image_to_jpg <- function(path = ".",
           out_file <- file.path(out_dir, paste0(stem, ".jpg"))
           im <- tryCatch(pliman::image_import(f, verbose = FALSE), error = function(e) NULL)
           if (!is.null(im)) {
-            pliman:::write_image_cpp(im, out_file, quality = quality)
+            utils::getFromNamespace("write_image_cpp", "pliman")(im, out_file, quality = quality)
             if (isTRUE(delete_original) && tolower(f) != tolower(out_file)) unlink(f)
             out_file
           } else NULL

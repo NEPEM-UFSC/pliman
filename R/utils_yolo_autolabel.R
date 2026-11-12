@@ -1898,6 +1898,12 @@ c.yolo_fewshot_model <- function(...) {
 #' @param show_class Logical. Whether to display class name on labels/badges. Defaults to `TRUE`.
 #' @param show_conf Logical. Whether to display confidence score on labels/badges. Defaults to `TRUE`.
 #' @param badge Logical. Whether to draw a filled background badge behind labels. Defaults to `TRUE`.
+#' @param lower_size Numeric scalar or `NULL`. Minimum bounding-box area threshold for keeping detections.
+#'   Interpreted according to `size_mode`. Defaults to `NULL` (no lower filter).
+#' @param upper_size Numeric scalar or `NULL`. Maximum bounding-box area threshold for keeping detections.
+#'   Interpreted according to `size_mode`. Defaults to `NULL` (no upper filter).
+#' @param size_mode Character string. Controls how `lower_size` and `upper_size` are interpreted:
+#'   `"relative"` (default, multiplier of mean detected bounding-box area) or `"absolute"` (pixel area).
 #' @param ... Additional arguments passed to plotting methods or aliases (e.g. `show_labels`, `show_scores`, `label_box`).
 #'
 #' @return A `list` containing `boxes` (bounding boxes data.frame) and `polygons` (list of normalized coordinates).

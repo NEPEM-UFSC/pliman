@@ -91,6 +91,8 @@ underlying annotations (default: \code{0.70}).}
 
 \item{quality}{Integer (1-100). JPEG compression quality for exported images (default: \code{90}).}
 
+\item{clean}{Logical. If \code{TRUE}, cleans previously generated \verb{_copypaste} augmented images and labels before generating new copies. Defaults to \code{FALSE}.}
+
 \item{seed}{Optional integer seed for reproducibility (default: \code{42}).}
 
 \item{as_job}{Logical. If \code{TRUE} and running inside RStudio, runs as a background job (default: \code{FALSE}).}

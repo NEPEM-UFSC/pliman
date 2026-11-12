@@ -72,8 +72,6 @@ all classes present in the dataset are evaluated.}
 \item{verbose}{Logical. Whether to show progress bars, timing, and formatted CLI summaries. Defaults to \code{TRUE}.}
 
 \item{...}{Additional arguments passed to \code{\link[=image_detect_dl_batch]{image_detect_dl_batch()}} or \code{\link[=image_segment_dl_batch]{image_segment_dl_batch()}}.}
-
-\item{workers}{Optional integer. Number of parallel worker processes. Default \code{NULL} (auto-selected).}
 }
 \value{
 An S3 object of class \code{c("yolo_test", "list")} containing:

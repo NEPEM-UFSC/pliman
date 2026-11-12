@@ -21,6 +21,10 @@ yolo_dataset_audit(
 
 \item{min_images}{Integer threshold for warning if a class has few samples. Defaults to \code{10L}.}
 
+\item{check_leakage}{Logical. Whether to check for near-duplicate / leaky images across splits using perceptual hashing. Defaults to \code{TRUE}.}
+
+\item{leak_threshold}{Integer Hamming distance threshold for flagging near-duplicate images across splits. Defaults to \code{4L}.}
+
 \item{verbose}{Logical. Whether to display progress and diagnostic alerts. Defaults to \code{TRUE}.}
 }
 \value{

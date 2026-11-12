@@ -158,7 +158,15 @@ plot(res)
 
 # Save high-resolution 300 DPI publication plots:
 plot(res, save = TRUE)
-plot(res, which = "confusion_matrix_norm", save = TRUE, file_name = "fig_cm.png", width = 8, height = 7, dpi = 300)
+plot(
+  res,
+  which = "confusion_matrix_norm",
+  save = TRUE,
+  file_name = "fig_cm.png",
+  width = 8,
+  height = 7,
+  dpi = 300
+)
 plot(res, which = "metrics", save = TRUE, file_name = "fig_metrics.pdf", width = 9, height = 6)
 
 # Plot individual evaluation curves in high-resolution vector format:

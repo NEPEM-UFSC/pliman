@@ -2,11 +2,8 @@
 % Please edit documentation in R/utils_yolo_train.R
 \name{yolo_results}
 \alias{yolo_results}
-\alias{.find_yolo_subrun_dir}
-\title{Load Training Results and Diagnostics for a YOLO Model}
+\title{Inspect YOLO Training Results and Diagnostics}
 \usage{
-.find_yolo_subrun_dir(dir)
-
 yolo_results(model = NULL, results_dir = NULL, output_dir = NULL)
 }
 \arguments{
@@ -20,14 +17,8 @@ a directory or \code{.zip} path, this is inferred automatically.}
 }
 \value{
 An object of class \code{c("yolo_train", "list")}.
-
-An object of class \code{c("yolo_train", "list")}.
 }
 \description{
-Reconstructs a \code{yolo_train} S3 object from an existing model name, \code{.onnx}/\code{.pt} file,
-or results directory without needing to retrain. The resulting object can be directly
-printed with \code{\link[=print.yolo_train]{print.yolo_train()}} and visualized with \code{\link[=plot.yolo_train]{plot.yolo_train()}} or \code{\link[=yolo_plot]{yolo_plot()}}.
-
 \code{yolo_results()} loads, inspects, and plots diagnostics, training metrics, loss curves,
 confusion matrices, and precision-recall graphs for a trained YOLO model.
 
@@ -41,34 +32,7 @@ You can pass:
 \item A direct path to a \code{.zip} archive containing the downloaded training results (automatically extracted).
 }
 }
-\details{
-When a YOLO model is trained via \code{\link[=yolo_train]{yolo_train()}}, all evaluation tables, weights, and logs
-are preserved in \verb{<output_name>_results}. \code{\link[=yolo_results]{yolo_results()}} reconstructs the full training
-session state by parsing:
-\itemize{
-\item \code{results.csv}: Epoch-by-epoch loss progressions, precision, recall, mAP50, and mAP50-95.
-\item \code{confusion_matrix.csv}: Complete confusion matrix counts including the background class.
-\item \code{confusion_matrix_normalized.csv}: Normalized classification rates.
-\item \code{pr_curve.csv}: 1,000-point Precision-Recall evaluation curve per class.
-\item \code{f1_curve.csv}: 1,000-point F1 vs. Confidence evaluation curve per class.
-\item Model weights: Automatically locates exported \code{.onnx} and \code{.pt} files.
-}
-This enables instant, offline performance inspection, publication-ready vector plotting,
-and threshold selection for any trained model without needing Python or GPU re-execution.
-}
 \examples{
-\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
-library(pliman)
-
-# Load diagnostics from a previously trained model
-res <- yolo_results("capsulas_det")
-
-# Inspect training metrics and plot diagnostic dashboard
-print(res)
-plot(res)
-plot(res, which = "confusion_matrix")
-plot(res, which = "pr_curve")
-\dontshow{\}) # examplesIf}
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 

@@ -35,7 +35,7 @@ FP16 size, reduction percentage, and conversion status.
 }
 \description{
 \code{model_to_fp16()} converts installed or custom models to 16-bit half precision (FP16).
-This reduces model disk footprint and GPU VRAM consumption by ~50\\% with practically
+This reduces model disk footprint and GPU VRAM consumption by ~50\% with practically
 identical predictions.
 
 \bold{Speed depends on the hardware.} FP16 is expected to be faster only on GPUs with

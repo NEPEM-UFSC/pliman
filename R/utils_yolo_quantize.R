@@ -352,7 +352,7 @@ print.pliman_quantize_summary <- function(x, ...) {
 #'
 #' @section What FP16 always gives you:
 #' \itemize{
-#'   \item \bold{~50\% smaller files and ~50\% less VRAM} for the weights (e.g. YOLO26x:
+#'   \item \bold{~50% smaller files and ~50% less VRAM} for the weights (e.g. YOLO26x:
 #'     212.9 MB to 106.5 MB; YOLO11n: 10.2 MB to 5.2 MB). This lets larger models, or
 #'     several models at once, fit in GPUs with limited memory (e.g. 4 GB cards).
 #'   \item \bold{Practically identical predictions.} Boxes, classes and scores match the
@@ -373,7 +373,7 @@ print.pliman_quantize_summary <- function(x, ...) {
 #'   \item \bold{GPUs without Tensor Cores} (e.g. NVIDIA GTX 10xx/16xx, many integrated
 #'     GPUs): FP16 is usually \bold{equal or slower} than FP32. Example measured with
 #'     YOLO26x on a GTX 1650 via DirectML (`bench::mark()`, 30 iterations): FP32 median
-#'     102 ms vs FP16 median 127 ms (~25\% slower).
+#'     102 ms vs FP16 median 127 ms (~25% slower).
 #'   \item \bold{CPU} (`use_gpu = FALSE`): most CPUs have no fast FP16 arithmetic, so FP16
 #'     models are typically slower than FP32 on CPU. For CPU speed-ups use INT8
 #'     quantization instead ([onnx_quantize()], [model_to_int8()]).
@@ -620,7 +620,7 @@ except Exception as e:
 #' @aliases models_to_fp16
 #' @description
 #' `model_to_fp16()` converts installed or custom models to 16-bit half precision (FP16).
-#' This reduces model disk footprint and GPU VRAM consumption by ~50\% with practically
+#' This reduces model disk footprint and GPU VRAM consumption by ~50% with practically
 #' identical predictions.
 #'
 #' \bold{Speed depends on the hardware.} FP16 is expected to be faster only on GPUs with

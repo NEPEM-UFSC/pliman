@@ -57,7 +57,11 @@ If \code{FALSE} (default), objects of the same class share the exact same color.
 
 \item{cex}{Size factor for bounding box label text (default \code{1.0}).}
 
-\item{pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).}
+\item{pad}{Padding multiplier controlling the box padding around label text (default \code{0}).}
+
+\item{bbox}{Logical. Whether to draw bounding boxes around detected objects (default \code{TRUE}).}
+
+\item{badge_pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).}
 
 \item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
 

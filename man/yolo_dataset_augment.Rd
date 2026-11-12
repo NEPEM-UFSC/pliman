@@ -162,6 +162,16 @@ when \code{scramble_background = TRUE} (default: \code{0.05}).}
 \item{scramble_mode}{Character specifying the scrambling strategy: \code{"grid"} (default jigsaw tile shuffle),
 \code{"block_swap"} (local block swapping preserving partial background continuity), or \code{"pixel"} (global pixel shuffle).}
 
+\item{permute}{Logical. Whether to apply object cluster permutation/relocation augmentation to break center bias. Defaults to \code{FALSE}.}
+
+\item{permute_prob}{Numeric probability in \verb{[0, 1]} of applying cluster permutation to an image when \code{permute = TRUE}. Defaults to \code{0.5}.}
+
+\item{permute_pos}{Character string specifying target placement regions for relocated clusters: \code{"random"}, \code{"left"}, \code{"right"}, \code{"top"}, \code{"bottom"}, or \code{"corner"}. Defaults to \code{"random"}.}
+
+\item{permute_fill}{Character string specifying how vacated object regions are filled: \code{"border_slices"}, \code{"mean"}, \code{"blur"}, or \code{"noise"}. Defaults to \code{"border_slices"}.}
+
+\item{permute_margin}{Numeric relative margin fraction kept clear around image borders when relocating clusters. Defaults to \code{0.02}.}
+
 \item{quality}{Integer between 1 and 100. JPEG compression quality for exported augmented images (default: \code{90}). Quality 85-90 preserves pristine pixel fidelity while encoding several times faster than 95+.}
 
 \item{max_ops}{Maximum number of transformations/alterations applied to each augmented image copy (default: \code{c(1, 3)}). Can be an integer (e.g., \code{2} or \code{3}, meaning between 1 and \code{max_ops} operations are randomly selected), a range \code{c(min, max)} (e.g. \code{c(1, 3)}), or \code{NULL} (no limit, independent probabilities for all enabled operations).}

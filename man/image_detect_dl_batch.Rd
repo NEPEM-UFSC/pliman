@@ -94,6 +94,23 @@ yolo_detect_batch(
 \item{parallel}{Logical. If \code{TRUE}, runs inference in parallel across images using \code{mirai}.
 Defaults to \code{FALSE}.}
 
+\item{sahi}{Logical. If \code{TRUE}, uses SAHI (Slicing Aided Hyper Inference) for tiled detection
+on large or high-resolution images. Defaults to \code{FALSE}.}
+
+\item{slice_height}{Integer. Height of sliding window slices when \code{sahi = TRUE}. Defaults to \code{640}.}
+
+\item{slice_width}{Integer. Width of sliding window slices when \code{sahi = TRUE}. Defaults to \code{640}.}
+
+\item{overlap_height_ratio}{Numeric scalar between 0 and 0.5. Vertical slice overlap fraction when \code{sahi = TRUE}. Defaults to \code{0.20}.}
+
+\item{overlap_width_ratio}{Numeric scalar between 0 and 0.5. Horizontal slice overlap fraction when \code{sahi = TRUE}. Defaults to \code{0.20}.}
+
+\item{match_metric}{Character string. Box merging overlap metric used when \code{sahi = TRUE} (\code{"IOS"} or \code{"IOU"}). Defaults to \code{"IOS"}.}
+
+\item{match_threshold}{Numeric scalar. Overlap threshold for merging slice detections when \code{sahi = TRUE}. Defaults to \code{0.50}.}
+
+\item{postprocess_type}{Character string. Post-processing algorithm used when \code{sahi = TRUE} (\code{"GREEDY_NMM"} or \code{"NMS"}). Defaults to \code{"GREEDY_NMM"}.}
+
 \item{show_point}{Logical. Whether to show a point at the centroid of each detected object.
 Defaults to \code{FALSE}.}
 
@@ -118,9 +135,6 @@ If \code{NULL} (default), inferred automatically or defaults to \code{640}.}
 
 \item{...}{Additional arguments passed to \code{\link[=image_detect_dl]{image_detect_dl()}} (e.g., \code{model}, \code{conf_threshold},
 \code{iou_threshold}, \code{classes}, \code{labels}, \code{col}, \code{rainbow}, \code{lwd}, \code{cex}, \code{badge}, \code{engine}, \code{device_id}).}
-
-\item{workers}{Integer. Number of parallel workers/daemons to launch when \code{parallel = TRUE}.
-Defaults to 60\% of available CPU cores.}
 }
 \value{
 An S3 object of class \code{c("dl_detect_batch", "list")} containing:

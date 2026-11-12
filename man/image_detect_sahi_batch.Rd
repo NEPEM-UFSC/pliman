@@ -110,9 +110,6 @@ Defaults to \code{TRUE}.}
 \code{iou_threshold}, \code{match_metric}, \code{postprocess_type}, \code{match_threshold}, \code{classes},
 \code{agnostic_nms}, \code{seam_merging}, \code{full_image_inference}, \code{lower_size}, \code{upper_size}, \code{size_mode},
 \code{cex}, \code{badge}, \code{rainbow}, \code{lwd}).}
-
-\item{workers}{Integer. Number of parallel workers/daemons to launch when \code{parallel = TRUE}.
-Defaults to 60\% of available CPU cores.}
 }
 \value{
 An S3 object of class \code{c("sahi_detect_batch", "dl_detect_batch", "list")} containing:

@@ -170,13 +170,13 @@ The returned object of class \code{"pliman_ocr"} supports:
 \itemize{
 \item Liao, M., Wan, Z., Yao, C., Chen, K., & Bai, X. (2020).
 Real-time scene text detection with differentiable binarization.
-\emph{Proceedings of the AAAI Conference on Artificial Intelligence}, 34(07), 11474–11481.
+\emph{Proceedings of the AAAI Conference on Artificial Intelligence}, 34(07), 11474--11481.
 \item Du, Y., Li, C., Guo, R., Yin, X., Liu, W., Zhou, J., ... & Hu, B. (2020).
 PP-OCR: A practical ultra lightweight OCR system.
 \emph{arXiv preprint arXiv:2009.09941}.
 \item Baek, Y., Lee, B., Han, D., Yun, S., & Lee, H. (2019).
 Character region awareness for text detection.
-\emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365–9374.
+\emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365--9374.
 \item Li, M., Lv, T., Chen, J., Cui, L., Lu, Y., Florencio, D., Zhang, C., & Wei, F. (2023).
 TrOCR: Transformer-based optical character recognition with pre-trained models.
 \emph{AAAI Conference on Human Computation and Crowdsourcing}.

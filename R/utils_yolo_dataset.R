@@ -369,6 +369,8 @@
 #' @param data A `yolo_dataset` object, `yolo_dataset_cls` object, or directory path.
 #' @param repair Logical. If `TRUE`, automatically fixes detected issues in-place. Defaults to `FALSE`.
 #' @param min_images Integer threshold for warning if a class has few samples. Defaults to `10L`.
+#' @param check_leakage Logical. Whether to check for near-duplicate / leaky images across splits using perceptual hashing. Defaults to `TRUE`.
+#' @param leak_threshold Integer Hamming distance threshold for flagging near-duplicate images across splits. Defaults to `4L`.
 #' @param verbose Logical. Whether to display progress and diagnostic alerts. Defaults to `TRUE`.
 #'
 #' @return An object of class `c("yolo_dataset_audit", "yolo_dataset", "list")` containing:
@@ -1654,6 +1656,11 @@ yolo_dataset_combine <- yolo_dataset_merge
 #'   (default: `c(8, 8)`). Ignored when `scramble_mode = "pixel"`.
 #' @param scramble_mode Character specifying the scrambling strategy: `"grid"` (default jigsaw tile shuffle),
 #'   `"block_swap"` (local block swapping preserving partial background continuity), or `"pixel"` (global pixel shuffle).
+#' @param permute Logical. Whether to apply object cluster permutation/relocation augmentation to break center bias. Defaults to `FALSE`.
+#' @param permute_prob Numeric probability in `[0, 1]` of applying cluster permutation to an image when `permute = TRUE`. Defaults to `0.5`.
+#' @param permute_pos Character string specifying target placement regions for relocated clusters: `"random"`, `"left"`, `"right"`, `"top"`, `"bottom"`, or `"corner"`. Defaults to `"random"`.
+#' @param permute_fill Character string specifying how vacated object regions are filled: `"border_slices"`, `"mean"`, `"blur"`, or `"noise"`. Defaults to `"border_slices"`.
+#' @param permute_margin Numeric relative margin fraction kept clear around image borders when relocating clusters. Defaults to `0.02`.
 #' @param quality Integer between 1 and 100. JPEG compression quality for exported augmented images (default: `90`). Quality 85-90 preserves pristine pixel fidelity while encoding several times faster than 95+.
 #' @param max_ops Maximum number of transformations/alterations applied to each augmented image copy (default: `c(1, 3)`). Can be an integer (e.g., `2` or `3`, meaning between 1 and `max_ops` operations are randomly selected), a range `c(min, max)` (e.g. `c(1, 3)`), or `NULL` (no limit, independent probabilities for all enabled operations).
 #' @param seed Optional integer seed for reproducibility (default: 42).
@@ -5113,6 +5120,7 @@ yolo_dataset_split <- function(data,
 #' @param max_iou Numeric between 0 and 1. Maximum allowable occlusion ratio before removing
 #'   underlying annotations (default: `0.70`).
 #' @param quality Integer (1-100). JPEG compression quality for exported images (default: `90`).
+#' @param clean Logical. If `TRUE`, cleans previously generated `_copypaste` augmented images and labels before generating new copies. Defaults to `FALSE`.
 #' @param seed Optional integer seed for reproducibility (default: `42`).
 #' @param as_job Logical. If `TRUE` and running inside RStudio, runs as a background job (default: `FALSE`).
 #' @param verbose Logical. Whether to display progress messages (default: `TRUE`).
@@ -5364,8 +5372,8 @@ yolo_dataset_copypaste <- function(data,
         if (nh >= H_dest - 10L) nh <- H_dest - 10L
         if (nw < 4L || nh < 4L) next
 
-        scaled_patch <- pliman:::image_resize_cpp(inst$patch, nw, nh, 0L)
-        scaled_alpha <- pliman:::image_resize_cpp(inst$alpha, nw, nh, 0L)
+        scaled_patch <- image_resize_cpp(inst$patch, nw, nh, 0L)
+        scaled_alpha <- image_resize_cpp(inst$alpha, nw, nh, 0L)
         dim(scaled_alpha) <- c(nw, nh)
 
         # Flips
