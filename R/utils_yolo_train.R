@@ -267,6 +267,9 @@
 #' @param match_metric Match metric used for merging slice predictions across boundaries: `"IOS"` (Intersection over Smaller, default) or `"IOU"`.
 #' @param match_threshold Threshold for match metric to merge overlapping slice predictions. Defaults to `0.50`.
 #' @param full_image_inference Logical. If `TRUE` (default), runs an additional full-image inference pass alongside slice predictions to ensure large objects spanning across multiple slices are captured.
+#' @param sahi_if Conditional SAHI trigger. Can be `NULL` (default, disabled), `TRUE` (activates SAHI if average relative box area <= 1% of total image area), or a numeric threshold in `(0, 1]` (e.g. `0.005` for 0.5% or `0.02` for 2%). When specified, standard inference runs first; if the objects are small relative to the canvas (or if no objects are detected when `sahi_if_empty = TRUE`), SAHI is automatically triggered to recover fine details and small instances.
+#' @param sahi_metric Character metric to aggregate relative bounding box areas when checking `sahi_if`. One of `"mean"` (default), `"median"`, or `"min"`.
+#' @param sahi_if_empty Logical. If `TRUE` (default), automatically triggers SAHI when standard inference finds 0 objects on an image larger than the slice dimensions.
 #' @param show_similarity Logical. If `TRUE`, displays a side-by-side 2-panel preview showing the detected
 #'   objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidencia") on the right. Defaults to `FALSE`.
 #' @param split_ratio Numeric vector of length 3 for `c(train, val, test)` split.
@@ -383,6 +386,9 @@ yolo_dataset_export <- function(img,
                                 match_metric = c("IOS", "IOU"),
                                 match_threshold = 0.50,
                                 full_image_inference = TRUE,
+                                sahi_if = NULL,
+                                sahi_metric = c("mean", "median", "min"),
+                                sahi_if_empty = TRUE,
                                 lower_size = NULL,
                                 upper_size = NULL,
                                 size_mode = c("relative", "absolute"),
@@ -519,6 +525,10 @@ yolo_dataset_export <- function(img,
   if ("box_margin" %in% names(dots)) box_margin <- as.numeric(dots$box_margin[1])
   if ("margin" %in% names(dots)) box_margin <- as.numeric(dots$margin[1])
   if ("sahi" %in% names(dots)) sahi <- isTRUE(dots$sahi)
+  if ("sahi_if" %in% names(dots)) sahi_if <- dots$sahi_if
+  sahi_metric <- match.arg(sahi_metric)
+  if ("sahi_metric" %in% names(dots)) sahi_metric <- dots$sahi_metric[1]
+  if ("sahi_if_empty" %in% names(dots)) sahi_if_empty <- isTRUE(dots$sahi_if_empty)
   if ("slice_height" %in% names(dots)) slice_height <- as.integer(dots$slice_height[1])
   if ("slice_width" %in% names(dots)) slice_width <- as.integer(dots$slice_width[1])
   if ("overlap_height_ratio" %in% names(dots)) overlap_height_ratio <- as.numeric(dots$overlap_height_ratio[1])
@@ -541,7 +551,7 @@ yolo_dataset_export <- function(img,
     "train_prop", "show_labels", "show_scores", "show_class", "show_conf", "label_box",
     "crop_to_objects", "crop_margin", "box_margin", "margin", "show_bbox", "bbox", "show_boxes",
     "show_polygon", "polygon", "show_points", "points", "point", "show_point", "labels",
-    "lower_size", "upper_size", "size_mode", "sahi", "slice_height", "slice_width",
+    "lower_size", "upper_size", "size_mode", "sahi", "sahi_if", "sahi_metric", "sahi_if_empty", "slice_height", "slice_width",
     "overlap_height_ratio", "overlap_width_ratio", "match_metric", "match_threshold", "full_image_inference",
     "as_job"
   ))]
@@ -1128,6 +1138,38 @@ yolo_dataset_export <- function(img,
     # MODEL 3: Existing YOLO Model (ONNX Assisted Pre-Labeling & Auto-SAM)
     # --------------------------------------------------------------------------
     } else if (is_yolo) {
+      use_cond_sahi <- !isTRUE(sahi) && !is.null(sahi_if) && !isFALSE(sahi_if)
+      can_slice <- (img_w > slice_width || img_h > slice_height)
+      thresh_sahi <- if (isTRUE(sahi_if)) 0.01 else if (is.numeric(sahi_if)) as.numeric(sahi_if[1]) else 0.01
+      if (is.numeric(thresh_sahi) && thresh_sahi > 1) thresh_sahi <- thresh_sahi / 100
+
+      .eval_sahi_trigger <- function(df_boxes) {
+        if (!use_cond_sahi || !can_slice) return(list(trigger = FALSE, reason = ""))
+        if (is.null(df_boxes) || nrow(df_boxes) == 0L) {
+          if (isTRUE(sahi_if_empty)) {
+            return(list(trigger = TRUE, reason = "0 objects detected at full image scale"))
+          }
+          return(list(trigger = FALSE, reason = ""))
+        }
+        if (!("xmax" %in% names(df_boxes)) || !("xmin" %in% names(df_boxes))) {
+          return(list(trigger = FALSE, reason = ""))
+        }
+        b_areas <- (as.numeric(df_boxes$xmax) - as.numeric(df_boxes$xmin)) * 
+                   (as.numeric(df_boxes$ymax) - as.numeric(df_boxes$ymin))
+        rel_areas <- b_areas / (as.numeric(img_w) * as.numeric(img_h))
+        stat_val <- switch(sahi_metric,
+                           "mean" = mean(rel_areas, na.rm = TRUE),
+                           "median" = stats::median(rel_areas, na.rm = TRUE),
+                           "min" = min(rel_areas, na.rm = TRUE),
+                           mean(rel_areas, na.rm = TRUE))
+        if (is.finite(stat_val) && stat_val <= thresh_sahi) {
+          msg <- sprintf("relative %s box area (%.4f%%) <= threshold (%.4f%%)",
+                         sahi_metric, stat_val * 100, thresh_sahi * 100)
+          return(list(trigger = TRUE, reason = msg))
+        }
+        list(trigger = FALSE, reason = "")
+      }
+
       if (identical(task, "detect")) {
         pad_val <- if (is.numeric(box_margin) && length(box_margin) >= 1L && !is.na(box_margin[1]) && box_margin[1] > 0) box_margin[1] else 0
         if (isTRUE(sahi)) {
@@ -1149,6 +1191,7 @@ yolo_dataset_export <- function(img,
             engine = engine,
             device_id = device_id
           )
+          bx_df <- as.data.frame(y_res)
         } else {
           y_res <- image_detect_dl(
             curr_img,
@@ -1161,8 +1204,33 @@ yolo_dataset_export <- function(img,
             engine = engine,
             device_id = device_id
           )
+          bx_df <- as.data.frame(y_res)
+          chk <- .eval_sahi_trigger(bx_df)
+          if (isTRUE(chk$trigger)) {
+            if (isTRUE(verbose)) {
+              cli::cli_alert_info("Triggering SAHI inference for {.file {base_name}} ({chk$reason})...")
+            }
+            y_res <- image_detect_sahi(
+              curr_img,
+              model = model[1],
+              slice_height = slice_height,
+              slice_width = slice_width,
+              overlap_height_ratio = overlap_height_ratio,
+              overlap_width_ratio = overlap_width_ratio,
+              conf_threshold = box_threshold,
+              iou_threshold = iou_threshold,
+              match_metric = match_metric,
+              match_threshold = match_threshold,
+              full_image_inference = full_image_inference,
+              pad = pad_val,
+              plot = FALSE,
+              verbose = FALSE,
+              engine = engine,
+              device_id = device_id
+            )
+            bx_df <- as.data.frame(y_res)
+          }
         }
-        bx_df <- as.data.frame(y_res)
       } else {
         # Task is segment!
         is_seg_model <- grepl("[-_]seg", tolower(model[1]))
@@ -1189,7 +1257,7 @@ yolo_dataset_export <- function(img,
                 device_id = device_id
               )
             } else {
-              image_segment_dl(
+              init_res <- image_segment_dl(
                 curr_img,
                 model = model[1],
                 type = "highlight",
@@ -1200,6 +1268,33 @@ yolo_dataset_export <- function(img,
                 engine = engine,
                 device_id = device_id
               )
+              df_chk <- if (!is.null(init_res$results)) as.data.frame(init_res$results) else if (!is.null(init_res$boxes)) as.data.frame(init_res$boxes) else as.data.frame(init_res)
+              chk <- .eval_sahi_trigger(df_chk)
+              if (isTRUE(chk$trigger)) {
+                if (isTRUE(verbose)) {
+                  cli::cli_alert_info("Triggering SAHI segmentation for {.file {base_name}} ({chk$reason})...")
+                }
+                image_segment_sahi(
+                  curr_img,
+                  model = model[1],
+                  slice_height = slice_height,
+                  slice_width = slice_width,
+                  overlap_height_ratio = overlap_height_ratio,
+                  overlap_width_ratio = overlap_width_ratio,
+                  conf_threshold = box_threshold,
+                  iou_threshold = iou_threshold,
+                  match_metric = match_metric,
+                  match_threshold = match_threshold,
+                  full_image_inference = full_image_inference,
+                  type = "highlight",
+                  plot = FALSE,
+                  verbose = FALSE,
+                  engine = engine,
+                  device_id = device_id
+                )
+              } else {
+                init_res
+              }
             }
           }, error = function(e) NULL)
         }
@@ -1253,6 +1348,30 @@ yolo_dataset_export <- function(img,
               engine = engine,
               device_id = device_id
             )
+            df_chk <- as.data.frame(det_res)
+            chk <- .eval_sahi_trigger(df_chk)
+            if (isTRUE(chk$trigger)) {
+              if (isTRUE(verbose)) {
+                cli::cli_alert_info("Triggering SAHI detection for {.file {base_name}} ({chk$reason})...")
+              }
+              det_res <- image_detect_sahi(
+                curr_img,
+                model = model[1],
+                slice_height = slice_height,
+                slice_width = slice_width,
+                overlap_height_ratio = overlap_height_ratio,
+                overlap_width_ratio = overlap_width_ratio,
+                conf_threshold = box_threshold,
+                iou_threshold = iou_threshold,
+                match_metric = match_metric,
+                match_threshold = match_threshold,
+                full_image_inference = full_image_inference,
+                plot = FALSE,
+                verbose = FALSE,
+                engine = engine,
+                device_id = device_id
+              )
+            }
           }
           bx_df <- as.data.frame(det_res)
           if (!is.null(bx_df) && nrow(bx_df) > 0L) {
@@ -2945,14 +3064,45 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
         }
       } else if (is_yolo) {
         if (isTRUE(verbose)) cli::cli_alert_info("Running YOLO inference ({basename(model[1])}) on {.file {base_stem}}...")
+        use_sahi <- isTRUE(dots$sahi)
+        use_cond_sahi <- !use_sahi && !is.null(dots$sahi_if) && !isFALSE(dots$sahi_if)
+        thresh_sahi <- if (isTRUE(dots$sahi_if)) 0.01 else if (is.numeric(dots$sahi_if)) as.numeric(dots$sahi_if[1]) else 0.01
+        if (is.numeric(thresh_sahi) && thresh_sahi > 1) thresh_sahi <- thresh_sahi / 100
+        sahi_metric <- if (!is.null(dots$sahi_metric)) dots$sahi_metric[1] else "mean"
+        sahi_if_empty <- if (!is.null(dots$sahi_if_empty)) isTRUE(dots$sahi_if_empty) else TRUE
+        slice_h <- if (!is.null(dots$slice_height)) as.integer(dots$slice_height[1]) else 640L
+        slice_w <- if (!is.null(dots$slice_width)) as.integer(dots$slice_width[1]) else 640L
+        can_slice <- (img_w > slice_w || img_h > slice_h)
+
+        .eval_review_sahi <- function(df_boxes) {
+          if (!use_cond_sahi || !can_slice) return(list(trigger = FALSE, reason = ""))
+          if (is.null(df_boxes) || nrow(df_boxes) == 0L) {
+            if (isTRUE(sahi_if_empty)) return(list(trigger = TRUE, reason = "0 objects detected at full image scale"))
+            return(list(trigger = FALSE, reason = ""))
+          }
+          if (!("xmax" %in% names(df_boxes)) || !("xmin" %in% names(df_boxes))) return(list(trigger = FALSE, reason = ""))
+          b_areas <- (as.numeric(df_boxes$xmax) - as.numeric(df_boxes$xmin)) * (as.numeric(df_boxes$ymax) - as.numeric(df_boxes$ymin))
+          rel_areas <- b_areas / (as.numeric(img_w) * as.numeric(img_h))
+          stat_val <- switch(sahi_metric,
+                             "mean" = mean(rel_areas, na.rm = TRUE),
+                             "median" = stats::median(rel_areas, na.rm = TRUE),
+                             "min" = min(rel_areas, na.rm = TRUE),
+                             mean(rel_areas, na.rm = TRUE))
+          if (is.finite(stat_val) && stat_val <= thresh_sahi) {
+            msg <- sprintf("relative %s box area (%.4f%%) <= threshold (%.4f%%)",
+                           sahi_metric, stat_val * 100, thresh_sahi * 100)
+            return(list(trigger = TRUE, reason = msg))
+          }
+          list(trigger = FALSE, reason = "")
+        }
+
         if (identical(task, "detect")) {
-          use_sahi <- isTRUE(dots$sahi)
           if (use_sahi) {
             y_res <- image_detect_sahi(
               curr_img,
               model = model[1],
-              slice_height = if (!is.null(dots$slice_height)) as.integer(dots$slice_height[1]) else 640L,
-              slice_width = if (!is.null(dots$slice_width)) as.integer(dots$slice_width[1]) else 640L,
+              slice_height = slice_h,
+              slice_width = slice_w,
               overlap_height_ratio = if (!is.null(dots$overlap_height_ratio)) as.numeric(dots$overlap_height_ratio[1]) else 0.20,
               overlap_width_ratio = if (!is.null(dots$overlap_width_ratio)) as.numeric(dots$overlap_width_ratio[1]) else 0.20,
               conf_threshold = box_threshold,
@@ -2976,6 +3126,28 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
               engine = engine,
               device_id = device_id
             )
+            df_y_chk <- as.data.frame(y_res)
+            chk <- .eval_review_sahi(df_y_chk)
+            if (isTRUE(chk$trigger)) {
+              if (isTRUE(verbose)) cli::cli_alert_info("Triggering SAHI inference for {.file {base_stem}} ({chk$reason})...")
+              y_res <- image_detect_sahi(
+                curr_img,
+                model = model[1],
+                slice_height = slice_h,
+                slice_width = slice_w,
+                overlap_height_ratio = if (!is.null(dots$overlap_height_ratio)) as.numeric(dots$overlap_height_ratio[1]) else 0.20,
+                overlap_width_ratio = if (!is.null(dots$overlap_width_ratio)) as.numeric(dots$overlap_width_ratio[1]) else 0.20,
+                conf_threshold = box_threshold,
+                iou_threshold = iou_threshold,
+                match_metric = if (!is.null(dots$match_metric)) dots$match_metric[1] else "IOS",
+                match_threshold = if (!is.null(dots$match_threshold)) as.numeric(dots$match_threshold[1]) else 0.50,
+                full_image_inference = if (!is.null(dots$full_image_inference)) isTRUE(dots$full_image_inference) else TRUE,
+                plot = FALSE,
+                verbose = FALSE,
+                engine = engine,
+                device_id = device_id
+              )
+            }
           }
           df_y <- as.data.frame(y_res)
           if (nrow(df_y) > 0L) {
@@ -2994,13 +3166,12 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
             )
           }
         } else {
-          use_sahi <- isTRUE(dots$sahi)
           if (use_sahi) {
             y_res <- image_segment_sahi(
               curr_img,
               model = model[1],
-              slice_height = if (!is.null(dots$slice_height)) as.integer(dots$slice_height[1]) else 640L,
-              slice_width = if (!is.null(dots$slice_width)) as.integer(dots$slice_width[1]) else 640L,
+              slice_height = slice_h,
+              slice_width = slice_w,
               overlap_height_ratio = if (!is.null(dots$overlap_height_ratio)) as.numeric(dots$overlap_height_ratio[1]) else 0.20,
               overlap_width_ratio = if (!is.null(dots$overlap_width_ratio)) as.numeric(dots$overlap_width_ratio[1]) else 0.20,
               conf_threshold = box_threshold,
@@ -3026,6 +3197,29 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
               engine = engine,
               device_id = device_id
             )
+            y_boxes_chk <- if (!is.null(y_res$results)) y_res$results else if (!is.null(y_res$boxes)) y_res$boxes else as.data.frame(y_res)
+            chk <- .eval_review_sahi(y_boxes_chk)
+            if (isTRUE(chk$trigger)) {
+              if (isTRUE(verbose)) cli::cli_alert_info("Triggering SAHI segmentation for {.file {base_stem}} ({chk$reason})...")
+              y_res <- image_segment_sahi(
+                curr_img,
+                model = model[1],
+                slice_height = slice_h,
+                slice_width = slice_w,
+                overlap_height_ratio = if (!is.null(dots$overlap_height_ratio)) as.numeric(dots$overlap_height_ratio[1]) else 0.20,
+                overlap_width_ratio = if (!is.null(dots$overlap_width_ratio)) as.numeric(dots$overlap_width_ratio[1]) else 0.20,
+                conf_threshold = box_threshold,
+                iou_threshold = iou_threshold,
+                match_metric = if (!is.null(dots$match_metric)) dots$match_metric[1] else "IOS",
+                match_threshold = if (!is.null(dots$match_threshold)) as.numeric(dots$match_threshold[1]) else 0.50,
+                full_image_inference = if (!is.null(dots$full_image_inference)) isTRUE(dots$full_image_inference) else TRUE,
+                type = "highlight",
+                plot = FALSE,
+                verbose = FALSE,
+                engine = engine,
+                device_id = device_id
+              )
+            }
           }
           y_boxes <- if (!is.null(y_res$results)) y_res$results else if (!is.null(y_res$boxes)) y_res$boxes else as.data.frame(y_res)
           if (!is.null(y_boxes) && nrow(y_boxes) > 0L) {
@@ -6832,6 +7026,8 @@ yolo_export <- function(model,
 #' @param close_mosaic Disable mosaic augmentation in the last N epochs. Default is `10`.
 #' @param amp Automatic Mixed Precision (AMP). Set to `FALSE` to disable AMP if GPU checks fail. Default is `NULL` (auto-detected).
 #' @param plots Logical. If `FALSE` (default), suppresses generation of low-resolution matplotlib raster image files from YOLO; native vector plots are generated directly in R from exported CSV data.
+#' @param verbose Logical. Whether to display informative CLI messages during training and export. Defaults to `TRUE`.
+#' @param progress Optional logical or `NULL`. Whether to display a live progress indicator during training (defaults to `NULL`, following interactive/verbose defaults).
 #' @param workers Number of worker threads for data loading. Defaults to `0` on Windows and `4` on Linux/macOS.
 #' @param auto_install Logical. If `TRUE`, automatically installs missing dependencies via `pip`. Defaults to `TRUE`.
 #' @param ... Additional arguments passed directly to `model.train()` in Ultralytics
@@ -7788,47 +7984,8 @@ yolo_train <- function(data = "yolo_dataset",
   )
   invisible(res)
 }
-#' @title Load Training Results and Diagnostics for a YOLO Model
-#' @name yolo_results
-#' @description
-#' Reconstructs a `yolo_train` S3 object from an existing model name, `.onnx`/`.pt` file,
-#' or results directory without needing to retrain. The resulting object can be directly
-#' printed with [print.yolo_train()] and visualized with [plot.yolo_train()] or [yolo_plot()].
-#'
-#' @details
-#' When a YOLO model is trained via [yolo_train()], all evaluation tables, weights, and logs
-#' are preserved in `<output_name>_results`. [yolo_results()] reconstructs the full training
-#' session state by parsing:
-#' \itemize{
-#'   \item \code{results.csv}: Epoch-by-epoch loss progressions, precision, recall, mAP50, and mAP50-95.
-#'   \item \code{confusion_matrix.csv}: Complete confusion matrix counts including the background class.
-#'   \item \code{confusion_matrix_normalized.csv}: Normalized classification rates.
-#'   \item \code{pr_curve.csv}: 1,000-point Precision-Recall evaluation curve per class.
-#'   \item \code{f1_curve.csv}: 1,000-point F1 vs. Confidence evaluation curve per class.
-#'   \item Model weights: Automatically locates exported \code{.onnx} and \code{.pt} files.
-#' }
-#' This enables instant, offline performance inspection, publication-ready vector plotting,
-#' and threshold selection for any trained model without needing Python or GPU re-execution.
-#'
-#' @param model Name or path to a trained YOLO model (e.g. `"capsulas_det"`, `"capsulas_det.onnx"`).
-#' @param results_dir Optional direct path to the `<model>_results` folder. If `NULL` (default),
-#'   the folder is searched in `output_dir`, in `pliman_model_dir()`, or alongside the model file.
-#' @param output_dir Directory where pliman models and results are stored. Defaults to [pliman_model_dir()].
-#'
-#' @return An object of class `c("yolo_train", "list")`.
-#' @export
-#' @seealso [plot.yolo_train()], [yolo_plot()], [yolo_train()]
-#' @examplesIf interactive()
-#' library(pliman)
-#'
-#' # Load diagnostics from a previously trained model
-#' res <- yolo_results("capsulas_det")
-#'
-#' # Inspect training metrics and plot diagnostic dashboard
-#' print(res)
-#' plot(res)
-#' plot(res, which = "confusion_matrix")
-#' plot(res, which = "pr_curve")
+#' Internal helper to locate a YOLO subrun directory
+#' @noRd
 .find_yolo_subrun_dir <- function(dir) {
   if (is.null(dir) || !dir.exists(dir)) return(NULL)
   dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
@@ -9020,7 +9177,15 @@ print.yolo_train <- function(x, ...) {
 #'
 #' # Save high-resolution 300 DPI publication plots:
 #' plot(res, save = TRUE)
-#' plot(res, which = "confusion_matrix_norm", save = TRUE, file_name = "fig_cm.png", width = 8, height = 7, dpi = 300)
+#' plot(
+#'   res,
+#'   which = "confusion_matrix_norm",
+#'   save = TRUE,
+#'   file_name = "fig_cm.png",
+#'   width = 8,
+#'   height = 7,
+#'   dpi = 300
+#' )
 #' plot(res, which = "metrics", save = TRUE, file_name = "fig_metrics.pdf", width = 9, height = 6)
 #'
 #' # Plot individual evaluation curves in high-resolution vector format:
@@ -9299,6 +9464,8 @@ yolo_plot <- function(x, ...) {
 #'   an informative name based on `data` is automatically generated.
 #' @param temp_dir Directory used to construct the bootstrap training dataset. If `NULL` (default),
 #'   creates a temporary folder inside [tempdir()].
+#' @param dataset_dir Optional character directory path to save or reuse the constructed YOLO training dataset.
+#'   If `NULL` (default), uses `temp_dir` or creates a persistent directory when `keep_dataset = TRUE`.
 #' @param keep_dataset Logical. If `FALSE` (default), removes the temporary bootstrap dataset after training.
 #' @param as_job Logical. If `TRUE` and running inside RStudio, launches the entire
 #'   workflow (bootstrapping, augmentation, tiling, and YOLO training) as an asynchronous
@@ -9788,8 +9955,8 @@ yolo_checkpoint_recover <- function(path = NULL,
     model_to_export <- if (!is.null(primary_best)) primary_best else primary_last
     if (!is.null(model_to_export)) {
       cli::cli_alert_info("Exporting recovered checkpoint to ONNX...")
-      py_exec <- .find_python_env()$python
-      if (nzchar(py_exec)) {
+      py_exec <- .find_python_exec()
+      if (length(py_exec) > 0L && nzchar(py_exec[1])) {
         out_onnx_target <- file.path(dest_dir, paste0(sub("\\.pt$", "", basename(model_to_export)), ".onnx"))
         export_py <- paste0(
           "from ultralytics import YOLO\n",

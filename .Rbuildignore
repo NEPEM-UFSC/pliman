@@ -26,3 +26,5 @@ vignettes
 ^weights$
 .*\.pt$
 ^models_optimized$
+^AGENTS\.md$
+^\.agents$

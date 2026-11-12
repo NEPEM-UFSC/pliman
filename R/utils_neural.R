@@ -6339,6 +6339,8 @@ plot_yolo_heatmap <- function(img,
 #' @param filter_nested Logical. If `TRUE` (the default), removes larger container bounding boxes
 #'   that enclose smaller boxes of the same class (e.g. discarding an encompassing box around an entire branch of leaves).
 #' @param show_mask Deprecated. If `TRUE`, equivalent to `type = "mask"`.
+#' @param imgsz Target input image resolution for YOLO segmentation inference (e.g., `640`, `960`, or `1024`).
+#'   If `NULL` (default), inferred automatically from the model or defaults to `640`.
 #'
 #' @return
 #'   * If `mask = FALSE` and `bbox = TRUE`: A data frame containing the bounding box coordinates
@@ -8319,7 +8321,6 @@ list_cameras <- function(details = FALSE) {
 #'
 #' @param img An `Image` object, a 2D/3D numeric array, a path to an image file, or a list of images.
 #' @param model Model name or path to a custom ONNX file. Defaults to `"yolo26n-pose"`.
-#'   Options include `"yolo26n-pose"`, `"yolo26s-pose"`, `"yolo26m-pose"`, `"yolo26l-pose"`, `
 #'   Options include `"yolo26n-pose"`, `"yolo26s-pose"`, `"yolo26m-pose"`, `"yolo26l-pose"`, `"yolo26x-pose"`.
 #' @param conf_threshold Minimum confidence score for candidate person detections (default 0.25).
 #' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.45).
@@ -8343,6 +8344,8 @@ list_cameras <- function(details = FALSE) {
 #' @param verbose Logical. Whether to show progress messages.
 #' @param plot Logical. Whether to plot the image with pose overlays.
 #' @param dir Model directory (default `pliman_model_dir()`).
+#' @param imgsz Target input image resolution for YOLO pose inference (e.g., `640`, `960`, or `1024`).
+#'   If `NULL` (default), inferred automatically from the model or defaults to `640`.
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A list with class `pliman_pose` containing:
 #'   * `boxes`: Data frame containing detected person bounding boxes (`id`, `xmin`, `ymin`, `xmax`, `ymax`, `label`, `score`).
@@ -9347,7 +9350,9 @@ text_embed_dl <- function(text,
 #' @param col Optional color or palette for bounding boxes.
 #' @param lwd Bounding box line width (default 2).
 #' @param cex Size factor for bounding box label text (default `1.0`).
-#' @param pad Padding multiplier controlling the background badge size around label text (default `1.0`).
+#' @param pad Padding multiplier controlling the box padding around label text (default `0`).
+#' @param bbox Logical. Whether to draw bounding boxes around detected objects (default `TRUE`).
+#' @param badge_pad Padding multiplier controlling the background badge size around label text (default `1.0`).
 #' @param show_text Logical. Whether to display text labels on bounding boxes (default `TRUE`).
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
@@ -9945,10 +9950,10 @@ image_inpaint_dl <- function(img,
 #' \itemize{
 #'   \item Guo, C., Li, C., Guo, J., Loy, C. C., Hou, J., Kwong, S., & Cong, R. (2020).
 #'   Zero-reference deep curve estimation for low-light image enhancement.
-#'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 1780–1789.
+#'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 1780--1789.
 #'   \item Chen, L., Chu, X., Zhang, X., & Sun, J. (2022).
 #'   Simple baselines for image restoration.
-#'   \emph{European Conference on Computer Vision (ECCV)}, 17–33.
+#'   \emph{European Conference on Computer Vision (ECCV)}, 17--33.
 #' }
 #'
 #' @param img An `Image` object or character string path to an image file.
@@ -10126,13 +10131,13 @@ image_restore_dl <- function(img,
 #' \itemize{
 #'   \item Liao, M., Wan, Z., Yao, C., Chen, K., & Bai, X. (2020).
 #'   Real-time scene text detection with differentiable binarization.
-#'   \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, 34(07), 11474–11481.
+#'   \emph{Proceedings of the AAAI Conference on Artificial Intelligence}, 34(07), 11474--11481.
 #'   \item Du, Y., Li, C., Guo, R., Yin, X., Liu, W., Zhou, J., ... & Hu, B. (2020).
 #'   PP-OCR: A practical ultra lightweight OCR system.
 #'   \emph{arXiv preprint arXiv:2009.09941}.
 #'   \item Baek, Y., Lee, B., Han, D., Yun, S., & Lee, H. (2019).
 #'   Character region awareness for text detection.
-#'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365–9374.
+#'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 9365--9374.
 #'   \item Li, M., Lv, T., Chen, J., Cui, L., Lu, Y., Florencio, D., Zhang, C., & Wei, F. (2023).
 #'   TrOCR: Transformer-based optical character recognition with pre-trained models.
 #'   \emph{AAAI Conference on Human Computation and Crowdsourcing}.
@@ -10493,7 +10498,7 @@ image_ocr_dl <- function(img,
           idx <- tid + 1L
           if (idx >= 1L && idx <= length(trocr_vocab)) trocr_vocab[idx] else ""
         }, character(1))
-        txts[k] <- trimws(gsub("▁", " ", paste(pieces, collapse = "")))
+        txts[k] <- trimws(gsub("\u2581", " ", paste(pieces, collapse = "")))
         scores[k] <- round(rec_res[[1]]$score, 4)
       }
     } else {

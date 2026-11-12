@@ -44,7 +44,7 @@
 #'         and maintainer review. Once approved, the model is published!
 #' }
 #'
-#' @section What to Do (Boas Práticas / Do's):
+#' @section What to Do (Boas Praticas / Do's):
 #' \itemize{
 #'   \item \strong{Use clear snake_case names:} Name your model descriptively combining the target,
 #'         species, and vision task (e.g., `"flax_capsule_det"`, `"soybean_rust_seg"`, `"corn_seed_count"`).
@@ -536,9 +536,9 @@ pliman_model_share <- function(model,
   }
 
   pr_body <- paste0(
-    "## 🌿 Model Contribution: `", model_name, "`\n\n",
+    "## \U0001f33f Model Contribution: `", model_name, "`\n\n",
     "This community model was submitted automatically via `pliman::pliman_model_share()`.\n\n",
-    "### 📌 Model Metadata\n",
+    "### \U0001f4cc Model Metadata\n",
     "- **Model Name:** `", model_name, "`\n",
     "- **Architecture:** `", architecture, "`\n",
     "- **Vision Task:** `", toupper(task), "`\n",
@@ -549,14 +549,14 @@ pliman_model_share <- function(model,
     if (!is.na(meta_data$orcid)) paste0("- **ORCID:** [", meta_data$orcid, "](https://orcid.org/", meta_data$orcid, ")\n") else "",
     "- **Date:** ", meta_data$date_shared, "\n",
     "- **Model Size:** ", size_desc, "\n\n",
-    "### 📝 Description\n",
+    "### \U0001f4dd Description\n",
     meta_data$description, "\n\n"
   )
 
   if (length(metrics_info) > 0L) {
-    fmt_pct <- function(v) if (!is.null(v) && !is.na(v)) sprintf("%.2f%%", v * 100) else "—"
-    fmt_4d  <- function(v) if (!is.null(v) && !is.na(v)) sprintf("%.4f", v) else "—"
-    fmt_2d  <- function(v) if (!is.null(v) && !is.na(v)) sprintf("%.2f", v) else "—"
+    fmt_pct <- function(v) if (!is.null(v) && !is.na(v)) sprintf("%.2f%%", v * 100) else "\u2014"
+    fmt_4d  <- function(v) if (!is.null(v) && !is.na(v)) sprintf("%.4f", v) else "\u2014"
+    fmt_2d  <- function(v) if (!is.null(v) && !is.na(v)) sprintf("%.2f", v) else "\u2014"
 
     scale_str <- paste0(
       metrics_info$test_images %||% "?", " imgs (",
@@ -565,8 +565,8 @@ pliman_model_share <- function(model,
 
     pr_body <- paste0(
       pr_body,
-      "### 📊 Test Benchmark Results\n\n",
-      "| Precision | Recall | F1-Score | mAP@50 | mAP@50-95 | Mean IoU | Counting R² | MAE | RMSE | Test Scale |\n",
+      "### \U0001f4ca Test Benchmark Results\n\n",
+      "| Precision | Recall | F1-Score | mAP@50 | mAP@50-95 | Mean IoU | Counting R\u00b2 | MAE | RMSE | Test Scale |\n",
       "| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n",
       "| `", fmt_pct(metrics_info$precision), "` | `",
       fmt_pct(metrics_info$recall), "` | `",
@@ -578,7 +578,7 @@ pliman_model_share <- function(model,
       fmt_2d(metrics_info$mae), "` | `",
       fmt_2d(metrics_info$rmse), "` | `",
       scale_str, "` |\n\n",
-      "<sub>*Note: **Precision (P):** Correctness of detections. **Recall (R):** Proportion of targets detected. **F1-Score:** Harmonic mean of P and R. **mAP@50 / mAP@50-95:** Mean Average Precision at IoU 0.50 and 0.50–0.95. **Mean IoU:** Average overlap quality for True Positives. **Counting R² / MAE / RMSE:** Correlation and error in object counting per image. **Test Scale:** Number of test images and ground-truth objects evaluated.*</sub>\n\n"
+      "<sub>*Note: **Precision (P):** Correctness of detections. **Recall (R):** Proportion of targets detected. **F1-Score:** Harmonic mean of P and R. **mAP@50 / mAP@50-95:** Mean Average Precision at IoU 0.50 and 0.50\u20130.95. **Mean IoU:** Average overlap quality for True Positives. **Counting R\u00b2 / MAE / RMSE:** Correlation and error in object counting per image. **Test Scale:** Number of test images and ground-truth objects evaluated.*</sub>\n\n"
     )
   }
 
@@ -597,8 +597,8 @@ pliman_model_share <- function(model,
   if (isTRUE(upload_assets) && !is.null(dest_sample_path) && !is.null(dest_preview_path)) {
     pr_body <- paste0(
       pr_body,
-      "### 🖼️ Visual Reproduction & Detection Preview\n\n",
-      "| 📷 Original Raw Image | 🎯 Model Detections/Segmentation |\n",
+      "### \U0001f5bc\ufe0f Visual Reproduction & Detection Preview\n\n",
+      "| \U0001f4f7 Original Raw Image | \U0001f3af Model Detections/Segmentation |\n",
       "| :---: | :---: |\n",
       "| <a href=\"", sample_url, "\"><img src=\"", sample_url, "\" width=\"700\" alt=\"Original Raw Image\"/></a> | <a href=\"", preview_url, "\"><img src=\"", preview_url, "\" width=\"700\" alt=\"Model Detections\"/></a> |\n\n"
     )
@@ -606,7 +606,7 @@ pliman_model_share <- function(model,
 
   pr_body <- paste0(
     pr_body,
-    "### 🔬 Quick Test & Reproducibility\n\n",
+    "### \U0001f52c Quick Test & Reproducibility\n\n",
     "Run an immediate verification directly in R:\n\n",
     "```r\n",
     "library(pliman)\n\n",
@@ -627,7 +627,7 @@ pliman_model_share <- function(model,
       )
     },
     "```\n\n",
-    "### 🚀 How to use on your own images\n\n",
+    "### \U0001f680 How to use on your own images\n\n",
     "```r\n",
     "library(pliman)\n\n",
     "# 1. Download the model (if not already downloaded):\n",
@@ -637,7 +637,7 @@ pliman_model_share <- function(model,
     "```\n",
     if (!is.null(dest_pt_path)) {
       paste0(
-        "\n> 💡 **Tip:** Both ONNX (`", model_name, ".onnx`) and PyTorch (`", model_name, ".pt`) weights are available in this repository.\n\n"
+        "\n> \U0001f4a1 **Tip:** Both ONNX (`", model_name, ".onnx`) and PyTorch (`", model_name, ".pt`) weights are available in this repository.\n\n"
       )
     } else {
       ""
@@ -729,7 +729,7 @@ pliman_share_model <- pliman_model_share
 
 #' @export
 print.pliman_model_share <- function(x, ...) {
-  cli::cli_h1("🌿 pliman Model Contribution")
+  cli::cli_h1("\U0001f33f pliman Model Contribution")
   cli::cli_bullets(c(
     "v" = sprintf("Model Name   : {.strong %s}", x$name),
     "v" = sprintf("Architecture : {.val %s}", x$architecture %||% x$metadata$architecture %||% "YOLO"),

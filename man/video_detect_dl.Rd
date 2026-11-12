@@ -261,6 +261,9 @@ either \code{"vertical"} (default) or \code{"horizontal"}. Can also be passed as
 
 \item{count_line_label}{Optional label displayed along the counting line (default \code{NULL}, no text).}
 
+\item{count_direction}{Character string specifying which crossing direction(s) trigger counting
+when \code{count_line} is set: \code{"both"} (default), \code{"forward"}, or \code{"backward"}.}
+
 \item{roi}{Optional Region of Interest coordinates. Can be specified as a numeric vector of
 length 2 \code{c(min, max)} in relative coordinates (\code{0} to \code{1}) combined with \code{roi_orientation}
 (e.g., \verb{roi = c(0.2, 0.8), roi_orientation = "vertical"}), or legacy 4-element coordinates \code{c(xmin, ymin, xmax, ymax)}.}
@@ -313,6 +316,28 @@ e.g. \code{c(1920, 1080)} or \code{c(1280, 720)}. Default is \code{NULL} (uses n
 
 \item{contrast}{Numeric contrast multiplier around midpoint luma applied in-place via native C++ OpenMP fixed-point arithmetic (default \code{1.0}). Values \verb{> 1.0} (e.g., \code{1.2} or \code{1.4}) enhance dynamic range on flat footage with zero FPS penalty.}
 
+\item{heatmap}{Logical. Whether to render a cumulative spatial density heatmap overlay for detected objects. Defaults to \code{FALSE}.}
+
+\item{heatmap_alpha}{Numeric opacity in \verb{[0, 1]} for the spatial density heatmap overlay. Defaults to \code{0.40}.}
+
+\item{heatmap_decay}{Numeric decay factor in \verb{(0, 1]} controlling how quickly older detections fade from the heatmap per frame. Defaults to \code{0.98}.}
+
+\item{sahi}{Logical. Whether to enable SAHI (Slicing Aided Hyper Inference) tiled detection on each video frame for small/distant objects. Defaults to \code{FALSE}.}
+
+\item{slice_height}{Optional integer height of SAHI sliding window slices (in pixels). Defaults to \code{NULL} (auto-sized).}
+
+\item{slice_width}{Optional integer width of SAHI sliding window slices (in pixels). Defaults to \code{NULL} (auto-sized).}
+
+\item{overlap_ratio}{Numeric overlap fraction in \verb{[0, 0.5)} between adjacent SAHI slices. Defaults to \code{0.2}.}
+
+\item{save_crops}{Logical. Whether to save cropped images of detected objects to disk. Defaults to \code{FALSE}.}
+
+\item{crops_dir}{Optional character directory path where cropped object images are saved when \code{save_crops = TRUE}. Defaults to \code{NULL}.}
+
+\item{start_time}{Optional numeric start timestamp (in seconds) from which to begin processing a video file. Defaults to \code{NULL}.}
+
+\item{end_time}{Optional numeric end timestamp (in seconds) at which to stop processing a video file. Defaults to \code{NULL}.}
+
 \item{show}{Logical. Whether to display the video feed with bounding boxes in real time.
 Default is \code{interactive()}.}
 
@@ -356,6 +381,9 @@ and maximizing real-time video display smoothness up to the camera's physical fr
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 
 \item{dir}{Directory where pre-trained models are stored (default \code{pliman_model_dir()}).}
+
+\item{imgsz}{Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), inferred automatically from the model or defaults to \code{640}.}
 
 \item{as_job}{Logical. If \code{TRUE} and running inside RStudio, dispatches the video processing task to an asynchronous RStudio Background Job, keeping the R console free. Default is \code{FALSE}.}
 

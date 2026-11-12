@@ -101,6 +101,9 @@ an informative name based on \code{data} is automatically generated.}
 \item{temp_dir}{Directory used to construct the bootstrap training dataset. If \code{NULL} (default),
 creates a temporary folder inside \code{\link[=tempdir]{tempdir()}}.}
 
+\item{dataset_dir}{Optional character directory path to save or reuse the constructed YOLO training dataset.
+If \code{NULL} (default), uses \code{temp_dir} or creates a persistent directory when \code{keep_dataset = TRUE}.}
+
 \item{keep_dataset}{Logical. If \code{FALSE} (default), removes the temporary bootstrap dataset after training.}
 
 \item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches the entire

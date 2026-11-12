@@ -176,8 +176,15 @@ pliman_daemons <- function(workers = NULL) {
 #' @param path Optional directory path to search when `data` is a pattern. Defaults to `"."`.
 #' @param parallel Logical. If `TRUE`, runs inference in parallel across images using `mirai`.
 #'   Defaults to `FALSE`.
-#' @param workers Integer. Number of parallel workers/daemons to launch when `parallel = TRUE`.
-#'   Defaults to 60% of available CPU cores.
+#' @param sahi Logical. If `TRUE`, uses SAHI (Slicing Aided Hyper Inference) for tiled detection
+#'   on large or high-resolution images. Defaults to `FALSE`.
+#' @param slice_height Integer. Height of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param slice_width Integer. Width of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param overlap_height_ratio Numeric scalar between 0 and 0.5. Vertical slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param overlap_width_ratio Numeric scalar between 0 and 0.5. Horizontal slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param match_metric Character string. Box merging overlap metric used when `sahi = TRUE` (`"IOS"` or `"IOU"`). Defaults to `"IOS"`.
+#' @param match_threshold Numeric scalar. Overlap threshold for merging slice detections when `sahi = TRUE`. Defaults to `0.50`.
+#' @param postprocess_type Character string. Post-processing algorithm used when `sahi = TRUE` (`"GREEDY_NMM"` or `"NMS"`). Defaults to `"GREEDY_NMM"`.
 #' @param show_point Logical. Whether to show a point at the centroid of each detected object.
 #'   Defaults to `FALSE`.
 #' @param keep_images Logical. Whether to keep the full original images attached as attributes in `$results`.
@@ -694,8 +701,6 @@ yolo_detect_batch <- image_detect_dl_batch
 #' @param overlap_width_ratio Numeric scalar between 0 and 0.5. Width overlap fraction. Defaults to `0.20`.
 #' @param parallel Logical. If `TRUE`, runs inference in parallel across images using `mirai`.
 #'   Defaults to `FALSE`.
-#' @param workers Integer. Number of parallel workers/daemons to launch when `parallel = TRUE`.
-#'   Defaults to 60% of available CPU cores.
 #' @param show_point Logical. Whether to show a point at the centroid of each detected object.
 #'   Defaults to `FALSE`.
 #' @param keep_images Logical. Whether to keep the full original images attached as attributes in `$results`.
@@ -1169,8 +1174,15 @@ image_sahi_detect_batch <- image_detect_sahi_batch
 #' @param path Optional directory path to search when `data` is a pattern. Defaults to `"."`.
 #' @param parallel Logical. If `TRUE`, runs inference in parallel across images using `mirai`.
 #'   Defaults to `FALSE`.
-#' @param workers Integer. Number of parallel workers/daemons to launch when `parallel = TRUE`.
-#'   Defaults to 60% of available CPU cores.
+#' @param sahi Logical. If `TRUE`, uses SAHI (Slicing Aided Hyper Inference) for tiled segmentation
+#'   on large or high-resolution images. Defaults to `FALSE`.
+#' @param slice_height Integer. Height of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param slice_width Integer. Width of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param overlap_height_ratio Numeric scalar between 0 and 0.5. Vertical slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param overlap_width_ratio Numeric scalar between 0 and 0.5. Horizontal slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param match_metric Character string. Box merging overlap metric used when `sahi = TRUE` (`"IOS"` or `"IOU"`). Defaults to `"IOS"`.
+#' @param match_threshold Numeric scalar. Overlap threshold for merging slice detections when `sahi = TRUE`. Defaults to `0.50`.
+#' @param postprocess_type Character string. Post-processing algorithm used when `sahi = TRUE` (`"GREEDY_NMM"` or `"NMS"`). Defaults to `"GREEDY_NMM"`.
 #' @param measure Logical. If `TRUE`, automatically extracts granular morphometric, spectral,
 #'   and geometric phenotypes for every segmented instance using [dl_extract_phenotypes()]. Defaults to `TRUE`.
 #' @param pixel_size Optional numeric physical size per pixel (e.g., `0.05` for 0.05 cm/px) passed to [dl_extract_phenotypes()].

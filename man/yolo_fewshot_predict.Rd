@@ -48,6 +48,15 @@ yolo_fewshot_predict(
 
 \item{badge}{Logical. Whether to draw a filled background badge behind labels. Defaults to \code{TRUE}.}
 
+\item{lower_size}{Numeric scalar or \code{NULL}. Minimum bounding-box area threshold for keeping detections.
+Interpreted according to \code{size_mode}. Defaults to \code{NULL} (no lower filter).}
+
+\item{upper_size}{Numeric scalar or \code{NULL}. Maximum bounding-box area threshold for keeping detections.
+Interpreted according to \code{size_mode}. Defaults to \code{NULL} (no upper filter).}
+
+\item{size_mode}{Character string. Controls how \code{lower_size} and \code{upper_size} are interpreted:
+\code{"relative"} (default, multiplier of mean detected bounding-box area) or \code{"absolute"} (pixel area).}
+
 \item{...}{Additional arguments passed to plotting methods or aliases (e.g. \code{show_labels}, \code{show_scores}, \code{label_box}).}
 }
 \value{

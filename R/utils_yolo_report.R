@@ -299,18 +299,18 @@ yolo_report <- yolo_dataset_report
 # AUGMENTATION DEFINITIONS & RECOGNITION
 # ==============================================================================
 .yolo_aug_defs <- list(
-  blur     = list(label = "Blur",         icon = "🌫️", color = "#ec4899"),
-  noise    = list(label = "Noise",        icon = "⚡", color = "#f59e0b"),
-  rot      = list(label = "Rotate",       icon = "🔄", color = "#6366f1"),
-  persp    = list(label = "Perspective",  icon = "📐", color = "#8b5cf6"),
-  fliph    = list(label = "Flip H",       icon = "↔️", color = "#10b981"),
-  flipv    = list(label = "Flip V",       icon = "↕️", color = "#14b8a6"),
-  bright   = list(label = "Brightness",   icon = "☀️", color = "#eab308"),
-  contrast = list(label = "Contrast",     icon = "🌓", color = "#f97316"),
-  cutout   = list(label = "Cutout",       icon = "✂️", color = "#ef4444"),
-  mosaic   = list(label = "Mosaic",       icon = "🧩", color = "#06b6d4"),
-  synth_bg = list(label = "Synthetic BG", icon = "🖼️", color = "#f59e0b"),
-  tile     = list(label = "Tiled",        icon = "🪟", color = "#10b981")
+  blur     = list(label = "Blur",         icon = "\U0001f32b\ufe0f", color = "#ec4899"),
+  noise    = list(label = "Noise",        icon = "\u26a1", color = "#f59e0b"),
+  rot      = list(label = "Rotate",       icon = "\U0001f504", color = "#6366f1"),
+  persp    = list(label = "Perspective",  icon = "\U0001f4d0", color = "#8b5cf6"),
+  fliph    = list(label = "Flip H",       icon = "\u2194\ufe0f", color = "#10b981"),
+  flipv    = list(label = "Flip V",       icon = "\u2195\ufe0f", color = "#14b8a6"),
+  bright   = list(label = "Brightness",   icon = "\u2600\ufe0f", color = "#eab308"),
+  contrast = list(label = "Contrast",     icon = "\U0001f313", color = "#f97316"),
+  cutout   = list(label = "Cutout",       icon = "\u2702\ufe0f", color = "#ef4444"),
+  mosaic   = list(label = "Mosaic",       icon = "\U0001f9e9", color = "#06b6d4"),
+  synth_bg = list(label = "Synthetic BG", icon = "\U0001f5bc\ufe0f", color = "#f59e0b"),
+  tile     = list(label = "Tiled",        icon = "\U0001fa9f", color = "#10b981")
 )
 
 .yolo_extract_aug_tags <- function(stem) {
@@ -946,7 +946,7 @@ yolo_report <- yolo_dataset_report
         badge = "BLUR DETECTED",
         metric = sprintf("%s blurry original images (%.1f%%)", format(n_blur, big.mark = ","), pct_blur),
         detail = sprintf("%.1f%% of inspected original images appear out-of-focus or motion-blurred (Laplacian variance < %.0f). Blurry training samples weaken CNN/backbone feature extraction and increase false negatives.", pct_blur, b_thresh),
-        action_html = sprintf('<button type="button" class="btn-inspect-blur" onclick="inspectBlurryImages()" style="margin-top:0.65rem; display:inline-flex; align-items:center; gap:0.4rem; padding:0.35rem 0.75rem; font-size:0.8rem; font-weight:600; color:#ef4444; background:rgba(239, 68, 68, 0.12); border:1px solid rgba(239, 68, 68, 0.35); border-radius:6px; cursor:pointer; transition:all 0.2s ease;">🔍 View %d Blurry Images in Gallery</button>', n_blur)
+        action_html = sprintf('<button type="button" class="btn-inspect-blur" onclick="inspectBlurryImages()" style="margin-top:0.65rem; display:inline-flex; align-items:center; gap:0.4rem; padding:0.35rem 0.75rem; font-size:0.8rem; font-weight:600; color:#ef4444; background:rgba(239, 68, 68, 0.12); border:1px solid rgba(239, 68, 68, 0.35); border-radius:6px; cursor:pointer; transition:all 0.2s ease;">\U0001f50d View %d Blurry Images in Gallery</button>', n_blur)
       )
     }
   }
@@ -994,33 +994,33 @@ yolo_report <- yolo_dataset_report
   pills <- character(0)
 
   if (!has_any) {
-    pills <- c(pills, '<span class="anomaly-pill pill-perfect" title="All annotations strictly adhere to YOLO format specifications"><span>✓</span> 100% Clean Geometry • Zero Anomalies Detected</span>')
+    pills <- c(pills, '<span class="anomaly-pill pill-perfect" title="All annotations strictly adhere to YOLO format specifications"><span>\u2713</span> 100% Clean Geometry \u2022 Zero Anomalies Detected</span>')
   } else {
     if (tot_critical == 0L) {
-      pills <- c(pills, '<span class="anomaly-pill pill-pass" title="Zero critical bounding box errors found"><span>✓</span> Zero Critical Defects</span>')
+      pills <- c(pills, '<span class="anomaly-pill pill-pass" title="Zero critical bounding box errors found"><span>\u2713</span> Zero Critical Defects</span>')
     }
     if (n_dup > 0L) {
-      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'duplicate_pair\')" title="Click to view images with duplicate pairs"><span>🔄</span> %s Duplicate Pairs <span class="pill-inspect">View ↗</span></button>', format(n_dup, big.mark = ",")))
+      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'duplicate_pair\')" title="Click to view images with duplicate pairs"><span>\U0001f504</span> %s Duplicate Pairs <span class="pill-inspect">View \u2197</span></button>', format(n_dup, big.mark = ",")))
     }
     if (n_micro > 0L) {
-      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-warn pill-clickable" onclick="openAnomalyModal(\'micro_box\')" title="Click to view images with micro-boxes"><span>🔍</span> %s Micro-Boxes (&lt;0.05%%) <span class="pill-inspect">View ↗</span></button>', format(n_micro, big.mark = ",")))
+      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-warn pill-clickable" onclick="openAnomalyModal(\'micro_box\')" title="Click to view images with micro-boxes"><span>\U0001f50d</span> %s Micro-Boxes (&lt;0.05%%) <span class="pill-inspect">View \u2197</span></button>', format(n_micro, big.mark = ",")))
     }
     if (n_ext_ar > 0L) {
-      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-info pill-clickable" onclick="openAnomalyModal(\'extreme_aspect_ratio\')" title="Click to view images with extreme aspect ratio"><span>📏</span> %s Extreme AR (&gt;8 or &lt;0.125) <span class="pill-inspect">View ↗</span></button>', format(n_ext_ar, big.mark = ",")))
+      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-info pill-clickable" onclick="openAnomalyModal(\'extreme_aspect_ratio\')" title="Click to view images with extreme aspect ratio"><span>\U0001f4cf</span> %s Extreme AR (&gt;8 or &lt;0.125) <span class="pill-inspect">View \u2197</span></button>', format(n_ext_ar, big.mark = ",")))
     }
     if (n_oob > 0L) {
-      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'out_of_bounds\')" title="Click to view images with out-of-bounds coordinates"><span>⚠️</span> %s Out-of-Bounds <span class="pill-inspect">View ↗</span></button>', format(n_oob, big.mark = ",")))
+      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'out_of_bounds\')" title="Click to view images with out-of-bounds coordinates"><span>\u26a0\ufe0f</span> %s Out-of-Bounds <span class="pill-inspect">View \u2197</span></button>', format(n_oob, big.mark = ",")))
     }
     if (n_zero > 0L) {
-      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'zero_area\')" title="Click to view images with zero-area boxes"><span>🚫</span> %s Zero-Area <span class="pill-inspect">View ↗</span></button>', format(n_zero, big.mark = ",")))
+      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'zero_area\')" title="Click to view images with zero-area boxes"><span>\U0001f6ab</span> %s Zero-Area <span class="pill-inspect">View \u2197</span></button>', format(n_zero, big.mark = ",")))
     }
     if (n_inv_cid > 0L) {
-      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'invalid_class_id\')" title="Click to view images with invalid class IDs"><span>❓</span> %s Invalid Class IDs <span class="pill-inspect">View ↗</span></button>', format(n_inv_cid, big.mark = ",")))
+      pills <- c(pills, sprintf('<button type="button" class="anomaly-pill pill-danger pill-clickable" onclick="openAnomalyModal(\'invalid_class_id\')" title="Click to view images with invalid class IDs"><span>\u2753</span> %s Invalid Class IDs <span class="pill-inspect">View \u2197</span></button>', format(n_inv_cid, big.mark = ",")))
     }
   }
 
   inspect_btn <- if (has_any) {
-    '<button type="button" class="btn-action btn-inspect-all" onclick="openAnomalyModal(\'all\')" title="Open Interactive Anomaly Inspector"><span>🔍</span> Open Anomaly Inspector</button>'
+    '<button type="button" class="btn-action btn-inspect-all" onclick="openAnomalyModal(\'all\')" title="Open Interactive Anomaly Inspector"><span>\U0001f50d</span> Open Anomaly Inspector</button>'
   } else ""
 
   paste0(
@@ -1101,7 +1101,7 @@ yolo_report <- yolo_dataset_report
     spatial_html <- paste0(
       '<div class="content-card">',
       '  <div class="card-head-row">',
-      '    <h3 class="card-subtitle">📍 Spatial Object Location Heatmap (12×12)</h3>',
+      '    <h3 class="card-subtitle">\U0001f4cd Spatial Object Location Heatmap (12\u00d712)</h3>',
       '    <span class="info-badge" title="Normalized object center coordinates (xc, yc)">Normalized Center (xc, yc)</span>',
       '  </div>',
       '  <p class="chart-caption">Visualizes sensor & camera placement bias. Marginal distribution bars on Top (X axis) and Left (Y axis) reveal peripheral cropping, edge clustering, or center bias.</p>',
@@ -1175,18 +1175,18 @@ yolo_report <- yolo_dataset_report
     dim_html <- paste0(
       '<div class="content-card">',
       '  <div class="card-head-row">',
-      '    <h3 class="card-subtitle">📐 Bounding Box Geometry & Aspect Ratio</h3>',
-      '    <span class="info-badge" title="Width vs Height normalized dimensions with 1:1 aspect ratio diagonal">Width × Height</span>',
+      '    <h3 class="card-subtitle">\U0001f4d0 Bounding Box Geometry & Aspect Ratio</h3>',
+      '    <span class="info-badge" title="Width vs Height normalized dimensions with 1:1 aspect ratio diagonal">Width \u00d7 Height</span>',
       '  </div>',
       '  <p class="chart-caption">Normalized Width (X) vs Height (Y). The dashed diagonal marks 1:1 aspect ratio (square). Points above diagonal are tall/portrait; points below are wide/landscape.</p>',
       '  <div class="dim-heatmap-container">',
-      '    <div class="dim-y-axis-label">Height (norm) →</div>',
+      '    <div class="dim-y-axis-label">Height (norm) \u2192</div>',
       '    <div class="dim-heatmap-inner">',
       '      <div class="heatmap-grid-10x10">',
       '        <div class="diagonal-reference-line" title="1:1 Aspect Ratio (Square Objects)"></div>',
       paste(d_cells, collapse = ""),
       '      </div>',
-      '      <div class="dim-x-axis-label">Width (norm) →</div>',
+      '      <div class="dim-x-axis-label">Width (norm) \u2192</div>',
       '    </div>',
       '  </div>',
       '  <div style="margin-top: 1.25rem;">',
@@ -1259,7 +1259,7 @@ yolo_report <- yolo_dataset_report
     '<section class="section-block" id="cooccurrence">\n',
     '  <div class="section-header">\n',
     '    <div>\n',
-    '      <h2 class="section-title">🔗 Multi-Class Co-occurrence Matrix</h2>\n',
+    '      <h2 class="section-title">\U0001f517 Multi-Class Co-occurrence Matrix</h2>\n',
     '      <p class="section-desc">Pairwise frequencies showing how often classes appear together in the same image. Diagonal represents total images containing that class.</p>\n',
     '    </div>\n',
     '  </div>\n',
@@ -1390,8 +1390,8 @@ preds <- yolo_predict(
     '<section class="section-block" id="advisor">\n',
     '  <div class="section-header">\n',
     '    <div>\n',
-    '      <h2 class="section-title">🧠 AI & Training Hyperparameter Advisor</h2>\n',
-    '      <p class="section-desc">Data-driven hyperparameter configurations derived from this dataset’s resolution, object scale distribution, and peak density.</p>\n',
+    '      <h2 class="section-title">\U0001f9e0 AI & Training Hyperparameter Advisor</h2>\n',
+    '      <p class="section-desc">Data-driven hyperparameter configurations derived from this dataset\u2019s resolution, object scale distribution, and peak density.</p>\n',
     '    </div>\n',
     '  </div>\n',
     '  <div class="advisor-grid">\n',
@@ -1418,8 +1418,8 @@ preds <- yolo_predict(
     '  </div>\n',
     '  <div class="code-snippet-card">\n',
     '    <div class="code-snippet-header">\n',
-    '      <div class="snippet-title"><span>🚀 Ready-to-Execute R Training Script</span></div>\n',
-    '      <button class="btn-copy" onclick="copyTrainingCode(this)" title="Copy script to clipboard"><span>📋 Copy Script</span></button>\n',
+    '      <div class="snippet-title"><span>\U0001f680 Ready-to-Execute R Training Script</span></div>\n',
+    '      <button class="btn-copy" onclick="copyTrainingCode(this)" title="Copy script to clipboard"><span>\U0001f4cb Copy Script</span></button>\n',
     '    </div>\n',
     '    <pre class="code-snippet-body"><code id="training-code-block">', r_code_escaped, '</code></pre>\n',
     '  </div>\n',
@@ -2934,7 +2934,7 @@ preds <- yolo_predict(
       var cur = htmlEl.getAttribute("data-theme") || "dark";
       var next = cur === "dark" ? "light" : "dark";
       htmlEl.setAttribute("data-theme", next);
-      document.getElementById("theme-icon").textContent = next === "dark" ? "🌙" : "☀️";
+      document.getElementById("theme-icon").textContent = next === "dark" ? "\\u{1f319}" : "\\u{2600}\\u{fe0f}";
       document.getElementById("theme-text").textContent = next === "dark" ? "Dark" : "Light";
       try { localStorage.setItem("pliman_report_theme", next); } catch(e) {}
     }
@@ -3111,7 +3111,7 @@ preds <- yolo_predict(
 
     function showCopied(btn) {
       var orig = btn.innerHTML;
-      btn.innerHTML = "<span>✓ Copied!</span>";
+      btn.innerHTML = "<span>\\u{2713} Copied!</span>";
       btn.style.background = "var(--color-success)";
       setTimeout(function() {
         btn.innerHTML = orig;
@@ -3186,7 +3186,7 @@ preds <- yolo_predict(
         var savedTheme = localStorage.getItem("pliman_report_theme");
         if (savedTheme && (savedTheme === "dark" || savedTheme === "light")) {
           document.documentElement.setAttribute("data-theme", savedTheme);
-          document.getElementById("theme-icon").textContent = savedTheme === "dark" ? "🌙" : "☀️";
+          document.getElementById("theme-icon").textContent = savedTheme === "dark" ? "\\u{1f319}" : "\\u{2600}\\u{fe0f}";
           document.getElementById("theme-text").textContent = savedTheme === "dark" ? "Dark" : "Light";
         }
       } catch(e) {}
@@ -3325,8 +3325,8 @@ preds <- yolo_predict(
       }
 
       var dimStr = hidden.getAttribute("data-dim") || "";
-      if (dimStr.indexOf("×") !== -1) {
-        var parts = dimStr.split("×");
+      if (dimStr.indexOf("\\u{d7}") !== -1) {
+        var parts = dimStr.split("\\u{d7}");
         var w = parseFloat(parts[0]);
         var h = parseFloat(parts[1]);
         if (w > 0 && h > 0) {
@@ -3356,10 +3356,10 @@ preds <- yolo_predict(
           blurEl.style.display = "inline-block";
           if (isBlur) {
             blurEl.className = "meta-tag meta-blur-warning";
-            blurEl.textContent = "🌫️ Blurry (Laplacian Var: " + blurVal.toFixed(1) + ")";
+            blurEl.textContent = "\\u{1f32b}\\u{fe0f} Blurry (Laplacian Var: " + blurVal.toFixed(1) + ")";
           } else {
             blurEl.className = "meta-tag meta-blur-sharp";
-            blurEl.textContent = "⚡ Sharp (Laplacian Var: " + blurVal.toFixed(1) + ")";
+            blurEl.textContent = "\\u{26a1} Sharp (Laplacian Var: " + blurVal.toFixed(1) + ")";
           }
         } else {
           blurEl.style.display = "none";
@@ -3372,23 +3372,23 @@ preds <- yolo_predict(
         if (augStr) {
           var tags = augStr.split(/\\s+/);
           var augDefs = {
-            blur: { label: "Blur", icon: "🌫️" },
-            noise: { label: "Noise", icon: "⚡" },
-            rot: { label: "Rotate", icon: "🔄" },
-            persp: { label: "Perspective", icon: "📐" },
-            fliph: { label: "Flip H", icon: "↔️" },
-            flipv: { label: "Flip V", icon: "↕️" },
-            bright: { label: "Brightness", icon: "☀️" },
-            contrast: { label: "Contrast", icon: "🌓" },
-            cutout: { label: "Cutout", icon: "✂️" },
-            mosaic: { label: "Mosaic", icon: "🧩" },
-            synth_bg: { label: "Synthetic BG", icon: "🖼️" },
-            tile: { label: "Tiled", icon: "🪟" }
+            blur: { label: "Blur", icon: "\\u{1f32b}\\u{fe0f}" },
+            noise: { label: "Noise", icon: "\\u{26a1}" },
+            rot: { label: "Rotate", icon: "\\u{1f504}" },
+            persp: { label: "Perspective", icon: "\\u{1f4d0}" },
+            fliph: { label: "Flip H", icon: "\\u{2194}\\u{fe0f}" },
+            flipv: { label: "Flip V", icon: "\\u{2195}\\u{fe0f}" },
+            bright: { label: "Brightness", icon: "\\u{2600}\\u{fe0f}" },
+            contrast: { label: "Contrast", icon: "\\u{1f313}" },
+            cutout: { label: "Cutout", icon: "\\u{2702}\\u{fe0f}" },
+            mosaic: { label: "Mosaic", icon: "\\u{1f9e9}" },
+            synth_bg: { label: "Synthetic BG", icon: "\\u{1f5bc}\\u{fe0f}" },
+            tile: { label: "Tiled", icon: "\\u{1fa9f}" }
           };
           var augHtml = \'<span style="font-size:0.75rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-right:0.3rem; align-self:center;">Augmentations:</span>\';
           for (var k = 0; k < tags.length; k++) {
             var t = tags[k];
-            var d = augDefs[t] || { label: t, icon: "🏷️" };
+            var d = augDefs[t] || { label: t, icon: "\\u{1f3f7}\\u{fe0f}" };
             augHtml += \'<span class="card-aug-tag" style="font-size:0.75rem; padding:0.2rem 0.5rem;">\' + d.icon + \' \' + d.label + \'</span>\';
           }
           lbAugContainer.innerHTML = augHtml;
@@ -3408,7 +3408,7 @@ preds <- yolo_predict(
 
       if (anomContainer) {
         if (anomData.length > 0) {
-          var anomHtml = \'<div class="lightbox-anomaly-box"><strong>⚠️ Detected Integrity Issues:</strong><ul>\';
+          var anomHtml = \'<div class="lightbox-anomaly-box"><strong>\\u{26a0}\\u{fe0f} Detected Integrity Issues:</strong><ul>\';
           for (var a = 0; a < anomData.length; a++) {
             anomHtml += \'<li><strong>\' + (anomData[a].type_label || anomData[a].type) + \':</strong> \' + anomData[a].detail + \'</li>\';
           }
@@ -3501,7 +3501,7 @@ preds <- yolo_predict(
           if (a.thumb_uri) {
             thumbHtml = \'<img src="\' + a.thumb_uri + \'" class="anomaly-thumb" onclick="openLightboxByStem(\\\'\' + a.stem + \'\\\')" title="Click to view in Lightbox" />\';
           } else {
-            thumbHtml = \'<div class="anomaly-thumb-placeholder" onclick="openLightboxByStem(\\\'\' + a.stem + \'\\\')" title="Click to view">🖼️</div>\';
+            thumbHtml = \'<div class="anomaly-thumb-placeholder" onclick="openLightboxByStem(\\\'\' + a.stem + \'\\\')" title="Click to view">\\u{1f5bc}\\u{fe0f}</div>\';
           }
 
           var splitBadge = \'<span class="card-badge badge-split">\' + (a.split || "train").toUpperCase() + \'</span>\';
@@ -3513,7 +3513,7 @@ preds <- yolo_predict(
             \'<td>\' + splitBadge + \'</td>\' +
             \'<td>\' + typeBadge + \'</td>\' +
             \'<td><div class="anomaly-detail-text">\' + a.detail + \'</div></td>\' +
-            \'<td style="text-align: right;"><button type="button" class="btn-action" onclick="openLightboxByStem(\\\'\' + a.stem + \'\\\')" style="font-size:0.75rem; padding:0.25rem 0.6rem;">🔍 Lightbox</button></td>\' +
+            \'<td style="text-align: right;"><button type="button" class="btn-action" onclick="openLightboxByStem(\\\'\' + a.stem + \'\\\')" style="font-size:0.75rem; padding:0.25rem 0.6rem;">\\u{1f50d} Lightbox</button></td>\' +
             \'</tr>\';
           rows.push(tr);
         }
@@ -3591,28 +3591,28 @@ preds <- yolo_predict(
     '      </div>\n',
     '    </div>\n',
     '    <div>\n',
-    '      <div class="kpi-header"><span class="kpi-title">Health Score</span><span class="kpi-icon">🩺</span></div>\n',
+    '      <div class="kpi-header"><span class="kpi-title">Health Score</span><span class="kpi-icon">\U0001fa7a</span></div>\n',
     '      <div style="font-weight: 700; font-size: 1.05rem; margin-bottom: 0.2rem;">Grade ', h_grade, ' (', h_score, '/100)</div>\n',
-    '      <div class="kpi-subtitle">', health$n_pass, ' pass • ', health$n_info, ' info • ', health$n_warn, ' warn</div>\n',
+    '      <div class="kpi-subtitle">', health$n_pass, ' pass \u2022 ', health$n_info, ' info \u2022 ', health$n_warn, ' warn</div>\n',
     '    </div>\n',
     '  </div>\n',
     '  <div class="kpi-card card-glow">\n',
-    '    <div class="kpi-header"><span class="kpi-title">Total Images</span><span class="kpi-icon">🖼️</span></div>\n',
+    '    <div class="kpi-header"><span class="kpi-title">Total Images</span><span class="kpi-icon">\U0001f5bc\ufe0f</span></div>\n',
     '    <div class="kpi-value">', tot_imgs, '</div>\n',
-    '    <div class="kpi-subtitle">', disk_mb, ' MB on disk <span class="dot-sep">•</span> ~', avg_kb, ' KB/img</div>\n',
+    '    <div class="kpi-subtitle">', disk_mb, ' MB on disk <span class="dot-sep">\u2022</span> ~', avg_kb, ' KB/img</div>\n',
     '  </div>\n',
     '  <div class="kpi-card card-glow">\n',
-    '    <div class="kpi-header"><span class="kpi-title">Total Objects</span><span class="kpi-icon">🎯</span></div>\n',
+    '    <div class="kpi-header"><span class="kpi-title">Total Objects</span><span class="kpi-icon">\U0001f3af</span></div>\n',
     '    <div class="kpi-value">', tot_objs, '</div>\n',
-    '    <div class="kpi-subtitle">Mean ', desc$mean_density %||% 0, ' obj/img <span class="dot-sep">•</span> Max ', desc$max_density %||% 0, '</div>\n',
+    '    <div class="kpi-subtitle">Mean ', desc$mean_density %||% 0, ' obj/img <span class="dot-sep">\u2022</span> Max ', desc$max_density %||% 0, '</div>\n',
     '  </div>\n',
     '  <div class="kpi-card card-glow">\n',
-    '    <div class="kpi-header"><span class="kpi-title">Original vs Generated</span><span class="kpi-icon">🧬</span></div>\n',
+    '    <div class="kpi-header"><span class="kpi-title">Original vs Generated</span><span class="kpi-icon">\U0001f9ec</span></div>\n',
     '    <div class="kpi-value">', pct_orig, '% <span class="kpi-val-sub">orig</span></div>\n',
-    '    <div class="kpi-subtitle">', tot_orig, ' orig <span class="dot-sep">•</span> ', tot_aug, ' aug <span class="dot-sep">•</span> ', tot_synth, ' synth</div>\n',
+    '    <div class="kpi-subtitle">', tot_orig, ' orig <span class="dot-sep">\u2022</span> ', tot_aug, ' aug <span class="dot-sep">\u2022</span> ', tot_synth, ' synth</div>\n',
     '  </div>\n',
     '  <div class="kpi-card card-glow">\n',
-    '    <div class="kpi-header"><span class="kpi-title">Classes & Balance</span><span class="kpi-icon">⚖️</span></div>\n',
+    '    <div class="kpi-header"><span class="kpi-title">Classes & Balance</span><span class="kpi-icon">\u2696\ufe0f</span></div>\n',
     '    <div class="kpi-value">', length(desc$classes), ' <span class="kpi-val-sub">classes</span></div>\n',
     '    <div class="kpi-subtitle">Imbalance: ', sprintf("%.1fx", imb_val), ' (', imb_label, ')</div>\n',
     '  </div>\n',
@@ -3638,10 +3638,10 @@ preds <- yolo_predict(
     '    <div class="prov-seg prov-tile" style="width: ', pct_p_tile, '%" title="Tiled: ', tot_tile, ' (', pct_p_tile, '%)"></div>\n',
     '  </div>\n',
     '  <div class="prov-legend">\n',
-    '    <span class="legend-item"><span class="legend-color prov-orig-bg"></span> Original (', tot_orig, ' • ', pct_p_orig, '%)</span>\n',
-    '    <span class="legend-item"><span class="legend-color prov-aug-bg"></span> Augmented (', tot_aug, ' • ', pct_p_aug, '%)</span>\n',
-    '    <span class="legend-item"><span class="legend-color prov-synth-bg"></span> Synthetic BG (', tot_synth, ' • ', pct_p_synth, '%)</span>\n',
-    '    <span class="legend-item"><span class="legend-color prov-tile-bg"></span> Tiled (', tot_tile, ' • ', pct_p_tile, '%)</span>\n',
+    '    <span class="legend-item"><span class="legend-color prov-orig-bg"></span> Original (', tot_orig, ' \u2022 ', pct_p_orig, '%)</span>\n',
+    '    <span class="legend-item"><span class="legend-color prov-aug-bg"></span> Augmented (', tot_aug, ' \u2022 ', pct_p_aug, '%)</span>\n',
+    '    <span class="legend-item"><span class="legend-color prov-synth-bg"></span> Synthetic BG (', tot_synth, ' \u2022 ', pct_p_synth, '%)</span>\n',
+    '    <span class="legend-item"><span class="legend-color prov-tile-bg"></span> Tiled (', tot_tile, ' \u2022 ', pct_p_tile, '%)</span>\n',
     '  </div>\n',
     '</div>\n'
   )
@@ -3859,9 +3859,9 @@ preds <- yolo_predict(
     paste0(
       '        <div class="gallery-toolbar-aug" id="gallery-aug-toolbar">\n',
       '          <div class="aug-toolbar-header">\n',
-      '            <span class="aug-toolbar-label">🧪 Augmentation Filters:</span>\n',
+      '            <span class="aug-toolbar-label">\U0001f9ea Augmentation Filters:</span>\n',
       '            <span class="aug-toolbar-desc">(Click pills to combine filters with AND, e.g. Blur + Noise)</span>\n',
-      '            <button type="button" class="aug-clear-btn" id="aug-clear-btn" onclick="clearAugFilters()" style="display:none;">✕ Clear Augmentation Filters</button>\n',
+      '            <button type="button" class="aug-clear-btn" id="aug-clear-btn" onclick="clearAugFilters()" style="display:none;">\u2715 Clear Augmentation Filters</button>\n',
       '          </div>\n',
       '          <div class="aug-pills-container">\n',
       '            ', paste(aug_pills_html, collapse = "\n            "), '\n',
@@ -3886,21 +3886,21 @@ preds <- yolo_predict(
     anom_json_safe <- gsub("'", "&#39;", gsub('"', "&quot;", anom_json))
 
     anomaly_badge_html <- if (isTRUE(c$has_anomaly)) {
-      sprintf('<span class="card-badge badge-anomaly" title="%s">⚠️ ANOMALY</span>', c$anomaly_summary)
+      sprintf('<span class="card-badge badge-anomaly" title="%s">\u26a0\ufe0f ANOMALY</span>', c$anomaly_summary)
     } else ""
 
     blur_score_val <- if (!is.null(c$blur_score) && !is.na(c$blur_score)) as.numeric(c$blur_score) else -1
     is_blurry_val <- isTRUE(c$is_blurry)
 
     blur_badge_html <- if (is_blurry_val) {
-      sprintf('<span class="card-badge badge-blur" title="Blur score (Laplacian var: %.1f < %.1f)">🌫️ BLUR</span>', blur_score_val, blur_threshold)
+      sprintf('<span class="card-badge badge-blur" title="Blur score (Laplacian var: %.1f < %.1f)">\U0001f32b\ufe0f BLUR</span>', blur_score_val, blur_threshold)
     } else ""
 
     blur_meta_html <- if (blur_score_val >= 0) {
       if (is_blurry_val) {
-        sprintf('<span class="meta-tag meta-blur-warning" title="Laplacian Var: %.1f (Low Sharpness)">🌫️ %.0f</span>', blur_score_val, blur_score_val)
+        sprintf('<span class="meta-tag meta-blur-warning" title="Laplacian Var: %.1f (Low Sharpness)">\U0001f32b\ufe0f %.0f</span>', blur_score_val, blur_score_val)
       } else {
-        sprintf('<span class="meta-tag meta-blur-sharp" title="Laplacian Var: %.1f (Sharp)">⚡ %.0f</span>', blur_score_val, blur_score_val)
+        sprintf('<span class="meta-tag meta-blur-sharp" title="Laplacian Var: %.1f (Sharp)">\u26a1 %.0f</span>', blur_score_val, blur_score_val)
       }
     } else ""
 
@@ -3933,13 +3933,13 @@ preds <- yolo_predict(
       <div class="card-footer">
         <div class="card-stem" title="%s">%s</div>
         <div class="card-meta">
-          <span class="meta-tag">%d×%d</span>
+          <span class="meta-tag">%d\u00d7%d</span>
           <span class="meta-tag obj-tag">%d obj%s</span>
           %s
           %s
         </div>
       </div>
-      <div class="hidden-card-data" style="display:none;" data-stem="%s" data-split="%s" data-category="%s" data-dim="%d×%d" data-objects="%s" data-anomalies="%s" data-blur="%.1f" data-is-blurry="%s" data-aug-tags="%s"></div>
+      <div class="hidden-card-data" style="display:none;" data-stem="%s" data-split="%s" data-category="%s" data-dim="%d\u00d7%d" data-objects="%s" data-anomalies="%s" data-blur="%.1f" data-is-blurry="%s" data-aug-tags="%s"></div>
     </div>
     ',
       c$category_slug,
@@ -3983,7 +3983,7 @@ preds <- yolo_predict(
   for (h in health$items) {
     status_cls <- paste0("health-", h$status)
     badge_cls <- paste0("badge-health-", h$status)
-    icon <- switch(h$status, pass = "✓", warning = "!", info = "i", "•")
+    icon <- switch(h$status, pass = "\u2713", warning = "!", info = "i", "\u2022")
     act_html <- if (!is.null(h$action_html) && nzchar(h$action_html)) h$action_html else ""
 
     health_items_html <- c(health_items_html, sprintf('
@@ -4080,16 +4080,16 @@ preds <- yolo_predict(
     '    </ul>\n',
     '    <div class="nav-actions">\n',
     '      <button class="btn-action" onclick="openAnomalyModal(\'all\')" title="Inspect Dataset Anomalies">\n',
-    '        <span>🔍</span> Anomaly Inspector\n',
+    '        <span>\U0001f50d</span> Anomaly Inspector\n',
     '      </button>\n',
     '      <button class="btn-action" onclick="exportAuditJSON()" title="Export JSON Audit Report">\n',
-    '        <span>📥</span> JSON Audit\n',
+    '        <span>\U0001f4e5</span> JSON Audit\n',
     '      </button>\n',
     '      <button class="btn-action" onclick="toggleTheme()" title="Toggle Theme">\n',
-    '        <span id="theme-icon">', if (theme == "dark") "🌙" else "☀️", '</span> <span id="theme-text">', if (theme == "dark") "Dark" else "Light", '</span>\n',
+    '        <span id="theme-icon">', if (theme == "dark") "\U0001f319" else "\u2600\ufe0f", '</span> <span id="theme-text">', if (theme == "dark") "Dark" else "Light", '</span>\n',
     '      </button>\n',
     '      <button class="btn-action" onclick="window.print()" title="Print or Export to PDF">\n',
-    '        <span>🖨️</span> Print\n',
+    '        <span>\U0001f5a8\ufe0f</span> Print\n',
     '      </button>\n',
     '    </div>\n',
     '  </nav>\n\n',
@@ -4098,8 +4098,8 @@ preds <- yolo_predict(
     '      <h1 class="dataset-title">', title, '</h1>\n',
     '      <div class="dataset-meta">\n',
     '        <span class="badge-task ', task_badge_class, '">', task_badge, '</span>\n',
-    '        <span>📁 <code>', desc$dir %||% "Dataset", '</code></span>\n',
-    '        <span>🕒 Generated on ', generation_timestamp, '</span>\n',
+    '        <span>\U0001f4c1 <code>', desc$dir %||% "Dataset", '</code></span>\n',
+    '        <span>\U0001f552 Generated on ', generation_timestamp, '</span>\n',
     '      </div>\n',
     '    </header>\n\n',
     '    ', kpi_html, '\n',
@@ -4107,7 +4107,7 @@ preds <- yolo_predict(
     '    <section class="section-block" id="provenance">\n',
     '      <div class="section-header">\n',
     '        <div>\n',
-    '          <h2 class="section-title">🧬 Dataset Provenance & Augmentation</h2>\n',
+    '          <h2 class="section-title">\U0001f9ec Dataset Provenance & Augmentation</h2>\n',
     '          <p class="section-desc">Composition of original ground-truth images, offline augmentations, synthetic backgrounds, and tiled crops.</p>\n',
     '        </div>\n',
     '      </div>\n',
@@ -4117,7 +4117,7 @@ preds <- yolo_predict(
     '    <section class="section-block" id="splits">\n',
     '      <div class="section-header">\n',
     '        <div>\n',
-    '          <h2 class="section-title">⚖️ Splits Allocation & Class Balance</h2>\n',
+    '          <h2 class="section-title">\u2696\ufe0f Splits Allocation & Class Balance</h2>\n',
     '          <p class="section-desc">Sample distribution across training, validation, and test partitions alongside per-class frequency.</p>\n',
     '        </div>\n',
     '      </div>\n',
@@ -4133,7 +4133,7 @@ preds <- yolo_predict(
     '    <section class="section-block" id="geometry">\n',
     '      <div class="section-header">\n',
     '        <div>\n',
-    '          <h2 class="section-title">🗺️ Spatial Distribution & Bounding Box Geometry</h2>\n',
+    '          <h2 class="section-title">\U0001f5fa\ufe0f Spatial Distribution & Bounding Box Geometry</h2>\n',
     '          <p class="section-desc">Two-dimensional spatial density profiling across normalized image coordinates alongside aspect ratio classifications.</p>\n',
     '        </div>\n',
     '      </div>\n',
@@ -4144,7 +4144,7 @@ preds <- yolo_predict(
     '    <section class="section-block" id="gallery">\n',
     '      <div class="section-header">\n',
     '        <div>\n',
-    '          <h2 class="section-title">🖼️ Interactive Annotated Image Gallery</h2>\n',
+    '          <h2 class="section-title">\U0001f5bc\ufe0f Interactive Annotated Image Gallery</h2>\n',
     '          <p class="section-desc">Pixel-accurate SVG overlays for sample images across each provenance category and splits (train, val, test) with live search and anomaly filtering.</p>\n',
     '        </div>\n',
     '      </div>\n',
@@ -4157,14 +4157,14 @@ preds <- yolo_predict(
     '            <button class="tab-btn" data-category="synthetic_bg" onclick="filterGallery(\'synthetic_bg\', this)">Synthetic BG</button>\n',
     '            <button class="tab-btn" data-category="tiled" onclick="filterGallery(\'tiled\', this)">Tiled</button>\n',
     '            <button class="tab-btn" data-category="background" onclick="filterGallery(\'background\', this)">Negative / BG</button>\n',
-    '            <button class="tab-btn" data-category="blurry" id="tab-blurry-btn" onclick="filterGallery(\'blurry\', this)" style="border-color: rgba(244, 63, 94, 0.4); color: #f43f5e;">🌫️ Blurry (<span id="gallery-blurry-count">0</span>)</button>\n',
-    '            <button class="tab-btn" data-category="anomaly" onclick="filterGallery(\'anomaly\', this)" style="border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">⚠️ Anomalies (<span id="gallery-anom-count">0</span>)</button>\n',
+    '            <button class="tab-btn" data-category="blurry" id="tab-blurry-btn" onclick="filterGallery(\'blurry\', this)" style="border-color: rgba(244, 63, 94, 0.4); color: #f43f5e;">\U0001f32b\ufe0f Blurry (<span id="gallery-blurry-count">0</span>)</button>\n',
+    '            <button class="tab-btn" data-category="anomaly" onclick="filterGallery(\'anomaly\', this)" style="border-color: rgba(245, 158, 11, 0.4); color: #fbbf24;">\u26a0\ufe0f Anomalies (<span id="gallery-anom-count">0</span>)</button>\n',
     '          </div>\n',
     '          <span class="gallery-count-badge" id="gallery-count-badge">', length(cards), ' shown</span>\n',
     '        </div>\n',
     '        <div class="gallery-toolbar-bottom">\n',
     '          <div class="gallery-filter-group">\n',
-    '            <input type="text" id="gallery-search" class="gallery-search-input" placeholder="🔍 Search image stem..." oninput="filterGalleryCombined()" />\n',
+    '            <input type="text" id="gallery-search" class="gallery-search-input" placeholder="\U0001f50d Search image stem..." oninput="filterGalleryCombined()" />\n',
     '            <select id="gallery-split-select" class="gallery-select" onchange="filterGalleryCombined()">\n',
     '              <option value="all">All Splits</option>\n',
     '              <option value="train">Train Split</option>\n',
@@ -4210,7 +4210,7 @@ preds <- yolo_predict(
     '    <section class="section-block" id="health">\n',
     '      <div class="section-header">\n',
     '        <div>\n',
-    '          <h2 class="section-title">🩺 Automated Dataset Health Audit</h2>\n',
+    '          <h2 class="section-title">\U0001fa7a Automated Dataset Health Audit</h2>\n',
     '          <p class="section-desc">Comprehensive diagnostic based on computer vision and YOLO best practices for model convergence and false-positive prevention.</p>\n',
     '        </div>\n',
     '      </div>\n',
@@ -4219,7 +4219,7 @@ preds <- yolo_predict(
     '      </div>\n',
     '    </section>\n\n',
     '    <footer class="report-footer">\n',
-    '      <div>Generated with <strong>pliman ', pliman_ver, '</strong> • Automated YOLO Vision Pipeline</div>\n',
+    '      <div>Generated with <strong>pliman ', pliman_ver, '</strong> \u2022 Automated YOLO Vision Pipeline</div>\n',
     '      <div>', generation_timestamp, '</div>\n',
     '    </footer>\n',
     '  </div>\n\n',
@@ -4246,23 +4246,23 @@ preds <- yolo_predict(
     '        <div id="lightboxAugTags" style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:1rem;"></div>\n',
     '        <div class="lightbox-overlay-controls">\n',
     '          <div class="lightbox-controls-title">\n',
-    '            <span>👁️ Overlay Controls</span>\n',
-    '            <span class="lb-keys-hint">Shortcuts: <b>B</b> Box • <b>L</b> Label • <b>F</b> Fill</span>\n',
+    '            <span>\U0001f441\ufe0f Overlay Controls</span>\n',
+    '            <span class="lb-keys-hint">Shortcuts: <b>B</b> Box \u2022 <b>L</b> Label \u2022 <b>F</b> Fill</span>\n',
     '          </div>\n',
     '          <div class="lightbox-toggle-group">\n',
     '            <label class="lb-control-pill active" id="lb-pill-bboxes" title="Toggle Bounding Boxes & Masks (Shortcut: B)">\n',
     '              <input type="checkbox" id="lb-chk-bboxes" checked onchange="setOverlayState(\'hide-bboxes\', !this.checked)" />\n',
-    '              <span class="lb-pill-icon">🔲</span>\n',
+    '              <span class="lb-pill-icon">\U0001f532</span>\n',
     '              <span class="lb-pill-text">Box / Mask</span>\n',
     '            </label>\n',
     '            <label class="lb-control-pill active" id="lb-pill-labels" title="Toggle Class Labels (Shortcut: L)">\n',
     '              <input type="checkbox" id="lb-chk-labels" checked onchange="setOverlayState(\'hide-labels\', !this.checked)" />\n',
-    '              <span class="lb-pill-icon">🏷️</span>\n',
+    '              <span class="lb-pill-icon">\U0001f3f7\ufe0f</span>\n',
     '              <span class="lb-pill-text">Labels</span>\n',
     '            </label>\n',
     '            <label class="lb-control-pill active" id="lb-pill-fills" title="Toggle Shaded Fill (Shortcut: F)">\n',
     '              <input type="checkbox" id="lb-chk-fills" checked onchange="setOverlayState(\'hide-fills\', !this.checked)" />\n',
-    '              <span class="lb-pill-icon">🎨</span>\n',
+    '              <span class="lb-pill-icon">\U0001f3a8</span>\n',
     '              <span class="lb-pill-text">Shaded Fill</span>\n',
     '            </label>\n',
     '          </div>\n',
@@ -4285,7 +4285,7 @@ preds <- yolo_predict(
     '    <div class="anomaly-modal-content">\n',
     '      <button class="lightbox-close" onclick="closeAnomalyModal()">&times;</button>\n',
     '      <div class="anomaly-modal-header">\n',
-    '        <h2 class="anomaly-modal-title">🔍 Dataset Anomaly & Integrity Inspector <span id="anomalyModalCount" style="font-size:1rem; font-weight:500; color:var(--text-muted);"></span></h2>\n',
+    '        <h2 class="anomaly-modal-title">\U0001f50d Dataset Anomaly & Integrity Inspector <span id="anomalyModalCount" style="font-size:1rem; font-weight:500; color:var(--text-muted);"></span></h2>\n',
     '        <p class="anomaly-modal-desc">Inspect exact images and bounding box annotations causing integrity warnings. Click thumbnail or "Lightbox" button to inspect annotations full-screen.</p>\n',
     '        <div class="anomaly-filter-tabs" id="anomalyFilterTabs">\n',
     '          <button type="button" class="tab-btn active" data-type="all" onclick="filterAnomalyTable(\'all\', this)">All Anomalies</button>\n',
@@ -4296,7 +4296,7 @@ preds <- yolo_predict(
     '          <button type="button" class="tab-btn" data-type="zero_area" onclick="filterAnomalyTable(\'zero_area\', this)">Zero Area</button>\n',
     '        </div>\n',
     '        <div style="margin-top: 0.5rem;">\n',
-    '          <input type="text" id="anomalySearchInput" class="gallery-search-input" placeholder="🔍 Search anomaly by image stem..." oninput="renderAnomalyTable()" style="width: 100%; max-width: 320px;" />\n',
+    '          <input type="text" id="anomalySearchInput" class="gallery-search-input" placeholder="\U0001f50d Search anomaly by image stem..." oninput="renderAnomalyTable()" style="width: 100%; max-width: 320px;" />\n',
     '        </div>\n',
     '      </div>\n',
     '      <div class="anomaly-modal-body" style="flex:1; overflow-y:auto;">\n',

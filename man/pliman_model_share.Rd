@@ -207,7 +207,7 @@ and maintainer review. Once approved, the model is published!
 }
 }
 
-\section{What to Do (Boas Práticas / Do's)}{
+\section{What to Do (Boas Praticas / Do's)}{
 
 \itemize{
 \item \strong{Use clear snake_case names:} Name your model descriptively combining the target,

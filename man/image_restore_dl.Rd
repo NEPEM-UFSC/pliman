@@ -71,9 +71,9 @@ Nonlinear Activation Free Network removes optical and motion blur.
 \itemize{
 \item Guo, C., Li, C., Guo, J., Loy, C. C., Hou, J., Kwong, S., & Cong, R. (2020).
 Zero-reference deep curve estimation for low-light image enhancement.
-\emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 1780–1789.
+\emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 1780--1789.
 \item Chen, L., Chu, X., Zhang, X., & Sun, J. (2022).
 Simple baselines for image restoration.
-\emph{European Conference on Computer Vision (ECCV)}, 17–33.
+\emph{European Conference on Computer Vision (ECCV)}, 17--33.
 }
 }

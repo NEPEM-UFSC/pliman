@@ -931,6 +931,8 @@ frame_to_img <- function(video,
 #' @param count_line_orientation Orientation of the counting line when `count_line` is a single scalar:
 #'   either `"vertical"` (default) or `"horizontal"`. Can also be passed as `count_line_dir`.
 #' @param count_line_label Optional label displayed along the counting line (default `NULL`, no text).
+#' @param count_direction Character string specifying which crossing direction(s) trigger counting
+#'   when `count_line` is set: `"both"` (default), `"forward"`, or `"backward"`.
 #' @param roi Optional Region of Interest coordinates. Can be specified as a numeric vector of
 #'   length 2 `c(min, max)` in relative coordinates (`0` to `1`) combined with `roi_orientation`
 #'   (e.g., `roi = c(0.2, 0.8), roi_orientation = "vertical"`), or legacy 4-element coordinates `c(xmin, ymin, xmax, ymax)`.
@@ -959,6 +961,17 @@ frame_to_img <- function(video,
 #' @param alpha Opacity/transparency of instance segmentation masks (default `0.4`, range `0` to `1`).
 #' @param saturation Numeric color saturation multiplier applied in-place via native C++ OpenMP fixed-point arithmetic (default `1.0`). Values `> 1.0` (e.g., `1.3` or `1.5`) boost vividness on flat/washed-out `.raw` or log-profile footage with zero FPS penalty.
 #' @param contrast Numeric contrast multiplier around midpoint luma applied in-place via native C++ OpenMP fixed-point arithmetic (default `1.0`). Values `> 1.0` (e.g., `1.2` or `1.4`) enhance dynamic range on flat footage with zero FPS penalty.
+#' @param heatmap Logical. Whether to render a cumulative spatial density heatmap overlay for detected objects. Defaults to `FALSE`.
+#' @param heatmap_alpha Numeric opacity in `[0, 1]` for the spatial density heatmap overlay. Defaults to `0.40`.
+#' @param heatmap_decay Numeric decay factor in `(0, 1]` controlling how quickly older detections fade from the heatmap per frame. Defaults to `0.98`.
+#' @param sahi Logical. Whether to enable SAHI (Slicing Aided Hyper Inference) tiled detection on each video frame for small/distant objects. Defaults to `FALSE`.
+#' @param slice_height Optional integer height of SAHI sliding window slices (in pixels). Defaults to `NULL` (auto-sized).
+#' @param slice_width Optional integer width of SAHI sliding window slices (in pixels). Defaults to `NULL` (auto-sized).
+#' @param overlap_ratio Numeric overlap fraction in `[0, 0.5)` between adjacent SAHI slices. Defaults to `0.2`.
+#' @param save_crops Logical. Whether to save cropped images of detected objects to disk. Defaults to `FALSE`.
+#' @param crops_dir Optional character directory path where cropped object images are saved when `save_crops = TRUE`. Defaults to `NULL`.
+#' @param start_time Optional numeric start timestamp (in seconds) from which to begin processing a video file. Defaults to `NULL`.
+#' @param end_time Optional numeric end timestamp (in seconds) at which to stop processing a video file. Defaults to `NULL`.
 #' @param show Logical. Whether to display the video feed with bounding boxes in real time.
 #'   Default is `interactive()`.
 #' @param show_fps Logical. Whether to overlay a real-time FPS and detection counter badge (default `TRUE`).
@@ -989,6 +1002,8 @@ frame_to_img <- function(video,
 #' @param device_id GPU device ID (default -1 for auto).
 #' @param threads Number of CPU threads (default 0 for auto-tuning).
 #' @param dir Directory where pre-trained models are stored (default `pliman_model_dir()`).
+#' @param imgsz Target input image resolution for YOLO inference (e.g., `640`, `960`, or `1024`).
+#'   If `NULL` (default), inferred automatically from the model or defaults to `640`.
 #' @param verbose Logical. Whether to show progress messages.
 #' @param ... Additional arguments passed to graphics plotting functions or aliases
 #'   (`camera`, `cam`, `device`, `infer`, `inference`, `save`, `return_df`, `return_detections`).
@@ -3464,11 +3479,12 @@ video_detect_dl <- function(video = 0,
             if (nrow(df_plot) > 0) {
               plot_colors <- palette_colors[keep_plot]
 
-              if (isTRUE(mask) && has_masks && exists("conts") && length(conts) > 0) {
+              conts_frame <- if (!is.null(raw_res$contours)) raw_res$contours else list()
+              if (isTRUE(mask) && has_masks && length(conts_frame) > 0L) {
                 for (kp_idx in which(keep_plot)) {
                   mid <- df_b$orig_idx[kp_idx]
-                  if (!is.na(mid) && mid <= length(conts) && !is.null(conts[[mid]]) && nrow(conts[[mid]]) >= 3) {
-                    graphics::polygon(conts[[mid]][, 1], conts[[mid]][, 2],
+                  if (!is.na(mid) && mid <= length(conts_frame) && !is.null(conts_frame[[mid]]) && nrow(conts_frame[[mid]]) >= 3) {
+                    graphics::polygon(conts_frame[[mid]][, 1], conts_frame[[mid]][, 2],
                                       col = grDevices::adjustcolor(palette_colors[kp_idx], alpha.f = alpha),
                                       border = NA)
                   }

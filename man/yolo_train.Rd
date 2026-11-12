@@ -95,6 +95,10 @@ to be saved in real time, and the resulting model object is automatically saved 
 
 \item{plots}{Logical. If \code{FALSE} (default), suppresses generation of low-resolution matplotlib raster image files from YOLO; native vector plots are generated directly in R from exported CSV data.}
 
+\item{verbose}{Logical. Whether to display informative CLI messages during training and export. Defaults to \code{TRUE}.}
+
+\item{progress}{Optional logical or \code{NULL}. Whether to display a live progress indicator during training (defaults to \code{NULL}, following interactive/verbose defaults).}
+
 \item{workers}{Number of worker threads for data loading. Defaults to \code{0} on Windows and \code{4} on Linux/macOS.}
 
 \item{auto_install}{Logical. If \code{TRUE}, automatically installs missing dependencies via \code{pip}. Defaults to \code{TRUE}.}

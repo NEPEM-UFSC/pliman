@@ -36,7 +36,6 @@
 #' @param classes Optional character or numeric vector of class names or IDs to evaluate. If `NULL` (default),
 #'   all classes present in the dataset are evaluated.
 #' @param parallel Logical. Whether to run batch inference in parallel using [mirai]. Defaults to `FALSE`.
-#' @param workers Optional integer. Number of parallel worker processes. Default `NULL` (auto-selected).
 #' @param verbose Logical. Whether to show progress bars, timing, and formatted CLI summaries. Defaults to `TRUE`.
 #' @param ... Additional arguments passed to [image_detect_dl_batch()] or [image_segment_dl_batch()].
 #'

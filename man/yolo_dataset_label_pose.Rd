@@ -120,6 +120,10 @@ and \code{skeleton} in \code{data.yaml}.}
 
 \item{backup}{Logical. If \code{TRUE} (default), creates a backup (\verb{<name>.txt.bak}) before saving modifications.}
 
+\item{split_data}{Logical. If \code{TRUE}, splits the annotated images and labels into train/val/test subfolders after labeling according to \code{split_ratio}. Defaults to \code{FALSE}.}
+
+\item{split_ratio}{Named numeric vector of proportions for train, val, and test splits when \code{split_data = TRUE}. Defaults to \code{c(train = 0.70, val = 0.20, test = 0.10)}.}
+
 \item{rainbow}{Logical. If \code{TRUE} (default), assigns distinct, harmonious colors to each keypoint.}
 
 \item{pt_cex}{Numeric. Size of the keypoint circles in the plot (default: \code{1.8}).}
@@ -154,6 +158,11 @@ occluded (\code{v=1}), or absent/skipped (\code{v=0}) with instantaneous keyboar
 yolo_dataset_label_pose("wood_log", kpts = 2, kpt_names = c("end1", "end2"), box_mode = "auto")
 
 # Label plants with 4 keypoints (base, node1, node2, apex) using manual box + occlusion control
-yolo_dataset_label_pose("plants", kpts = 4, kpt_names = c("base", "n1", "n2", "apex"), box_mode = "manual")
+yolo_dataset_label_pose(
+  "plants",
+  kpts = 4,
+  kpt_names = c("base", "n1", "n2", "apex"),
+  box_mode = "manual"
+)
 }
 }
