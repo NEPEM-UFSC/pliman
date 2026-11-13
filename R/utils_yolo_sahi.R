@@ -340,6 +340,12 @@
 #' @param ... Additional arguments passed to [image_detect_dl()].
 #'
 #' @return A `data.frame` of global bounding boxes with attributes `image`, `counts`, and `summary`.
+#' @section Performance:
+#' For YOLO detection, pose and OBB models the slices (and the optional full-image pass)
+#' are cropped, letterboxed and inferred in a single C++ call, with the model resolved
+#' once. YOLO-World, classification models and `return_features = TRUE` use the
+#' per-slice [image_detect_dl()] path. The cost grows with the number of slices, which
+#' depends on `slice_height`, `slice_width` and the overlap ratios.
 #' @export
 #' @examplesIf interactive()
 #' library(pliman)
@@ -454,6 +460,30 @@ image_detect_sahi <- function(img,
   all_candidates <- list()
   raw_im <- if (isS4(im) && methods::.hasSlot(im, ".Data")) methods::slot(im, ".Data") else im
 
+  # Fast path: resolve the model once and run every slice (plus the optional full-image
+  # pass) inside a single C++ call (`run_yolo_tiles_cpp()`), instead of going through the
+  # complete `image_detect_dl()` pipeline once per slice. Falls back to the per-slice
+  # path for models/options it does not cover (YOLO-World, classification, features...).
+  fast_rt <- NULL
+  if (.sahi_fast_eligible(model, dots)) {
+    fast_rt <- tryCatch(
+      .resolve_yolo_runtime(
+        model,
+        dir = if (!is.null(dots$dir)) dots$dir else pliman_model_dir(),
+        labels = dots$labels,
+        imgsz = imgsz,
+        threads = if (!is.null(dots$threads)) dots$threads else 0,
+        engine = if (!is.null(dots$engine)) dots$engine[1] else "gpu",
+        device_id = if (!is.null(dots$device_id)) dots$device_id else -1
+      ),
+      error = function(e) NULL
+    )
+  }
+  if (!is.null(fast_rt)) {
+    cand <- .sahi_tiles_candidates(raw_im, grid, slice_w, slice_h, fast_rt,
+                                   conf_threshold, iou_threshold, full_image_inference)
+    if (!is.null(cand)) all_candidates[[1L]] <- cand
+  } else {
   # 1. Sliding window slice inference
   for (i in seq_len(n_slices)) {
     sx1 <- grid$x[i]
@@ -498,6 +528,9 @@ image_detect_sahi <- function(img,
     det$xmax <- det$xmax + sx1 - 1L
     det$ymin <- det$ymin + sy1 - 1L
     det$ymax <- det$ymax + sy1 - 1L
+    # centroids are reported in global image coordinates as well
+    if (!is.null(det$cx)) det$cx <- det$cx + sx1 - 1L
+    if (!is.null(det$cy)) det$cy <- det$cy + sy1 - 1L
     det$is_full <- FALSE
 
     all_candidates[[length(all_candidates) + 1L]] <- det
@@ -536,6 +569,7 @@ image_detect_sahi <- function(img,
         all_candidates[[length(all_candidates) + 1L]] <- full_det
       }
     }
+  }
   }
 
   if (length(all_candidates) == 0L) {
@@ -799,7 +833,9 @@ image_segment_sahi <- function(img,
   }
 
   all_candidates <- list()
-  all_contours <- list()
+  # Contours are collected per slice and flattened once (growing a list with c() on
+  # every slice copies it each time: O(n^2) in the number of instances).
+  contour_chunks <- vector("list", n_slices + 1L)
   raw_im <- if (isS4(im) && methods::.hasSlot(im, ".Data")) methods::slot(im, ".Data") else im
 
   for (i in seq_len(n_slices)) {
@@ -892,7 +928,7 @@ image_segment_sahi <- function(img,
 
     df_b$is_full <- FALSE
     all_candidates[[length(all_candidates) + 1L]] <- df_b
-    all_contours <- c(all_contours, shifted_c)
+    contour_chunks[[i]] <- shifted_c
   }
 
   # Optional full-image global pass
@@ -956,10 +992,13 @@ image_segment_sahi <- function(img,
         }
         f_df$is_full <- TRUE
         all_candidates[[length(all_candidates) + 1L]] <- f_df
-        all_contours <- c(all_contours, f_shifted_c)
+        contour_chunks[[n_slices + 1L]] <- f_shifted_c
       }
     }
   }
+
+  all_contours <- unlist(contour_chunks, recursive = FALSE)
+  if (is.null(all_contours)) all_contours <- list()
 
   if (length(all_candidates) == 0L) {
     if (isTRUE(verbose)) cli::cli_alert_warning("No objects segmented across all slices.")

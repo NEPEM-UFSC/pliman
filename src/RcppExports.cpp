@@ -1618,6 +1618,38 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// resize_roi_bilinear_cpp
+Rcpp::NumericMatrix resize_roi_bilinear_cpp(Rcpp::NumericMatrix mat, int out_w, int out_h, int x0, int y0, int rw, int rh);
+RcppExport SEXP _pliman_resize_roi_bilinear_cpp(SEXP matSEXP, SEXP out_wSEXP, SEXP out_hSEXP, SEXP x0SEXP, SEXP y0SEXP, SEXP rwSEXP, SEXP rhSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type mat(matSEXP);
+    Rcpp::traits::input_parameter< int >::type out_w(out_wSEXP);
+    Rcpp::traits::input_parameter< int >::type out_h(out_hSEXP);
+    Rcpp::traits::input_parameter< int >::type x0(x0SEXP);
+    Rcpp::traits::input_parameter< int >::type y0(y0SEXP);
+    Rcpp::traits::input_parameter< int >::type rw(rwSEXP);
+    Rcpp::traits::input_parameter< int >::type rh(rhSEXP);
+    rcpp_result_gen = Rcpp::wrap(resize_roi_bilinear_cpp(mat, out_w, out_h, x0, y0, rw, rh));
+    return rcpp_result_gen;
+END_RCPP
+}
+// preprocess_nchw_cpp
+Rcpp::NumericVector preprocess_nchw_cpp(SEXP mat, int target_size, Rcpp::NumericVector mean, Rcpp::NumericVector std_, bool letterbox);
+RcppExport SEXP _pliman_preprocess_nchw_cpp(SEXP matSEXP, SEXP target_sizeSEXP, SEXP meanSEXP, SEXP std_SEXP, SEXP letterboxSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type mat(matSEXP);
+    Rcpp::traits::input_parameter< int >::type target_size(target_sizeSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type mean(meanSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type std_(std_SEXP);
+    Rcpp::traits::input_parameter< bool >::type letterbox(letterboxSEXP);
+    rcpp_result_gen = Rcpp::wrap(preprocess_nchw_cpp(mat, target_size, mean, std_, letterbox));
+    return rcpp_result_gen;
+END_RCPP
+}
 // image_rotate_cpp
 SEXP image_rotate_cpp(SEXP img_sexp, double angle_deg, NumericVector bg_color);
 RcppExport SEXP _pliman_image_rotate_cpp(SEXP img_sexpSEXP, SEXP angle_degSEXP, SEXP bg_colorSEXP) {
@@ -2177,6 +2209,27 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// onnx_set_max_sessions_cpp
+int onnx_set_max_sessions_cpp(int n);
+RcppExport SEXP _pliman_onnx_set_max_sessions_cpp(SEXP nSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type n(nSEXP);
+    rcpp_result_gen = Rcpp::wrap(onnx_set_max_sessions_cpp(n));
+    return rcpp_result_gen;
+END_RCPP
+}
+// onnx_session_info_cpp
+Rcpp::DataFrame onnx_session_info_cpp();
+RcppExport SEXP _pliman_onnx_session_info_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(onnx_session_info_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
 // run_onnx_inference_cpp
 Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec, Rcpp::IntegerVector tensor_dims, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id);
 RcppExport SEXP _pliman_run_onnx_inference_cpp(SEXP tensor_vecSEXP, SEXP tensor_dimsSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
@@ -2372,8 +2425,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // run_yolo_cpp
-Rcpp::List run_yolo_cpp(SEXP tensor_vec, double orig_w, double orig_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, bool need_masks, bool return_features, Rcpp::Nullable<Rcpp::NumericVector> txt_feats, int target_size);
-RcppExport SEXP _pliman_run_yolo_cpp(SEXP tensor_vecSEXP, SEXP orig_wSEXP, SEXP orig_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP need_masksSEXP, SEXP return_featuresSEXP, SEXP txt_featsSEXP, SEXP target_sizeSEXP) {
+Rcpp::List run_yolo_cpp(SEXP tensor_vec, double orig_w, double orig_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, bool need_masks, bool return_features, Rcpp::Nullable<Rcpp::NumericVector> txt_feats, int target_size, int max_nms, int max_det);
+RcppExport SEXP _pliman_run_yolo_cpp(SEXP tensor_vecSEXP, SEXP orig_wSEXP, SEXP orig_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP need_masksSEXP, SEXP return_featuresSEXP, SEXP txt_featsSEXP, SEXP target_sizeSEXP, SEXP max_nmsSEXP, SEXP max_detSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -2391,7 +2444,36 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type return_features(return_featuresSEXP);
     Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericVector> >::type txt_feats(txt_featsSEXP);
     Rcpp::traits::input_parameter< int >::type target_size(target_sizeSEXP);
-    rcpp_result_gen = Rcpp::wrap(run_yolo_cpp(tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size));
+    Rcpp::traits::input_parameter< int >::type max_nms(max_nmsSEXP);
+    Rcpp::traits::input_parameter< int >::type max_det(max_detSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_yolo_cpp(tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size, max_nms, max_det));
+    return rcpp_result_gen;
+END_RCPP
+}
+// run_yolo_tiles_cpp
+Rcpp::List run_yolo_tiles_cpp(SEXP img, Rcpp::IntegerVector tile_x, Rcpp::IntegerVector tile_y, int tile_w, int tile_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, int target_size, bool include_full, int full_target_size, int max_nms, int max_det);
+RcppExport SEXP _pliman_run_yolo_tiles_cpp(SEXP imgSEXP, SEXP tile_xSEXP, SEXP tile_ySEXP, SEXP tile_wSEXP, SEXP tile_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP target_sizeSEXP, SEXP include_fullSEXP, SEXP full_target_sizeSEXP, SEXP max_nmsSEXP, SEXP max_detSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type tile_x(tile_xSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type tile_y(tile_ySEXP);
+    Rcpp::traits::input_parameter< int >::type tile_w(tile_wSEXP);
+    Rcpp::traits::input_parameter< int >::type tile_h(tile_hSEXP);
+    Rcpp::traits::input_parameter< double >::type conf_threshold(conf_thresholdSEXP);
+    Rcpp::traits::input_parameter< double >::type iou_threshold(iou_thresholdSEXP);
+    Rcpp::traits::input_parameter< std::string >::type model_path(model_pathSEXP);
+    Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
+    Rcpp::traits::input_parameter< int >::type num_threads(num_threadsSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_gpu(use_gpuSEXP);
+    Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
+    Rcpp::traits::input_parameter< int >::type target_size(target_sizeSEXP);
+    Rcpp::traits::input_parameter< bool >::type include_full(include_fullSEXP);
+    Rcpp::traits::input_parameter< int >::type full_target_size(full_target_sizeSEXP);
+    Rcpp::traits::input_parameter< int >::type max_nms(max_nmsSEXP);
+    Rcpp::traits::input_parameter< int >::type max_det(max_detSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_yolo_tiles_cpp(img, tile_x, tile_y, tile_w, tile_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, target_size, include_full, full_target_size, max_nms, max_det));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -2777,6 +2859,119 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// tracker_create_cpp
+SEXP tracker_create_cpp();
+RcppExport SEXP _pliman_tracker_create_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(tracker_create_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
+// tracker_update_cpp
+Rcpp::List tracker_update_cpp(SEXP tracker, Rcpp::NumericVector xmin, Rcpp::NumericVector ymin, Rcpp::NumericVector xmax, Rcpp::NumericVector ymax, Rcpp::CharacterVector labels, Rcpp::NumericVector scores, Rcpp::Nullable<Rcpp::NumericVector> count_line, Rcpp::Nullable<Rcpp::NumericVector> roi, double max_dist, double min_iou, int max_lost, int max_history, double current_time, int frame_w, int frame_h, Rcpp::Nullable<Rcpp::IntegerVector> class_ids, Rcpp::Nullable<Rcpp::IntegerVector> mask_ids, bool interpolate_box, bool interpolate_mask, int min_hits);
+RcppExport SEXP _pliman_tracker_update_cpp(SEXP trackerSEXP, SEXP xminSEXP, SEXP yminSEXP, SEXP xmaxSEXP, SEXP ymaxSEXP, SEXP labelsSEXP, SEXP scoresSEXP, SEXP count_lineSEXP, SEXP roiSEXP, SEXP max_distSEXP, SEXP min_iouSEXP, SEXP max_lostSEXP, SEXP max_historySEXP, SEXP current_timeSEXP, SEXP frame_wSEXP, SEXP frame_hSEXP, SEXP class_idsSEXP, SEXP mask_idsSEXP, SEXP interpolate_boxSEXP, SEXP interpolate_maskSEXP, SEXP min_hitsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type tracker(trackerSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type xmin(xminSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type ymin(yminSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type xmax(xmaxSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type ymax(ymaxSEXP);
+    Rcpp::traits::input_parameter< Rcpp::CharacterVector >::type labels(labelsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type scores(scoresSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericVector> >::type count_line(count_lineSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::NumericVector> >::type roi(roiSEXP);
+    Rcpp::traits::input_parameter< double >::type max_dist(max_distSEXP);
+    Rcpp::traits::input_parameter< double >::type min_iou(min_iouSEXP);
+    Rcpp::traits::input_parameter< int >::type max_lost(max_lostSEXP);
+    Rcpp::traits::input_parameter< int >::type max_history(max_historySEXP);
+    Rcpp::traits::input_parameter< double >::type current_time(current_timeSEXP);
+    Rcpp::traits::input_parameter< int >::type frame_w(frame_wSEXP);
+    Rcpp::traits::input_parameter< int >::type frame_h(frame_hSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::IntegerVector> >::type class_ids(class_idsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::IntegerVector> >::type mask_ids(mask_idsSEXP);
+    Rcpp::traits::input_parameter< bool >::type interpolate_box(interpolate_boxSEXP);
+    Rcpp::traits::input_parameter< bool >::type interpolate_mask(interpolate_maskSEXP);
+    Rcpp::traits::input_parameter< int >::type min_hits(min_hitsSEXP);
+    rcpp_result_gen = Rcpp::wrap(tracker_update_cpp(tracker, xmin, ymin, xmax, ymax, labels, scores, count_line, roi, max_dist, min_iou, max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids, interpolate_box, interpolate_mask, min_hits));
+    return rcpp_result_gen;
+END_RCPP
+}
+// tracker_velocities_cpp
+Rcpp::List tracker_velocities_cpp(SEXP tracker);
+RcppExport SEXP _pliman_tracker_velocities_cpp(SEXP trackerSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type tracker(trackerSEXP);
+    rcpp_result_gen = Rcpp::wrap(tracker_velocities_cpp(tracker));
+    return rcpp_result_gen;
+END_RCPP
+}
+// tracker_n_tracks_cpp
+int tracker_n_tracks_cpp(SEXP tracker);
+RcppExport SEXP _pliman_tracker_n_tracks_cpp(SEXP trackerSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type tracker(trackerSEXP);
+    rcpp_result_gen = Rcpp::wrap(tracker_n_tracks_cpp(tracker));
+    return rcpp_result_gen;
+END_RCPP
+}
+// tracker_export_state_cpp
+Rcpp::List tracker_export_state_cpp(SEXP tracker);
+RcppExport SEXP _pliman_tracker_export_state_cpp(SEXP trackerSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type tracker(trackerSEXP);
+    rcpp_result_gen = Rcpp::wrap(tracker_export_state_cpp(tracker));
+    return rcpp_result_gen;
+END_RCPP
+}
+// tracker_import_state_cpp
+void tracker_import_state_cpp(SEXP tracker, Rcpp::List state, int min_hits);
+RcppExport SEXP _pliman_tracker_import_state_cpp(SEXP trackerSEXP, SEXP stateSEXP, SEXP min_hitsSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type tracker(trackerSEXP);
+    Rcpp::traits::input_parameter< Rcpp::List >::type state(stateSEXP);
+    Rcpp::traits::input_parameter< int >::type min_hits(min_hitsSEXP);
+    tracker_import_state_cpp(tracker, state, min_hits);
+    return R_NilValue;
+END_RCPP
+}
+// tracker_reset_cpp
+void tracker_reset_cpp(SEXP tracker);
+RcppExport SEXP _pliman_tracker_reset_cpp(SEXP trackerSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type tracker(trackerSEXP);
+    tracker_reset_cpp(tracker);
+    return R_NilValue;
+END_RCPP
+}
+// filter_nested_boxes_cpp
+Rcpp::LogicalVector filter_nested_boxes_cpp(Rcpp::NumericMatrix boxes, Rcpp::NumericVector scores, Rcpp::Nullable<Rcpp::IntegerVector> class_ids, double containment_thresh, double max_area_ratio, double conf_floor, Rcpp::Nullable<Rcpp::IntegerVector> group);
+RcppExport SEXP _pliman_filter_nested_boxes_cpp(SEXP boxesSEXP, SEXP scoresSEXP, SEXP class_idsSEXP, SEXP containment_threshSEXP, SEXP max_area_ratioSEXP, SEXP conf_floorSEXP, SEXP groupSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type boxes(boxesSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type scores(scoresSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::IntegerVector> >::type class_ids(class_idsSEXP);
+    Rcpp::traits::input_parameter< double >::type containment_thresh(containment_threshSEXP);
+    Rcpp::traits::input_parameter< double >::type max_area_ratio(max_area_ratioSEXP);
+    Rcpp::traits::input_parameter< double >::type conf_floor(conf_floorSEXP);
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::IntegerVector> >::type group(groupSEXP);
+    rcpp_result_gen = Rcpp::wrap(filter_nested_boxes_cpp(boxes, scores, class_ids, containment_thresh, max_area_ratio, conf_floor, group));
+    return rcpp_result_gen;
+END_RCPP
+}
 // watershed_cpp
 IntegerMatrix watershed_cpp(SEXP img_r, double tolerance, int ext);
 RcppExport SEXP _pliman_watershed_cpp(SEXP img_rSEXP, SEXP toleranceSEXP, SEXP extSEXP) {
@@ -3133,6 +3328,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_image_hreflect_cpp", (DL_FUNC) &_pliman_image_hreflect_cpp, 1},
     {"_pliman_image_vreflect_cpp", (DL_FUNC) &_pliman_image_vreflect_cpp, 1},
     {"_pliman_image_resize_cpp", (DL_FUNC) &_pliman_image_resize_cpp, 4},
+    {"_pliman_resize_roi_bilinear_cpp", (DL_FUNC) &_pliman_resize_roi_bilinear_cpp, 7},
+    {"_pliman_preprocess_nchw_cpp", (DL_FUNC) &_pliman_preprocess_nchw_cpp, 5},
     {"_pliman_image_rotate_cpp", (DL_FUNC) &_pliman_image_rotate_cpp, 3},
     {"_pliman_stitch_pair_cpp", (DL_FUNC) &_pliman_stitch_pair_cpp, 5},
     {"_pliman_compute_index_means_cpp", (DL_FUNC) &_pliman_compute_index_means_cpp, 3},
@@ -3177,6 +3374,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_extract_contours_cpp", (DL_FUNC) &_pliman_extract_contours_cpp, 1},
     {"_pliman_pliman_gpu_info_cpp", (DL_FUNC) &_pliman_pliman_gpu_info_cpp, 0},
     {"_pliman_clear_onnx_sessions_cpp", (DL_FUNC) &_pliman_clear_onnx_sessions_cpp, 0},
+    {"_pliman_onnx_set_max_sessions_cpp", (DL_FUNC) &_pliman_onnx_set_max_sessions_cpp, 1},
+    {"_pliman_onnx_session_info_cpp", (DL_FUNC) &_pliman_onnx_session_info_cpp, 0},
     {"_pliman_run_onnx_inference_cpp", (DL_FUNC) &_pliman_run_onnx_inference_cpp, 7},
     {"_pliman_run_sam2_inference_cpp", (DL_FUNC) &_pliman_run_sam2_inference_cpp, 10},
     {"_pliman_run_grounding_dino_cpp", (DL_FUNC) &_pliman_run_grounding_dino_cpp, 12},
@@ -3187,7 +3386,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_yolo_sem_cpp", (DL_FUNC) &_pliman_run_yolo_sem_cpp, 10},
     {"_pliman_run_dinov2_cpp", (DL_FUNC) &_pliman_run_dinov2_cpp, 10},
     {"_pliman_get_onnx_model_io_shape_cpp", (DL_FUNC) &_pliman_get_onnx_model_io_shape_cpp, 5},
-    {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 14},
+    {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 16},
+    {"_pliman_run_yolo_tiles_cpp", (DL_FUNC) &_pliman_run_yolo_tiles_cpp, 17},
     {"_pliman_run_yolo_cls_cpp", (DL_FUNC) &_pliman_run_yolo_cls_cpp, 6},
     {"_pliman_run_clip_vision_cpp", (DL_FUNC) &_pliman_run_clip_vision_cpp, 8},
     {"_pliman_run_clip_text_cpp", (DL_FUNC) &_pliman_run_clip_text_cpp, 9},
@@ -3208,6 +3408,14 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_skeleton_mat_cpp", (DL_FUNC) &_pliman_skeleton_mat_cpp, 7},
     {"_pliman_analyze_root_system_cpp", (DL_FUNC) &_pliman_analyze_root_system_cpp, 15},
     {"_pliman_update_tracker_cpp", (DL_FUNC) &_pliman_update_tracker_cpp, 21},
+    {"_pliman_tracker_create_cpp", (DL_FUNC) &_pliman_tracker_create_cpp, 0},
+    {"_pliman_tracker_update_cpp", (DL_FUNC) &_pliman_tracker_update_cpp, 21},
+    {"_pliman_tracker_velocities_cpp", (DL_FUNC) &_pliman_tracker_velocities_cpp, 1},
+    {"_pliman_tracker_n_tracks_cpp", (DL_FUNC) &_pliman_tracker_n_tracks_cpp, 1},
+    {"_pliman_tracker_export_state_cpp", (DL_FUNC) &_pliman_tracker_export_state_cpp, 1},
+    {"_pliman_tracker_import_state_cpp", (DL_FUNC) &_pliman_tracker_import_state_cpp, 3},
+    {"_pliman_tracker_reset_cpp", (DL_FUNC) &_pliman_tracker_reset_cpp, 1},
+    {"_pliman_filter_nested_boxes_cpp", (DL_FUNC) &_pliman_filter_nested_boxes_cpp, 7},
     {"_pliman_watershed_cpp", (DL_FUNC) &_pliman_watershed_cpp, 3},
     {"_pliman_help_dist_transform", (DL_FUNC) &_pliman_help_dist_transform, 1},
     {"_pliman_parse_yolo_labels_cpp", (DL_FUNC) &_pliman_parse_yolo_labels_cpp, 9},

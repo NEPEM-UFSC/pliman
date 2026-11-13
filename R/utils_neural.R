@@ -202,8 +202,14 @@ NULL
   }
 
   if (!dir.exists(dir)) return(NULL)
-  local_files <- list.files(dir, pattern = "\\.(onnx|pt)$", ignore.case = TRUE, full.names = FALSE)
-  if (length(local_files) == 0L) return(NULL)
+  # Names that already failed to resolve against this (unchanged) directory skip the
+  # listing / plural / fuzzy-matching cascade below.
+  if (.local_model_miss(dir, m_str)) return(NULL)
+  local_files <- .cached_model_listing(dir)
+  if (length(local_files) == 0L) {
+    .local_model_miss(dir, m_str, set = TRUE)
+    return(NULL)
+  }
 
   m_clean <- sub("\\.(onnx|pt)$", "", basename(m_resolved), ignore.case = TRUE)
   files_clean <- sub("\\.(onnx|pt)$", "", local_files, ignore.case = TRUE)
@@ -222,6 +228,16 @@ NULL
   idx <- which(tolower(local_files) == tolower(m_str) | tolower(files_clean) == tolower(m_clean))
   if (length(idx) > 0L) {
     return(.pick_best(local_files[idx]))
+  }
+
+  # Official YOLO-family variants (e.g. 'yolo26x-seg', 'yolo11n', 'yolov8s-pose') differ
+  # from each other by a single size letter (n/s/m/l/x) or task suffix. Fuzzy, prefix or
+  # plural matching would silently swap one variant for another (e.g. 'yolo26x-seg' ->
+  # 'yolo26s-seg'), preventing the requested model from being downloaded. For these names
+  # only the exact matches above are accepted.
+  if (grepl("^yolov?[0-9]+[nsmlx]([-_.].*)?$", m_clean, ignore.case = TRUE)) {
+    .local_model_miss(dir, m_str, set = TRUE)
+    return(NULL)
   }
 
   # 5. Singular / Plural variations (e.g. capsula <-> capsulas)
@@ -252,343 +268,23 @@ NULL
     return(.pick_best(local_files[which(dists == min_d)]))
   }
 
+  .local_model_miss(dir, m_str, set = TRUE)
   return(NULL)
 }
 
 # Internal helper to resolve user-friendly model aliases
 .resolve_model_name <- function(model) {
-  aliases <- c(
-    "rmbg"                   = "rmbg-1.4",
-    "bria"                   = "rmbg-1.4",
-    "bria-rmbg"              = "rmbg-1.4",
-    "bria_rmbg"              = "rmbg-1.4",
-    "rmbg1.4"                = "rmbg-1.4",
-    "rmbg_1.4"               = "rmbg-1.4",
-    "rmbg2"                  = "rmbg-2.0",
-    "rmbg-2"                 = "rmbg-2.0",
-    "rmbg_2.0"               = "rmbg-2.0",
-    "rmbg2.0"                = "rmbg-2.0",
-    "bria-rmbg-2.0"          = "rmbg-2.0",
-    "birefnet"               = "birefnet-lite",
-    "birefnet_lite"          = "birefnet-lite",
-    "without_bg"             = "withoutbg",
-    "without-bg"             = "withoutbg",
-    "withoutbg-open-weights" = "withoutbg",
-    "u2net_p"                = "u2netp",
-    "ben"                    = "ben2",
-    "ben2"                   = "ben2",
-    "ben-2"                  = "ben2",
-    "boundary-aware"         = "ben2",
-    "boundary_aware"         = "ben2",
-    "boundary-aware-extraction-network" = "ben2",
-    "sam"                    = "sam2.1",
-    "sam2"                   = "sam2.1",
-    "sam-2"                  = "sam2.1",
-    "sam2.1"                 = "sam2.1",
-    "sam-2.1"                = "sam2.1",
-    "segment-anything"       = "sam2.1",
-    "segment_anything"       = "sam2.1",
-    "segmentanything"        = "sam2.1",
-    "grounded-sam"           = "grounded-sam",
-    "grounded_sam"           = "grounded-sam",
-    "groundedsam"            = "grounded-sam",
-    "grounding-dino"         = "grounded-sam",
-    "grounding_dino"         = "grounded-sam",
-    "groundingdino"          = "grounded-sam",
-    "persam"                 = "persam",
-    "per-sam"                = "persam",
-    "persam2"                = "persam",
-    "persam2.1"              = "persam",
-    "depth-anything"         = "depth-anything-v2",
-    "depthanything"          = "depth-anything-v2",
-    "depth_anything"         = "depth-anything-v2",
-    "depth-anything-v2"      = "depth-anything-v2",
-    "depthanythingv2"        = "depth-anything-v2",
-    "depth_anything_v2"      = "depth-anything-v2",
-    "depth"                  = "depth-anything-v2",
-    "dinov2"                 = "dinov2",
-    "dino-v2"                = "dinov2",
-    "dino_v2"                = "dinov2",
-    "dino"                   = "dinov2",
-    # YOLO Object Detection
-    "yolo"                   = "yolo26n",
-    "yolo26"                 = "yolo26n",
-    "yolo-26"                = "yolo26n",
-    "yolo26n"                = "yolo26n",
-    "yolo-26n"               = "yolo26n",
-    "yolo26s"                = "yolo26s",
-    "yolo-26s"               = "yolo26s",
-    "yolo26m"                = "yolo26m",
-    "yolo-26m"               = "yolo26m",
-    "yolo26l"                = "yolo26l",
-    "yolo-26l"               = "yolo26l",
-    "yolo26x"                = "yolo26x",
-    "yolo-26x"               = "yolo26x",
-    "yolo11"                 = "yolo26n",
-    "yolo-11"                = "yolo26n",
-    "yolo11n"                = "yolo26n",
-    "yolo-11n"               = "yolo26n",
-    "yolov8"                 = "yolo26n",
-    "yolo8"                  = "yolo26n",
-
-    # YOLO Instance Segmentation
-    "yolo-seg"               = "yolo26n-seg",
-    "yoloseg"                = "yolo26n-seg",
-    "yolo26-seg"             = "yolo26n-seg",
-    "yolo-26-seg"            = "yolo26n-seg",
-    "yolo26n-seg"            = "yolo26n-seg",
-    "yolo26s-seg"            = "yolo26s-seg",
-    "yolo26m-seg"            = "yolo26m-seg",
-    "yolo26l-seg"            = "yolo26l-seg",
-    "yolo26x-seg"            = "yolo26x-seg",
-    "yolo11-seg"             = "yolo26n-seg",
-    "yolo11n-seg"            = "yolo26n-seg",
-
-    # YOLO Pose Estimation
-    "yolo-pose"              = "yolo26n-pose",
-    "yolopose"               = "yolo26n-pose",
-    "yolo26-pose"            = "yolo26n-pose",
-    "yolo-26-pose"           = "yolo26n-pose",
-    "yolo26n-pose"           = "yolo26n-pose",
-    "yolo26s-pose"           = "yolo26s-pose",
-    "yolo26m-pose"           = "yolo26m-pose",
-    "yolo26l-pose"           = "yolo26l-pose",
-    "yolo26x-pose"           = "yolo26x-pose",
-
-    # YOLO Classification
-    "yolo-cls"               = "yolo26n-cls",
-    "yolocls"                = "yolo26n-cls",
-    "yolo26-cls"             = "yolo26n-cls",
-    "yolo-26-cls"            = "yolo26n-cls",
-    "yolo26n-cls"            = "yolo26n-cls",
-    "yolo26s-cls"            = "yolo26s-cls",
-    "yolo26m-cls"            = "yolo26m-cls",
-    "yolo26l-cls"            = "yolo26l-cls",
-    "yolo26x-cls"            = "yolo26x-cls",
-    "yolo-26n-cls"           = "yolo26n-cls",
-    "yolo-26s-cls"           = "yolo26s-cls",
-    "yolo-26m-cls"           = "yolo26m-cls",
-    "yolo-26l-cls"           = "yolo26l-cls",
-    "yolo-26x-cls"           = "yolo26x-cls",
-    "yolo11-cls"             = "yolo26n-cls",
-    "yolo11n-cls"            = "yolo26n-cls",
-    "yolo11s-cls"            = "yolo26s-cls",
-    "yolo11m-cls"            = "yolo26m-cls",
-    "yolo11l-cls"            = "yolo26l-cls",
-    "yolo11x-cls"            = "yolo26x-cls",
-    "yolo-11-cls"            = "yolo26n-cls",
-    "yolo-11n-cls"           = "yolo26n-cls",
-    "yolo-11s-cls"           = "yolo26s-cls",
-    "yolo-11m-cls"           = "yolo26m-cls",
-    "yolo-11l-cls"           = "yolo26l-cls",
-    "yolo-11x-cls"           = "yolo26x-cls",
-    "yolov8-cls"             = "yolo26n-cls",
-    "yolov8n-cls"            = "yolo26n-cls",
-    "yolov8s-cls"            = "yolo26s-cls",
-    "yolov8m-cls"            = "yolo26m-cls",
-    "yolov8l-cls"            = "yolo26l-cls",
-    "yolov8x-cls"            = "yolo26x-cls",
-    "yolo8-cls"              = "yolo26n-cls",
-    "yolo8n-cls"             = "yolo26n-cls",
-    "yolo8s-cls"             = "yolo26s-cls",
-    "yolo8m-cls"             = "yolo26m-cls",
-    "yolo8l-cls"             = "yolo26l-cls",
-    "yolo8x-cls"             = "yolo26x-cls",
-    "stardist"               = "stardist",
-    "star-dist"              = "stardist",
-    "stardist-dsb2018"       = "stardist",
-    "star_dist"              = "stardist",
-    "purescale"              = "SAFMN4x",
-    "purescale-4x"           = "SAFMN4x",
-    "4x-purescale"           = "SAFMN4x",
-    "4x_purescale"           = "SAFMN4x",
-    "SAFMN4x"                = "SAFMN4x",
-    "safmn"                  = "SAFMN4x",
-    "safmn-4x"               = "SAFMN4x",
-    "safmn4x"                = "SAFMN4x",
-    "safmn_4x"               = "SAFMN4x",
-    "4x_safmn"               = "SAFMN4x",
-    "4x-safmn"               = "SAFMN4x",
-    "SAFMN4x.onnx"           = "SAFMN4x",
-    "purescale-2x"           = "SAFMN2x",
-    "2x-purescale"           = "SAFMN2x",
-    "2x_purescale"           = "SAFMN2x",
-    "SAFMN2x"                = "SAFMN2x",
-    "safmn-2x"               = "SAFMN2x",
-    "safmn2x"                = "SAFMN2x",
-    "safmn_2x"               = "SAFMN2x",
-    "2x_safmn"               = "SAFMN2x",
-    "2x-safmn"               = "SAFMN2x",
-    "SAFMN2x.onnx"           = "SAFMN2x",
-    "purescale-2x-sharper"   = "SAFMN2x_sharper",
-    "2x-purescale-sharper"   = "SAFMN2x_sharper",
-    "2x_purescale_sharper"   = "SAFMN2x_sharper",
-    "SAFMN2x_sharper"        = "SAFMN2x_sharper",
-    "safmn-2x-sharper"       = "SAFMN2x_sharper",
-    "safmn2x_sharper"        = "SAFMN2x_sharper",
-    "safmn_2x_sharper"       = "SAFMN2x_sharper",
-    "2x_safmn_sharper"       = "SAFMN2x_sharper",
-    "2x-safmn-sharper"       = "SAFMN2x_sharper",
-    "SAFMN2x_sharper.onnx"   = "SAFMN2x_sharper",
-    "realesrgan"             = "realesrgan_x2_full",
-    "real-esrgan"            = "realesrgan_x2_full",
-    "realesrgan-compact"     = "realesrgan",
-    "realesrgan_compact"     = "realesrgan",
-    "real-esrgan-compact"    = "realesrgan",
-    "realesrgan-x2"          = "realesrgan_x2_full",
-    "realesrgan_x2"          = "realesrgan_x2_full",
-    "real-esrgan-x2"         = "realesrgan_x2_full",
-    "real_esrgan_x2"         = "realesrgan_x2_full",
-    "realesrgan-x2-full"     = "realesrgan_x2_full",
-    "realesrgan_x2_full"     = "realesrgan_x2_full",
-    "real-esrgan-x2-full"    = "realesrgan_x2_full",
-    "real_esrgan_x2_full"    = "realesrgan_x2_full",
-    "realesrgan-x4"          = "realesrgan_x4_full",
-    "realesrgan_x4"          = "realesrgan_x4_full",
-    "real-esrgan-x4"         = "realesrgan_x4_full",
-    "real_esrgan_x4"         = "realesrgan_x4_full",
-    "realesrgan-x4-full"     = "realesrgan_x4_full",
-    "realesrgan_x4_full"     = "realesrgan_x4_full",
-    "real-esrgan-x4-full"    = "realesrgan_x4_full",
-    "real_esrgan_x4_full"    = "realesrgan_x4_full",
-    "superres"               = "realesrgan_x2_full",
-    "super-res"              = "realesrgan_x2_full",
-    "clip"                   = "clip-vit-b32",
-    "clip-vit-b32"           = "clip-vit-b32",
-    "clip-b32"               = "clip-vit-b32",
-    "clip-vit-base"          = "clip-vit-b32",
-    "clip_vit_b32"           = "clip-vit-b32",
-    "yolo-world"             = "yolov8s-worldv2",
-    "yoloworld"              = "yolov8s-worldv2",
-    "yolo-world-v2"          = "yolov8s-worldv2",
-    "yolov8s-world"          = "yolov8s-worldv2",
-    "yolov8sworld"           = "yolov8s-worldv2",
-    "yolov8s-worldv2"        = "yolov8s-worldv2",
-    "yolov8m-world"          = "yolov8m-worldv2",
-    "yolov8mworld"           = "yolov8m-worldv2",
-    "yolov8m-worldv2"        = "yolov8m-worldv2",
-    "yolov8l-world"          = "yolov8l-worldv2",
-    "yolov8lworld"           = "yolov8l-worldv2",
-    "yolov8l-worldv2"        = "yolov8l-worldv2",
-    "yolov8x-world"          = "yolov8x-worldv2",
-    "yolov8xworld"           = "yolov8x-worldv2",
-    "yolov8x-worldv2"        = "yolov8x-worldv2",
-    "yolo-nas-s"             = "yolo_nas_s",
-    "yolonas-s"              = "yolo_nas_s",
-    "yolonas_s"              = "yolo_nas_s",
-    "yolo_nas_s"             = "yolo_nas_s",
-    "yolo-nas-l"             = "yolo_nas_l",
-    "yolonas-l"              = "yolo_nas_l",
-    "yolonas_l"              = "yolo_nas_l",
-    "yolo_nas_l"             = "yolo_nas_l",
-    "yolo-nas"               = "yolo_nas_s",
-    "yolonas"                = "yolo_nas_s",
-    # YOLO Oriented Bounding Box (OBB)
-    "yolo-obb"               = "yolo26n-obb",
-    "yoloobb"                = "yolo26n-obb",
-    "yolo26-obb"             = "yolo26n-obb",
-    "yolo-26-obb"            = "yolo26n-obb",
-    "yolo26n-obb"            = "yolo26n-obb",
-    "yolo-26n-obb"           = "yolo26n-obb",
-    "yolo26s-obb"            = "yolo26s-obb",
-    "yolo-26s-obb"           = "yolo26s-obb",
-    "yolo26m-obb"            = "yolo26m-obb",
-    "yolo-26m-obb"           = "yolo26m-obb",
-    "yolo26l-obb"            = "yolo26l-obb",
-    "yolo-26l-obb"           = "yolo26l-obb",
-    "yolo26x-obb"            = "yolo26x-obb",
-    "yolo-26x-obb"           = "yolo26x-obb",
-    "yolo11-obb"             = "yolo26n-obb",
-    "yolo-11-obb"            = "yolo26n-obb",
-    "yolo11n-obb"            = "yolo26n-obb",
-    "yolo-11n-obb"           = "yolo26n-obb",
-    "yolo11s-obb"            = "yolo26s-obb",
-    "yolo-11s-obb"           = "yolo26s-obb",
-    "yolo11m-obb"            = "yolo26m-obb",
-    "yolo-11m-obb"           = "yolo26m-obb",
-    "yolo11l-obb"            = "yolo26l-obb",
-    "yolo-11l-obb"           = "yolo26l-obb",
-    "yolo11x-obb"            = "yolo26x-obb",
-    "yolo-11x-obb"           = "yolo26x-obb",
-    "yolov8-obb"             = "yolo26n-obb",
-    "yolo8-obb"              = "yolo26n-obb",
-    "yolov8n-obb"            = "yolo26n-obb",
-    "yolo8n-obb"             = "yolo26n-obb",
-    "yolov8s-obb"            = "yolo26s-obb",
-    "yolo8s-obb"             = "yolo26s-obb",
-    "yolov8m-obb"            = "yolo26m-obb",
-    "yolo8m-obb"             = "yolo26m-obb",
-    "yolov8l-obb"            = "yolo26l-obb",
-    "yolo8l-obb"             = "yolo26l-obb",
-    "yolov8x-obb"            = "yolo26x-obb",
-    "yolo8x-obb"             = "yolo26x-obb",
-    "sd-turbo"               = "sd-turbo",
-    "sdturbo"                = "sd-turbo",
-    "sd_turbo"               = "sd-turbo",
-    "lcm"                    = "sd-turbo",
-    "ifcnn"                  = "ifcnn",
-    "ifcnn-max"              = "ifcnn",
-    "ifcnn_max"              = "ifcnn",
-    "mfif"                   = "ifcnn",
-    "focus-stack"            = "ifcnn",
-    # Optical Character Recognition (PP-OCRv4 / DBNet)
-    "ppocr"                  = "ch_PP-OCRv4_det",
-    "pp-ocr"                 = "ch_PP-OCRv4_det",
-    "ppocr_det"              = "ch_PP-OCRv4_det",
-    "ppocr-det"              = "ch_PP-OCRv4_det",
-    "ppocr_rec"              = "ch_PP-OCRv4_rec",
-    "ppocr-rec"              = "ch_PP-OCRv4_rec",
-    "ch_pp-ocrv4_det"        = "ch_PP-OCRv4_det",
-    "ch_pp-ocrv4-det"        = "ch_PP-OCRv4_det",
-    "ch_pp-ocrv4_rec"        = "ch_PP-OCRv4_rec",
-    "ch_pp-ocrv4-rec"        = "ch_PP-OCRv4_rec",
-    "ppocr_det_server"       = "ch_PP-OCRv4_det_server",
-    "ppocr-det-server"       = "ch_PP-OCRv4_det_server",
-    "ppocr_server"           = "ch_PP-OCRv4_det_server",
-    "ch_pp-ocrv4_det_server" = "ch_PP-OCRv4_det_server",
-    "ch_pp-ocrv4-det-server" = "ch_PP-OCRv4_det_server",
-    "craft"                  = "craft",
-    "craft_mlt"              = "craft",
-    "craft-mlt"              = "craft",
-    "trocr"                  = "trocr_small",
-    "trocr_small"            = "trocr_small",
-    "trocr-small"            = "trocr_small",
-    "trocr_lat"              = "trocr_small_lat",
-    "trocr_small_lat"        = "trocr_small_lat",
-    "trocr-small-lat"        = "trocr_small_lat",
-    "trocr_encoder"          = "trocr_encoder",
-    "trocr-encoder"          = "trocr_encoder",
-    "trocr_decoder"          = "trocr_decoder",
-    "trocr-decoder"          = "trocr_decoder",
-    "trocr_vocab"            = "trocr_vocab",
-    "trocr-vocab"            = "trocr_vocab",
-    "trocr_dict"             = "trocr_vocab",
-    "trocr_encoder_lat"      = "trocr_encoder_lat",
-    "trocr-encoder-lat"      = "trocr_encoder_lat",
-    "trocr_decoder_lat"      = "trocr_decoder_lat",
-    "trocr-decoder-lat"      = "trocr_decoder_lat",
-    "trocr_vocab_lat"        = "trocr_vocab_lat",
-    "trocr-vocab-lat"        = "trocr_vocab_lat",
-    "trocr_dict_lat"         = "trocr_vocab_lat",
-    "tocr_encoder_lat"       = "trocr_encoder_lat",
-    "tocr_decoder_lat"       = "trocr_decoder_lat",
-    "tocr_vocab_lat"         = "trocr_vocab_lat",
-    # Image Restoration (Zero-DCE & NAFNet)
-    "zero_dce"               = "zero_dce",
-    "zero-dce"               = "zero_dce",
-    "zerodce"                = "zero_dce",
-    "lowlight"               = "zero_dce",
-    "low-light"              = "zero_dce",
-    "nafnet"                 = "nafnet",
-    "naf-net"                = "nafnet",
-    "deblur"                 = "nafnet",
-    "denoise"                = "nafnet"
-  )
+  # The alias table lives at package level (`.model_aliases`, R/utils_dl_cache.R) so it is
+  # built once at load time instead of on every call (this helper runs several times per
+  # inference call).
+  aliases <- .model_aliases
   vapply(model, function(m) {
     ml <- tolower(m)
-    if (ml %in% names(aliases)) return(aliases[[ml]])
+    hit <- aliases[ml]
+    if (!is.na(hit)) return(unname(hit))
     ml_norm <- sub("^yolov(11|26)", "yolo\\1", ml)
-    if (ml_norm %in% names(aliases)) return(aliases[[ml_norm]])
+    hit <- aliases[ml_norm]
+    if (!is.na(hit)) return(unname(hit))
     m
   }, character(1), USE.NAMES = FALSE)
 }
@@ -1796,6 +1492,12 @@ pliman_download_model <- function(model = "u2netp",
                                   refresh = FALSE,
                                   verbose = TRUE) {
   dir <- pliman_model_dir(dir)
+  # Fast path: resolved paths are cached for the session, so inference helpers that call
+  # this on every image return without touching the model catalogue.
+  if (!isTRUE(force) && !isTRUE(refresh) && is.character(model)) {
+    hit <- .dl_path_cache_get(dir, model)
+    if (!is.null(hit)) return(hit)
+  }
   if (!dir.exists(dir)) dir.create(dir, recursive = TRUE, showWarnings = FALSE)
 
   old_timeout <- getOption("timeout")
@@ -2069,7 +1771,9 @@ pliman_download_model <- function(model = "u2netp",
     model <- unique(models_df$model)
   }
 
+  model_key <- model
   res <- vapply(model, download_single, character(1), USE.NAMES = FALSE)
+  .dl_path_cache_set(dir, model_key, res)
   if (length(res) == 1L) {
     return(res[1])
   }
@@ -2938,6 +2642,16 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
   orig_h <- dims[2]
   nch <- if (length(dims) >= 3) dims[3] else 1
 
+  # Fast path: single C++ pass (same numerics as the R code below, without the ~10
+  # full-resolution double copies). The R implementation is kept as a fallback.
+  if ((nch == 1 || nch >= 3) && (is.raw(mat) || is.double(mat) || is.integer(mat))) {
+    fast <- tryCatch(
+      preprocess_nchw_cpp(mat, as.integer(target_size), as.numeric(mean), as.numeric(std), isTRUE(letterbox)),
+      error = function(e) NULL
+    )
+    if (!is.null(fast)) return(fast)
+  }
+
   # Extract R, G, B normalized [0, 1]
   if (is.raw(mat)) {
     val_scale <- 1 / 255.0
@@ -3238,9 +2952,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
       std_val <- c(1, 1, 1)
       use_letterbox <- TRUE
     } else {
-      models_df <- pliman_available_models(dir = dir)
-      row <- models_df[models_df$model == model, ]
-      target_size <- if (nrow(row) > 0) as.integer(strsplit(as.character(row$input_size), "x")[[1]][1]) else 320L
+      target_size <- .dl_input_size(model, dir = dir, default = 320L)
       mean_val <- c(0.485, 0.456, 0.406)
       std_val <- c(0.229, 0.224, 0.225)
       use_letterbox <- FALSE
@@ -3345,15 +3057,17 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
   if (min_area <= 0) {
     lbls <- bwlabel_cpp(mask)
     if (max(lbls) > 0) {
-      tbl <- table(lbls[lbls > 0])
-      largest_id <- as.integer(names(which.max(tbl)))
+      # tabulate() on the integer labels instead of table(): no factor conversion of
+      # the full-resolution vector (same result: first label with the largest count)
+      tbl <- tabulate(lbls[lbls > 0])
+      largest_id <- which.max(tbl)
       mask <- (lbls == largest_id)
     }
   } else {
     lbls <- bwlabel_cpp(mask)
     if (max(lbls) > 0) {
-      tbl <- table(lbls[lbls > 0])
-      keep_ids <- as.integer(names(tbl[tbl >= min_area]))
+      tbl <- tabulate(lbls[lbls > 0])
+      keep_ids <- which(tbl >= min_area)
       mask <- matrix(lbls %in% keep_ids, nrow = orig_w, ncol = orig_h)
     }
   }
@@ -4473,7 +4187,7 @@ image_remove_bg_dl <- function(img,
 
   # 4. Run SAM 2.1 on all detected boxes
   if (use_gpu && isTRUE(mask)) {
-    gpu_info <- tryCatch(pliman_gpu_info_cpp(), error = function(e) NULL)
+    gpu_info <- .gpu_info_cached()
     if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
       def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
       if (gpu_info$vram_mb[def_id] < 6000) {
@@ -4517,52 +4231,18 @@ image_remove_bg_dl <- function(img,
 
   combined_labels <- matrix(0L, nrow = orig_w, ncol = orig_h)
 
+  # Each instance is processed inside a window around its box instead of on the full
+  # image (see .instance_window_mask(), R/utils_dl_fastpath.R): O(sum of window areas)
+  # instead of O(n_instances x W x H).
   for (k in seq_len(num_boxes)) {
-    prob_crop <- raw_masks[[k]]
-    # Resize continuous float logits to full resolution for silky-smooth sub-pixel boundaries
-    mask_prob <- .bilinear_resize_2d(prob_crop, orig_w, orig_h)
-    m <- mask_prob >= threshold
-
-    bx <- boxes_px[k, ]
-    x1 <- max(1L, floor(bx[1]) - 2L)
-    x2 <- min(orig_w, ceiling(bx[3]) + 2L)
-    y1 <- max(1L, floor(bx[2]) - 2L)
-    y2 <- min(orig_h, ceiling(bx[4]) + 2L)
-
-    if (isTRUE(fill_hull)) {
-      sub_m <- m[x1:x2, y1:y2]
-      m[x1:x2, y1:y2] <- (fill_holes_cpp(sub_m) > 0)
-    }
-    if (filter > 0) {
-      m_arr <- as.array(m)
-      if (length(dim(m_arr)) == 2) dim(m_arr) <- c(orig_w, orig_h, 1L)
-      f_res <- median_filter_binary_cpp(m_arr, orig_w, orig_h, 1L, as.integer(filter))
-      m <- (f_res[, , 1] > 0)
-    }
-    if (erode > 0) {
-      m <- (erode_cpp(m, raio = as.integer(erode)) > 0)
-    }
-    if (dilate > 0) {
-      m <- (dilate_cpp(m, raio = as.integer(dilate)) > 0)
-    }
-    if (opening > 0) {
-      m <- (erode_cpp(m, raio = as.integer(opening)) > 0)
-      m <- (dilate_cpp(m, raio = as.integer(opening)) > 0)
-    }
-    if (closing > 0) {
-      m <- (dilate_cpp(m, raio = as.integer(closing)) > 0)
-      m <- (erode_cpp(m, raio = as.integer(closing)) > 0)
-    }
-    if (min_area > 0) {
-      lbls <- bwlabel_cpp(m)
-      if (max(lbls) > 0) {
-        tbl <- table(lbls[lbls > 0])
-        keep_ids <- as.integer(names(tbl[tbl >= min_area]))
-        m <- matrix(lbls %in% keep_ids, nrow = orig_w, ncol = orig_h)
-      }
-    }
-
-    combined_labels[m] <- as.integer(k)
+    win <- .instance_window_mask(raw_masks[[k]], boxes_px[k, ], orig_w, orig_h, threshold,
+                                 fill_hull = fill_hull, filter = filter, erode = erode,
+                                 dilate = dilate, opening = opening, closing = closing,
+                                 min_area = min_area)
+    if (is.null(win)) next
+    sub_lbl <- combined_labels[win$x, win$y]
+    sub_lbl[win$m] <- as.integer(k)
+    combined_labels[win$x, win$y] <- sub_lbl
   }
 
   labels_img <- as_image(combined_labels, colormode = "Grayscale", storage = "integer")
@@ -5206,51 +4886,16 @@ image_remove_bg_dl <- function(img,
     }
   } else {
     combined_labels <- matrix(0L, nrow = orig_w, ncol = orig_h)
+    # Window-local mask post-processing (see .instance_window_mask()).
     for (k in seq_len(num_inst)) {
-      prob_crop <- persam_res$masks[[k]]
-      mask_prob <- .bilinear_resize_2d(prob_crop, orig_w, orig_h)
-      m <- mask_prob >= threshold
-
-      bx <- raw_boxes[k, ]
-      x1 <- max(1L, floor(bx[1]) - 2L)
-      x2 <- min(orig_w, ceiling(bx[3]) + 2L)
-      y1 <- max(1L, floor(bx[2]) - 2L)
-      y2 <- min(orig_h, ceiling(bx[4]) + 2L)
-
-      if (isTRUE(fill_hull)) {
-        sub_m <- m[x1:x2, y1:y2]
-        m[x1:x2, y1:y2] <- (fill_holes_cpp(sub_m) > 0)
-      }
-      if (filter > 0) {
-        m_arr <- as.array(m)
-        if (length(dim(m_arr)) == 2) dim(m_arr) <- c(orig_w, orig_h, 1L)
-        f_res <- median_filter_binary_cpp(m_arr, orig_w, orig_h, 1L, as.integer(filter))
-        m <- (f_res[, , 1] > 0)
-      }
-      if (erode > 0) {
-        m <- (erode_cpp(m, raio = as.integer(erode)) > 0)
-      }
-      if (dilate > 0) {
-        m <- (dilate_cpp(m, raio = as.integer(dilate)) > 0)
-      }
-      if (opening > 0) {
-        m <- (erode_cpp(m, raio = as.integer(opening)) > 0)
-        m <- (dilate_cpp(m, raio = as.integer(opening)) > 0)
-      }
-      if (closing > 0) {
-        m <- (dilate_cpp(m, raio = as.integer(closing)) > 0)
-        m <- (erode_cpp(m, raio = as.integer(closing)) > 0)
-      }
-      if (min_area > 0) {
-        lbls <- bwlabel_cpp(m)
-        if (max(lbls) > 0) {
-          tbl <- table(lbls[lbls > 0])
-          keep_ids <- as.integer(names(tbl[tbl >= min_area]))
-          m <- matrix(lbls %in% keep_ids, nrow = orig_w, ncol = orig_h)
-        }
-      }
-
-      combined_labels[m] <- as.integer(k)
+      win <- .instance_window_mask(persam_res$masks[[k]], raw_boxes[k, ], orig_w, orig_h, threshold,
+                                   fill_hull = fill_hull, filter = filter, erode = erode,
+                                   dilate = dilate, opening = opening, closing = closing,
+                                   min_area = min_area)
+      if (is.null(win)) next
+      sub_lbl <- combined_labels[win$x, win$y]
+      sub_lbl[win$m] <- as.integer(k)
+      combined_labels[win$x, win$y] <- sub_lbl
     }
   }
 
@@ -5364,10 +5009,11 @@ image_remove_bg_dl <- function(img,
                       return_features = FALSE,
                       txt_feats = NULL,
                       dir = pliman_model_dir(),
-                      imgsz = NULL) {
+                      imgsz = NULL,
+                      max_det = 0) {
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
+  lib_path <- pliman_onnx_library_path(engine = engine)
 
   if (file.exists(model)) {
     model_file <- normalizePath(model, winslash = "/")
@@ -5450,7 +5096,8 @@ image_remove_bg_dl <- function(img,
     need_masks = isTRUE(need_masks),
     return_features = isTRUE(return_features),
     txt_feats = txt_feats,
-    target_size = as.integer(target_size)
+    target_size = as.integer(target_size),
+    max_det = as.integer(max_det)
   )
 
   if (isTRUE(need_masks) && !isTRUE(raw_res$is_seg) && (is.null(raw_res$labels) || !is.matrix(raw_res$labels) || nrow(raw_res$labels) == 0L || ncol(raw_res$labels) == 0L)) {
@@ -5659,7 +5306,7 @@ image_remove_bg_dl <- function(img,
                           dir = pliman_model_dir()) {
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
+  lib_path <- pliman_onnx_library_path(engine = engine)
 
   if (file.exists(model)) {
     model_file <- normalizePath(model, winslash = "/")
@@ -6736,7 +6383,7 @@ image_segment_dl <- function(img,
 
   # Automatic engine selection for memory-heavy foundation vision models (Grounded-SAM / PerSAM)
   if (!engine_specified && (use_grounded_sam || use_persam)) {
-    gpu_info <- tryCatch(pliman_gpu_info_cpp(), error = function(e) NULL)
+    gpu_info <- .gpu_info_cached()
     has_large_vram <- FALSE
     if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
       def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
@@ -6751,7 +6398,7 @@ image_segment_dl <- function(img,
       }
     }
   } else if (engine_specified && engine == "gpu" && (use_grounded_sam || use_persam) && isTRUE(verbose)) {
-    gpu_info <- tryCatch(pliman_gpu_info_cpp(), error = function(e) NULL)
+    gpu_info <- .gpu_info_cached()
     if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
       def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
       vram <- gpu_info$vram_mb[def_id]
@@ -7906,10 +7553,30 @@ image_features_dl <- function(img,
 #' @param imgsz Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
 #'   If \code{NULL} (default), pliman automatically inspects the ONNX model metadata for native training
 #'   resolution and falls back to \code{640} if unspecified. Useful when running models exported with dynamic resolution.
+#' @param max_det Integer. Maximum number of detections kept after non-maximum suppression
+#'   (highest scores first). \code{0} (default) keeps all detections, which is the right
+#'   choice for dense scenes such as seed or grain counting.
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A data frame containing detected bounding boxes (`id`, `xmin`, `ymin`, `xmax`, `ymax`, `label`, `score`),
 #'   with `summary` and `counts` stored as attributes. If `return_features = TRUE`, `features` (an \eqn{N \times D} matrix)
 #'   and `feature_map` (dense spatial PCA `Image`) are also attached as attributes.
+#'   When `img` is a list or a character vector with several file paths, a list of such
+#'   results is returned.
+#' @section Performance:
+#' ONNX sessions are cached for the R session (see [pliman_session_info()]), so only the
+#' first call pays model loading and, on GPU, DirectML compilation. For many images:
+#' \itemize{
+#'   \item use `plot = FALSE` and `verbose = FALSE` (drawing a full-resolution raster
+#'     often costs more than the inference itself);
+#'   \item prefer [image_detect_dl_batch()], which resolves the model once, can run in
+#'     parallel and, with persistent workers from [pliman_daemons()], keeps models loaded
+#'     between calls;
+#'   \item choose `imgsz` deliberately: cost grows roughly with its square;
+#'   \item `engine = "gpu"` gains depend on the GPU. FP16 models ([yolo_export_fp16()])
+#'     are faster only on GPUs with native half-precision throughput (e.g. NVIDIA Tensor
+#'     Cores); on other GPUs and on CPU the casting overhead can make them slower.
+#' }
+#' Use [yolo_benchmark()] to measure inference speed on your hardware.
 #' @export
 #' @examplesIf interactive()
 #'   library(pliman)
@@ -7951,6 +7618,7 @@ image_detect_dl <- function(img,
                             plot = TRUE,
                             dir = pliman_model_dir(),
                             imgsz = NULL,
+                            max_det = 0,
                             ...) {
   dots <- list(...)
   if (is.null(imgsz)) {
@@ -7987,6 +7655,11 @@ image_detect_dl <- function(img,
   }
 
   engine <- match.arg(engine)
+  # A character vector of several image paths is processed like a list (previously only
+  # the first path was used).
+  if (is.character(img) && length(img) > 1L) {
+    img <- as.list(img)
+  }
   if (is.list(img) && !inherits(img, c("Image", "image"))) {
     res <- lapply(img, function(x) {
       image_detect_dl(x, model = model, conf_threshold = conf_threshold, iou_threshold = iou_threshold,
@@ -7996,8 +7669,9 @@ image_detect_dl <- function(img,
                       show_box = show_box, point_size = point_size, point_pch = point_pch,
                       point_col = point_col, badge = badge,
                       return_features = return_features, feature_model = feature_model, plot_features = plot_features,
+                      filter_nested = filter_nested,
                       threads = threads, engine = engine, device_id = device_id, verbose = verbose, plot = FALSE,
-                      dir = dir, imgsz = imgsz, ...)
+                      dir = dir, imgsz = imgsz, max_det = max_det, ...)
     })
     return(res)
   }
@@ -8101,7 +7775,8 @@ image_detect_dl <- function(img,
     need_masks = need_masks,
     return_features = return_features,
     dir = dir,
-    imgsz = imgsz
+    imgsz = imgsz,
+    max_det = max_det
   )
 
   if (!is.null(classes) && !is.null(res$boxes) && nrow(res$boxes) > 0) {
@@ -8572,7 +8247,7 @@ image_classify_dl <- function(img,
                               ...) {
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
+  lib_path <- pliman_onnx_library_path(engine = engine)
 
   if (is.list(img) && !inherits(img, c("Image", "image"))) {
     res <- lapply(img, function(x) {
@@ -8719,17 +8394,19 @@ image_classify_dl <- function(img,
 
     # Dynamically detect model input size (default 224 for YOLO-Cls, 640 for detection)
     target_size <- 224L
+    # Cached IO-shape lookup (reuses the inference session) instead of creating a
+    # throw-away session through inspect_onnx_model_cpp() on every call.
     tryCatch({
-      m_info <- inspect_onnx_model_cpp(model_file, lib_path)
-      if (!is.null(m_info$shapes) && length(m_info$shapes) > 0L) {
-        s <- m_info$shapes[[1]]
-        if (length(s) >= 4 && s[3] > 0) {
-          target_size <- as.integer(s[3])
-        }
+      shp <- get_onnx_model_io_shape_cpp(model_file, lib_path, as.integer(threads), use_gpu, as.integer(device_id))
+      if (!isTRUE(shp$dynamic) && !is.null(shp$expected_h) && shp$expected_h > 0) {
+        target_size <- as.integer(shp$expected_h)
       }
     }, error = function(e) NULL)
 
-    tensor <- .preprocess_yolo(mat, target_size = target_size)
+    tensor <- tryCatch(
+      preprocess_yolo_cpp(mat, target_size = target_size),
+      error = function(e) .preprocess_yolo(mat, target_size = target_size)
+    )
 
     if (isTRUE(verbose)) {
       cli::cli_progress_step(
@@ -9497,8 +9174,8 @@ image_detect_world <- function(img,
     pliman_download_model(model = model_str, dir = dir)
   }
 
-  py_exec <- .ensure_python(auto_install = auto_install)
-  .setup_python_yolo_env(py_exec, auto_install = auto_install)
+  py_exec <- .python_yolo_env_cached(auto_install = auto_install)
+  # environment verified once per session (see .python_yolo_env_cached)
 
   run_dir <- file.path(tempdir(), "yolow_run")
   if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
@@ -9672,8 +9349,8 @@ image_generate_dl <- function(prompt,
   width <- wh[1]
   height <- wh[2]
 
-  py_exec <- .ensure_python(auto_install = auto_install)
-  .setup_python_yolo_env(py_exec, auto_install = auto_install)
+  py_exec <- .python_yolo_env_cached(auto_install = auto_install)
+  # environment verified once per session (see .python_yolo_env_cached)
 
   run_dir <- file.path(tempdir(), "sd_turbo_run")
   if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
@@ -9819,8 +9496,8 @@ image_inpaint_dl <- function(img,
     stop("prompt must be a non-empty character string.")
   }
 
-  py_exec <- .ensure_python(auto_install = auto_install)
-  .setup_python_yolo_env(py_exec, auto_install = auto_install)
+  py_exec <- .python_yolo_env_cached(auto_install = auto_install)
+  # environment verified once per session (see .python_yolo_env_cached)
 
   run_dir <- file.path(tempdir(), "sd_inpaint_run")
   if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)

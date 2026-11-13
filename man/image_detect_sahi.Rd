@@ -147,6 +147,15 @@ to global coordinates and merged using Greedy Non-Maximum Merging (Greedy NMM) o
 This prevents small objects (seeds, aphids, stomata, seedlings) from vanishing when downscaled,
 and seamlessly unifies objects that cross tile seams.
 }
+\section{Performance}{
+
+For YOLO detection, pose and OBB models the slices (and the optional full-image pass)
+are cropped, letterboxed and inferred in a single C++ call, with the model resolved
+once. YOLO-World, classification models and \code{return_features = TRUE} use the
+per-slice \code{\link[=image_detect_dl]{image_detect_dl()}} path. The cost grows with the number of slices, which
+depends on \code{slice_height}, \code{slice_width} and the overlap ratios.
+}
+
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)

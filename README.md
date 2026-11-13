@@ -174,7 +174,7 @@ measure_disease_iter(img, viewer = "mapview")
 
 # Deep Learning & Foundation Models
 
-`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`).
+`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`); see *Inference speed, GPU and video* below.
 
 Models are downloaded automatically on first use or manually via `pliman_download_model()`.
 
@@ -263,6 +263,42 @@ img_4x <- image_superres_dl(img, model = "realesrgan_x4_full")
 
 # 4x Ultra-fast preview with lightweight compact model
 img_fast <- image_superres_dl(img, model = "realesrgan-compact")
+```
+
+### 6. Inference speed, GPU and video
+
+Models run through ONNX Runtime in C++. Sessions are cached for the whole R session, so
+only the first call loads the model (and, on GPU, compiles it). Pre-processing,
+non-maximum suppression, mask decoding, SAHI tiling and video tracking also run in C++.
+
+- `engine = "gpu"` uses DirectML on Windows (DirectX 12). Gains depend on the GPU; small
+  models on integrated GPUs can be slower than a multi-core CPU.
+- `engine = "cpu"` uses `threads` ONNX Runtime threads (`0` = all physical cores).
+- FP16 models (`yolo_export_fp16()`) are faster only on GPUs with native half-precision
+  throughput, such as NVIDIA Tensor Cores (RTX 20xx and newer). On GPUs without fast FP16
+  (e.g. GTX 10xx/16xx) or on CPU the casting overhead can make them slower. Dynamic INT8
+  models (`onnx_quantize()`) target the CPU.
+- For many images use `image_detect_dl_batch()` (and `pliman_daemons()` to keep parallel
+  workers and their models alive). Use `plot = FALSE` inside loops.
+- For video, `infer_every`, `fps`, `imgsz` and `show = FALSE` are the main speed levers.
+
+```r
+# Measure inference speed on this machine
+yolo_benchmark("yolo26n", engine = "gpu")
+yolo_benchmark("yolo26n", engine = "cpu", sahi = TRUE)
+
+# Inspect cached ONNX sessions
+pliman_session_info()
+
+# Video detection with tracking and line counting
+res <- video_detect_dl(
+  "conveyor.mp4",
+  model = "yolo26n",
+  track = TRUE,
+  count_line = c(0.5, 0, 0.5, 1),
+  infer_every = 2,
+  output = "annotated.mp4"
+)
 ```
 
 # Citation

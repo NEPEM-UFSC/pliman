@@ -11,6 +11,11 @@
 #' by up to 75% (e.g. from 24 MB to 6 MB) and accelerates CPU inference throughput
 #' by 2–3x with negligible accuracy trade-off.
 #'
+#' The speed-up is hardware dependent: dynamic INT8 kernels target CPUs (best on CPUs
+#' with VNNI/AVX-512 or ARM dot-product instructions). With `engine = "gpu"`
+#' (DirectML), quantized operators may fall back to slower kernels or the CPU, so INT8
+#' models can be slower than FP32 on the GPU. Measure with [yolo_benchmark()].
+#'
 #' @param model_path Character string. File path to the input FP32 `.onnx` model.
 #' @param output_path Optional file path for the quantized INT8 model. If `NULL` (default),
 #'   saves the model in [pliman_model_dir()] appending `"_int8.onnx"` to the original model name.
@@ -819,6 +824,13 @@ print.pliman_fp16_summary <- function(x, ...) {
 #'     \pkg{tensorrt} Python package (\code{pip install tensorrt}).
 #'   \item For a portable, half-size model that runs on any machine without TensorRT, use
 #'     [yolo_export_fp16()], which runs natively in pliman via DirectML.
+#'   \item pliman's own inference functions ([image_detect_dl()], [video_detect_dl()], ...)
+#'     run ONNX models through ONNX Runtime with the CPU or DirectML providers only; they
+#'     cannot execute `.engine` files. Use the engine from Python/Ultralytics or other
+#'     TensorRT runtimes.
+#'   \item With `half = TRUE` the speed-up depends on GPUs with native FP16 throughput
+#'     (NVIDIA Tensor Cores, RTX 20xx and newer). On GPUs without fast FP16 (e.g. GTX
+#'     10xx/16xx) the gain can be small or negative.
 #' }
 #'
 #' @param model Character string. File path to a `.pt` weights file or `.onnx` model,
