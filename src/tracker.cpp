@@ -88,149 +88,263 @@ static inline double compute_iou(double ax1, double ay1, double ax2, double ay2,
   return (uarea > 1e-6) ? (iarea / uarea) : 0.0;
 }
 
-// [[Rcpp::export]]
-Rcpp::List update_tracker_cpp(
+// ---------------------------------------------------------------------------
+// Tracker state kept in C++.
+// The historical API (update_tracker_cpp) round-trips the whole state through nested
+// R lists on every frame, which costs O(tracks x fields + crossing events) per frame
+// (crossing events were appended with List::push_back, which copies the list).
+// tracker_create_cpp()/tracker_update_cpp() keep the same state behind an external
+// pointer and only return the per-frame outputs; update_tracker_cpp() is preserved and
+// now runs the same step function through a decode/encode wrapper.
+// ---------------------------------------------------------------------------
+struct TrackObj {
+  int id;
+  std::string label;
+  int class_id;
+  double score;
+  double xmin, ymin, xmax, ymax;
+  double cx, cy;
+  double prev_cx, prev_cy;
+  double vx, vy;
+  std::vector<double> history_x;
+  std::vector<double> history_y;
+  int lost;
+  int age;
+  bool counted;
+  int count_flash; // visual flash counter
+  std::string last_dir;
+  int mask_id;
+  double mask_shift_x;
+  double mask_shift_y;
+  int hits;
+  int consecutive_hits;
+  bool confirmed;
+};
+
+struct CrossingEvent {
+  int id;
+  std::string label;
+  std::string direction;
+  double x, y;
+};
+
+struct TrackerState {
+  int next_id = 1;
+  int total_count = 0;
+  std::vector<TrackObj> tracks;
+  std::vector<std::pair<std::string, int> > counts_by_class;  // insertion order preserved
+  std::vector<CrossingEvent> crossing_events;
+  double welford_n = 0.0, welford_mean = 0.0, welford_m2 = 0.0;
+  std::vector<double> ring_time = std::vector<double>(30, -1.0);
+  std::vector<int> ring_count = std::vector<int>(30, 0);
+  int ring_head = 0;
+  int ring_total = 0;
+  std::vector<double> flow_history = std::vector<double>(20, 0.0);
+};
+
+static Rcpp::List tracker_counts_to_list(const TrackerState& S) {
+  Rcpp::List out(S.counts_by_class.size());
+  Rcpp::CharacterVector nm(S.counts_by_class.size());
+  for (size_t i = 0; i < S.counts_by_class.size(); ++i) {
+    out[i] = S.counts_by_class[i].second;
+    nm[i] = S.counts_by_class[i].first;
+  }
+  if (!S.counts_by_class.empty()) out.attr("names") = nm;
+  return out;
+}
+
+static Rcpp::List tracker_events_to_list(const TrackerState& S) {
+  Rcpp::List out(S.crossing_events.size());
+  for (size_t i = 0; i < S.crossing_events.size(); ++i) {
+    const CrossingEvent& e = S.crossing_events[i];
+    out[i] = Rcpp::List::create(
+      Rcpp::Named("id") = e.id,
+      Rcpp::Named("label") = e.label,
+      Rcpp::Named("direction") = e.direction,
+      Rcpp::Named("x") = e.x,
+      Rcpp::Named("y") = e.y
+    );
+  }
+  return out;
+}
+
+static Rcpp::List tracker_state_to_list(const TrackerState& S) {
+  Rcpp::List new_tracks_list(S.tracks.size());
+  for (size_t i = 0; i < S.tracks.size(); ++i) {
+    const TrackObj& t = S.tracks[i];
+    new_tracks_list[i] = Rcpp::List::create(
+      Rcpp::Named("id") = t.id,
+      Rcpp::Named("label") = t.label,
+      Rcpp::Named("class_id") = t.class_id,
+      Rcpp::Named("score") = t.score,
+      Rcpp::Named("xmin") = t.xmin,
+      Rcpp::Named("ymin") = t.ymin,
+      Rcpp::Named("xmax") = t.xmax,
+      Rcpp::Named("ymax") = t.ymax,
+      Rcpp::Named("cx") = t.cx,
+      Rcpp::Named("cy") = t.cy,
+      Rcpp::Named("prev_cx") = t.prev_cx,
+      Rcpp::Named("prev_cy") = t.prev_cy,
+      Rcpp::Named("vx") = t.vx,
+      Rcpp::Named("vy") = t.vy,
+      Rcpp::Named("history_x") = Rcpp::wrap(t.history_x),
+      Rcpp::Named("history_y") = Rcpp::wrap(t.history_y),
+      Rcpp::Named("lost") = t.lost,
+      Rcpp::Named("age") = t.age,
+      Rcpp::Named("counted") = t.counted,
+      Rcpp::Named("count_flash") = t.count_flash,
+      Rcpp::Named("last_dir") = t.last_dir,
+      Rcpp::Named("mask_id") = t.mask_id,
+      Rcpp::Named("mask_shift_x") = t.mask_shift_x,
+      Rcpp::Named("mask_shift_y") = t.mask_shift_y,
+      Rcpp::Named("hits") = t.hits,
+      Rcpp::Named("consecutive_hits") = t.consecutive_hits,
+      Rcpp::Named("confirmed") = t.confirmed
+    );
+  }
+  return Rcpp::List::create(
+    Rcpp::Named("next_id") = S.next_id,
+    Rcpp::Named("total_count") = S.total_count,
+    Rcpp::Named("tracks") = new_tracks_list,
+    Rcpp::Named("counts_by_class") = tracker_counts_to_list(S),
+    Rcpp::Named("crossing_events") = tracker_events_to_list(S),
+    Rcpp::Named("welford_n") = S.welford_n,
+    Rcpp::Named("welford_mean") = S.welford_mean,
+    Rcpp::Named("welford_m2") = S.welford_m2,
+    Rcpp::Named("ring_time") = Rcpp::wrap(S.ring_time),
+    Rcpp::Named("ring_count") = Rcpp::wrap(S.ring_count),
+    Rcpp::Named("ring_head") = S.ring_head,
+    Rcpp::Named("ring_total") = S.ring_total,
+    Rcpp::Named("flow_history") = Rcpp::wrap(S.flow_history)
+  );
+}
+
+static void tracker_state_from_list(Rcpp::List state, TrackerState& S, int min_hits) {
+  S = TrackerState();
+  if (state.containsElementNamed("next_id")) S.next_id = Rcpp::as<int>(state["next_id"]);
+  if (state.containsElementNamed("total_count")) S.total_count = Rcpp::as<int>(state["total_count"]);
+
+  if (state.containsElementNamed("counts_by_class")) {
+    Rcpp::List cbc = Rcpp::as<Rcpp::List>(state["counts_by_class"]);
+    if (cbc.size() > 0) {
+      Rcpp::CharacterVector nm = cbc.names();
+      for (R_xlen_t i = 0; i < cbc.size(); ++i) {
+        S.counts_by_class.push_back(std::make_pair(Rcpp::as<std::string>(nm[i]), Rcpp::as<int>(cbc[i])));
+      }
+    }
+  }
+  if (state.containsElementNamed("crossing_events")) {
+    Rcpp::List evs = Rcpp::as<Rcpp::List>(state["crossing_events"]);
+    for (R_xlen_t i = 0; i < evs.size(); ++i) {
+      Rcpp::List e = evs[i];
+      CrossingEvent ce;
+      ce.id = Rcpp::as<int>(e["id"]);
+      ce.label = Rcpp::as<std::string>(e["label"]);
+      ce.direction = Rcpp::as<std::string>(e["direction"]);
+      ce.x = Rcpp::as<double>(e["x"]);
+      ce.y = Rcpp::as<double>(e["y"]);
+      S.crossing_events.push_back(ce);
+    }
+  }
+
+  S.welford_n = state.containsElementNamed("welford_n") ? Rcpp::as<double>(state["welford_n"]) : 0.0;
+  S.welford_mean = state.containsElementNamed("welford_mean") ? Rcpp::as<double>(state["welford_mean"]) : 0.0;
+  S.welford_m2 = state.containsElementNamed("welford_m2") ? Rcpp::as<double>(state["welford_m2"]) : 0.0;
+
+  if (state.containsElementNamed("ring_time")) {
+    S.ring_time = Rcpp::as<std::vector<double> >(state["ring_time"]);
+    S.ring_count = Rcpp::as<std::vector<int> >(state["ring_count"]);
+    S.ring_head = Rcpp::as<int>(state["ring_head"]);
+    S.ring_total = Rcpp::as<int>(state["ring_total"]);
+  }
+  if (state.containsElementNamed("flow_history")) {
+    S.flow_history = Rcpp::as<std::vector<double> >(state["flow_history"]);
+  }
+
+  if (state.containsElementNamed("tracks")) {
+    Rcpp::List active_tracks = Rcpp::as<Rcpp::List>(state["tracks"]);
+    int num_tracks = active_tracks.size();
+    S.tracks.resize(num_tracks);
+    std::vector<TrackObj>& tracks = S.tracks;
+    for (int i = 0; i < num_tracks; ++i) {
+      Rcpp::List t = active_tracks[i];
+      tracks[i].id = Rcpp::as<int>(t["id"]);
+      tracks[i].label = Rcpp::as<std::string>(t["label"]);
+      tracks[i].class_id = t.containsElementNamed("class_id") ? Rcpp::as<int>(t["class_id"]) : 0;
+      tracks[i].score = t.containsElementNamed("score") ? Rcpp::as<double>(t["score"]) : 0.8;
+      tracks[i].xmin = Rcpp::as<double>(t["xmin"]);
+      tracks[i].ymin = Rcpp::as<double>(t["ymin"]);
+      tracks[i].xmax = Rcpp::as<double>(t["xmax"]);
+      tracks[i].ymax = Rcpp::as<double>(t["ymax"]);
+      tracks[i].cx = Rcpp::as<double>(t["cx"]);
+      tracks[i].cy = Rcpp::as<double>(t["cy"]);
+      tracks[i].prev_cx = Rcpp::as<double>(t["prev_cx"]);
+      tracks[i].prev_cy = Rcpp::as<double>(t["prev_cy"]);
+      tracks[i].vx = t.containsElementNamed("vx") ? Rcpp::as<double>(t["vx"]) : 0.0;
+      tracks[i].vy = t.containsElementNamed("vy") ? Rcpp::as<double>(t["vy"]) : 0.0;
+
+      Rcpp::NumericVector hx = t["history_x"];
+      Rcpp::NumericVector hy = t["history_y"];
+      tracks[i].history_x.assign(hx.begin(), hx.end());
+      tracks[i].history_y.assign(hy.begin(), hy.end());
+
+      tracks[i].lost = Rcpp::as<int>(t["lost"]);
+      tracks[i].age = Rcpp::as<int>(t["age"]);
+      tracks[i].counted = Rcpp::as<bool>(t["counted"]);
+      tracks[i].count_flash = t.containsElementNamed("count_flash") ? Rcpp::as<int>(t["count_flash"]) : 0;
+      tracks[i].last_dir = t.containsElementNamed("last_dir") ? Rcpp::as<std::string>(t["last_dir"]) : "";
+      tracks[i].mask_id = t.containsElementNamed("mask_id") ? Rcpp::as<int>(t["mask_id"]) : -1;
+      tracks[i].mask_shift_x = t.containsElementNamed("mask_shift_x") ? Rcpp::as<double>(t["mask_shift_x"]) : 0.0;
+      tracks[i].mask_shift_y = t.containsElementNamed("mask_shift_y") ? Rcpp::as<double>(t["mask_shift_y"]) : 0.0;
+      tracks[i].hits = t.containsElementNamed("hits") ? Rcpp::as<int>(t["hits"]) : tracks[i].age;
+      tracks[i].consecutive_hits = t.containsElementNamed("consecutive_hits") ? Rcpp::as<int>(t["consecutive_hits"]) : (tracks[i].lost == 0 ? 1 : 0);
+      tracks[i].confirmed = t.containsElementNamed("confirmed") ? Rcpp::as<bool>(t["confirmed"]) : (min_hits <= 1);
+    }
+  }
+}
+
+static Rcpp::List tracker_step(
+    TrackerState& S,
     Rcpp::NumericVector xmin,
     Rcpp::NumericVector ymin,
     Rcpp::NumericVector xmax,
     Rcpp::NumericVector ymax,
     Rcpp::CharacterVector labels,
     Rcpp::NumericVector scores,
-    Rcpp::List state,
-    Rcpp::Nullable<Rcpp::NumericVector> count_line = R_NilValue,
-    Rcpp::Nullable<Rcpp::NumericVector> roi = R_NilValue,
-    double max_dist = 120.0,
-    double min_iou = 0.25,
-    int max_lost = 15,
-    int max_history = 30,
-    double current_time = -1.0,
-    int frame_w = 0,
-    int frame_h = 0,
-    Rcpp::Nullable<Rcpp::IntegerVector> class_ids = R_NilValue,
-    Rcpp::Nullable<Rcpp::IntegerVector> mask_ids = R_NilValue,
-    bool interpolate_box = true,
-    bool interpolate_mask = true,
-    int min_hits = 1
+    Rcpp::Nullable<Rcpp::NumericVector> count_line,
+    Rcpp::Nullable<Rcpp::NumericVector> roi,
+    double max_dist,
+    double min_iou,
+    int max_lost,
+    int max_history,
+    double current_time,
+    int frame_w,
+    int frame_h,
+    Rcpp::Nullable<Rcpp::IntegerVector> class_ids,
+    Rcpp::Nullable<Rcpp::IntegerVector> mask_ids,
+    bool interpolate_box,
+    bool interpolate_mask,
+    int min_hits,
+    bool include_state
 ) {
-  // Extract state variables
-  int next_id = 1;
-  if (state.containsElementNamed("next_id")) {
-    next_id = Rcpp::as<int>(state["next_id"]);
-  }
-
-  int total_count = 0;
-  if (state.containsElementNamed("total_count")) {
-    total_count = Rcpp::as<int>(state["total_count"]);
-  }
-
-  Rcpp::List active_tracks;
-  if (state.containsElementNamed("tracks")) {
-    active_tracks = Rcpp::as<Rcpp::List>(state["tracks"]);
-  }
-
-  Rcpp::List counts_by_class;
-  if (state.containsElementNamed("counts_by_class")) {
-    counts_by_class = Rcpp::as<Rcpp::List>(state["counts_by_class"]);
-  }
-
-  Rcpp::List crossing_events;
-  if (state.containsElementNamed("crossing_events")) {
-    crossing_events = Rcpp::as<Rcpp::List>(state["crossing_events"]);
-  }
-
-  // Welford accumulators for online mean and variance of counted object area (W * H)
-  double welford_n = state.containsElementNamed("welford_n") ? Rcpp::as<double>(state["welford_n"]) : 0.0;
-  double welford_mean = state.containsElementNamed("welford_mean") ? Rcpp::as<double>(state["welford_mean"]) : 0.0;
-  double welford_m2 = state.containsElementNamed("welford_m2") ? Rcpp::as<double>(state["welford_m2"]) : 0.0;
-
-  // 30-frame ring buffer for rolling flow rate
-  Rcpp::NumericVector ring_time;
-  Rcpp::IntegerVector ring_count;
-  int ring_head = 0;
-  int ring_total = 0;
-  if (state.containsElementNamed("ring_time")) {
-    ring_time = Rcpp::as<Rcpp::NumericVector>(state["ring_time"]);
-    ring_count = Rcpp::as<Rcpp::IntegerVector>(state["ring_count"]);
-    ring_head = Rcpp::as<int>(state["ring_head"]);
-    ring_total = Rcpp::as<int>(state["ring_total"]);
-  } else {
-    ring_time = Rcpp::NumericVector(30, -1.0);
-    ring_count = Rcpp::IntegerVector(30, 0);
-    ring_head = 0;
-    ring_total = 0;
-  }
-
-  // 20-step flow rate history for sparkline
-  Rcpp::NumericVector flow_history;
-  if (state.containsElementNamed("flow_history")) {
-    flow_history = Rcpp::as<Rcpp::NumericVector>(state["flow_history"]);
-  } else {
-    flow_history = Rcpp::NumericVector(20, 0.0);
-  }
+  int& next_id = S.next_id;
+  int& total_count = S.total_count;
+  double& welford_n = S.welford_n;
+  double& welford_mean = S.welford_mean;
+  double& welford_m2 = S.welford_m2;
+  std::vector<double>& ring_time = S.ring_time;
+  std::vector<int>& ring_count = S.ring_count;
+  int& ring_head = S.ring_head;
+  int& ring_total = S.ring_total;
+  std::vector<double>& flow_history = S.flow_history;
+  std::vector<TrackObj>& tracks = S.tracks;
 
   int num_dets = xmin.size();
-  int num_tracks = active_tracks.size();
+  int num_tracks = (int)tracks.size();
 
-  // Internal structure for C++ tracking
-  struct TrackObj {
-    int id;
-    std::string label;
-    int class_id;
-    double score;
-    double xmin, ymin, xmax, ymax;
-    double cx, cy;
-    double prev_cx, prev_cy;
-    double vx, vy;
-    std::vector<double> history_x;
-    std::vector<double> history_y;
-    int lost;
-    int age;
-    bool counted;
-    int count_flash; // visual flash counter
-    std::string last_dir;
-    int mask_id;
-    double mask_shift_x;
-    double mask_shift_y;
-    int hits;
-    int consecutive_hits;
-    bool confirmed;
-  };
-
-  std::vector<TrackObj> tracks(num_tracks);
-  for (int i = 0; i < num_tracks; ++i) {
-    Rcpp::List t = active_tracks[i];
-    tracks[i].id = Rcpp::as<int>(t["id"]);
-    tracks[i].label = Rcpp::as<std::string>(t["label"]);
-    tracks[i].class_id = t.containsElementNamed("class_id") ? Rcpp::as<int>(t["class_id"]) : 0;
-    tracks[i].score = t.containsElementNamed("score") ? Rcpp::as<double>(t["score"]) : 0.8;
-    tracks[i].xmin = Rcpp::as<double>(t["xmin"]);
-    tracks[i].ymin = Rcpp::as<double>(t["ymin"]);
-    tracks[i].xmax = Rcpp::as<double>(t["xmax"]);
-    tracks[i].ymax = Rcpp::as<double>(t["ymax"]);
-    tracks[i].cx = Rcpp::as<double>(t["cx"]);
-    tracks[i].cy = Rcpp::as<double>(t["cy"]);
-    tracks[i].prev_cx = Rcpp::as<double>(t["prev_cx"]);
-    tracks[i].prev_cy = Rcpp::as<double>(t["prev_cy"]);
-    tracks[i].vx = t.containsElementNamed("vx") ? Rcpp::as<double>(t["vx"]) : 0.0;
-    tracks[i].vy = t.containsElementNamed("vy") ? Rcpp::as<double>(t["vy"]) : 0.0;
-
-    Rcpp::NumericVector hx = t["history_x"];
-    Rcpp::NumericVector hy = t["history_y"];
-    tracks[i].history_x.assign(hx.begin(), hx.end());
-    tracks[i].history_y.assign(hy.begin(), hy.end());
-
-    tracks[i].lost = Rcpp::as<int>(t["lost"]);
-    tracks[i].age = Rcpp::as<int>(t["age"]);
-    tracks[i].counted = Rcpp::as<bool>(t["counted"]);
-    tracks[i].count_flash = t.containsElementNamed("count_flash") ? Rcpp::as<int>(t["count_flash"]) : 0;
-    tracks[i].last_dir = t.containsElementNamed("last_dir") ? Rcpp::as<std::string>(t["last_dir"]) : "";
-    tracks[i].mask_id = t.containsElementNamed("mask_id") ? Rcpp::as<int>(t["mask_id"]) : -1;
-    tracks[i].mask_shift_x = t.containsElementNamed("mask_shift_x") ? Rcpp::as<double>(t["mask_shift_x"]) : 0.0;
-    tracks[i].mask_shift_y = t.containsElementNamed("mask_shift_y") ? Rcpp::as<double>(t["mask_shift_y"]) : 0.0;
-    tracks[i].hits = t.containsElementNamed("hits") ? Rcpp::as<int>(t["hits"]) : tracks[i].age;
-    tracks[i].consecutive_hits = t.containsElementNamed("consecutive_hits") ? Rcpp::as<int>(t["consecutive_hits"]) : (tracks[i].lost == 0 ? 1 : 0);
-    tracks[i].confirmed = t.containsElementNamed("confirmed") ? Rcpp::as<bool>(t["confirmed"]) : (min_hits <= 1);
-  }
+  // Labels converted once per frame (not once per track x detection pair)
+  std::vector<std::string> det_labels(num_dets);
+  for (int j = 0; j < num_dets; ++j) det_labels[j] = Rcpp::as<std::string>(labels[j]);
 
   // Precompute detection centroids
   bool has_cids = class_ids.isNotNull();
@@ -280,7 +394,7 @@ Rcpp::List update_tracker_cpp(
     for (int i = 0; i < num_tracks; ++i) {
       std::string t_lbl = tracks[i].label;
       for (int j = 0; j < num_dets; ++j) {
-        if (t_lbl != Rcpp::as<std::string>(labels[j])) continue;
+        if (t_lbl != det_labels[j]) continue;
         double iou = compute_iou(
           pred_xmin[i], pred_ymin[i], pred_xmax[i], pred_ymax[i],
           xmin[j], ymin[j], xmax[j], ymax[j]
@@ -311,7 +425,7 @@ Rcpp::List update_tracker_cpp(
       std::string t_lbl = tracks[i].label;
       for (int j = 0; j < num_dets; ++j) {
         if (det_matched[j]) continue;
-        if (t_lbl != Rcpp::as<std::string>(labels[j])) continue;
+        if (t_lbl != det_labels[j]) continue;
 
         double dx = pred_cx[i] - ncx[j];
         double dy = pred_cy[i] - ncy[j];
@@ -497,19 +611,24 @@ Rcpp::List update_tracker_cpp(
       welford_m2 += delta * delta2;
 
       std::string lbl = tracks[i].label;
-      int cur_cls_count = counts_by_class.containsElementNamed(lbl.c_str()) ?
-        Rcpp::as<int>(counts_by_class[lbl]) : 0;
-      counts_by_class[lbl] = cur_cls_count + 1;
+      bool found_cls = false;
+      for (size_t q = 0; q < S.counts_by_class.size(); ++q) {
+        if (S.counts_by_class[q].first == lbl) {
+          S.counts_by_class[q].second += 1;
+          found_cls = true;
+          break;
+        }
+      }
+      if (!found_cls) S.counts_by_class.push_back(std::make_pair(lbl, 1));
 
-      // Record crossing event
-      Rcpp::List ev = Rcpp::List::create(
-        Rcpp::Named("id") = tracks[i].id,
-        Rcpp::Named("label") = lbl,
-        Rcpp::Named("direction") = tracks[i].last_dir,
-        Rcpp::Named("x") = tracks[i].cx,
-        Rcpp::Named("y") = tracks[i].cy
-      );
-      crossing_events.push_back(ev);
+      // Record crossing event (C++ vector: O(1) amortised, exported to R only on demand)
+      CrossingEvent ev;
+      ev.id = tracks[i].id;
+      ev.label = lbl;
+      ev.direction = tracks[i].last_dir;
+      ev.x = tracks[i].cx;
+      ev.y = tracks[i].cy;
+      S.crossing_events.push_back(ev);
     }
   }
 
@@ -518,7 +637,7 @@ Rcpp::List update_tracker_cpp(
     if (!det_matched[j]) {
       TrackObj nt;
       nt.id = next_id++;
-      nt.label = Rcpp::as<std::string>(labels[j]);
+      nt.label = det_labels[j];
       nt.xmin = xmin[j];
       nt.ymin = ymin[j];
       nt.xmax = xmax[j];
@@ -653,40 +772,6 @@ Rcpp::List update_tracker_cpp(
     out_history_y[out_idx] = Rcpp::wrap(tracks[t_idx].history_y);
   }
 
-  // Serialize surviving tracks for state persistence
-  Rcpp::List new_tracks_list(surviving_tracks.size());
-  for (size_t i = 0; i < surviving_tracks.size(); ++i) {
-    new_tracks_list[i] = Rcpp::List::create(
-      Rcpp::Named("id") = surviving_tracks[i].id,
-      Rcpp::Named("label") = surviving_tracks[i].label,
-      Rcpp::Named("class_id") = surviving_tracks[i].class_id,
-      Rcpp::Named("score") = surviving_tracks[i].score,
-      Rcpp::Named("xmin") = surviving_tracks[i].xmin,
-      Rcpp::Named("ymin") = surviving_tracks[i].ymin,
-      Rcpp::Named("xmax") = surviving_tracks[i].xmax,
-      Rcpp::Named("ymax") = surviving_tracks[i].ymax,
-      Rcpp::Named("cx") = surviving_tracks[i].cx,
-      Rcpp::Named("cy") = surviving_tracks[i].cy,
-      Rcpp::Named("prev_cx") = surviving_tracks[i].prev_cx,
-      Rcpp::Named("prev_cy") = surviving_tracks[i].prev_cy,
-      Rcpp::Named("vx") = surviving_tracks[i].vx,
-      Rcpp::Named("vy") = surviving_tracks[i].vy,
-      Rcpp::Named("history_x") = Rcpp::wrap(surviving_tracks[i].history_x),
-      Rcpp::Named("history_y") = Rcpp::wrap(surviving_tracks[i].history_y),
-      Rcpp::Named("lost") = surviving_tracks[i].lost,
-      Rcpp::Named("age") = surviving_tracks[i].age,
-      Rcpp::Named("counted") = surviving_tracks[i].counted,
-      Rcpp::Named("count_flash") = surviving_tracks[i].count_flash,
-      Rcpp::Named("last_dir") = surviving_tracks[i].last_dir,
-      Rcpp::Named("mask_id") = surviving_tracks[i].mask_id,
-      Rcpp::Named("mask_shift_x") = surviving_tracks[i].mask_shift_x,
-      Rcpp::Named("mask_shift_y") = surviving_tracks[i].mask_shift_y,
-      Rcpp::Named("hits") = surviving_tracks[i].hits,
-      Rcpp::Named("consecutive_hits") = surviving_tracks[i].consecutive_hits,
-      Rcpp::Named("confirmed") = surviving_tracks[i].confirmed
-    );
-  }
-
   // Compute Welford summary metrics
   double area_var = (welford_n > 1.0) ? (welford_m2 / (welford_n - 1.0)) : 0.0;
   double area_sd = std::sqrt(area_var);
@@ -777,24 +862,11 @@ Rcpp::List update_tracker_cpp(
   }
   double roi_occ = std::min(100.0, (roi_box_area_sum / a_roi) * 100.0);
 
-  Rcpp::List new_state = Rcpp::List::create(
-    Rcpp::Named("next_id") = next_id,
-    Rcpp::Named("total_count") = total_count,
-    Rcpp::Named("tracks") = new_tracks_list,
-    Rcpp::Named("counts_by_class") = counts_by_class,
-    Rcpp::Named("crossing_events") = crossing_events,
-    Rcpp::Named("welford_n") = welford_n,
-    Rcpp::Named("welford_mean") = welford_mean,
-    Rcpp::Named("welford_m2") = welford_m2,
-    Rcpp::Named("ring_time") = ring_time,
-    Rcpp::Named("ring_count") = ring_count,
-    Rcpp::Named("ring_head") = ring_head,
-    Rcpp::Named("ring_total") = ring_total,
-    Rcpp::Named("flow_history") = flow_history
-  );
 
-  return Rcpp::List::create(
-    Rcpp::Named("state") = new_state,
+  // Persist only surviving tracks (lost <= max_lost) for the next frame.
+  S.tracks.swap(surviving_tracks);
+
+  Rcpp::List res = Rcpp::List::create(
     Rcpp::Named("track_ids") = out_track_ids,
     Rcpp::Named("xmin") = out_xmin,
     Rcpp::Named("ymin") = out_ymin,
@@ -820,11 +892,197 @@ Rcpp::List update_tracker_cpp(
     Rcpp::Named("conf_sd") = conf_sd,
     Rcpp::Named("conf_min") = conf_min,
     Rcpp::Named("flow") = flow_rate,
-    Rcpp::Named("flow_history") = flow_history,
+    Rcpp::Named("flow_history") = Rcpp::wrap(flow_history),
     Rcpp::Named("vel_mean") = vel_mean,
     Rcpp::Named("vel_jit") = vel_jit,
     Rcpp::Named("welford_mean") = welford_mean,
     Rcpp::Named("welford_cv") = area_cv,
     Rcpp::Named("roi_occ") = roi_occ
   );
+  if (include_state) {
+    // Same element order as the historical API: "state" first.
+    Rcpp::List with_state(res.size() + 1);
+    Rcpp::CharacterVector nm_old = res.names();
+    Rcpp::CharacterVector nm(res.size() + 1);
+    with_state[0] = tracker_state_to_list(S);
+    nm[0] = "state";
+    for (R_xlen_t k = 0; k < res.size(); ++k) {
+      with_state[k + 1] = res[k];
+      nm[k + 1] = nm_old[k];
+    }
+    with_state.attr("names") = nm;
+    return with_state;
+  }
+  return res;
+}
+
+
+// [[Rcpp::export]]
+Rcpp::List update_tracker_cpp(
+    Rcpp::NumericVector xmin,
+    Rcpp::NumericVector ymin,
+    Rcpp::NumericVector xmax,
+    Rcpp::NumericVector ymax,
+    Rcpp::CharacterVector labels,
+    Rcpp::NumericVector scores,
+    Rcpp::List state,
+    Rcpp::Nullable<Rcpp::NumericVector> count_line = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> roi = R_NilValue,
+    double max_dist = 120.0,
+    double min_iou = 0.25,
+    int max_lost = 15,
+    int max_history = 30,
+    double current_time = -1.0,
+    int frame_w = 0,
+    int frame_h = 0,
+    Rcpp::Nullable<Rcpp::IntegerVector> class_ids = R_NilValue,
+    Rcpp::Nullable<Rcpp::IntegerVector> mask_ids = R_NilValue,
+    bool interpolate_box = true,
+    bool interpolate_mask = true,
+    int min_hits = 1
+) {
+  TrackerState S;
+  tracker_state_from_list(state, S, min_hits);
+  return tracker_step(S, xmin, ymin, xmax, ymax, labels, scores, count_line, roi, max_dist, min_iou,
+                      max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids,
+                      interpolate_box, interpolate_mask, min_hits, true);
+}
+
+static TrackerState* tracker_from_xptr(SEXP tracker) {
+  if (TYPEOF(tracker) != EXTPTRSXP) Rcpp::stop("tracker must be created with tracker_create_cpp().");
+  TrackerState* S = (TrackerState*)R_ExternalPtrAddr(tracker);
+  if (S == NULL) Rcpp::stop("tracker pointer is no longer valid (was it saved and reloaded?).");
+  return S;
+}
+
+// [[Rcpp::export]]
+SEXP tracker_create_cpp() {
+  Rcpp::XPtr<TrackerState> ptr(new TrackerState(), true);
+  return ptr;
+}
+
+// [[Rcpp::export]]
+Rcpp::List tracker_update_cpp(
+    SEXP tracker,
+    Rcpp::NumericVector xmin,
+    Rcpp::NumericVector ymin,
+    Rcpp::NumericVector xmax,
+    Rcpp::NumericVector ymax,
+    Rcpp::CharacterVector labels,
+    Rcpp::NumericVector scores,
+    Rcpp::Nullable<Rcpp::NumericVector> count_line = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> roi = R_NilValue,
+    double max_dist = 120.0,
+    double min_iou = 0.25,
+    int max_lost = 15,
+    int max_history = 30,
+    double current_time = -1.0,
+    int frame_w = 0,
+    int frame_h = 0,
+    Rcpp::Nullable<Rcpp::IntegerVector> class_ids = R_NilValue,
+    Rcpp::Nullable<Rcpp::IntegerVector> mask_ids = R_NilValue,
+    bool interpolate_box = true,
+    bool interpolate_mask = true,
+    int min_hits = 1
+) {
+  TrackerState* S = tracker_from_xptr(tracker);
+  return tracker_step(*S, xmin, ymin, xmax, ymax, labels, scores, count_line, roi, max_dist, min_iou,
+                      max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids,
+                      interpolate_box, interpolate_mask, min_hits, false);
+}
+
+// [[Rcpp::export]]
+Rcpp::List tracker_velocities_cpp(SEXP tracker) {
+  TrackerState* S = tracker_from_xptr(tracker);
+  size_t n = S->tracks.size();
+  Rcpp::IntegerVector id(n);
+  Rcpp::NumericVector vx(n), vy(n);
+  for (size_t i = 0; i < n; ++i) {
+    id[i] = S->tracks[i].id;
+    vx[i] = S->tracks[i].vx;
+    vy[i] = S->tracks[i].vy;
+  }
+  return Rcpp::List::create(Rcpp::Named("id") = id, Rcpp::Named("vx") = vx, Rcpp::Named("vy") = vy);
+}
+
+// [[Rcpp::export]]
+int tracker_n_tracks_cpp(SEXP tracker) {
+  return (int)tracker_from_xptr(tracker)->tracks.size();
+}
+
+// [[Rcpp::export]]
+Rcpp::List tracker_export_state_cpp(SEXP tracker) {
+  return tracker_state_to_list(*tracker_from_xptr(tracker));
+}
+
+// [[Rcpp::export]]
+void tracker_import_state_cpp(SEXP tracker, Rcpp::List state, int min_hits = 1) {
+  tracker_state_from_list(state, *tracker_from_xptr(tracker), min_hits);
+}
+
+// [[Rcpp::export]]
+void tracker_reset_cpp(SEXP tracker) {
+  *tracker_from_xptr(tracker) = TrackerState();
+}
+
+// ---------------------------------------------------------------------------
+// Nested-box filter used by video inference (replaces the per-frame O(n^2) R loop
+// `.filter_nested_mat`). Box i is dropped when a smaller, confident box lies (mostly)
+// inside it: child c qualifies when score[c] >= conf_floor, area[c] > 0,
+// area[c] < area[i] * max_area_ratio and the boxes overlap strictly; i is removed if
+// intersection / area[c] >= containment_thresh for any child. `class_ids` is accepted
+// for API symmetry and ignored, exactly like the R implementation. When `group` is
+// supplied only boxes of the same group (e.g. the same SAHI tile) are compared.
+// ---------------------------------------------------------------------------
+// [[Rcpp::export]]
+Rcpp::LogicalVector filter_nested_boxes_cpp(
+    Rcpp::NumericMatrix boxes,
+    Rcpp::NumericVector scores,
+    Rcpp::Nullable<Rcpp::IntegerVector> class_ids = R_NilValue,
+    double containment_thresh = 0.85,
+    double max_area_ratio = 0.70,
+    double conf_floor = 0.50,
+    Rcpp::Nullable<Rcpp::IntegerVector> group = R_NilValue
+) {
+  Rcpp::IntegerVector grp;
+  if (group.isNotNull()) grp = Rcpp::IntegerVector(group.get());
+  const int n = boxes.nrow();
+  Rcpp::LogicalVector keep(n, true);
+  if (n <= 1 || boxes.ncol() < 4) return keep;
+  std::vector<double> x1(n), y1(n), x2(n), y2(n), area(n);
+  for (int i = 0; i < n; ++i) {
+    x1[i] = boxes(i, 0); y1[i] = boxes(i, 1); x2[i] = boxes(i, 2); y2[i] = boxes(i, 3);
+    area[i] = std::max(0.0, x2[i] - x1[i]) * std::max(0.0, y2[i] - y1[i]);
+  }
+  std::vector<int> valid;
+  valid.reserve(n);
+  for (int j = 0; j < n; ++j) {
+    double s = (j < scores.size()) ? scores[j] : NA_REAL;
+    if (!ISNAN(s) && s >= conf_floor && area[j] > 0.0) valid.push_back(j);
+  }
+  if (valid.empty()) return keep;
+  const bool use_group = (grp.size() == n);
+  std::vector<char> k(n, 1);
+  #pragma omp parallel for schedule(dynamic, 16) if(n > 256)
+  for (int i = 0; i < n; ++i) {
+    double ai = area[i];
+    if (ai <= 0.0) continue;
+    for (size_t q = 0; q < valid.size(); ++q) {
+      int c = valid[q];
+      if (c == i) continue;
+      if (use_group && grp[c] != grp[i]) continue;
+      if (!(area[c] < ai * max_area_ratio)) continue;
+      if (!(x2[c] > x1[i] && x1[c] < x2[i] && y2[c] > y1[i] && y1[c] < y2[i])) continue;
+      double iw = std::min(x2[i], x2[c]) - std::max(x1[i], x1[c]);
+      double ih = std::min(y2[i], y2[c]) - std::max(y1[i], y1[c]);
+      double inter = std::max(0.0, iw) * std::max(0.0, ih);
+      if (inter / area[c] >= containment_thresh) {
+        k[i] = 0;
+        break;
+      }
+    }
+  }
+  for (int i = 0; i < n; ++i) keep[i] = (k[i] != 0);
+  (void)class_ids;
+  return keep;
 }

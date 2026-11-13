@@ -651,6 +651,14 @@ image_resize_cpp <- function(img_sexp, out_w, out_h, filter = 0L) {
     .Call(`_pliman_image_resize_cpp`, img_sexp, out_w, out_h, filter)
 }
 
+resize_roi_bilinear_cpp <- function(mat, out_w, out_h, x0, y0, rw, rh) {
+    .Call(`_pliman_resize_roi_bilinear_cpp`, mat, out_w, out_h, x0, y0, rw, rh)
+}
+
+preprocess_nchw_cpp <- function(mat, target_size, mean, std_, letterbox = FALSE) {
+    .Call(`_pliman_preprocess_nchw_cpp`, mat, target_size, mean, std_, letterbox)
+}
+
 image_rotate_cpp <- function(img_sexp, angle_deg, bg_color) {
     .Call(`_pliman_image_rotate_cpp`, img_sexp, angle_deg, bg_color)
 }
@@ -869,6 +877,14 @@ clear_onnx_sessions_cpp <- function() {
     invisible(.Call(`_pliman_clear_onnx_sessions_cpp`))
 }
 
+onnx_set_max_sessions_cpp <- function(n = 0L) {
+    .Call(`_pliman_onnx_set_max_sessions_cpp`, n)
+}
+
+onnx_session_info_cpp <- function() {
+    .Call(`_pliman_onnx_session_info_cpp`)
+}
+
 run_onnx_inference_cpp <- function(tensor_vec, tensor_dims, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
     .Call(`_pliman_run_onnx_inference_cpp`, tensor_vec, tensor_dims, model_path, lib_path, num_threads, use_gpu, device_id)
 }
@@ -909,8 +925,12 @@ get_onnx_model_io_shape_cpp <- function(model_path, lib_path = "", num_threads =
     .Call(`_pliman_get_onnx_model_io_shape_cpp`, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
-run_yolo_cpp <- function(tensor_vec, orig_w, orig_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, need_masks = TRUE, return_features = FALSE, txt_feats = NULL, target_size = 640L) {
-    .Call(`_pliman_run_yolo_cpp`, tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size)
+run_yolo_cpp <- function(tensor_vec, orig_w, orig_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, need_masks = TRUE, return_features = FALSE, txt_feats = NULL, target_size = 640L, max_nms = 30000L, max_det = 0L) {
+    .Call(`_pliman_run_yolo_cpp`, tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size, max_nms, max_det)
+}
+
+run_yolo_tiles_cpp <- function(img, tile_x, tile_y, tile_w, tile_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, target_size = 640L, include_full = FALSE, full_target_size = 0L, max_nms = 30000L, max_det = 0L) {
+    .Call(`_pliman_run_yolo_tiles_cpp`, img, tile_x, tile_y, tile_w, tile_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, target_size, include_full, full_target_size, max_nms, max_det)
 }
 
 run_yolo_cls_cpp <- function(tensor_vec, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
@@ -991,6 +1011,38 @@ analyze_root_system_cpp <- function(binary_mat, pixel_size = 1.0, prune_length_p
 
 update_tracker_cpp <- function(xmin, ymin, xmax, ymax, labels, scores, state, count_line = NULL, roi = NULL, max_dist = 120.0, min_iou = 0.25, max_lost = 15L, max_history = 30L, current_time = -1.0, frame_w = 0L, frame_h = 0L, class_ids = NULL, mask_ids = NULL, interpolate_box = TRUE, interpolate_mask = TRUE, min_hits = 1L) {
     .Call(`_pliman_update_tracker_cpp`, xmin, ymin, xmax, ymax, labels, scores, state, count_line, roi, max_dist, min_iou, max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids, interpolate_box, interpolate_mask, min_hits)
+}
+
+tracker_create_cpp <- function() {
+    .Call(`_pliman_tracker_create_cpp`)
+}
+
+tracker_update_cpp <- function(tracker, xmin, ymin, xmax, ymax, labels, scores, count_line = NULL, roi = NULL, max_dist = 120.0, min_iou = 0.25, max_lost = 15L, max_history = 30L, current_time = -1.0, frame_w = 0L, frame_h = 0L, class_ids = NULL, mask_ids = NULL, interpolate_box = TRUE, interpolate_mask = TRUE, min_hits = 1L) {
+    .Call(`_pliman_tracker_update_cpp`, tracker, xmin, ymin, xmax, ymax, labels, scores, count_line, roi, max_dist, min_iou, max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids, interpolate_box, interpolate_mask, min_hits)
+}
+
+tracker_velocities_cpp <- function(tracker) {
+    .Call(`_pliman_tracker_velocities_cpp`, tracker)
+}
+
+tracker_n_tracks_cpp <- function(tracker) {
+    .Call(`_pliman_tracker_n_tracks_cpp`, tracker)
+}
+
+tracker_export_state_cpp <- function(tracker) {
+    .Call(`_pliman_tracker_export_state_cpp`, tracker)
+}
+
+tracker_import_state_cpp <- function(tracker, state, min_hits = 1L) {
+    invisible(.Call(`_pliman_tracker_import_state_cpp`, tracker, state, min_hits))
+}
+
+tracker_reset_cpp <- function(tracker) {
+    invisible(.Call(`_pliman_tracker_reset_cpp`, tracker))
+}
+
+filter_nested_boxes_cpp <- function(boxes, scores, class_ids = NULL, containment_thresh = 0.85, max_area_ratio = 0.70, conf_floor = 0.50, group = NULL) {
+    .Call(`_pliman_filter_nested_boxes_cpp`, boxes, scores, class_ids, containment_thresh, max_area_ratio, conf_floor, group)
 }
 
 watershed_cpp <- function(img_r, tolerance = 1.0, ext = 1L) {

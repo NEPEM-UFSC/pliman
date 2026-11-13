@@ -1599,6 +1599,12 @@ static bool decode_single_mf_frame(NativeVideoReader* reader, unsigned char* dst
           actual_stride = min_stride;
         }
         if (curLen >= (DWORD)(actual_stride * h)) {
+          // BGRA -> RGB repack in parallel (runs on the prefetch thread; capped at 4
+          // threads so it does not compete with ONNX Runtime's pool on the R thread).
+#ifdef _OPENMP
+          const int repack_threads = std::max(1, std::min(4, omp_get_max_threads()));
+#endif
+          #pragma omp parallel for schedule(static) num_threads(repack_threads) if(h >= 240)
           for (int y = 0; y < h; ++y) {
             int src_y = is_bottom_up ? (h - 1 - y) : y;
             const unsigned char* src_row = pData + (size_t)src_y * actual_stride;

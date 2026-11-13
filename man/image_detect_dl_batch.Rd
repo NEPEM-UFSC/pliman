@@ -154,6 +154,23 @@ defined by a directory path, a filename pattern, a vector of file paths,
 or a list of \code{Image} objects. Supports sequential or parallel processing (via \code{mirai}),
 and returns a consolidated predictions dataset along with per-image and per-class summaries.
 }
+\section{Performance}{
+
+The model is resolved once and every image reuses the cached ONNX session. With
+\code{parallel = TRUE} each worker process loads its own copy of the model, so:
+\itemize{
+\item on CPU (\code{engine = "cpu"}) and \code{threads = 0}, each worker gets
+\verb{physical cores / workers} ONNX threads to avoid oversubscribing the CPU;
+\item on GPU (\code{engine = "gpu"}) concurrency is capped at
+\code{getOption("pliman.gpu_workers", 2)}, because every worker opens its own GPU
+session (GPU memory grows with the number of workers);
+\item temporary workers are started and stopped on every call. Start persistent
+workers with \code{\link[=pliman_daemons]{pliman_daemons()}} to keep models loaded across calls;
+\item pass file paths rather than in-memory images, so only paths are sent to the
+workers.
+}
+}
+
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)

@@ -89,6 +89,8 @@ video_detect_dl(
   threads = 0,
   dir = pliman_model_dir(),
   imgsz = NULL,
+  filter_nested = TRUE,
+  max_det = 0,
   as_job = FALSE,
   verbose = TRUE,
   ...
@@ -178,6 +180,8 @@ video_detect(
   threads = 0,
   dir = pliman_model_dir(),
   imgsz = NULL,
+  filter_nested = TRUE,
+  max_det = 0,
   as_job = FALSE,
   verbose = TRUE,
   ...
@@ -214,7 +218,10 @@ fast real-time streaming and recording. Defaults to \code{TRUE}.}
 
 \item{track}{Logical. Whether to enable multi-object tracking and assign persistent IDs (\verb{#1}, \verb{#2}, etc.) across frames. Defaults to \code{FALSE}.}
 
-\item{min_frames}{Minimum number of consecutive/persistent frames an object must be tracked before rendering its bounding box or point (default \code{10L}). Suppresses transient false positives and noise from flickering on screen.}
+\item{min_frames}{Minimum number of frames an object must persist to be retained. When
+tracking, it is also the number of hits a track needs before its box/point is drawn,
+which suppresses flickering false positives. Defaults to \code{20L}. Set to \code{0} or \code{NULL}
+to retain all detections.}
 
 \item{interpolate_box}{Logical. Whether to temporally interpolate bounding box positions for tracked objects across briefly lost or occluded frames using velocity motion vectors (default \code{FALSE}).}
 
@@ -339,7 +346,9 @@ e.g. \code{c(1920, 1080)} or \code{c(1280, 720)}. Default is \code{NULL} (uses n
 \item{end_time}{Optional numeric end timestamp (in seconds) at which to stop processing a video file. Defaults to \code{NULL}.}
 
 \item{show}{Logical. Whether to display the video feed with bounding boxes in real time.
-Default is \code{interactive()}.}
+\code{NULL} (default) means \code{interactive()} for cameras and \code{FALSE} for video files. On
+Windows frames are shown in a native window; on other systems the R graphics device is
+used, which is much slower (see "Performance").}
 
 \item{show_fps}{Logical. Whether to overlay a real-time FPS and detection counter badge (default \code{TRUE}).}
 
@@ -384,6 +393,13 @@ and maximizing real-time video display smoothness up to the camera's physical fr
 
 \item{imgsz}{Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
 If \code{NULL} (default), inferred automatically from the model or defaults to \code{640}.}
+
+\item{filter_nested}{Logical. If \code{TRUE} (default), removes boxes that contain a smaller,
+confident box (typical double detections of the same object). Set to \code{FALSE} to keep
+every detection returned by the model.}
+
+\item{max_det}{Integer. Maximum number of detections kept per frame (or per SAHI tile)
+after non-maximum suppression, highest scores first. \code{0} (default) keeps all.}
 
 \item{as_job}{Logical. If \code{TRUE} and running inside RStudio, dispatches the video processing task to an asynchronous RStudio Background Job, keeping the R console free. Default is \code{FALSE}.}
 
@@ -572,6 +588,27 @@ Provide transparent backward compatibility with data frame operations on raw det
 }
 }
 }
+\section{Performance}{
+
+Decoding, letterboxing, inference, tracking, drawing and encoding run in C++; the
+ONNX session is created once and warmed up before the first frame, so the reported
+FPS reflects steady-state speed. The main levers are:
+\itemize{
+\item \code{engine = "gpu"} (DirectML) vs. \code{"cpu"} with \code{threads}. GPU gains depend on the
+hardware; FP16 models (\code{\link[=yolo_export_fp16]{yolo_export_fp16()}}) only help on GPUs with native
+half-precision throughput (e.g. Tensor Cores).
+\item \code{imgsz}: inference cost grows roughly with the square of the input size.
+\item \code{infer_every}: run the model every \emph{k} frames and propagate tracks in between.
+\item \code{fps}: subsample the video before inference.
+\item \code{show = FALSE}, \code{telemetry = "none"} and \code{save_video = FALSE} remove the drawing
+and display work; outside Windows \code{show = TRUE} renders through the R graphics
+device, which is very slow.
+\item \code{sahi = TRUE} multiplies the inference cost by the number of tiles.
+\item \code{max_det} caps the number of detections handled per frame in dense scenes.
+}
+Use \code{\link[=yolo_benchmark]{yolo_benchmark()}} to measure the model alone on your hardware.
+}
+
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)

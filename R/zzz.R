@@ -159,6 +159,12 @@ set_pliman_viewer <- function(value) {
   toset <- !(names(op.pliman) %in% names(op))
   if (any(toset)) options(op.pliman[toset])
 
+  # Optional cap on cached ONNX Runtime sessions (see ?pliman_session_info)
+  max_sess <- getOption("pliman.max_sessions")
+  if (!is.null(max_sess)) {
+    try(onnx_set_max_sessions_cpp(as.integer(max_sess)), silent = TRUE)
+  }
+
   # Safely wipe any dangling ghost progress bars from previously interrupted sessions
   try({
     cli::cli_progress_cleanup()

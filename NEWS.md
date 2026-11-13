@@ -1,5 +1,7 @@
 # pliman 3.2.0
 ## New Functions
+* New `yolo_benchmark()` to measure YOLO inference speed (raw C++ inference, the full `image_detect_dl()` pipeline and, optionally, SAHI) with warm-up iterations excluded from the timings.
+* New `pliman_session_info()` and `pliman_max_sessions()` to inspect and size the cache of ONNX Runtime sessions.
 * Modernized `get_card_colors()` with perspective-aware **Bilinear Homography**, dynamic **Negative Buffering** (`buffer = 0.45`), outer margins, multi-statistic extraction (`mean`, `median`, `sd`, `n_pixels`), automated reference matching, $\Delta E$ calculations, and modern overlay/swatch plotting.
 * Modernized `image_correction()` to support industry-standard **CCM (Color Correction Matrix 3x3)** with Ridge Regularization, **Affine (4x3)**, **White Balance**, **Cubic (9-term)**, and **Root-Polynomial (20-term)** models with native C++ acceleration and direct integration with `get_card_colors()`.
 * New `colorchecker_ref()` providing standard reference sRGB coordinates for 24-patch ColorChecker Classic (Macbeth) charts.
@@ -16,6 +18,17 @@
 * New `get_uuid()` function for generating unique identifiers.
 
 ## Minor Improvements
+* **Faster deep-learning inference** (outputs unchanged unless noted):
+  - ONNX Runtime sessions: a single process-wide environment, cached input/output metadata, up to 8 cached sessions (was 3) and no eviction of other thread/device variants of the same model, so Grounded-SAM, PerSAM and feature extraction no longer reload models on every call. GPU sessions with static input shapes are warmed up at creation.
+  - YOLO decoding reads class scores contiguously (class-major) in parallel, and non-maximum suppression runs per class. Instance masks are decoded in parallel across detections.
+  - `image_detect_sahi()` runs all slices (and the full-image pass) in one C++ call (`run_yolo_tiles_cpp()`) for detection and pose models instead of calling `image_detect_dl()` per slice. `video_detect_dl()` with `sahi = TRUE` uses the same path.
+  - `video_detect_dl()`: object tracking state is kept in C++ (only per-frame results return to R), the nested-box filter runs in C++, the model is warmed up before the first frame, per-frame records are bound column-wise at the end, and video frames are converted from BGRA to RGB in parallel.
+  - Model lookups are cached: alias table built once, directory listings and failed lookups cached, `pliman_download_model()` returns cached paths, model input sizes come from a static table, and GPU and Python environment checks run once per session.
+  - Grounded-SAM no longer clears all cached sessions on GPUs with less than 6 GB of memory. Grounded-SAM and PerSAM process each instance mask in a window around its box instead of the full image.
+  - `.preprocess_nchw()` (U2Net, RMBG, BEN2, SAM, Grounding DINO, StarDist, DINOv2, CLIP, depth) runs in C++ with identical results.
+  - Parallel batch functions give each CPU worker `physical cores / workers` ONNX threads, cap concurrent GPU workers at `getOption("pliman.gpu_workers", 2)`, and no longer serialise the whole input list with every chunk.
+* New `max_det` argument in `image_detect_dl()` and `video_detect_dl()` (maximum detections kept after NMS; `0` keeps all). New `filter_nested` argument in `video_detect_dl()`.
+* Documented inference-speed guidance and hardware dependence of FP16, INT8 and TensorRT (Tensor Cores; `.engine` files cannot be run by pliman) in `image_detect_dl()`, `video_detect_dl()`, batch and SAHI functions, `yolo_export_engine()`, `onnx_quantize()` and the README. Added deep-learning groups to the pkgdown reference.
 * Reduced external package dependencies by replacing heavy external imports (such as **EBImage**`) with native, standalone C++ algorithms for image processing and segmentation.
 * Removed dependencies on **future**, **foreach** and **doFuture** in favour of the new **mirai** background engine. This simplifies installation and delivers faster, more reliable parallel processing across all image-based functions.
 * Added **cli**-based messages (rules, progress steps and alerts) throughout both parallel and sequential workflows to provide clear, informative status updates during long-running image processing tasks.
@@ -37,6 +50,12 @@
 * Added `return_exact = TRUE` to `image_opening()` and `analyze_objects()` to remove noise (including noise touching large objects) while preserving 100% of exact original object boundaries.
 
 ## Bug fixes
+* `image_detect_dl()` now processes every path of a character vector (previously only the first) and forwards `filter_nested` when given a list of images.
+* `image_detect_sahi()` reports `cx`/`cy` in global image coordinates (they were left in slice coordinates).
+* YOLO segmentation: where instance masks overlap, the pixel now belongs to the highest-scoring instance (previously the lowest-scoring one overwrote it).
+* `update_tracker_cpp()` no longer modifies vectors returned for previous frames in place.
+* ONNX Runtime library lookup now honours `engine` in YOLO and StarDist inference.
+* `src/Makevars` no longer defines self-referencing linker variables that break builds on Linux/macOS.
 * Fix bug with `mosaic_chm()` with lat/lon projection.
 * Fix error in `mosaic_chm_extract()`.
 * Fix bug with `as_sf = FALSE`.

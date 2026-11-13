@@ -211,6 +211,20 @@ pliman_daemons <- function(workers = NULL) {
 #'     average per image, and mean confidence scores per class.
 #'   * `results`: A named list of raw individual detection outputs from [image_detect_dl()].
 #' @aliases image_detect_batch
+#' @section Performance:
+#' The model is resolved once and every image reuses the cached ONNX session. With
+#' `parallel = TRUE` each worker process loads its own copy of the model, so:
+#' \itemize{
+#'   \item on CPU (`engine = "cpu"`) and `threads = 0`, each worker gets
+#'     `physical cores / workers` ONNX threads to avoid oversubscribing the CPU;
+#'   \item on GPU (`engine = "gpu"`) concurrency is capped at
+#'     `getOption("pliman.gpu_workers", 2)`, because every worker opens its own GPU
+#'     session (GPU memory grows with the number of workers);
+#'   \item temporary workers are started and stopped on every call. Start persistent
+#'     workers with [pliman_daemons()] to keep models loaded across calls;
+#'   \item pass file paths rather than in-memory images, so only paths are sent to the
+#'     workers.
+#' }
 #' @export
 #' @examplesIf interactive()
 #' library(pliman)
@@ -387,6 +401,7 @@ image_detect_dl_batch <- function(data,
       do.call(pliman::image_detect_dl, c(list(img = im), args))
     }
   }
+  environment(worker_detect_fn) <- .slim_worker_env(sahi = sahi, slice_height = slice_height, slice_width = slice_width, overlap_height_ratio = overlap_height_ratio, overlap_width_ratio = overlap_width_ratio, match_metric = match_metric, match_threshold = match_threshold, postprocess_type = postprocess_type)
 
   # 2. Execution: Parallel vs Sequential
   if (isTRUE(parallel)) {
@@ -403,6 +418,9 @@ image_detect_dl_batch <- function(data,
 
     if (isTRUE(d_info$active)) {
       eff_workers <- d_info$nworkers
+      tuned <- .tune_parallel_dl(dots_args, eff_workers, verbose = verbose)
+      dots_args <- tuned$args
+      eff_workers <- tuned$workers
       if (isTRUE(d_info$auto_cleanup)) {
         on.exit(mirai::daemons(0), add = TRUE)
       }
@@ -414,6 +432,8 @@ image_detect_dl_batch <- function(data,
       }
 
       n_chunks <- if (n_items <= eff_workers) eff_workers else min(n_items, eff_workers * 3L)
+      # GPU: one chunk per allowed worker, so at most `eff_workers` GPU sessions run at once
+      if (isTRUE(tuned$gpu)) n_chunks <- max(1L, min(n_items, eff_workers))
       chunk_size <- ceiling(n_items / n_chunks)
       chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_items)
       chunks <- split(items, chunk_factor)
@@ -465,7 +485,7 @@ image_detect_dl_batch <- function(data,
         attr(res_i, "image") <- NULL
       }
       results[[i]] <- res_i
-      if (i %% 50L == 0L) gc(verbose = FALSE)
+      if (i %% 200L == 0L) gc(verbose = FALSE)
     }
     if (isTRUE(verbose)) cli::cli_progress_done()
   }
@@ -544,7 +564,7 @@ image_detect_dl_batch <- function(data,
           cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
         })
         rm(im_obj)
-        if (i %% 50L == 0L) gc(verbose = FALSE)
+        if (i %% 200L == 0L) gc(verbose = FALSE)
       }
     }
   }
@@ -729,6 +749,20 @@ yolo_detect_batch <- image_detect_dl_batch
 #'   * `parallel`: Logical indicating whether parallel execution was used.
 #'
 #' @aliases image_sahi_batch image_sahi_detect_batch
+#' @section Performance:
+#' The model is resolved once and every image reuses the cached ONNX session. With
+#' `parallel = TRUE` each worker process loads its own copy of the model, so:
+#' \itemize{
+#'   \item on CPU (`engine = "cpu"`) and `threads = 0`, each worker gets
+#'     `physical cores / workers` ONNX threads to avoid oversubscribing the CPU;
+#'   \item on GPU (`engine = "gpu"`) concurrency is capped at
+#'     `getOption("pliman.gpu_workers", 2)`, because every worker opens its own GPU
+#'     session (GPU memory grows with the number of workers);
+#'   \item temporary workers are started and stopped on every call. Start persistent
+#'     workers with [pliman_daemons()] to keep models loaded across calls;
+#'   \item pass file paths rather than in-memory images, so only paths are sent to the
+#'     workers.
+#' }
 #' @export
 #' @examplesIf interactive()
 #' library(pliman)
@@ -870,6 +904,7 @@ image_detect_sahi_batch <- function(data,
   worker_sahi_fn <- function(im, args) {
     do.call(pliman::image_detect_sahi, c(list(img = im), args))
   }
+  environment(worker_sahi_fn) <- .slim_worker_env()
 
   # 2. Execution: Parallel vs Sequential
   if (isTRUE(parallel)) {
@@ -886,6 +921,9 @@ image_detect_sahi_batch <- function(data,
 
     if (isTRUE(d_info$active)) {
       eff_workers <- d_info$nworkers
+      tuned <- .tune_parallel_dl(dots_args, eff_workers, verbose = verbose)
+      dots_args <- tuned$args
+      eff_workers <- tuned$workers
       if (isTRUE(d_info$auto_cleanup)) {
         on.exit(mirai::daemons(0), add = TRUE)
       }
@@ -897,6 +935,8 @@ image_detect_sahi_batch <- function(data,
       }
 
       n_chunks <- if (n_items <= eff_workers) eff_workers else min(n_items, eff_workers * 3L)
+      # GPU: one chunk per allowed worker, so at most `eff_workers` GPU sessions run at once
+      if (isTRUE(tuned$gpu)) n_chunks <- max(1L, min(n_items, eff_workers))
       chunk_size <- ceiling(n_items / n_chunks)
       chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_items)
       chunks <- split(items, chunk_factor)
@@ -948,7 +988,7 @@ image_detect_sahi_batch <- function(data,
         attr(res_i, "image") <- NULL
       }
       results[[i]] <- res_i
-      if (i %% 10L == 0L) gc(verbose = FALSE)
+      if (i %% 100L == 0L) gc(verbose = FALSE)
     }
     if (isTRUE(verbose)) cli::cli_progress_done()
   }
@@ -1027,7 +1067,7 @@ image_detect_sahi_batch <- function(data,
           cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
         })
         rm(im_obj)
-        if (i %% 10L == 0L) gc(verbose = FALSE)
+        if (i %% 100L == 0L) gc(verbose = FALSE)
       }
     }
   }
@@ -1211,6 +1251,20 @@ image_sahi_detect_batch <- image_detect_sahi_batch
 #'   * `summary`: A per-image `data.frame` summarizing total objects detected, total segmented area, and average size.
 #'   * `results`: A named list of raw individual segmentation outputs from [image_segment_dl()].
 #' @aliases image_segment_batch
+#' @section Performance:
+#' The model is resolved once and every image reuses the cached ONNX session. With
+#' `parallel = TRUE` each worker process loads its own copy of the model, so:
+#' \itemize{
+#'   \item on CPU (`engine = "cpu"`) and `threads = 0`, each worker gets
+#'     `physical cores / workers` ONNX threads to avoid oversubscribing the CPU;
+#'   \item on GPU (`engine = "gpu"`) concurrency is capped at
+#'     `getOption("pliman.gpu_workers", 2)`, because every worker opens its own GPU
+#'     session (GPU memory grows with the number of workers);
+#'   \item temporary workers are started and stopped on every call. Start persistent
+#'     workers with [pliman_daemons()] to keep models loaded across calls;
+#'   \item pass file paths rather than in-memory images, so only paths are sent to the
+#'     workers.
+#' }
 #' @export
 #' @examplesIf interactive()
 #' library(pliman)
@@ -1379,6 +1433,7 @@ image_segment_dl_batch <- function(data,
       do.call(pliman::image_segment_dl, c(list(img = im_obj), args))
     }
   }
+  environment(worker_seg_fn) <- .slim_worker_env(sahi = sahi, slice_height = slice_height, slice_width = slice_width, overlap_height_ratio = overlap_height_ratio, overlap_width_ratio = overlap_width_ratio, match_metric = match_metric, match_threshold = match_threshold, postprocess_type = postprocess_type)
 
   # 2. Execution: Parallel vs Sequential
   if (isTRUE(parallel)) {
@@ -1395,6 +1450,9 @@ image_segment_dl_batch <- function(data,
 
     if (isTRUE(d_info$active)) {
       eff_workers <- d_info$nworkers
+      tuned <- .tune_parallel_dl(dots_args, eff_workers, verbose = verbose)
+      dots_args <- tuned$args
+      eff_workers <- tuned$workers
       if (isTRUE(d_info$auto_cleanup)) {
         on.exit(mirai::daemons(0), add = TRUE)
       }
@@ -1406,6 +1464,8 @@ image_segment_dl_batch <- function(data,
       }
 
       n_chunks <- if (n_items <= eff_workers) eff_workers else min(n_items, eff_workers * 3L)
+      # GPU: one chunk per allowed worker, so at most `eff_workers` GPU sessions run at once
+      if (isTRUE(tuned$gpu)) n_chunks <- max(1L, min(n_items, eff_workers))
       chunk_size <- ceiling(n_items / n_chunks)
       chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_items)
       chunks <- split(items, chunk_factor)
@@ -1513,7 +1573,7 @@ image_segment_dl_batch <- function(data,
         attr(res_i, "similarity_map") <- NULL
       }
       results[[i]] <- res_i
-      if (i %% 50L == 0L) gc(verbose = FALSE)
+      if (i %% 200L == 0L) gc(verbose = FALSE)
     }
     if (isTRUE(verbose)) cli::cli_progress_done()
   }
@@ -1619,7 +1679,7 @@ image_segment_dl_batch <- function(data,
           cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
         })
         rm(out_img)
-        if (i %% 50L == 0L) gc(verbose = FALSE)
+        if (i %% 200L == 0L) gc(verbose = FALSE)
       }
     }
   }

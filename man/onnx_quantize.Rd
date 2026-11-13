@@ -29,6 +29,11 @@ The normalized file path to the quantized \code{.onnx} model.
 to 8-bit integer (INT8) precision. Dynamic quantization reduces model file sizes
 by up to 75\% (e.g. from 24 MB to 6 MB) and accelerates CPU inference throughput
 by 2–3x with negligible accuracy trade-off.
+
+The speed-up is hardware dependent: dynamic INT8 kernels target CPUs (best on CPUs
+with VNNI/AVX-512 or ARM dot-product instructions). With \code{engine = "gpu"}
+(DirectML), quantized operators may fall back to slower kernels or the CPU, so INT8
+models can be slower than FP32 on the GPU. Measure with \code{\link[=yolo_benchmark]{yolo_benchmark()}}.
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}

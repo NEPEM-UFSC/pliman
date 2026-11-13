@@ -297,5 +297,42 @@ reference:
       - image_view
       - pliman_viewer
 
+  - title: "Deep learning: image inference"
+    desc: "ONNX Runtime models (YOLO, SAM 2.1, Grounding DINO, U2Net/RMBG, StarDist, CLIP, DINOv2, ...) running in C++ on CPU or DirectML GPU."
+    contents:
+      - image_detect_dl
+      - image_segment_dl
+      - image_pose_dl
+      - image_classify_dl
+      - image_stardist_dl
+      - image_binary_dl
+      - image_remove_bg_dl
+      - image_depth_dl
+      - image_features_dl
+      - image_embed_dl
+      - image_superres_dl
+      - image_restore_dl
+      - image_inpaint_dl
+      - image_generate_dl
+      - image_ocr_dl
 
+  - title: "Deep learning: tiling, batch and video"
+    desc: "High-resolution tiled inference (SAHI), parallel batch processing and real-time video/camera inference with tracking."
+    contents:
+      - image_detect_sahi
+      - image_segment_sahi
+      - image_detect_dl_batch
+      - image_detect_sahi_batch
+      - image_segment_dl_batch
+      - pliman_daemons
+      - video_detect_dl
 
+  - title: "Deep learning: runtime, speed and model optimisation"
+    desc: "Benchmarking, ONNX session management and model compression (FP16, INT8, TensorRT). Speed-ups from FP16/TensorRT depend on GPUs with native half-precision support (e.g. Tensor Cores)."
+    contents:
+      - yolo_benchmark
+      - pliman_session_info
+      - pliman_clear_sessions
+      - yolo_export_fp16
+      - yolo_export_engine
+      - onnx_quantize

@@ -50,6 +50,13 @@ different machines or uploaded to Hugging Face.
 \pkg{tensorrt} Python package (\code{pip install tensorrt}).
 \item For a portable, half-size model that runs on any machine without TensorRT, use
 \code{\link[=yolo_export_fp16]{yolo_export_fp16()}}, which runs natively in pliman via DirectML.
+\item pliman's own inference functions (\code{\link[=image_detect_dl]{image_detect_dl()}}, \code{\link[=video_detect_dl]{video_detect_dl()}}, ...)
+run ONNX models through ONNX Runtime with the CPU or DirectML providers only; they
+cannot execute \code{.engine} files. Use the engine from Python/Ultralytics or other
+TensorRT runtimes.
+\item With \code{half = TRUE} the speed-up depends on GPUs with native FP16 throughput
+(NVIDIA Tensor Cores, RTX 20xx and newer). On GPUs without fast FP16 (e.g. GTX
+10xx/16xx) the gain can be small or negative.
 }
 }
 \examples{

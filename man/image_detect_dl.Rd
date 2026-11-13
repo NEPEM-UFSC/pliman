@@ -39,6 +39,7 @@ image_detect_dl(
   plot = TRUE,
   dir = pliman_model_dir(),
   imgsz = NULL,
+  max_det = 0,
   ...
 )
 }
@@ -126,17 +127,41 @@ that enclose smaller boxes of the same class. Defaults to \code{FALSE}.}
 If \code{NULL} (default), pliman automatically inspects the ONNX model metadata for native training
 resolution and falls back to \code{640} if unspecified. Useful when running models exported with dynamic resolution.}
 
+\item{max_det}{Integer. Maximum number of detections kept after non-maximum suppression
+(highest scores first). \code{0} (default) keeps all detections, which is the right
+choice for dense scenes such as seed or grain counting.}
+
 \item{...}{Additional arguments passed to \code{\link[graphics:plot]{graphics::plot()}}.}
 }
 \value{
 A data frame containing detected bounding boxes (\code{id}, \code{xmin}, \code{ymin}, \code{xmax}, \code{ymax}, \code{label}, \code{score}),
 with \code{summary} and \code{counts} stored as attributes. If \code{return_features = TRUE}, \code{features} (an \eqn{N \times D} matrix)
 and \code{feature_map} (dense spatial PCA \code{Image}) are also attached as attributes.
+When \code{img} is a list or a character vector with several file paths, a list of such
+results is returned.
 }
 \description{
 Performs real-time object detection using YOLO26 (or custom YOLO ONNX models)
 with bounding box regression and End-to-End detection.
 }
+\section{Performance}{
+
+ONNX sessions are cached for the R session (see \code{\link[=pliman_session_info]{pliman_session_info()}}), so only the
+first call pays model loading and, on GPU, DirectML compilation. For many images:
+\itemize{
+\item use \code{plot = FALSE} and \code{verbose = FALSE} (drawing a full-resolution raster
+often costs more than the inference itself);
+\item prefer \code{\link[=image_detect_dl_batch]{image_detect_dl_batch()}}, which resolves the model once, can run in
+parallel and, with persistent workers from \code{\link[=pliman_daemons]{pliman_daemons()}}, keeps models loaded
+between calls;
+\item choose \code{imgsz} deliberately: cost grows roughly with its square;
+\item \code{engine = "gpu"} gains depend on the GPU. FP16 models (\code{\link[=yolo_export_fp16]{yolo_export_fp16()}})
+are faster only on GPUs with native half-precision throughput (e.g. NVIDIA Tensor
+Cores); on other GPUs and on CPU the casting overhead can make them slower.
+}
+Use \code{\link[=yolo_benchmark]{yolo_benchmark()}} to measure inference speed on your hardware.
+}
+
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)

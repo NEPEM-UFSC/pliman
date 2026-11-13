@@ -8,6 +8,9 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <memory>
+#include <cstdlib>
+#include <cstring>
 #include <chrono>
 #include <sys/stat.h>
 
@@ -281,13 +284,36 @@ static inline double half_to_double(uint16_t h) {
   return (double)res;
 }
 
+// Per-session metadata cached once at session creation (names, input types/dims, flags).
+// Owned by g_session_meta; CachedSession copies hold a raw pointer that stays valid
+// until the session is evicted.
+struct SessionMeta {
+  std::string key;
+  std::string model_path;
+  int num_threads = 0;
+  int device_id = -1;
+  bool requested_gpu = false;
+  bool is_gpu = false;
+  bool fell_back_to_cpu = false;
+  bool warmed_up = false;
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  std::vector<ONNXTensorElementDataType> in_types;
+  std::vector<std::vector<int64_t> > in_dims;
+  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  bool batch_dynamic = false;
+  bool spatial_dynamic = true;
+  uint64_t last_used = 0;
+};
+
 struct CachedSession {
   OrtSession* session = NULL;
   OrtSessionOptions* options = NULL;
-  OrtEnv* env = NULL;
+  OrtEnv* env = NULL;             // alias of the process-wide g_ort_env (not owned)
   OrtMemoryInfo* mem_info = NULL;
   int64_t file_mtime = 0;
   int64_t file_size = 0;
+  SessionMeta* meta = NULL;
 };
 
 static void get_file_stat(const std::string& path, int64_t& out_mtime, int64_t& out_size) {
@@ -312,8 +338,36 @@ static void get_file_stat(const std::string& path, int64_t& out_mtime, int64_t& 
 }
 
 static std::map<std::string, CachedSession> g_session_cache;
+static std::map<std::string, std::unique_ptr<SessionMeta> > g_session_meta;
+static std::map<OrtSession*, SessionMeta*> g_session_meta_by_ptr;
 static std::vector<std::string> g_session_lru_order;
-static const size_t MAX_CACHED_SESSIONS = 3;
+static OrtEnv* g_ort_env = NULL;
+static size_t g_max_sessions = 0;   // 0 = unresolved (env var PLIMAN_ONNX_MAX_SESSIONS, default 8)
+static uint64_t g_session_tick = 0;
+
+static size_t resolve_max_sessions() {
+  if (g_max_sessions == 0) {
+    size_t v = 8;
+    const char* ev = std::getenv("PLIMAN_ONNX_MAX_SESSIONS");
+    if (ev != NULL) {
+      long n = std::strtol(ev, NULL, 10);
+      if (n >= 1 && n <= 256) v = (size_t)n;
+    }
+    g_max_sessions = v;
+  }
+  return g_max_sessions;
+}
+
+static bool ort_spinning_enabled() {
+  static int cached = -1;
+  if (cached < 0) {
+    // ONNX Runtime's default (spinning on) unless PLIMAN_ORT_SPIN=0/false: measurements
+    // showed no latency gain from disabling it, but it frees CPU for other processes.
+    const char* ev = std::getenv("PLIMAN_ORT_SPIN");
+    cached = (ev != NULL && (ev[0] == '0' || ev[0] == 'f' || ev[0] == 'F')) ? 0 : 1;
+  }
+  return cached == 1;
+}
 
 struct CachedEncoderFeatures {
   bool valid = false;
@@ -330,12 +384,15 @@ static void evict_cached_session_by_key(const OrtApi* ort, const std::string& ke
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
     CachedSession& cs = it->second;
-    if (cs.session) ort->ReleaseSession(cs.session);
+    if (cs.session) {
+      g_session_meta_by_ptr.erase(cs.session);
+      ort->ReleaseSession(cs.session);
+    }
     if (cs.mem_info) ort->ReleaseMemoryInfo(cs.mem_info);
     if (cs.options) ort->ReleaseSessionOptions(cs.options);
-    if (cs.env) ort->ReleaseEnv(cs.env);
     g_session_cache.erase(it);
   }
+  g_session_meta.erase(key);
   for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
     if (*it_lru == key) {
       g_session_lru_order.erase(it_lru);
@@ -346,6 +403,7 @@ static void evict_cached_session_by_key(const OrtApi* ort, const std::string& ke
 
 struct CachedIOShape {
   bool dynamic = true;
+  bool batch_dynamic = false;
   int expected_w = 640;
   int expected_h = 640;
   int64_t file_mtime = 0;
@@ -406,10 +464,210 @@ static void clear_onnx_sessions_internal() {
     if (cs.session) g_ort_api->ReleaseSession(cs.session);
     if (cs.mem_info) g_ort_api->ReleaseMemoryInfo(cs.mem_info);
     if (cs.options) g_ort_api->ReleaseSessionOptions(cs.options);
-    if (cs.env) g_ort_api->ReleaseEnv(cs.env);
   }
   g_session_cache.clear();
+  g_session_meta.clear();
+  g_session_meta_by_ptr.clear();
   g_session_lru_order.clear();
+  if (g_ort_env) {
+    g_ort_api->ReleaseEnv(g_ort_env);
+    g_ort_env = NULL;
+  }
+}
+
+static OrtEnv* ensure_global_env(const OrtApi* ort) {
+  if (g_ort_env == NULL) {
+    OrtStatus* st = ort->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "pliman_onnx", &g_ort_env);
+    if (st != NULL) {
+      std::string msg = ort->GetErrorMessage(st);
+      ort->ReleaseStatus(st);
+      g_ort_env = NULL;
+      Rcpp::stop("Failed to create ONNX Runtime environment: " + msg);
+    }
+  }
+  return g_ort_env;
+}
+
+static inline void ort_ignore_status(const OrtApi* ort, OrtStatus* st) {
+  if (st != NULL) ort->ReleaseStatus(st);
+}
+
+// Builds session options shared by the GPU and CPU-fallback paths.
+// Thread spinning follows ONNX Runtime's default; set the environment variable
+// PLIMAN_ORT_SPIN=0 to stop idle ORT workers from busy-waiting between runs (useful when
+// several R processes share the CPU).
+static OrtSessionOptions* make_session_options(const OrtApi* ort, int num_threads, bool gpu_mode) {
+  OrtSessionOptions* opts = NULL;
+  ort_ignore_status(ort, ort->CreateSessionOptions(&opts));
+  if (opts == NULL) Rcpp::stop("Failed to create ONNX session options.");
+  if (num_threads > 0) {
+    ort_ignore_status(ort, ort->SetIntraOpNumThreads(opts, num_threads));
+  }
+  ort_ignore_status(ort, ort->SetInterOpNumThreads(opts, 1));
+  ort_ignore_status(ort, ort->SetSessionGraphOptimizationLevel(opts, ORT_ENABLE_ALL));
+  ort_ignore_status(ort, ort->SetSessionLogSeverityLevel(opts, ORT_LOGGING_LEVEL_ERROR));
+  ort_ignore_status(ort, ort->SetSessionExecutionMode(opts, ORT_SEQUENTIAL));
+  if (!ort_spinning_enabled()) {
+    ort_ignore_status(ort, ort->AddSessionConfigEntry(opts, "session.intra_op.allow_spinning", "0"));
+    ort_ignore_status(ort, ort->AddSessionConfigEntry(opts, "session.inter_op.allow_spinning", "0"));
+  }
+  ort_ignore_status(ort, ort->AddSessionConfigEntry(opts, "session.set_denormal_as_zero", "1"));
+  if (gpu_mode) {
+    ort_ignore_status(ort, ort->DisableMemPattern(opts));
+  } else {
+    ort_ignore_status(ort, ort->EnableCpuMemArena(opts));
+    ort_ignore_status(ort, ort->EnableMemPattern(opts));
+  }
+  return opts;
+}
+
+static void populate_session_metadata(const OrtApi* ort, OrtSession* session, SessionMeta& m) {
+  OrtAllocator* allocator = NULL;
+  ort_ignore_status(ort, ort->GetAllocatorWithDefaultOptions(&allocator));
+  size_t n_in = 0, n_out = 0;
+  ort_ignore_status(ort, ort->SessionGetInputCount(session, &n_in));
+  ort_ignore_status(ort, ort->SessionGetOutputCount(session, &n_out));
+  m.in_names_str.assign(n_in, std::string());
+  m.out_names_str.assign(n_out, std::string());
+  m.in_types.assign(n_in, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
+  m.in_dims.assign(n_in, std::vector<int64_t>());
+  for (size_t i = 0; i < n_in; ++i) {
+    char* name = NULL;
+    ort_ignore_status(ort, ort->SessionGetInputName(session, i, allocator, &name));
+    m.in_names_str[i] = std::string(name ? name : "input");
+    if (name) allocator->Free(allocator, name);
+    OrtTypeInfo* ti = NULL;
+    if (ort->SessionGetInputTypeInfo(session, i, &ti) == NULL && ti != NULL) {
+      const OrtTensorTypeAndShapeInfo* si = NULL;
+      if (ort->CastTypeInfoToTensorInfo(ti, &si) == NULL && si != NULL) {
+        ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+        ort_ignore_status(ort, ort->GetTensorElementType(si, &et));
+        m.in_types[i] = et;
+        size_t nd = 0;
+        ort_ignore_status(ort, ort->GetDimensionsCount(si, &nd));
+        m.in_dims[i].assign(nd, 0);
+        if (nd > 0) ort_ignore_status(ort, ort->GetDimensions(si, m.in_dims[i].data(), nd));
+      }
+      ort->ReleaseTypeInfo(ti);
+    }
+  }
+  for (size_t i = 0; i < n_out; ++i) {
+    char* name = NULL;
+    ort_ignore_status(ort, ort->SessionGetOutputName(session, i, allocator, &name));
+    m.out_names_str[i] = std::string(name ? name : "output");
+    if (name) allocator->Free(allocator, name);
+  }
+  m.in_names.resize(n_in);
+  m.out_names.resize(n_out);
+  for (size_t i = 0; i < n_in; ++i) m.in_names[i] = m.in_names_str[i].c_str();
+  for (size_t i = 0; i < n_out; ++i) m.out_names[i] = m.out_names_str[i].c_str();
+  m.in_elem_type = (n_in > 0) ? m.in_types[0] : ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  m.batch_dynamic = (n_in > 0 && !m.in_dims[0].empty() && m.in_dims[0][0] <= 0);
+  m.spatial_dynamic = true;
+  if (n_in > 0 && m.in_dims[0].size() >= 4) {
+    m.spatial_dynamic = (m.in_dims[0][2] <= 0 || m.in_dims[0][3] <= 0);
+  }
+}
+
+// One dummy Run on freshly created GPU sessions with fully static input shapes, so
+// DirectML shader compilation and allocation happen at load time instead of inflating
+// the first real inference (first video frame, first benchmark iteration).
+static void warmup_session(const OrtApi* ort, OrtSession* session, OrtMemoryInfo* mem_info, SessionMeta& m) {
+  if (m.in_names.size() != 1 || m.in_dims.empty()) return;
+  const std::vector<int64_t>& d = m.in_dims[0];
+  if (d.empty()) return;
+  size_t n = 1;
+  for (size_t k = 0; k < d.size(); ++k) {
+    if (d[k] <= 0) return;
+    n *= (size_t)d[k];
+  }
+  if (n == 0 || n > (size_t)64 * 1024 * 1024) return;
+  OrtValue* in_t = NULL;
+  std::vector<float> zf;
+  std::vector<uint16_t> zh;
+  OrtStatus* st = NULL;
+  if (m.in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+    zf.assign(n, 0.0f);
+    st = ort->CreateTensorWithDataAsOrtValue(mem_info, zf.data(), n * sizeof(float), d.data(), d.size(),
+                                             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_t);
+  } else if (m.in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    zh.assign(n, 0);
+    st = ort->CreateTensorWithDataAsOrtValue(mem_info, zh.data(), n * sizeof(uint16_t), d.data(), d.size(),
+                                             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_t);
+  } else {
+    return;
+  }
+  if (st != NULL || in_t == NULL) { ort_ignore_status(ort, st); return; }
+  std::vector<OrtValue*> outs(m.out_names.size(), (OrtValue*)NULL);
+  st = ort->Run(session, NULL, m.in_names.data(), (const OrtValue* const*)&in_t, 1,
+                m.out_names.data(), m.out_names.size(), outs.data());
+  if (st == NULL) m.warmed_up = true;
+  ort_ignore_status(ort, st);
+  for (size_t k = 0; k < outs.size(); ++k) if (outs[k]) ort->ReleaseValue(outs[k]);
+  ort->ReleaseValue(in_t);
+}
+
+// Cached element type of input `idx` (avoids SessionGetInputTypeInfo on every call).
+static ONNXTensorElementDataType session_input_type(const OrtApi* ort, OrtSession* session, size_t idx = 0) {
+  auto it_meta = g_session_meta_by_ptr.find(session);
+  if (it_meta != g_session_meta_by_ptr.end() && it_meta->second != NULL &&
+      idx < it_meta->second->in_types.size()) {
+    return it_meta->second->in_types[idx];
+  }
+  ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  OrtTypeInfo* ti = NULL;
+  if (ort->SessionGetInputTypeInfo(session, idx, &ti) == NULL && ti != NULL) {
+    const OrtTensorTypeAndShapeInfo* si = NULL;
+    if (ort->CastTypeInfoToTensorInfo(ti, &si) == NULL && si != NULL) {
+      OrtStatus* st = ort->GetTensorElementType(si, &et);
+      if (st) ort->ReleaseStatus(st);
+    }
+    ort->ReleaseTypeInfo(ti);
+  }
+  return et;
+}
+
+// Parallel conversion of an R numeric/integer/logical/raw vector into a float buffer.
+// Replaces the single-threaded `(float)tensor_vec[i]` loops of the individual runners.
+static void sexp_to_float(SEXP x, std::vector<float>& out, size_t n = (size_t)-1, float raw_scale = 1.0f) {
+  size_t len = (size_t)Rf_xlength(x);
+  if (n == (size_t)-1) n = len;
+  out.resize(n);
+  if (n > len) std::fill(out.begin() + len, out.end(), 0.0f);
+  float* o = out.data();
+  const int64_t nn = (int64_t)std::min(n, len);
+  switch (TYPEOF(x)) {
+  case REALSXP: {
+    const double* p = REAL(x);
+    #pragma omp parallel for schedule(static) if(nn > 65536)
+    for (int64_t i = 0; i < nn; ++i) o[i] = (float)p[i];
+    break;
+  }
+  case INTSXP:
+  case LGLSXP: {
+    const int* p = (TYPEOF(x) == INTSXP) ? INTEGER(x) : LOGICAL(x);
+    #pragma omp parallel for schedule(static) if(nn > 65536)
+    for (int64_t i = 0; i < nn; ++i) o[i] = (float)p[i];
+    break;
+  }
+  case RAWSXP: {
+    const Rbyte* p = RAW(x);
+    #pragma omp parallel for schedule(static) if(nn > 65536)
+    for (int64_t i = 0; i < nn; ++i) o[i] = (float)p[i] * raw_scale;
+    break;
+  }
+  default:
+    Rcpp::stop("sexp_to_float: unsupported vector type.");
+  }
+}
+
+static void float_vec_to_half(const std::vector<float>& in, std::vector<uint16_t>& out) {
+  out.resize(in.size());
+  const int64_t nn = (int64_t)in.size();
+  const float* p = in.data();
+  uint16_t* o = out.data();
+  #pragma omp parallel for schedule(static) if(nn > 65536)
+  for (int64_t i = 0; i < nn; ++i) o[i] = float_to_half(p[i]);
 }
 
 static CachedSession get_or_create_cached_session(
@@ -434,53 +692,41 @@ static CachedSession get_or_create_cached_session(
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
     if (cur_mtime != 0 && (it->second.file_mtime != cur_mtime || it->second.file_size != cur_size)) {
-      evict_cached_session_by_key(ort, key);
-    } else {
-      for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
-        if (*it_lru == key) {
-          g_session_lru_order.erase(it_lru);
-          break;
-        }
+      // Model file changed on disk: drop every cached variant of this path.
+      std::vector<std::string> stale_keys;
+      std::string prefix = model_path + "_th_";
+      for (const auto& pair : g_session_cache) {
+        if (pair.first.rfind(prefix, 0) == 0) stale_keys.push_back(pair.first);
       }
-      g_session_lru_order.push_back(key);
+      for (const auto& sk : stale_keys) evict_cached_session_by_key(ort, sk);
+      g_io_shape_cache.erase(model_path);
+    } else {
+      if (g_session_lru_order.empty() || g_session_lru_order.back() != key) {
+        for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
+          if (*it_lru == key) {
+            g_session_lru_order.erase(it_lru);
+            break;
+          }
+        }
+        g_session_lru_order.push_back(key);
+      }
+      if (it->second.meta) it->second.meta->last_used = ++g_session_tick;
       return it->second;
     }
   }
 
-  // Evict older variants of the exact same model_path (e.g. different thread count or device)
-  std::vector<std::string> stale_keys;
-  std::string prefix = model_path + "_th_";
-  for (const auto& pair : g_session_cache) {
-    if (pair.first.rfind(prefix, 0) == 0 && pair.first != key) {
-      stale_keys.push_back(pair.first);
-    }
-  }
-  for (const auto& sk : stale_keys) {
-    evict_cached_session_by_key(ort, sk);
-  }
-
-  // Evict least recently used session if capacity is reached
-  while (g_session_cache.size() >= MAX_CACHED_SESSIONS && !g_session_lru_order.empty()) {
+  // LRU eviction only. Variants of the same model with different thread counts or devices
+  // may coexist (e.g. the PerSAM decoder at 1 CPU thread next to SAM2 on the GPU), which
+  // avoids recreating multi-second sessions when callers alternate settings.
+  while (g_session_cache.size() >= resolve_max_sessions() && !g_session_lru_order.empty()) {
     std::string lru_key = g_session_lru_order.front();
     evict_cached_session_by_key(ort, lru_key);
   }
 
   CachedSession cs;
-  (void)ort->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "pliman_onnx", &cs.env);
-  (void)ort->CreateSessionOptions(&cs.options);
-  if (num_threads > 0) {
-    (void)ort->SetIntraOpNumThreads(cs.options, num_threads);
-  }
-  (void)ort->SetSessionGraphOptimizationLevel(cs.options, ORT_ENABLE_ALL);
-  (void)ort->SetSessionLogSeverityLevel(cs.options, ORT_LOGGING_LEVEL_ERROR);
-
-  if (use_gpu) {
-    (void)ort->DisableMemPattern(cs.options);
-    (void)ort->SetSessionExecutionMode(cs.options, ORT_SEQUENTIAL);
-  } else {
-    (void)ort->EnableCpuMemArena(cs.options);
-    (void)ort->EnableMemPattern(cs.options);
-  }
+  cs.env = ensure_global_env(ort);
+  bool dml_ok = false;
+  cs.options = make_session_options(ort, num_threads, use_gpu);
 
 #ifdef _WIN32
   if (use_gpu && g_ort_lib_handle != NULL) {
@@ -489,10 +735,21 @@ static CachedSession get_or_create_cached_session(
       OrtStatus* dml_st = append_dml(cs.options, actual_device_id);
       if (dml_st != NULL) {
         ort->ReleaseStatus(dml_st);
+      } else {
+        dml_ok = true;
       }
     }
   }
 #endif
+
+  bool fell_back = false;
+  if (use_gpu && !dml_ok) {
+    // GPU requested but no GPU execution provider could be attached: rebuild clean CPU
+    // options (memory pattern on) instead of running the CPU EP with GPU-tuned options.
+    ort->ReleaseSessionOptions(cs.options);
+    cs.options = make_session_options(ort, num_threads, false);
+    fell_back = true;
+  }
 
 #ifdef _WIN32
   int size_needed = MultiByteToWideChar(CP_UTF8, 0, model_path.c_str(), (int)model_path.size(), NULL, 0);
@@ -503,18 +760,13 @@ static CachedSession get_or_create_cached_session(
   OrtStatus* status = ort->CreateSession(cs.env, model_path.c_str(), cs.options, &cs.session);
 #endif
 
-  // If GPU session creation failed, gracefully fall back to CPU session without crashing!
-  if ((status != NULL || !cs.session) && use_gpu) {
+  // If GPU session creation failed, gracefully fall back to a CPU session.
+  if ((status != NULL || !cs.session) && use_gpu && dml_ok) {
     if (status) ort->ReleaseStatus(status);
     if (cs.options) ort->ReleaseSessionOptions(cs.options);
-    (void)ort->CreateSessionOptions(&cs.options);
-    if (num_threads > 0) {
-      (void)ort->SetIntraOpNumThreads(cs.options, num_threads);
-    }
-    (void)ort->SetSessionGraphOptimizationLevel(cs.options, ORT_ENABLE_ALL);
-    (void)ort->SetSessionLogSeverityLevel(cs.options, ORT_LOGGING_LEVEL_ERROR);
-    (void)ort->EnableCpuMemArena(cs.options);
-    (void)ort->EnableMemPattern(cs.options);
+    cs.session = NULL;
+    cs.options = make_session_options(ort, num_threads, false);
+    fell_back = true;
 #ifdef _WIN32
     status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
 #else
@@ -526,12 +778,42 @@ static CachedSession get_or_create_cached_session(
     std::string msg = status ? ort->GetErrorMessage(status) : "Unknown error";
     if (status) ort->ReleaseStatus(status);
     if (cs.options) ort->ReleaseSessionOptions(cs.options);
-    if (cs.env) ort->ReleaseEnv(cs.env);
     Rcpp::stop("Failed to create ONNX session for " + model_path + ": " + msg);
   }
 
   (void)ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &cs.mem_info);
 
+  std::unique_ptr<SessionMeta> meta(new SessionMeta());
+  meta->key = key;
+  meta->model_path = model_path;
+  meta->num_threads = num_threads;
+  meta->device_id = actual_device_id;
+  meta->requested_gpu = use_gpu;
+  meta->is_gpu = use_gpu && dml_ok && !fell_back;
+  meta->fell_back_to_cpu = use_gpu && fell_back;
+  meta->last_used = ++g_session_tick;
+  populate_session_metadata(ort, cs.session, *meta);
+
+  // Feed the IO-shape cache so get_onnx_model_io_shape_cpp() never needs its own lookup.
+  if (!meta->in_dims.empty()) {
+    CachedIOShape csh;
+    const std::vector<int64_t>& d0 = meta->in_dims[0];
+    csh.dynamic = meta->spatial_dynamic;
+    csh.batch_dynamic = meta->batch_dynamic;
+    csh.expected_h = (d0.size() >= 4 && d0[2] > 0) ? (int)d0[2] : 640;
+    csh.expected_w = (d0.size() >= 4 && d0[3] > 0) ? (int)d0[3] : 640;
+    csh.file_mtime = cur_mtime;
+    csh.file_size = cur_size;
+    g_io_shape_cache[model_path] = csh;
+  }
+
+  if (meta->is_gpu && !meta->spatial_dynamic && !meta->batch_dynamic) {
+    warmup_session(ort, cs.session, cs.mem_info, *meta);
+  }
+
+  cs.meta = meta.get();
+  g_session_meta_by_ptr[cs.session] = meta.get();
+  g_session_meta[key] = std::move(meta);
   cs.file_mtime = cur_mtime;
   cs.file_size = cur_size;
   g_session_cache[key] = cs;
@@ -542,6 +824,79 @@ static CachedSession get_or_create_cached_session(
 // [[Rcpp::export]]
 void clear_onnx_sessions_cpp() {
   clear_onnx_sessions_internal();
+}
+
+// [[Rcpp::export]]
+int onnx_set_max_sessions_cpp(int n = 0) {
+  int prev = (int)resolve_max_sessions();
+  if (n >= 1) {
+    g_max_sessions = (size_t)n;
+    if (g_ort_api != NULL) {
+      while (g_session_cache.size() > g_max_sessions && !g_session_lru_order.empty()) {
+        std::string lru_key = g_session_lru_order.front();
+        evict_cached_session_by_key(g_ort_api, lru_key);
+      }
+    }
+  }
+  return prev;
+}
+
+// [[Rcpp::export]]
+Rcpp::DataFrame onnx_session_info_cpp() {
+  size_t n = g_session_lru_order.size();
+  Rcpp::CharacterVector key(n), model(n), input_dims(n);
+  Rcpp::LogicalVector gpu(n), requested_gpu(n), batch_dynamic(n), spatial_dynamic(n), warmed_up(n), fell_back(n);
+  Rcpp::IntegerVector device_id(n), threads(n), n_inputs(n), n_outputs(n), lru_rank(n);
+  for (size_t i = 0; i < n; ++i) {
+    const std::string& k = g_session_lru_order[n - 1 - i];  // most recently used first
+    key[i] = k;
+    lru_rank[i] = (int)i + 1;
+    auto it = g_session_meta.find(k);
+    if (it == g_session_meta.end() || !it->second) {
+      model[i] = NA_STRING; input_dims[i] = NA_STRING;
+      gpu[i] = NA_LOGICAL; requested_gpu[i] = NA_LOGICAL; batch_dynamic[i] = NA_LOGICAL;
+      spatial_dynamic[i] = NA_LOGICAL; warmed_up[i] = NA_LOGICAL; fell_back[i] = NA_LOGICAL;
+      device_id[i] = NA_INTEGER; threads[i] = NA_INTEGER; n_inputs[i] = NA_INTEGER; n_outputs[i] = NA_INTEGER;
+      continue;
+    }
+    const SessionMeta& m = *it->second;
+    model[i] = m.model_path;
+    gpu[i] = m.is_gpu;
+    requested_gpu[i] = m.requested_gpu;
+    device_id[i] = m.device_id;
+    threads[i] = m.num_threads;
+    n_inputs[i] = (int)m.in_names_str.size();
+    n_outputs[i] = (int)m.out_names_str.size();
+    batch_dynamic[i] = m.batch_dynamic;
+    spatial_dynamic[i] = m.spatial_dynamic;
+    warmed_up[i] = m.warmed_up;
+    fell_back[i] = m.fell_back_to_cpu;
+    std::string ds;
+    if (!m.in_dims.empty()) {
+      for (size_t d = 0; d < m.in_dims[0].size(); ++d) {
+        if (d) ds += "x";
+        ds += (m.in_dims[0][d] > 0) ? std::to_string(m.in_dims[0][d]) : std::string("?");
+      }
+    }
+    input_dims[i] = ds;
+  }
+  return Rcpp::DataFrame::create(
+    Rcpp::Named("model") = model,
+    Rcpp::Named("gpu") = gpu,
+    Rcpp::Named("requested_gpu") = requested_gpu,
+    Rcpp::Named("device_id") = device_id,
+    Rcpp::Named("threads") = threads,
+    Rcpp::Named("n_inputs") = n_inputs,
+    Rcpp::Named("n_outputs") = n_outputs,
+    Rcpp::Named("input_dims") = input_dims,
+    Rcpp::Named("batch_dynamic") = batch_dynamic,
+    Rcpp::Named("spatial_dynamic") = spatial_dynamic,
+    Rcpp::Named("warmed_up") = warmed_up,
+    Rcpp::Named("fell_back_to_cpu") = fell_back,
+    Rcpp::Named("lru_rank") = lru_rank,
+    Rcpp::Named("key") = key,
+    Rcpp::Named("stringsAsFactors") = false
+  );
 }
 
 // [[Rcpp::export]]
@@ -575,28 +930,15 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
   };
   size_t total_elements = tensor_dims[0] * tensor_dims[1] * tensor_dims[2] * tensor_dims[3];
 
-  std::vector<float> input_tensor_values(total_elements);
-  for (size_t i = 0; i < total_elements; ++i) {
-    input_tensor_values[i] = (float)tensor_vec[i];
-  }
+  std::vector<float> input_tensor_values;
+  sexp_to_float(tensor_vec, input_tensor_values, total_elements);
 
-  OrtTypeInfo* in_ti = NULL;
-  (void)ort->SessionGetInputTypeInfo(session, 0, &in_ti);
-  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
-  if (in_ti) {
-    const OrtTensorTypeAndShapeInfo* in_si = NULL;
-    (void)ort->CastTypeInfoToTensorInfo(in_ti, &in_si);
-    if (in_si) {
-      (void)ort->GetTensorElementType(in_si, &in_elem_type);
-    }
-    ort->ReleaseTypeInfo(in_ti);
-  }
+  ONNXTensorElementDataType in_elem_type = session_input_type(ort, session, 0);
 
   OrtValue* input_tensor = NULL;
   std::vector<uint16_t> in_fp16;
   if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
-    in_fp16.resize(total_elements);
-    for (size_t i = 0; i < total_elements; ++i) in_fp16[i] = float_to_half(input_tensor_values[i]);
+    float_vec_to_half(input_tensor_values, in_fp16);
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info,
       in_fp16.data(),
@@ -720,10 +1062,8 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
   // 3. Prepare Image Tensor [1, 3, 1024, 1024]
   int64_t img_shape[4] = {1, 3, 1024, 1024};
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
-  std::vector<float> img_values(total_img_floats);
-  for (size_t i = 0; i < total_img_floats; ++i) {
-    img_values[i] = (float)tensor_vec[i];
-  }
+  std::vector<float> img_values;
+  sexp_to_float(tensor_vec, img_values, total_img_floats);
 
   OrtValue* input_img_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
@@ -966,10 +1306,8 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
   // 1. Prepare pixel_values [1, 3, 800, 800]
   int64_t img_shape[4] = { 1, 3, 800, 800 };
   size_t total_pix = 1 * 3 * 800 * 800;
-  std::vector<float> img_values(total_pix);
-  for (size_t i = 0; i < total_pix; ++i) {
-    img_values[i] = (float)pixel_values[i];
-  }
+  std::vector<float> img_values;
+  sexp_to_float(pixel_values, img_values, total_pix);
   OrtValue* pixel_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, img_values.data(), total_pix * sizeof(float),
@@ -1165,10 +1503,8 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
   // 1. Run Encoder ONCE on [1, 3, 1024, 1024]
   int64_t img_shape[4] = {1, 3, 1024, 1024};
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
-  std::vector<float> img_values(total_img_floats);
-  for (size_t i = 0; i < total_img_floats; ++i) {
-    img_values[i] = (float)tensor_vec[i];
-  }
+  std::vector<float> img_values;
+  sexp_to_float(tensor_vec, img_values, total_img_floats);
 
   OrtValue* input_img_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
@@ -1443,10 +1779,8 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   // 1. Run SAM 2.1 Encoder ONCE on [1, 3, 1024, 1024] (with static cache for instant review updates)
   int64_t img_shape[4] = {1, 3, 1024, 1024};
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
-  std::vector<float> img_values(total_img_floats);
-  for (size_t i = 0; i < total_img_floats; ++i) {
-    img_values[i] = (float)tensor_vec[i];
-  }
+  std::vector<float> img_values;
+  sexp_to_float(tensor_vec, img_values, total_img_floats);
 
   uint64_t cur_hash = 14695981039346656037ULL;
   size_t hash_step = (total_img_floats > 16384) ? (total_img_floats / 4096) : 1;
@@ -2742,6 +3076,17 @@ static void get_session_io_names(const OrtApi* ort, OrtSession* session,
                                  std::vector<const char*>& in_names,
                                  std::vector<std::string>& out_names_str,
                                  std::vector<const char*>& out_names) {
+  auto it_meta = g_session_meta_by_ptr.find(session);
+  if (it_meta != g_session_meta_by_ptr.end() && it_meta->second != NULL) {
+    const SessionMeta& m = *it_meta->second;
+    in_names_str = m.in_names_str;
+    out_names_str = m.out_names_str;
+    in_names.resize(in_names_str.size());
+    out_names.resize(out_names_str.size());
+    for (size_t i = 0; i < in_names_str.size(); ++i) in_names[i] = in_names_str[i].c_str();
+    for (size_t i = 0; i < out_names_str.size(); ++i) out_names[i] = out_names_str[i].c_str();
+    return;
+  }
   OrtAllocator* allocator = NULL;
   (void)ort->GetAllocatorWithDefaultOptions(&allocator);
   size_t num_inputs = 0;
@@ -2817,10 +3162,8 @@ Rcpp::NumericMatrix run_depth_anything_cpp(
   }
 
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) {
-    input_vals[i] = (float)tensor_vec[i];
-  }
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
 
   OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
@@ -2903,10 +3246,8 @@ Rcpp::IntegerMatrix run_yolo_sem_cpp(
 
   int64_t in_shape[4] = {1, 3, in_h, in_w};
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) {
-    input_vals[i] = (float)tensor_vec[i];
-  }
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
 
   OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
@@ -3017,10 +3358,9 @@ Rcpp::List run_dinov2_cpp(
 
   int64_t in_shape[4] = {1, 3, in_h, in_w};
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) input_vals[i] = (float)tensor_vec[i];
-
-  OrtValue* in_tensor = NULL;
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
+OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, input_vals.data(), total_floats * sizeof(float),
     in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
@@ -3137,7 +3477,8 @@ Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_p
       return Rcpp::List::create(
         Rcpp::Named("dynamic") = it_sh->second.dynamic,
         Rcpp::Named("expected_w") = it_sh->second.expected_w,
-        Rcpp::Named("expected_h") = it_sh->second.expected_h
+        Rcpp::Named("expected_h") = it_sh->second.expected_h,
+        Rcpp::Named("batch_dynamic") = it_sh->second.batch_dynamic
       );
     }
 
@@ -3158,6 +3499,17 @@ Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_p
     if (session == NULL) {
       CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
       session = cs.session;
+    }
+
+    // Session creation fills g_io_shape_cache from the cached session metadata.
+    auto it_sh2 = g_io_shape_cache.find(model_path);
+    if (it_sh2 != g_io_shape_cache.end()) {
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = it_sh2->second.dynamic,
+        Rcpp::Named("expected_w") = it_sh2->second.expected_w,
+        Rcpp::Named("expected_h") = it_sh2->second.expected_h,
+        Rcpp::Named("batch_dynamic") = it_sh2->second.batch_dynamic
+      );
     }
 
     OrtTypeInfo* type_info = NULL;
@@ -3436,7 +3788,9 @@ Rcpp::List run_yolo_cpp(
     bool need_masks = true,
     bool return_features = false,
     Rcpp::Nullable<Rcpp::NumericVector> txt_feats = R_NilValue,
-    int target_size = 640
+    int target_size = 640,
+    int max_nms = 30000,
+    int max_det = 0
 ) {
   const OrtApi* ort = get_ort_api(lib_path);
   CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
@@ -3503,15 +3857,7 @@ Rcpp::List run_yolo_cpp(
   }
   int64_t in_shape[4] = {1, 3, in_h, in_w};
 
-  OrtTypeInfo* in_ti = NULL;
-  (void)ort->SessionGetInputTypeInfo(session, 0, &in_ti);
-  const OrtTensorTypeAndShapeInfo* in_si = NULL;
-  (void)ort->CastTypeInfoToTensorInfo(in_ti, &in_si);
-  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
-  if (in_si) {
-    (void)ort->GetTensorElementType(in_si, &in_elem_type);
-  }
-  ort->ReleaseTypeInfo(in_ti);
+  ONNXTensorElementDataType in_elem_type = session_input_type(ort, session, 0);
 
   OrtValue* in_tensor = NULL;
   std::vector<uint16_t> in_fp16;
@@ -3669,6 +4015,7 @@ Rcpp::List run_yolo_cpp(
     float angle = 0.0f;
     float x_corners[4] = {0};
     float y_corners[4] = {0};
+    int anchor = -1;
   };
   std::vector<YoloCand> candidates;
 
@@ -3753,128 +4100,191 @@ Rcpp::List run_yolo_cpp(
       }
     }
   } else {
-    for (int a = 0; a < num_anchors; ++a) {
+    // Pass 1: best class score per anchor.
+    // For the standard [1, nf, na] layout the class scores of one anchor are na floats
+    // apart, so a per-anchor inner loop over classes is cache-hostile. Instead walk each
+    // class row contiguously over blocks of anchors (class-major), keeping running
+    // maxima in two small per-anchor arrays. Ties resolve to the lowest class index,
+    // exactly like the original `s > max_s` scan with ascending c.
+    std::vector<float> best_s((size_t)num_anchors, 0.0f);
+    std::vector<int> best_c((size_t)num_anchors, 0);
+    float* bs_ptr = best_s.data();
+    int* bc_ptr = best_c.data();
+    const int na = num_anchors;
+    const int nf = num_features;
+    if (is_pose) {
+      #pragma omp parallel for schedule(static) if(na > 4096)
+      for (int a = 0; a < na; ++a) {
+        bs_ptr[a] = !is_transposed ? data0[(size_t)4 * na + a] : data0[(size_t)a * nf + 4];
+      }
+    } else if (!is_transposed) {
+      const int block = 2048;
+      const int n_blocks = (na + block - 1) / block;
+      #pragma omp parallel for schedule(static) if((size_t)na * (size_t)num_classes > 200000)
+      for (int b = 0; b < n_blocks; ++b) {
+        int a0 = b * block;
+        int a1 = std::min(na, a0 + block);
+        for (int c = 0; c < num_classes; ++c) {
+          const float* row = data0 + (size_t)(4 + c) * na;
+          for (int a = a0; a < a1; ++a) {
+            float s = row[a];
+            if (s > bs_ptr[a]) {
+              bs_ptr[a] = s;
+              bc_ptr[a] = c;
+            }
+          }
+        }
+      }
+    } else {
+      #pragma omp parallel for schedule(static) if((size_t)na * (size_t)num_classes > 200000)
+      for (int a = 0; a < na; ++a) {
+        const float* row = data0 + (size_t)a * nf + 4;
+        float m = 0.0f;
+        int mc = 0;
+        for (int c = 0; c < num_classes; ++c) {
+          if (row[c] > m) {
+            m = row[c];
+            mc = c;
+          }
+        }
+        bs_ptr[a] = m;
+        bc_ptr[a] = mc;
+      }
+    }
+
+    // Pass 2: build candidates (boxes only) in anchor order; mask coefficients and
+    // keypoints are gathered after NMS for the kept detections only.
+    const float conf_f = (float)conf_threshold;
+    for (int a = 0; a < na; ++a) {
+      float max_s = bs_ptr[a];
+      if (!(max_s >= conf_f)) continue;
       float cx, cy, w, h;
       if (!is_transposed) {
-        cx = data0[(size_t)0 * num_anchors + a];
-        cy = data0[(size_t)1 * num_anchors + a];
-        w  = data0[(size_t)2 * num_anchors + a];
-        h  = data0[(size_t)3 * num_anchors + a];
+        cx = data0[(size_t)0 * na + a];
+        cy = data0[(size_t)1 * na + a];
+        w  = data0[(size_t)2 * na + a];
+        h  = data0[(size_t)3 * na + a];
       } else {
-        size_t anchor_offset = (size_t)a * num_features;
+        size_t anchor_offset = (size_t)a * nf;
         cx = data0[anchor_offset + 0];
         cy = data0[anchor_offset + 1];
         w  = data0[anchor_offset + 2];
         h  = data0[anchor_offset + 3];
       }
 
-      float max_s = 0.0f;
-      int best_cls = 0;
-      if (is_pose) {
-        max_s = !is_transposed ? data0[(size_t)4 * num_anchors + a] :
-                                 data0[(size_t)a * num_features + 4];
-        best_cls = 0;
+      YoloCand cand;
+      cand.score = max_s;
+      cand.class_id = is_pose ? 0 : bc_ptr[a];
+      cand.anchor = a;
+
+      if (is_obb) {
+        float angle = !is_transposed ? data0[(size_t)(4 + num_classes) * na + a] :
+                                       data0[(size_t)a * nf + 4 + num_classes];
+        cand.angle = angle;
+        float cos_val = std::cos(angle);
+        float sin_val = std::sin(angle);
+        float vec1_x = (w / 2.0f) * cos_val;
+        float vec1_y = (w / 2.0f) * sin_val;
+        float vec2_x = -(h / 2.0f) * sin_val;
+        float vec2_y = (h / 2.0f) * cos_val;
+
+        float pt1_x = cx + vec1_x + vec2_x; float pt1_y = cy + vec1_y + vec2_y;
+        float pt2_x = cx + vec1_x - vec2_x; float pt2_y = cy + vec1_y - vec2_y;
+        float pt3_x = cx - vec1_x - vec2_x; float pt3_y = cy - vec1_y - vec2_y;
+        float pt4_x = cx - vec1_x + vec2_x; float pt4_y = cy - vec1_y + vec2_y;
+
+        cand.x1 = std::min({pt1_x, pt2_x, pt3_x, pt4_x});
+        cand.y1 = std::min({pt1_y, pt2_y, pt3_y, pt4_y});
+        cand.x2 = std::max({pt1_x, pt2_x, pt3_x, pt4_x});
+        cand.y2 = std::max({pt1_y, pt2_y, pt3_y, pt4_y});
+        cand.x_corners[0] = pt1_x; cand.y_corners[0] = pt1_y;
+        cand.x_corners[1] = pt2_x; cand.y_corners[1] = pt2_y;
+        cand.x_corners[2] = pt3_x; cand.y_corners[2] = pt3_y;
+        cand.x_corners[3] = pt4_x; cand.y_corners[3] = pt4_y;
       } else {
-        for (int c = 0; c < num_classes; ++c) {
-          float s = !is_transposed ? data0[(size_t)(4 + c) * num_anchors + a] :
-                                     data0[(size_t)a * num_features + 4 + c];
-          if (s > max_s) {
-            max_s = s;
-            best_cls = c;
-          }
+        cand.x1 = cx - w / 2.0f;
+        cand.y1 = cy - h / 2.0f;
+        cand.x2 = cx + w / 2.0f;
+        cand.y2 = cy + h / 2.0f;
+      }
+      candidates.push_back(cand);
+    }
+  }
+
+  // Score-descending order (stable, so ties keep anchor order and results are deterministic).
+  std::stable_sort(candidates.begin(), candidates.end(), [](const YoloCand& a, const YoloCand& b) {
+    return a.score > b.score;
+  });
+  if (max_nms > 0 && candidates.size() > (size_t)max_nms) {
+    candidates.resize((size_t)max_nms);
+  }
+
+  // Class-bucketed greedy NMS. Suppression only happens within a class, so running the
+  // greedy pass per class (in global score order) is equivalent to the former global
+  // O(n^2) loop that skipped other classes, but compares far fewer pairs and can run
+  // classes in parallel.
+  std::vector<YoloCand> kept;
+  {
+    const size_t nc_total = candidates.size();
+    std::vector<char> keep_flag(nc_total, 0);
+    std::map<int, std::vector<int> > by_class;
+    for (size_t i = 0; i < nc_total; ++i) by_class[candidates[i].class_id].push_back((int)i);
+    std::vector<std::vector<int>*> buckets;
+    buckets.reserve(by_class.size());
+    for (auto& kv : by_class) buckets.push_back(&kv.second);
+    const float iou_thr = (float)iou_threshold;
+    const int n_buckets = (int)buckets.size();
+    #pragma omp parallel for schedule(dynamic, 1) if(n_buckets > 1 && nc_total > 512)
+    for (int bi = 0; bi < n_buckets; ++bi) {
+      const std::vector<int>& idx = *buckets[bi];
+      const size_t m = idx.size();
+      std::vector<char> sup(m, 0);
+      std::vector<float> areas(m);
+      for (size_t q = 0; q < m; ++q) {
+        const YoloCand& c = candidates[idx[q]];
+        areas[q] = std::max(0.0f, c.x2 - c.x1) * std::max(0.0f, c.y2 - c.y1);
+      }
+      for (size_t q = 0; q < m; ++q) {
+        if (sup[q]) continue;
+        keep_flag[idx[q]] = 1;
+        const YoloCand& ci = candidates[idx[q]];
+        for (size_t r = q + 1; r < m; ++r) {
+          if (sup[r]) continue;
+          const YoloCand& cj = candidates[idx[r]];
+          float inter_w = std::max(0.0f, std::min(ci.x2, cj.x2) - std::max(ci.x1, cj.x1));
+          if (inter_w <= 0.0f) continue;
+          float inter_h = std::max(0.0f, std::min(ci.y2, cj.y2) - std::max(ci.y1, cj.y1));
+          float inter_area = inter_w * inter_h;
+          float union_area = areas[q] + areas[r] - inter_area;
+          float iou = (union_area > 0.0f) ? (inter_area / union_area) : 0.0f;
+          if (iou > iou_thr) sup[r] = 1;
         }
       }
-
-      if (max_s >= (float)conf_threshold) {
-        YoloCand cand;
-        cand.score = max_s;
-        cand.class_id = best_cls;
-
-        if (is_obb) {
-          float angle = !is_transposed ? data0[(size_t)(4 + num_classes) * num_anchors + a] :
-                                         data0[(size_t)a * num_features + 4 + num_classes];
-          cand.angle = angle;
-          float cos_val = std::cos(angle);
-          float sin_val = std::sin(angle);
-          float vec1_x = (w / 2.0f) * cos_val;
-          float vec1_y = (w / 2.0f) * sin_val;
-          float vec2_x = -(h / 2.0f) * sin_val;
-          float vec2_y = (h / 2.0f) * cos_val;
-
-          float pt1_x = cx + vec1_x + vec2_x; float pt1_y = cy + vec1_y + vec2_y;
-          float pt2_x = cx + vec1_x - vec2_x; float pt2_y = cy + vec1_y - vec2_y;
-          float pt3_x = cx - vec1_x - vec2_x; float pt3_y = cy - vec1_y - vec2_y;
-          float pt4_x = cx - vec1_x + vec2_x; float pt4_y = cy - vec1_y + vec2_y;
-
-          cand.x1 = std::min({pt1_x, pt2_x, pt3_x, pt4_x});
-          cand.y1 = std::min({pt1_y, pt2_y, pt3_y, pt4_y});
-          cand.x2 = std::max({pt1_x, pt2_x, pt3_x, pt4_x});
-          cand.y2 = std::max({pt1_y, pt2_y, pt3_y, pt4_y});
-          cand.x_corners[0] = pt1_x; cand.y_corners[0] = pt1_y;
-          cand.x_corners[1] = pt2_x; cand.y_corners[1] = pt2_y;
-          cand.x_corners[2] = pt3_x; cand.y_corners[2] = pt3_y;
-          cand.x_corners[3] = pt4_x; cand.y_corners[3] = pt4_y;
-        } else {
-          cand.x1 = cx - w / 2.0f;
-          cand.y1 = cy - h / 2.0f;
-          cand.x2 = cx + w / 2.0f;
-          cand.y2 = cy + h / 2.0f;
-        }
-
-        if (is_seg) {
-          cand.mask_coeffs.resize(num_mask_coeffs);
-          for (int m = 0; m < num_mask_coeffs; ++m) {
-            cand.mask_coeffs[m] = !is_transposed ? data0[(size_t)(4 + num_classes + m) * num_anchors + a] :
-                                                   data0[(size_t)a * num_features + 4 + num_classes + m];
-          }
-        }
-        if (is_pose) {
-          cand.keypoints.resize(51);
-          for (int k = 0; k < 51; ++k) {
-            cand.keypoints[k] = !is_transposed ? data0[(size_t)(5 + k) * num_anchors + a] :
-                                                 data0[(size_t)a * num_features + 5 + k];
-          }
-        }
-        candidates.push_back(cand);
+    }
+    for (size_t i = 0; i < nc_total; ++i) {
+      if (keep_flag[i]) {
+        kept.push_back(candidates[i]);
+        if (max_det > 0 && kept.size() >= (size_t)max_det) break;
       }
     }
   }
 
-  std::sort(candidates.begin(), candidates.end(), [](const YoloCand& a, const YoloCand& b) {
-    return a.score > b.score;
-  });
-
-  std::vector<bool> suppressed(candidates.size(), false);
-  std::vector<YoloCand> kept;
-
-  for (size_t i = 0; i < candidates.size(); ++i) {
-    if (suppressed[i]) continue;
-    kept.push_back(candidates[i]);
-
-    float area_i = std::max(0.0f, candidates[i].x2 - candidates[i].x1) *
-                   std::max(0.0f, candidates[i].y2 - candidates[i].y1);
-
-    for (size_t j = i + 1; j < candidates.size(); ++j) {
-      if (suppressed[j]) continue;
-      if (candidates[i].class_id != candidates[j].class_id) continue;
-
-      float inter_x1 = std::max(candidates[i].x1, candidates[j].x1);
-      float inter_y1 = std::max(candidates[i].y1, candidates[j].y1);
-      float inter_x2 = std::min(candidates[i].x2, candidates[j].x2);
-      float inter_y2 = std::min(candidates[i].y2, candidates[j].y2);
-
-      float inter_w = std::max(0.0f, inter_x2 - inter_x1);
-      float inter_h = std::max(0.0f, inter_y2 - inter_y1);
-      float inter_area = inter_w * inter_h;
-
-      float area_j = std::max(0.0f, candidates[j].x2 - candidates[j].x1) *
-                     std::max(0.0f, candidates[j].y2 - candidates[j].y1);
-
-      float union_area = area_i + area_j - inter_area;
-      float iou = (union_area > 0.0f) ? (inter_area / union_area) : 0.0f;
-
-      if (iou > (float)iou_threshold) {
-        suppressed[j] = true;
+  // Gather mask coefficients / keypoints for kept detections of the generic layout.
+  for (size_t i = 0; i < kept.size(); ++i) {
+    int a = kept[i].anchor;
+    if (a < 0) continue;
+    if (is_seg && kept[i].mask_coeffs.empty()) {
+      kept[i].mask_coeffs.resize(num_mask_coeffs);
+      for (int m = 0; m < num_mask_coeffs; ++m) {
+        kept[i].mask_coeffs[m] = !is_transposed ? data0[(size_t)(4 + num_classes + m) * num_anchors + a] :
+                                                  data0[(size_t)a * num_features + 4 + num_classes + m];
+      }
+    }
+    if (is_pose && kept[i].keypoints.empty()) {
+      kept[i].keypoints.resize(51);
+      for (int k = 0; k < 51; ++k) {
+        kept[i].keypoints[k] = !is_transposed ? data0[(size_t)(5 + k) * num_anchors + a] :
+                                                data0[(size_t)a * num_features + 5 + k];
       }
     }
   }
@@ -4091,6 +4501,13 @@ Rcpp::List run_yolo_cpp(
       double step_avg = 0.5 * (step_x + step_y);
       double cell_area = step_x * step_y;
 
+      // Instances are decoded in parallel (each thread owns its prototype/boundary scratch).
+      // Overlapping pixels keep the label of the highest-scoring instance (kept[] is in
+      // descending score order, so the smallest label wins), written with an atomic min.
+      // With return_features the heatmap max-reduction keeps the loop serial over
+      // instances (rows are still parallel inside each instance).
+      const bool par_inst = !return_features && num_kept > 1;
+      #pragma omp parallel for schedule(dynamic, 1) if(par_inst) firstprivate(inst_proto, bnd_pts)
       for (int i = 0; i < num_kept; ++i) {
         if (kept[i].mask_coeffs.empty()) continue;
         int ox1 = std::max(0, (int)std::floor(boxes(i, 0)));
@@ -4266,7 +4683,12 @@ Rcpp::List run_yolo_cpp(
                           wx * wy * v11;
 
               if (need_masks && lbl_ptr && val > 0.0f) {
-                lbl_ptr[row_offset + ox] = inst_label;
+                int* cell = lbl_ptr + row_offset + ox;
+                int cur = __atomic_load_n(cell, __ATOMIC_RELAXED);
+                while ((cur == 0 || cur > inst_label) &&
+                       !__atomic_compare_exchange_n(cell, &cur, inst_label, true,
+                                                    __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+                }
               }
 
               if (return_features && hm_ptr) {
@@ -4347,6 +4769,159 @@ Rcpp::List run_yolo_cpp(
   );
 }
 
+// Crops a tile [x0, x0+cw) x [y0, y0+ch) from an image array without leaving C++.
+// Supports interleaved raw frames [3, W, H] (video buffers) and planar arrays
+// [W, H, C] / [W, H] stored as raw or double (pliman `image` data).
+static SEXP crop_image_tile(SEXP img, int x0, int y0, int cw, int ch) {
+  SEXP dim_attr = Rf_getAttrib(img, R_DimSymbol);
+  int nd = Rf_length(dim_attr);
+  const int* d = INTEGER(dim_attr);
+  bool interleaved = (nd == 3 && d[0] == 3 && TYPEOF(img) == RAWSXP);
+  int W = interleaved ? d[1] : d[0];
+  int H = interleaved ? d[2] : d[1];
+  int C = interleaved ? 3 : (nd >= 3 ? d[2] : 1);
+  (void)H;
+  SEXP out;
+  if (interleaved) {
+    out = PROTECT(Rf_allocVector(RAWSXP, (R_xlen_t)3 * cw * ch));
+    const Rbyte* src = RAW(img);
+    Rbyte* dst = RAW(out);
+    #pragma omp parallel for schedule(static) if((size_t)cw * ch > 65536)
+    for (int y = 0; y < ch; ++y) {
+      std::memcpy(dst + (size_t)y * 3 * cw, src + ((size_t)(y0 + y) * W + x0) * 3, (size_t)3 * cw);
+    }
+    SEXP od = PROTECT(Rf_allocVector(INTSXP, 3));
+    INTEGER(od)[0] = 3; INTEGER(od)[1] = cw; INTEGER(od)[2] = ch;
+    Rf_setAttrib(out, R_DimSymbol, od);
+    UNPROTECT(2);
+    return out;
+  }
+  bool is_raw = (TYPEOF(img) == RAWSXP);
+  out = PROTECT(Rf_allocVector(is_raw ? RAWSXP : REALSXP, (R_xlen_t)cw * ch * C));
+  const size_t src_plane = (size_t)W * (size_t)d[1];
+  const size_t dst_plane = (size_t)cw * ch;
+  for (int c = 0; c < C; ++c) {
+    #pragma omp parallel for schedule(static) if((size_t)cw * ch > 65536)
+    for (int y = 0; y < ch; ++y) {
+      size_t so = (size_t)c * src_plane + (size_t)(y0 + y) * W + x0;
+      size_t dof = (size_t)c * dst_plane + (size_t)y * cw;
+      if (is_raw) std::memcpy(RAW(out) + dof, RAW(img) + so, (size_t)cw);
+      else std::memcpy(REAL(out) + dof, REAL(img) + so, (size_t)cw * sizeof(double));
+    }
+  }
+  SEXP od = PROTECT(Rf_allocVector(INTSXP, nd >= 3 ? 3 : 2));
+  INTEGER(od)[0] = cw; INTEGER(od)[1] = ch;
+  if (nd >= 3) INTEGER(od)[2] = C;
+  Rf_setAttrib(out, R_DimSymbol, od);
+  UNPROTECT(2);
+  return out;
+}
+
+// [[Rcpp::export]]
+Rcpp::List run_yolo_tiles_cpp(
+    SEXP img,
+    Rcpp::IntegerVector tile_x,
+    Rcpp::IntegerVector tile_y,
+    int tile_w,
+    int tile_h,
+    double conf_threshold = 0.25,
+    double iou_threshold = 0.45,
+    std::string model_path = "",
+    std::string lib_path = "",
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1,
+    int target_size = 640,
+    bool include_full = false,
+    int full_target_size = 0,
+    int max_nms = 30000,
+    int max_det = 0
+) {
+  SEXP dim_attr = Rf_getAttrib(img, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 2) {
+    Rcpp::stop("img must be a 2D/3D image array.");
+  }
+  if (TYPEOF(img) != RAWSXP && TYPEOF(img) != REALSXP) {
+    Rcpp::stop("img must be stored as raw or double.");
+  }
+  const int* d = INTEGER(dim_attr);
+  bool interleaved = (Rf_length(dim_attr) == 3 && d[0] == 3 && TYPEOF(img) == RAWSXP);
+  int W = interleaved ? d[1] : d[0];
+  int H = interleaved ? d[2] : d[1];
+  if (tile_x.size() != tile_y.size()) Rcpp::stop("tile_x and tile_y must have the same length.");
+
+  std::vector<double> bx1, by1, bx2, by2, bsc, bkp;
+  std::vector<int> bcls, btile;
+  int kp_cols = 0;
+  std::vector<int> ran_tiles;
+
+  auto collect = [&](Rcpp::List r, int tidx, double ox, double oy, double cw, double ch) {
+    Rcpp::NumericMatrix b = r["boxes"];
+    Rcpp::NumericVector sc = r["scores"];
+    Rcpp::IntegerVector ci = r["class_ids"];
+    Rcpp::NumericMatrix kp = r["keypoints"];
+    int n = b.nrow();
+    if (kp.ncol() > 0) kp_cols = kp.ncol();
+    for (int i = 0; i < n; ++i) {
+      bx1.push_back(std::max(0.0, std::min((double)W, b(i, 0) + ox)));
+      by1.push_back(std::max(0.0, std::min((double)H, b(i, 1) + oy)));
+      bx2.push_back(std::max(0.0, std::min((double)W, b(i, 2) + ox)));
+      by2.push_back(std::max(0.0, std::min((double)H, b(i, 3) + oy)));
+      bsc.push_back(sc[i]);
+      bcls.push_back(ci[i]);
+      btile.push_back(tidx);
+      if (kp.ncol() > 0 && kp.nrow() == n) {
+        for (int k = 0; k < kp.ncol(); ++k) {
+          double v = kp(i, k);
+          if (k % 3 == 0) v += ox;
+          else if (k % 3 == 1) v += oy;
+          bkp.push_back(v);
+        }
+      }
+    }
+    (void)cw; (void)ch;
+  };
+
+  if (include_full) {
+    int fts = (full_target_size > 0) ? full_target_size : target_size;
+    Rcpp::List r = run_yolo_cpp(img, (double)W, (double)H, conf_threshold, iou_threshold, model_path, lib_path,
+                                num_threads, use_gpu, device_id, false, false, R_NilValue, fts, max_nms, max_det);
+    collect(r, 0, 0.0, 0.0, W, H);
+  }
+
+  for (int t = 0; t < tile_x.size(); ++t) {
+    int x0 = std::max(0, std::min(W - 1, (int)tile_x[t]));
+    int y0 = std::max(0, std::min(H - 1, (int)tile_y[t]));
+    int cw = std::max(1, std::min(tile_w, W - x0));
+    int ch = std::max(1, std::min(tile_h, H - y0));
+    SEXP tile = PROTECT(crop_image_tile(img, x0, y0, cw, ch));
+    Rcpp::List r = run_yolo_cpp(tile, (double)cw, (double)ch, conf_threshold, iou_threshold, model_path, lib_path,
+                                num_threads, use_gpu, device_id, false, false, R_NilValue, target_size, max_nms, max_det);
+    UNPROTECT(1);
+    collect(r, t + 1, (double)x0, (double)y0, cw, ch);
+    if ((t & 7) == 7) Rcpp::checkUserInterrupt();
+  }
+
+  int n = (int)bsc.size();
+  Rcpp::NumericMatrix boxes(n, 4);
+  for (int i = 0; i < n; ++i) {
+    boxes(i, 0) = bx1[i]; boxes(i, 1) = by1[i]; boxes(i, 2) = bx2[i]; boxes(i, 3) = by2[i];
+  }
+  Rcpp::NumericMatrix kpm(n, (kp_cols > 0 && (int)bkp.size() == n * kp_cols) ? kp_cols : 0);
+  if (kpm.ncol() > 0) {
+    for (int i = 0; i < n; ++i) for (int k = 0; k < kp_cols; ++k) kpm(i, k) = bkp[(size_t)i * kp_cols + k];
+  }
+  return Rcpp::List::create(
+    Rcpp::Named("boxes") = boxes,
+    Rcpp::Named("scores") = Rcpp::wrap(bsc),
+    Rcpp::Named("class_ids") = Rcpp::wrap(bcls),
+    Rcpp::Named("tile_index") = Rcpp::wrap(btile),
+    Rcpp::Named("keypoints") = kpm,
+    Rcpp::Named("is_seg") = false,
+    Rcpp::Named("n_tiles") = (int)tile_x.size()
+  );
+}
+
 // [[Rcpp::export]]
 Rcpp::NumericVector run_yolo_cls_cpp(
     Rcpp::NumericVector tensor_vec,
@@ -4389,15 +4964,13 @@ Rcpp::NumericVector run_yolo_cls_cpp(
 
   int64_t in_shape[4] = {1, 3, in_h, in_w};
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats, 0.0f);
-  size_t n_copy = std::min((size_t)tensor_vec.size(), total_floats);
-  for (size_t i = 0; i < n_copy; ++i) input_vals[i] = (float)tensor_vec[i];
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
 
   OrtValue* in_tensor = NULL;
   std::vector<uint16_t> in_fp16;
   if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
-    in_fp16.resize(total_floats);
-    for (size_t i = 0; i < total_floats; ++i) in_fp16[i] = float_to_half(input_vals[i]);
+    float_vec_to_half(input_vals, in_fp16);
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info, in_fp16.data(), total_floats * sizeof(uint16_t),
       in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_tensor
@@ -4508,10 +5081,9 @@ Rcpp::NumericVector run_clip_vision_cpp(
 
   int64_t in_shape[4] = {1, 3, in_h, in_w};
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) input_vals[i] = (float)tensor_vec[i];
-
-  OrtValue* in_tensor = NULL;
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
+OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, input_vals.data(), total_floats * sizeof(float),
     in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
@@ -4758,8 +5330,7 @@ Rcpp::List run_stardist_cpp(
     // NCHW format: [1, C, H, W]
     int in_c = (total_floats == (size_t)in_h * in_w) ? 1 : 3;
     in_shape[0] = 1; in_shape[1] = in_c; in_shape[2] = in_h; in_shape[3] = in_w;
-    input_vals.resize(total_floats);
-    for (size_t i = 0; i < total_floats; ++i) input_vals[i] = (float)tensor_vec[i];
+    sexp_to_float(tensor_vec, input_vals, total_floats);
   }
 
   OrtValue* in_tensor = NULL;
@@ -6396,10 +6967,8 @@ Rcpp::List run_ocr_rec_cpp(
   get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
 
   size_t total_floats = (size_t)batch_size * 3 * crop_h * crop_w;
-  std::vector<float> in_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) {
-    in_vals[i] = (float)crops_vec[i];
-  }
+  std::vector<float> in_vals;
+  sexp_to_float(crops_vec, in_vals, total_floats);
 
   int64_t in_shape[4] = {batch_size, 3, crop_h, crop_w};
   OrtValue* in_tensor = NULL;

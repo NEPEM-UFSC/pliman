@@ -262,3 +262,157 @@ SEXP image_resize_cpp(SEXP img_sexp, int out_w, int out_h, int filter = 0) {
     return R_NilValue;
   }
 }
+
+// Computes only the window [x0, x0 + rw) x [y0, y0 + rh) (0-based) of
+// image_resize_cpp(mat, out_w, out_h, filter = 1) for a single-channel double matrix.
+// Uses the same filter tables and accumulation order, so the values are identical to
+// cropping the full-resolution resize, at a cost proportional to the window size.
+// Used to post-process SAM instance masks per box instead of per full image.
+// [[Rcpp::export]]
+Rcpp::NumericMatrix resize_roi_bilinear_cpp(Rcpp::NumericMatrix mat, int out_w, int out_h,
+                                            int x0, int y0, int rw, int rh) {
+  const int W = mat.nrow();
+  const int H = mat.ncol();
+  if (out_w <= 0 || out_h <= 0) Rcpp::stop("resize_roi_bilinear_cpp: invalid output size.");
+  x0 = std::max(0, std::min(out_w - 1, x0));
+  y0 = std::max(0, std::min(out_h - 1, y0));
+  rw = std::max(1, std::min(rw, out_w - x0));
+  rh = std::max(1, std::min(rh, out_h - y0));
+  Rcpp::NumericMatrix out(rw, rh);
+  const double* src = mat.begin();
+  double* dst = out.begin();
+  if (W == out_w && H == out_h) {
+    for (int y = 0; y < rh; ++y)
+      for (int x = 0; x < rw; ++x)
+        dst[(size_t)y * rw + x] = src[(size_t)(y0 + y) * W + (x0 + x)];
+    return out;
+  }
+  FilterTable ft_h = build_filter_table(W, out_w, false);
+  FilterTable ft_v = build_filter_table(H, out_h, false);
+  // Source rows needed by the vertical filter for the requested output rows.
+  int r_min = H, r_max = -1;
+  for (int oy = y0; oy < y0 + rh; ++oy) {
+    const FilterEntry& e = ft_v.entries[oy];
+    r_min = std::min(r_min, e.start);
+    r_max = std::max(r_max, e.start + e.count - 1);
+  }
+  if (r_max < r_min) return out;
+  const int nr = r_max - r_min + 1;
+  std::vector<double> tmp((size_t)rw * nr);
+  for (int r = 0; r < nr; ++r) {
+    const double* src_row = src + (size_t)(r_min + r) * W;
+    for (int x = 0; x < rw; ++x) {
+      const FilterEntry& e = ft_h.entries[x0 + x];
+      const double* w = ft_h.weights.data() + ft_h.offsets[x0 + x];
+      const double* sp = src_row + e.start;
+      double acc = 0.0;
+      for (int k = 0; k < e.count; ++k) acc += w[k] * sp[k];
+      tmp[(size_t)r * rw + x] = acc;
+    }
+  }
+  for (int y = 0; y < rh; ++y) {
+    const FilterEntry& e = ft_v.entries[y0 + y];
+    const double* w = ft_v.weights.data() + ft_v.offsets[y0 + y];
+    for (int x = 0; x < rw; ++x) {
+      double acc = 0.0;
+      for (int k = 0; k < e.count; ++k) acc += w[k] * tmp[(size_t)(e.start + k - r_min) * rw + x];
+      // same [0, 1] clamp as resample_vertical() applies to double output
+      if (acc < 0.0) acc = 0.0;
+      else if (acc > 1.0) acc = 1.0;
+      dst[(size_t)y * rw + x] = acc;
+    }
+  }
+  return out;
+}
+
+// C++ version of the R helper `.preprocess_nchw()`: image array [W, H, C] (raw or
+// double) -> normalised NCHW float tensor (returned as double) of size 3 x S x S.
+// Matches the R implementation step by step (value scale detection, bilinear resize via
+// the same filter tables with the same [0, 1] clamp, optional top-left letterbox padded
+// with 0 before normalisation, (x - mean) / std) while avoiding the ~10 full-resolution
+// double copies the R version allocates.
+// [[Rcpp::export]]
+Rcpp::NumericVector preprocess_nchw_cpp(SEXP mat, int target_size,
+                                        Rcpp::NumericVector mean, Rcpp::NumericVector std_,
+                                        bool letterbox = false) {
+  SEXP dim_attr = Rf_getAttrib(mat, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 2) Rcpp::stop("preprocess_nchw_cpp: mat must be a matrix or array.");
+  const int* d = INTEGER(dim_attr);
+  const int W = d[0], H = d[1];
+  const int nch = (Rf_length(dim_attr) >= 3) ? d[2] : 1;
+  const int S = target_size;
+  if (S <= 0) Rcpp::stop("preprocess_nchw_cpp: invalid target_size.");
+  if (mean.size() < 3 || std_.size() < 3) Rcpp::stop("preprocess_nchw_cpp: mean and std must have length 3.");
+  const bool is_raw = (TYPEOF(mat) == RAWSXP);
+  if (!is_raw && TYPEOF(mat) != REALSXP && TYPEOF(mat) != INTSXP) Rcpp::stop("preprocess_nchw_cpp: unsupported storage.");
+
+  const size_t plane = (size_t)W * H;
+  double val_scale = 1.0;
+  if (is_raw) {
+    val_scale = 1.0 / 255.0;
+  } else {
+    size_t nchk = std::min((size_t)1000, (size_t)Rf_xlength(mat));
+    double mx = -INFINITY;
+    for (size_t i = 0; i < nchk; ++i) {
+      double v = (TYPEOF(mat) == REALSXP) ? REAL(mat)[i] : (double)INTEGER(mat)[i];
+      if (!ISNAN(v) && v > mx) mx = v;
+    }
+    val_scale = (mx > 1.5) ? (1.0 / 255.0) : 1.0;
+  }
+
+  int ow = S, oh = S;
+  if (letterbox) {
+    double sc = (double)S / (double)std::max(W, H);
+    ow = std::max(1, (int)std::nearbyint(W * sc));
+    oh = std::max(1, (int)std::nearbyint(H * sc));
+  }
+  const bool identity = (ow == W && oh == H);
+
+  Rcpp::NumericVector out((R_xlen_t)3 * S * S);
+  double* out_ptr = out.begin();
+  std::vector<double> src_plane(plane);
+  std::vector<double> tmp;
+  std::vector<double> res;
+  FilterTable ft_h, ft_v;
+  if (!identity) {
+    ft_h = build_filter_table(W, ow, false);
+    ft_v = build_filter_table(H, oh, false);
+    tmp.resize((size_t)ow * H);
+    res.resize((size_t)ow * oh);
+  }
+
+  for (int c = 0; c < 3; ++c) {
+    const int sc_idx = (nch >= 3) ? c : 0;
+    const size_t off = (size_t)sc_idx * plane;
+    if (is_raw) {
+      const Rbyte* p = RAW(mat) + off;
+      for (size_t i = 0; i < plane; ++i) src_plane[i] = (double)p[i] * val_scale;
+    } else if (TYPEOF(mat) == REALSXP) {
+      const double* p = REAL(mat) + off;
+      for (size_t i = 0; i < plane; ++i) src_plane[i] = p[i] * val_scale;
+    } else {
+      const int* p = INTEGER(mat) + off;
+      for (size_t i = 0; i < plane; ++i) src_plane[i] = (double)p[i] * val_scale;
+    }
+    const double* resized = src_plane.data();
+    if (!identity) {
+      resample_horizontal<double>(src_plane.data(), tmp.data(), W, H, 1, ow, ft_h);
+      resample_vertical<double>(tmp.data(), res.data(), ow, H, 1, oh, ft_v);
+      resized = res.data();
+    }
+    const double mu = mean[c], sd = std_[c];
+    double* dst = out_ptr + (size_t)c * S * S;
+    if (letterbox) {
+      const double pad_val = (0.0 - mu) / sd;
+      for (size_t i = 0; i < (size_t)S * S; ++i) dst[i] = pad_val;
+      for (int y = 0; y < oh; ++y)
+        for (int x = 0; x < ow; ++x)
+          dst[(size_t)y * S + x] = (resized[(size_t)y * ow + x] - mu) / sd;
+    } else {
+      for (size_t i = 0; i < (size_t)S * S; ++i) dst[i] = (resized[i] - mu) / sd;
+    }
+  }
+  out.attr("dims") = Rcpp::IntegerVector::create(1, 3, S, S);
+  if (letterbox) out.attr("letterbox_dims") = Rcpp::NumericVector::create(ow, oh);
+  return out;
+}

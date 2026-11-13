@@ -902,7 +902,10 @@ frame_to_img <- function(video,
 #' @param save_video Logical. Whether to save the processed video. Automatically `TRUE` if `output` is specified.
 #' @param return_data Logical. Whether to compute and return the detection dataset and ecological summary statistics (default `TRUE`). If `FALSE`, returns `invisible(NULL)`.
 #' @param track Logical. Whether to enable multi-object tracking and assign persistent IDs (`#1`, `#2`, etc.) across frames. Defaults to `FALSE`.
-#' @param min_frames Minimum number of frames an object must persist across the video to be retained in tracking statistics. Defaults to `10L`, discarding fleeting, transient noise artifacts (e.g. spurious false positives appearing in 10 or fewer frames). Set to `0` or `NULL` to retain all detections.
+#' @param min_frames Minimum number of frames an object must persist to be retained. When
+#'   tracking, it is also the number of hits a track needs before its box/point is drawn,
+#'   which suppresses flickering false positives. Defaults to `20L`. Set to `0` or `NULL`
+#'   to retain all detections.
 #' @param interpolate_box Logical. Whether to temporally interpolate bounding box positions for tracked objects across briefly lost or occluded frames using velocity motion vectors (default `FALSE`).
 #' @param interpolate_mask Logical. Whether to interpolate instance segmentation masks alongside interpolated bounding boxes (default `FALSE`).
 #' @param trail Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when `track = TRUE`. Defaults to `FALSE`.
@@ -973,7 +976,9 @@ frame_to_img <- function(video,
 #' @param start_time Optional numeric start timestamp (in seconds) from which to begin processing a video file. Defaults to `NULL`.
 #' @param end_time Optional numeric end timestamp (in seconds) at which to stop processing a video file. Defaults to `NULL`.
 #' @param show Logical. Whether to display the video feed with bounding boxes in real time.
-#'   Default is `interactive()`.
+#'   `NULL` (default) means `interactive()` for cameras and `FALSE` for video files. On
+#'   Windows frames are shown in a native window; on other systems the R graphics device is
+#'   used, which is much slower (see "Performance").
 #' @param show_fps Logical. Whether to overlay a real-time FPS and detection counter badge (default `TRUE`).
 #' @param telemetry Telemetry HUD display mode: `"detailed"` (default, glassmorphic diagnostic HUD card with real-time FPS, latency breakdown (inference, tracking, GUI), object counts, confidence statistics, flow rate, motion velocity, ROI occupancy, and 20-frame sparkline trend), `"simple"` (compact FPS, in-zone, and count badges), or `"none"` (disables HUD overlay).
 #' @param smoot_stat Window size (in frames) for moving average of telemetry statistics (default `20`).
@@ -981,7 +986,6 @@ frame_to_img <- function(video,
 #'   is updated on every single frame, but displayed values on the telemetry HUD are refreshed every `smoot_stat` frames.
 #'   Frame number, in-zone count, counted total, and active tracks are displayed instantaneously on every frame.
 #'   Supported aliases: `smooth_stat`, `smooth_stats`, `smoot_stats`.
-#' @param min_frames Minimum number of consecutive/persistent frames an object must be tracked before rendering its bounding box or point (default `10L`). Suppresses transient false positives and noise from flickering on screen.
 #' @param as_job Logical. If `TRUE` and running inside RStudio, dispatches the video processing task to an asynchronous RStudio Background Job, keeping the R console free. Default is `FALSE`.
 #' @param hud_pos Screen position of the telemetry HUD card: either a preset string
 #'   (`"top-right"` (default, avoids top-left ROI zone), `"top-left"`, `"bottom-left"`,
@@ -1004,6 +1008,11 @@ frame_to_img <- function(video,
 #' @param dir Directory where pre-trained models are stored (default `pliman_model_dir()`).
 #' @param imgsz Target input image resolution for YOLO inference (e.g., `640`, `960`, or `1024`).
 #'   If `NULL` (default), inferred automatically from the model or defaults to `640`.
+#' @param filter_nested Logical. If `TRUE` (default), removes boxes that contain a smaller,
+#'   confident box (typical double detections of the same object). Set to `FALSE` to keep
+#'   every detection returned by the model.
+#' @param max_det Integer. Maximum number of detections kept per frame (or per SAHI tile)
+#'   after non-maximum suppression, highest scores first. `0` (default) keeps all.
 #' @param verbose Logical. Whether to show progress messages.
 #' @param ... Additional arguments passed to graphics plotting functions or aliases
 #'   (`camera`, `cam`, `device`, `infer`, `inference`, `save`, `return_df`, `return_detections`).
@@ -1045,7 +1054,24 @@ frame_to_img <- function(video,
 #'   \item `roi`, `roi_mode`, `count_line`, `output`: Additional metadata reflecting execution configuration.
 #' }
 #' If `return_data = FALSE`, returns `invisible(NULL)`.
-#' @export
+#' @section Performance:
+#' Decoding, letterboxing, inference, tracking, drawing and encoding run in C++; the
+#' ONNX session is created once and warmed up before the first frame, so the reported
+#' FPS reflects steady-state speed. The main levers are:
+#' \itemize{
+#'   \item `engine = "gpu"` (DirectML) vs. `"cpu"` with `threads`. GPU gains depend on the
+#'     hardware; FP16 models ([yolo_export_fp16()]) only help on GPUs with native
+#'     half-precision throughput (e.g. Tensor Cores).
+#'   \item `imgsz`: inference cost grows roughly with the square of the input size.
+#'   \item `infer_every`: run the model every *k* frames and propagate tracks in between.
+#'   \item `fps`: subsample the video before inference.
+#'   \item `show = FALSE`, `telemetry = "none"` and `save_video = FALSE` remove the drawing
+#'     and display work; outside Windows `show = TRUE` renders through the R graphics
+#'     device, which is very slow.
+#'   \item `sahi = TRUE` multiplies the inference cost by the number of tiles.
+#'   \item `max_det` caps the number of detections handled per frame in dense scenes.
+#' }
+#' Use [yolo_benchmark()] to measure the model alone on your hardware.
 #' @examplesIf interactive()
 #'   library(pliman)
 #'
@@ -1169,6 +1195,8 @@ video_detect_dl <- function(video = 0,
                             threads = 0,
                             dir = pliman_model_dir(),
                             imgsz = NULL,
+                            filter_nested = TRUE,
+                            max_det = 0,
                             as_job = FALSE,
                             verbose = TRUE,
                             ...) {
@@ -1598,7 +1626,7 @@ video_detect_dl <- function(video = 0,
 
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
+  lib_path <- pliman_onnx_library_path(engine = engine)
 
   if (detect) {
     # Model resolution: custom ONNX file or pre-trained download
@@ -1658,6 +1686,21 @@ video_detect_dl <- function(video = 0,
         target_size <- model_shape_info$expected_w
       }
     }
+
+    # Warm-up: one inference on a blank frame so session creation, graph optimisation and
+    # (on GPU) DirectML shader compilation happen before the frame loop, keeping them out
+    # of the first frame and of the reported FPS.
+    if (isTRUE(verbose)) cli::cli_alert_info("Warming up model {.file {basename(model_file)}}...")
+    warm_bm <- raw(3L * 64L * 64L)
+    dim(warm_bm) <- c(3L, 64L, 64L)
+    try(run_yolo_cpp(
+      tensor_vec = warm_bm, orig_w = 64, orig_h = 64,
+      conf_threshold = 0.99, iou_threshold = iou_threshold,
+      model_path = model_file, lib_path = lib_path,
+      num_threads = as.integer(threads), use_gpu = use_gpu, device_id = as.integer(device_id),
+      need_masks = FALSE, target_size = as.integer(target_size)
+    ), silent = TRUE)
+    rm(warm_bm)
   } else {
     model_file <- "None"
     class_names <- character(0)
@@ -1667,25 +1710,11 @@ video_detect_dl <- function(video = 0,
   .filter_nested_mat <- function(boxes, scores, class_ids, stats = NULL,
                                  containment_thresh = 0.85, max_area_ratio = 0.70, conf_floor = 0.50) {
     n <- nrow(boxes)
-    if (is.null(n) || n <= 1L) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
-    x1 <- boxes[, 1]; y1 <- boxes[, 2]; x2 <- boxes[, 3]; y2 <- boxes[, 4]
-    areas <- pmax(0.0, x2 - x1) * pmax(0.0, y2 - y1)
-    valid_child <- which(scores >= conf_floor & areas > 0.0)
-    if (length(valid_child) == 0L) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
-    keep <- rep(TRUE, n)
-    for (i in seq_len(n)) {
-      ai <- areas[i]
-      if (ai <= 0.0) next
-      bx1 <- x1[i]; by1 <- y1[i]; bx2 <- x2[i]; by2 <- y2[i]
-      ci <- valid_child[valid_child != i & areas[valid_child] < ai * max_area_ratio]
-      if (length(ci) == 0L) next
-      ci <- ci[x2[ci] > bx1 & x1[ci] < bx2 & y2[ci] > by1 & y1[ci] < by2]
-      if (length(ci) == 0L) next
-      iw <- pmin(bx2, x2[ci]) - pmax(bx1, x1[ci])
-      ih <- pmin(by2, y2[ci]) - pmax(by1, y1[ci])
-      inter <- pmax(0.0, iw) * pmax(0.0, ih)
-      if (any(inter / areas[ci] >= containment_thresh)) keep[i] <- FALSE
-    }
+    if (!isTRUE(filter_nested) || is.null(n) || n <= 1L) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
+    # Same rule as before, evaluated in C++ (the former R loop was O(n^2) per frame/tile).
+    storage.mode(boxes) <- "double"
+    keep <- as.logical(filter_nested_boxes_cpp(boxes, as.numeric(scores), NULL,
+                                               containment_thresh, max_area_ratio, conf_floor))
     if (all(keep)) return(list(boxes = boxes, scores = scores, class_ids = class_ids, seg_stats = stats))
     list(
       boxes = boxes[keep, , drop = FALSE],
@@ -1838,7 +1867,8 @@ video_detect_dl <- function(video = 0,
         use_gpu = use_gpu,
         device_id = as.integer(device_id),
         need_masks = need_masks_flag,
-        target_size = as.integer(target_size)
+        target_size = as.integer(target_size),
+        max_det = as.integer(max_det)
       )
       if (!need_masks_flag && nrow(res_single$boxes) > 1L) {
         fn <- .filter_nested_mat(res_single$boxes, res_single$scores, res_single$class_ids, res_single$seg_stats)
@@ -1884,7 +1914,8 @@ video_detect_dl <- function(video = 0,
       use_gpu = use_gpu,
       device_id = as.integer(device_id),
       need_masks = need_masks_flag,
-      target_size = as.integer(target_size)
+      target_size = as.integer(target_size),
+      max_det = as.integer(max_det)
     )
     if (nrow(full_res$boxes) > 1L) {
       fn <- .filter_nested_mat(full_res$boxes, full_res$scores, full_res$class_ids, full_res$seg_stats)
@@ -1899,6 +1930,40 @@ video_detect_dl <- function(video = 0,
     isf_list <- list(rep(TRUE, nrow(full_res$boxes)))
     stats_list <- if (!is.null(full_res$seg_stats)) list(full_res$seg_stats) else NULL
 
+    if (is.null(stats_list)) {
+      # All tiles in one C++ call (crop + letterbox + inference + coordinate shift),
+      # instead of one crop_bgr_cpp() + run_yolo_cpp() round-trip per tile.
+      tl <- run_yolo_tiles_cpp(
+        img = bm_feed,
+        tile_x = as.integer(rep(xs, times = length(ys))),
+        tile_y = as.integer(rep(ys, each = length(xs))),
+        tile_w = as.integer(sw),
+        tile_h = as.integer(sh),
+        conf_threshold = conf_threshold,
+        iou_threshold = iou_threshold,
+        model_path = model_file,
+        lib_path = lib_path,
+        num_threads = as.integer(threads),
+        use_gpu = use_gpu,
+        device_id = as.integer(device_id),
+        target_size = as.integer(tile_target_size),
+        include_full = FALSE,
+        max_det = as.integer(max_det)
+      )
+      n_tl <- nrow(tl$boxes)
+      if (n_tl > 0L) {
+        keep_t <- if (isTRUE(filter_nested) && n_tl > 1L) {
+          as.logical(filter_nested_boxes_cpp(tl$boxes, as.numeric(tl$scores), NULL, group = as.integer(tl$tile_index)))
+        } else {
+          rep(TRUE, n_tl)
+        }
+        boxes_list[[2L]] <- tl$boxes[keep_t, , drop = FALSE]
+        scores_list[[2L]] <- tl$scores[keep_t]
+        cls_list[[2L]] <- tl$class_ids[keep_t]
+        isf_list[[2L]] <- rep(FALSE, sum(keep_t))
+      }
+    } else {
+    # Segmentation models: keep per-tile calls so seg_stats stay aligned.
     for (ty in ys) {
       for (tx in xs) {
         tile_bm <- crop_bgr_cpp(bm_feed, tx, ty, tx + sw, ty + sh)
@@ -1939,6 +2004,7 @@ video_detect_dl <- function(video = 0,
         }
       }
     }
+    }
     all_b <- do.call(rbind, boxes_list)
     all_s <- unlist(scores_list)
     all_c <- unlist(cls_list)
@@ -1968,14 +2034,10 @@ video_detect_dl <- function(video = 0,
     cli::cli_alert_info("Interactive frame display enabled (rendering plots to R graphics device reduces throughput).")
   }
 
-  # Initialize object tracking state
-  track_state <- list(
-    next_id = 1L,
-    total_count = 0L,
-    tracks = list(),
-    counts_by_class = list(),
-    crossing_events = list()
-  )
+  # Initialize object tracking state. The tracker lives in C++ behind an external
+  # pointer (state is updated in place; only per-frame outputs come back to R), instead
+  # of round-tripping the full state list through R on every frame.
+  track_state <- tracker_create_cpp()
   total_count_val <- 0L
   in_zone_val <- 0L
 
@@ -2296,14 +2358,14 @@ video_detect_dl <- function(video = 0,
             if ((isTRUE(track) || !is.null(count_line))) {
               t_trk_start <- Sys.time()
               if (nrow(df_b) > 0) {
-                track_res <- update_tracker_cpp(
+                track_res <- tracker_update_cpp(
+                  tracker = track_state,
                   xmin = df_b$xmin,
                   ymin = df_b$ymin,
                   xmax = df_b$xmax,
                   ymax = df_b$ymax,
                   labels = df_b$label,
                   scores = df_b$score,
-                  state = track_state,
                   count_line = line_coords,
                   roi = roi_coords,
                   max_dist = track_max_dist,
@@ -2319,7 +2381,6 @@ video_detect_dl <- function(video = 0,
                   interpolate_mask = interpolate_mask,
                   min_hits = min_hits_val
                 )
-                track_state <- track_res$state
                 total_count_val <- track_res$total_count
                 in_zone_val <- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
@@ -2353,15 +2414,15 @@ video_detect_dl <- function(video = 0,
                 flash_pass <- track_res$flash
                 history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
                 history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
-              } else if (!is.null(track_state$tracks) && length(track_state$tracks) > 0) {
-                track_res <- update_tracker_cpp(
+              } else if (tracker_n_tracks_cpp(track_state) > 0) {
+                track_res <- tracker_update_cpp(
+                  tracker = track_state,
                   xmin = numeric(0),
                   ymin = numeric(0),
                   xmax = numeric(0),
                   ymax = numeric(0),
                   labels = character(0),
                   scores = numeric(0),
-                  state = track_state,
                   count_line = line_coords,
                   roi = roi_coords,
                   max_dist = track_max_dist,
@@ -2375,7 +2436,6 @@ video_detect_dl <- function(video = 0,
                   interpolate_mask = interpolate_mask,
                   min_hits = min_hits_val
                 )
-                track_state <- track_res$state
                 total_count_val <- track_res$total_count
                 in_zone_val <- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
@@ -2670,7 +2730,7 @@ video_detect_dl <- function(video = 0,
 
     valid_records <- frame_records[!sapply(frame_records, is.null)]
     valid_kpts <- frame_keypoints[!sapply(frame_keypoints, is.null)]
-    all_dets <- if (length(valid_records) > 0) do.call(rbind, valid_records) else data.frame()
+    all_dets <- if (length(valid_records) > 0) .rbind_df_fast(valid_records) else data.frame()
     all_kpts <- if (length(valid_kpts) > 0) do.call(rbind, valid_kpts) else NULL
     total_time <- as.numeric(Sys.time() - t_start, units = "secs")
     avg_fps <- if (total_time > 0 && frame_count > 0) (frame_count / total_time) else fps_smooth
@@ -3025,14 +3085,14 @@ video_detect_dl <- function(video = 0,
             if ((isTRUE(track) || !is.null(count_line))) {
               t_trk_start <- Sys.time()
               if (nrow(df_b) > 0) {
-                track_res <- update_tracker_cpp(
+                track_res <- tracker_update_cpp(
+                  tracker = track_state,
                   xmin = df_b$xmin,
                   ymin = df_b$ymin,
                   xmax = df_b$xmax,
                   ymax = df_b$ymax,
                   labels = df_b$label,
                   scores = df_b$score,
-                  state = track_state,
                   count_line = line_coords,
                   roi = roi_coords,
                   max_dist = track_max_dist,
@@ -3048,7 +3108,6 @@ video_detect_dl <- function(video = 0,
                   interpolate_mask = interpolate_mask,
                   min_hits = min_hits_val
                 )
-                track_state <<- track_res$state
                 total_count_val <<- track_res$total_count
                 in_zone_val <<- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
@@ -3082,15 +3141,15 @@ video_detect_dl <- function(video = 0,
                 flash_pass <- track_res$flash
                 history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
                 history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
-              } else if (!is.null(track_state$tracks) && length(track_state$tracks) > 0) {
-                track_res <- update_tracker_cpp(
+              } else if (tracker_n_tracks_cpp(track_state) > 0) {
+                track_res <- tracker_update_cpp(
+                  tracker = track_state,
                   xmin = numeric(0),
                   ymin = numeric(0),
                   xmax = numeric(0),
                   ymax = numeric(0),
                   labels = character(0),
                   scores = numeric(0),
-                  state = track_state,
                   count_line = line_coords,
                   roi = roi_coords,
                   max_dist = track_max_dist,
@@ -3104,7 +3163,6 @@ video_detect_dl <- function(video = 0,
                   interpolate_mask = interpolate_mask,
                   min_hits = min_hits_val
                 )
-                track_state <<- track_res$state
                 total_count_val <<- track_res$total_count
                 in_zone_val <<- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
@@ -3198,20 +3256,21 @@ video_detect_dl <- function(video = 0,
           crop_coords <- last_crop_coords
 
           # If tracking is active, propagate motion across skipped frames using track velocities
-          if ((isTRUE(track) || !is.null(count_line)) && nrow(df_b) > 0 && !is.null(track_state$tracks) && length(track_state$tracks) > 0) {
-            for (ti in seq_along(track_state$tracks)) {
-              trk <- track_state$tracks[[ti]]
-              tid <- trk$id
-              match_row <- which(df_b$id == tid)
-              if (length(match_row) > 0) {
-                vx <- if (!is.null(trk$vx)) trk$vx else 0.0
-                vy <- if (!is.null(trk$vy)) trk$vy else 0.0
-                if (abs(vx) > 0.1 || abs(vy) > 0.1) {
-                  df_b$xmin[match_row] <- df_b$xmin[match_row] + vx
-                  df_b$xmax[match_row] <- df_b$xmax[match_row] + vx
-                  df_b$ymin[match_row] <- df_b$ymin[match_row] + vy
-                  df_b$ymax[match_row] <- df_b$ymax[match_row] + vy
-                }
+          if ((isTRUE(track) || !is.null(count_line)) && nrow(df_b) > 0 && tracker_n_tracks_cpp(track_state) > 0) {
+            # Vectorised: shift each drawn box by its track velocity (one C++ lookup).
+            vel <- tracker_velocities_cpp(track_state)
+            m_idx <- match(df_b$id, vel$id)
+            ok <- !is.na(m_idx)
+            if (any(ok)) {
+              vx <- vel$vx[m_idx[ok]]
+              vy <- vel$vy[m_idx[ok]]
+              mv <- abs(vx) > 0.1 | abs(vy) > 0.1
+              if (any(mv)) {
+                rows <- which(ok)[mv]
+                df_b$xmin[rows] <- df_b$xmin[rows] + vx[mv]
+                df_b$xmax[rows] <- df_b$xmax[rows] + vx[mv]
+                df_b$ymin[rows] <- df_b$ymin[rows] + vy[mv]
+                df_b$ymax[rows] <- df_b$ymax[rows] + vy[mv]
               }
             }
             last_df_b <<- df_b
@@ -3657,7 +3716,7 @@ video_detect_dl <- function(video = 0,
 
     valid_records <- frame_records[!sapply(frame_records, is.null)]
     valid_kpts <- frame_keypoints[!sapply(frame_keypoints, is.null)]
-    all_dets <- if (length(valid_records) > 0) do.call(rbind, valid_records) else data.frame()
+    all_dets <- if (length(valid_records) > 0) .rbind_df_fast(valid_records) else data.frame()
     all_kpts <- if (length(valid_kpts) > 0) do.call(rbind, valid_kpts) else NULL
     total_time <- as.numeric(Sys.time() - t_start, units = "secs")
   }
@@ -3809,7 +3868,8 @@ video_detect_dl <- function(video = 0,
     }
 
     # Summary by class
-    counts_by_cls <- if (isTRUE(track) || !is.null(count_line)) track_state$counts_by_class else NULL
+    track_state_final <- tracker_export_state_cpp(track_state)
+    counts_by_cls <- if (isTRUE(track) || !is.null(count_line)) track_state_final$counts_by_class else NULL
     by_class_list <- lapply(all_classes, function(cls) {
       df_c <- all_dets[all_dets$label == cls, , drop = FALSE]
       n_c <- nrow(df_c)
@@ -3980,8 +4040,8 @@ video_detect_dl <- function(video = 0,
   }
 
   if (isTRUE(track) || !is.null(count_line)) {
-    if (length(track_state$crossing_events) > 0) {
-      ev_df <- do.call(rbind, lapply(track_state$crossing_events, as.data.frame))
+    if (length(track_state_final$crossing_events) > 0) {
+      ev_df <- do.call(rbind, lapply(track_state_final$crossing_events, as.data.frame))
       if (!is.null(valid_track_ids)) {
         ev_df <- ev_df[ev_df$id %in% valid_track_ids, , drop = FALSE]
       }
