@@ -24,12 +24,13 @@ image_rename_ocr(
   conflict = c("rename", "skip", "overwrite"),
   dry_run = FALSE,
   save_log = TRUE,
-  det_model = c("ppocr_det", "ppocr_det_server", "craft"),
-  rec_model = "ppocr_rec",
+  det_model = c("ppocrv5_det", "ppocrv5_det_server", "ppocr_det", "ppocr_det_server",
+    "craft"),
+  rec_model = "ppocrv5_rec_latin",
   det_thresh = 0.3,
-  box_thresh = 0.5,
-  unclip_ratio = 1.3,
-  text_threshold = 0.5,
+  box_thresh = 0.6,
+  unclip_ratio = 1.5,
+  text_threshold = 0.7,
   link_threshold = 0.4,
   low_text = 0.4,
   engine = c("gpu", "cpu"),
@@ -107,18 +108,19 @@ without modifying any files on disk, returning a preview table. Default is \code
 \item{save_log}{Logical. Whether to save an audit log file (\code{.pliman_rename_log_*.rds})
 for subsequent recovery with \code{\link{image_rename_undo}}. Default is \code{TRUE}.}
 
-\item{det_model}{Text detection model backbone: \code{"ppocr_det"} (default),
-\code{"ppocr_det_server"}, or \code{"craft"}.}
+\item{det_model}{Text detection model backbone: \code{"ppocrv5_det"} (default),
+\code{"ppocrv5_det_server"}, \code{"ppocr_det"}, \code{"ppocr_det_server"}, or \code{"craft"}.}
 
-\item{rec_model}{Text recognition model backbone. Default is \code{"ppocr_rec"}.}
+\item{rec_model}{Text recognition model backbone. Default is \code{"ppocrv5_rec_latin"}
+(see \code{\link{image_ocr_dl}} for the other options, e.g. \code{"ppocrv5_rec"} or \code{"ppocr_rec"}).}
 
 \item{det_thresh}{Pixel binarization threshold for DBNet detection. Default is \code{0.30}.}
 
-\item{box_thresh}{Bounding box confidence threshold. Default is \code{0.50}.}
+\item{box_thresh}{Bounding box confidence threshold. Default is \code{0.60}.}
 
-\item{unclip_ratio}{Polygon expansion ratio. Default is \code{1.30}.}
+\item{unclip_ratio}{Polygon expansion ratio. Default is \code{1.50}.}
 
-\item{text_threshold}{CRAFT character threshold. Default is \code{0.50}.}
+\item{text_threshold}{CRAFT character threshold. Default is \code{0.70}.}
 
 \item{link_threshold}{CRAFT link threshold. Default is \code{0.40}.}
 

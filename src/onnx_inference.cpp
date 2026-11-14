@@ -6953,7 +6953,8 @@ Rcpp::List run_ocr_rec_cpp(
     std::string lib_path,
     int num_threads = 0,
     bool use_gpu = false,
-    int device_id = -1
+    int device_id = -1,
+    Rcpp::Nullable<Rcpp::IntegerVector> allowed_ids = R_NilValue
 ) {
   if (batch_size <= 0) return Rcpp::List::create();
 
@@ -7010,6 +7011,19 @@ Rcpp::List run_ocr_rec_cpp(
 
   Rcpp::List results(batch_size);
 
+  // Optional character allow-list (class indices; the CTC blank 0 is always allowed).
+  std::vector<char> allow_mask;
+  bool use_mask = false;
+  if (allowed_ids.isNotNull()) {
+    Rcpp::IntegerVector ai(allowed_ids.get());
+    allow_mask.assign(C, 0);
+    allow_mask[0] = 1;
+    for (int i = 0; i < ai.size(); ++i) {
+      if (ai[i] > 0 && ai[i] < C) allow_mask[ai[i]] = 1;
+    }
+    use_mask = true;
+  }
+
   for (int b = 0; b < batch_size; ++b) {
     size_t b_off = (size_t)b * T * C;
     std::vector<int> char_ids;
@@ -7021,6 +7035,7 @@ Rcpp::List run_ocr_rec_cpp(
       int max_c = 0;
       float max_val = out_data[t_off];
       for (int c = 1; c < C; ++c) {
+        if (use_mask && !allow_mask[c]) continue;
         float val = out_data[t_off + c];
         if (val > max_val) {
           max_val = val;
@@ -7028,14 +7043,20 @@ Rcpp::List run_ocr_rec_cpp(
         }
       }
 
-      float sum_val = 0.0f;
-      for (int c = 0; c < C; ++c) sum_val += out_data[t_off + c];
+      float sum_val = 0.0f, sum_allowed = 0.0f;
+      for (int c = 0; c < C; ++c) {
+        float val = out_data[t_off + c];
+        sum_val += val;
+        if (!use_mask || allow_mask[c]) sum_allowed += val;
+      }
       float prob = 0.0f;
       if (std::abs(sum_val - 1.0f) < 0.1f) {
-        prob = max_val;
+        // Softmax outputs; with an allow-list, renormalise over the allowed classes.
+        prob = use_mask ? ((sum_allowed > 0.0f) ? (max_val / sum_allowed) : 0.0f) : max_val;
       } else {
         float sum_exp = 0.0f;
         for (int c = 0; c < C; ++c) {
+          if (use_mask && !allow_mask[c]) continue;
           sum_exp += std::exp(out_data[t_off + c] - max_val);
         }
         prob = (sum_exp > 0.0f) ? (1.0f / sum_exp) : 0.0f;
@@ -7064,6 +7085,96 @@ Rcpp::List run_ocr_rec_cpp(
 
   ort->ReleaseValue(out_tensor);
   return results;
+}
+
+// Batched image classifier for OCR helpers (e.g. PP-LCNet text-line orientation).
+// Input: NCHW tensor of `batch_size` crops of crop_h x crop_w. Output: batch_size x K
+// matrix of class probabilities (softmax applied when the model returns logits).
+// [[Rcpp::export]]
+Rcpp::NumericMatrix run_ocr_cls_cpp(
+    Rcpp::NumericVector crops_vec,
+    int batch_size,
+    int crop_w,
+    int crop_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  if (batch_size <= 0) return Rcpp::NumericMatrix(0, 0);
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  size_t total_floats = (size_t)batch_size * 3 * crop_h * crop_w;
+  std::vector<float> in_vals;
+  sexp_to_float(crops_vec, in_vals, total_floats);
+
+  int64_t in_shape[4] = {batch_size, 3, crop_h, crop_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("OCR classifier inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+  ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+  int K = (int)out_dims[num_dims - 1];
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix probs(batch_size, K);
+  for (int b = 0; b < batch_size; ++b) {
+    const float* row = out_data + (size_t)b * K;
+    float sum_val = 0.0f, max_val = row[0];
+    bool nonneg = true;
+    for (int k = 0; k < K; ++k) {
+      sum_val += row[k];
+      if (row[k] > max_val) max_val = row[k];
+      if (row[k] < 0.0f) nonneg = false;
+    }
+    if (nonneg && std::abs(sum_val - 1.0f) < 0.05f) {
+      for (int k = 0; k < K; ++k) probs(b, k) = row[k];
+    } else {
+      double se = 0.0;
+      for (int k = 0; k < K; ++k) se += std::exp((double)row[k] - max_val);
+      for (int k = 0; k < K; ++k) probs(b, k) = std::exp((double)row[k] - max_val) / se;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return probs;
 }
 
 // [[Rcpp::export]]

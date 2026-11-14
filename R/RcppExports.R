@@ -869,6 +869,14 @@ extract_contours_cpp <- function(labels) {
     .Call(`_pliman_extract_contours_cpp`, labels)
 }
 
+ocr_warp_crops_cpp <- function(img, quads, out_h, out_w, pad_w, mean, std, bgr = TRUE, scale = 1.0, pad_value = 0.0) {
+    .Call(`_pliman_ocr_warp_crops_cpp`, img, quads, out_h, out_w, pad_w, mean, std, bgr, scale, pad_value)
+}
+
+ocr_components_cpp <- function(labels, score, n_labels, vertical_ratio = 3.0, snap_deg = 2.0) {
+    .Call(`_pliman_ocr_components_cpp`, labels, score, n_labels, vertical_ratio, snap_deg)
+}
+
 pliman_gpu_info_cpp <- function() {
     .Call(`_pliman_pliman_gpu_info_cpp`)
 }
@@ -985,8 +993,12 @@ run_craft_det_cpp <- function(tensor_vec, in_w, in_h, model_path, lib_path, num_
     .Call(`_pliman_run_craft_det_cpp`, tensor_vec, in_w, in_h, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
-run_ocr_rec_cpp <- function(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
-    .Call(`_pliman_run_ocr_rec_cpp`, crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id)
+run_ocr_rec_cpp <- function(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L, allowed_ids = NULL) {
+    .Call(`_pliman_run_ocr_rec_cpp`, crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id, allowed_ids)
+}
+
+run_ocr_cls_cpp <- function(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_ocr_cls_cpp`, crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
 run_trocr_rec_cpp <- function(crops_vec, batch_size, encoder_path, decoder_path, lib_path, max_length = 32L, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
