@@ -19,7 +19,8 @@
 #' @param text_pos Spatial or heuristic strategy used to select the target text
 #'   when multiple text regions are detected in an image:
 #'   \itemize{
-#'     \item \code{"first"} (default): First detected text region in scan order.
+#'     \item \code{"confidence"} (default): Text region with the highest recognition confidence score.
+#'     \item \code{"first"}: First detected text region in scan order.
 #'     \item \code{"top-left"}: Closest bounding box to the top-left canvas corner.
 #'     \item \code{"top-right"}: Closest bounding box to the top-right canvas corner.
 #'     \item \code{"bottom-left"}: Closest bounding box to the bottom-left canvas corner.
@@ -28,7 +29,6 @@
 #'     \item \code{"bottom"}: Text region positioned lowest vertically (maximum y).
 #'     \item \code{"center"}: Closest text bounding box centroid to the image center.
 #'     \item \code{"largest"}: Text region with the largest bounding box area.
-#'     \item \code{"confidence"}: Text region with the highest recognition confidence score.
 #'   }
 #' @param pattern_match Optional character string containing a regular expression.
 #'   When provided, only recognized text strings matching this regex pattern are
@@ -59,13 +59,14 @@
 #'   without modifying any files on disk, returning a preview table. Default is \code{FALSE}.
 #' @param save_log Logical. Whether to save an audit log file (\code{.pliman_rename_log_*.rds})
 #'   for subsequent recovery with \code{\link{image_rename_undo}}. Default is \code{TRUE}.
-#' @param det_model Text detection model backbone: \code{"ppocr_det"} (default),
-#'   \code{"ppocr_det_server"}, or \code{"craft"}.
-#' @param rec_model Text recognition model backbone. Default is \code{"ppocr_rec"}.
+#' @param det_model Text detection model backbone: \code{"ppocrv5_det"} (default),
+#'   \code{"ppocrv5_det_server"}, \code{"ppocr_det"}, \code{"ppocr_det_server"}, or \code{"craft"}.
+#' @param rec_model Text recognition model backbone. Default is \code{"ppocrv5_rec_latin"}
+#'   (see \code{\link{image_ocr_dl}} for the other options, e.g. \code{"ppocrv5_rec"} or \code{"ppocr_rec"}).
 #' @param det_thresh Pixel binarization threshold for DBNet detection. Default is \code{0.30}.
-#' @param box_thresh Bounding box confidence threshold. Default is \code{0.50}.
-#' @param unclip_ratio Polygon expansion ratio. Default is \code{1.30}.
-#' @param text_threshold CRAFT character threshold. Default is \code{0.50}.
+#' @param box_thresh Bounding box confidence threshold. Default is \code{0.60}.
+#' @param unclip_ratio Polygon expansion ratio. Default is \code{1.50}.
+#' @param text_threshold CRAFT character threshold. Default is \code{0.70}.
 #' @param link_threshold CRAFT link threshold. Default is \code{0.40}.
 #' @param low_text CRAFT low text threshold. Default is \code{0.40}.
 #' @param engine Compute engine: \code{"gpu"} (default) or \code{"cpu"}.
@@ -111,16 +112,16 @@
 image_rename_ocr <- function(dir = ".",
                              pattern = NULL,
                              recursive = FALSE,
-                             text_pos = c("first", "top-left", "top-right", "bottom-left",
+                             text_pos = c( "confidence", "first", "top-left", "top-right", "bottom-left",
                                           "bottom-right", "top", "bottom", "center",
-                                          "largest", "confidence"),
+                                          "largest"),
                              pattern_match = NULL,
                              prefix = "",
                              suffix = "",
                              case = c("as_is", "upper", "lower"),
                              sep = "_",
                              min_chars = 1L,
-                             min_score = 0.35,
+                             min_score = 0.6,
                              sanitize = TRUE,
                              keep_extension = TRUE,
                              copy = FALSE,
@@ -128,12 +129,12 @@ image_rename_ocr <- function(dir = ".",
                              conflict = c("rename", "skip", "overwrite"),
                              dry_run = FALSE,
                              save_log = TRUE,
-                             det_model = c("ppocr_det", "ppocr_det_server", "craft"),
-                             rec_model = "ppocr_rec",
+                             det_model = c("ppocrv5_det", "ppocrv5_det_server", "ppocr_det", "ppocr_det_server", "craft"),
+                             rec_model = "ppocrv5_rec_latin",
                              det_thresh = 0.30,
-                             box_thresh = 0.50,
-                             unclip_ratio = 1.30,
-                             text_threshold = 0.50,
+                             box_thresh = 0.60,
+                             unclip_ratio = 1.50,
+                             text_threshold = 0.70,
                              link_threshold = 0.40,
                              low_text = 0.40,
                              engine = c("gpu", "cpu"),

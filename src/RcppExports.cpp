@@ -2190,6 +2190,41 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ocr_warp_crops_cpp
+Rcpp::NumericVector ocr_warp_crops_cpp(SEXP img, Rcpp::NumericMatrix quads, int out_h, Rcpp::IntegerVector out_w, int pad_w, Rcpp::NumericVector mean, Rcpp::NumericVector std, bool bgr, double scale, double pad_value);
+RcppExport SEXP _pliman_ocr_warp_crops_cpp(SEXP imgSEXP, SEXP quadsSEXP, SEXP out_hSEXP, SEXP out_wSEXP, SEXP pad_wSEXP, SEXP meanSEXP, SEXP stdSEXP, SEXP bgrSEXP, SEXP scaleSEXP, SEXP pad_valueSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type quads(quadsSEXP);
+    Rcpp::traits::input_parameter< int >::type out_h(out_hSEXP);
+    Rcpp::traits::input_parameter< Rcpp::IntegerVector >::type out_w(out_wSEXP);
+    Rcpp::traits::input_parameter< int >::type pad_w(pad_wSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type mean(meanSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type std(stdSEXP);
+    Rcpp::traits::input_parameter< bool >::type bgr(bgrSEXP);
+    Rcpp::traits::input_parameter< double >::type scale(scaleSEXP);
+    Rcpp::traits::input_parameter< double >::type pad_value(pad_valueSEXP);
+    rcpp_result_gen = Rcpp::wrap(ocr_warp_crops_cpp(img, quads, out_h, out_w, pad_w, mean, std, bgr, scale, pad_value));
+    return rcpp_result_gen;
+END_RCPP
+}
+// ocr_components_cpp
+Rcpp::DataFrame ocr_components_cpp(Rcpp::IntegerMatrix labels, Rcpp::NumericMatrix score, int n_labels, double vertical_ratio, double snap_deg);
+RcppExport SEXP _pliman_ocr_components_cpp(SEXP labelsSEXP, SEXP scoreSEXP, SEXP n_labelsSEXP, SEXP vertical_ratioSEXP, SEXP snap_degSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::IntegerMatrix >::type labels(labelsSEXP);
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type score(scoreSEXP);
+    Rcpp::traits::input_parameter< int >::type n_labels(n_labelsSEXP);
+    Rcpp::traits::input_parameter< double >::type vertical_ratio(vertical_ratioSEXP);
+    Rcpp::traits::input_parameter< double >::type snap_deg(snap_degSEXP);
+    rcpp_result_gen = Rcpp::wrap(ocr_components_cpp(labels, score, n_labels, vertical_ratio, snap_deg));
+    return rcpp_result_gen;
+END_RCPP
+}
 // pliman_gpu_info_cpp
 Rcpp::List pliman_gpu_info_cpp();
 RcppExport SEXP _pliman_pliman_gpu_info_cpp() {
@@ -2721,8 +2756,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // run_ocr_rec_cpp
-Rcpp::List run_ocr_rec_cpp(Rcpp::NumericVector crops_vec, int batch_size, int crop_w, int crop_h, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id);
-RcppExport SEXP _pliman_run_ocr_rec_cpp(SEXP crops_vecSEXP, SEXP batch_sizeSEXP, SEXP crop_wSEXP, SEXP crop_hSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
+Rcpp::List run_ocr_rec_cpp(Rcpp::NumericVector crops_vec, int batch_size, int crop_w, int crop_h, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, Rcpp::Nullable<Rcpp::IntegerVector> allowed_ids);
+RcppExport SEXP _pliman_run_ocr_rec_cpp(SEXP crops_vecSEXP, SEXP batch_sizeSEXP, SEXP crop_wSEXP, SEXP crop_hSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP allowed_idsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -2735,7 +2770,27 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type num_threads(num_threadsSEXP);
     Rcpp::traits::input_parameter< bool >::type use_gpu(use_gpuSEXP);
     Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
-    rcpp_result_gen = Rcpp::wrap(run_ocr_rec_cpp(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id));
+    Rcpp::traits::input_parameter< Rcpp::Nullable<Rcpp::IntegerVector> >::type allowed_ids(allowed_idsSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_ocr_rec_cpp(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id, allowed_ids));
+    return rcpp_result_gen;
+END_RCPP
+}
+// run_ocr_cls_cpp
+Rcpp::NumericMatrix run_ocr_cls_cpp(Rcpp::NumericVector crops_vec, int batch_size, int crop_w, int crop_h, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id);
+RcppExport SEXP _pliman_run_ocr_cls_cpp(SEXP crops_vecSEXP, SEXP batch_sizeSEXP, SEXP crop_wSEXP, SEXP crop_hSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericVector >::type crops_vec(crops_vecSEXP);
+    Rcpp::traits::input_parameter< int >::type batch_size(batch_sizeSEXP);
+    Rcpp::traits::input_parameter< int >::type crop_w(crop_wSEXP);
+    Rcpp::traits::input_parameter< int >::type crop_h(crop_hSEXP);
+    Rcpp::traits::input_parameter< std::string >::type model_path(model_pathSEXP);
+    Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
+    Rcpp::traits::input_parameter< int >::type num_threads(num_threadsSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_gpu(use_gpuSEXP);
+    Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_ocr_cls_cpp(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -3372,6 +3427,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_write_native_video_frame_cpp", (DL_FUNC) &_pliman_write_native_video_frame_cpp, 2},
     {"_pliman_close_native_video_writer_cpp", (DL_FUNC) &_pliman_close_native_video_writer_cpp, 1},
     {"_pliman_extract_contours_cpp", (DL_FUNC) &_pliman_extract_contours_cpp, 1},
+    {"_pliman_ocr_warp_crops_cpp", (DL_FUNC) &_pliman_ocr_warp_crops_cpp, 10},
+    {"_pliman_ocr_components_cpp", (DL_FUNC) &_pliman_ocr_components_cpp, 5},
     {"_pliman_pliman_gpu_info_cpp", (DL_FUNC) &_pliman_pliman_gpu_info_cpp, 0},
     {"_pliman_clear_onnx_sessions_cpp", (DL_FUNC) &_pliman_clear_onnx_sessions_cpp, 0},
     {"_pliman_onnx_set_max_sessions_cpp", (DL_FUNC) &_pliman_onnx_set_max_sessions_cpp, 1},
@@ -3401,7 +3458,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_density_map_cpp", (DL_FUNC) &_pliman_run_density_map_cpp, 8},
     {"_pliman_run_ocr_det_cpp", (DL_FUNC) &_pliman_run_ocr_det_cpp, 8},
     {"_pliman_run_craft_det_cpp", (DL_FUNC) &_pliman_run_craft_det_cpp, 8},
-    {"_pliman_run_ocr_rec_cpp", (DL_FUNC) &_pliman_run_ocr_rec_cpp, 9},
+    {"_pliman_run_ocr_rec_cpp", (DL_FUNC) &_pliman_run_ocr_rec_cpp, 10},
+    {"_pliman_run_ocr_cls_cpp", (DL_FUNC) &_pliman_run_ocr_cls_cpp, 9},
     {"_pliman_run_trocr_rec_cpp", (DL_FUNC) &_pliman_run_trocr_rec_cpp, 9},
     {"_pliman_remap_labels_cpp", (DL_FUNC) &_pliman_remap_labels_cpp, 2},
     {"_pliman_canny_edge_detector", (DL_FUNC) &_pliman_canny_edge_detector, 7},
