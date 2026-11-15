@@ -124,7 +124,13 @@ which automatically detects and utilizes all available logical CPU cores on the 
 
 \item{engine}{Character specifying the backend execution engine: \code{"cpu"} (default) or \code{"gpu"}. On Windows,
 \code{"gpu"} utilizes Microsoft DirectML over DirectX 12 hardware (compatible with NVIDIA, AMD, and Intel GPUs
-without requiring CUDA toolkit installation).}
+without requiring CUDA toolkit installation). In \code{\link[=image_segment_dl]{image_segment_dl()}}, when \code{engine} is not given,
+Grounded-SAM and PerSAM use the GPU whenever a dedicated GPU is present (only integrated or absent GPUs
+default to the CPU). With \code{engine = "gpu"}, Grounded-SAM runs Grounding DINO on the GPU and SAM 2.1 on the
+GPU too, except on GPUs with less than 6 GB of memory, where SAM 2.1 runs on the CPU so that both models
+stay loaded (about 4x faster than the CPU alone and much faster than reloading the models for every image
+on a 4 GB card); force the SAM device with \code{options(pliman.gsam_sam_device = "gpu")} or \code{"cpu"}.
+Speed-ups depend on the GPU and driver.}
 
 \item{device_id}{Integer GPU device adapter index. Default is \code{-1}, which automatically selects the high-performance
 discrete GPU adapter with the maximum dedicated video memory (VRAM).}
