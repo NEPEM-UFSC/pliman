@@ -54,6 +54,7 @@ static uint32_t g_ort_api_version = 0;
 
 #ifdef _WIN32
 #include <dxgi.h>
+#include <dxgi1_4.h>
 typedef HRESULT (WINAPI *CreateDXGIFactory1Fn)(REFIID, void**);
 typedef OrtStatus* (*OrtAppendDMLFn)(OrtSessionOptions*, int);
 
@@ -125,7 +126,54 @@ static int find_best_gpu_id(std::string* out_name = NULL, double* out_vram = NUL
   if (out_vram) *out_vram = g_cached_best_gpu_vram;
   return best_id;
 }
+
+// Dedicated video memory used by *this process* on DXGI adapter `adapter_id`, and the
+// budget the OS currently grants it (DXGI 1.4). When usage exceeds the budget, WDDM
+// demotes allocations to system memory; a DirectML session created in that state keeps
+// part of its working set there and stays slow even after memory is freed.
+static bool dxgi_vram_usage(int adapter_id, double* usage_mb, double* budget_mb) {
+  HMODULE hDxgi = LoadLibraryA("dxgi.dll");
+  if (!hDxgi) return false;
+  CreateDXGIFactory1Fn create_dxgi1 = (CreateDXGIFactory1Fn)GetProcAddress(hDxgi, "CreateDXGIFactory1");
+  if (!create_dxgi1) { FreeLibrary(hDxgi); return false; }
+  static const GUID IID_Factory1 = { 0x770aae78, 0xf26f, 0x4dba, { 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87 } };
+  static const GUID IID_Adapter3 = { 0x645967a4, 0x1392, 0x4310, { 0xa7, 0x98, 0x80, 0x53, 0xce, 0x3e, 0x93, 0xfd } };
+  IDXGIFactory1* factory = NULL;
+  bool ok = false;
+  if (SUCCEEDED(create_dxgi1(IID_Factory1, (void**)&factory)) && factory) {
+    IDXGIAdapter1* a1 = NULL;
+    if (factory->EnumAdapters1((UINT)std::max(0, adapter_id), &a1) == S_OK && a1) {
+      IDXGIAdapter3* a3 = NULL;
+      if (SUCCEEDED(a1->QueryInterface(IID_Adapter3, (void**)&a3)) && a3) {
+        DXGI_QUERY_VIDEO_MEMORY_INFO info;
+        if (SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) {
+          if (usage_mb) *usage_mb = (double)info.CurrentUsage / (1024.0 * 1024.0);
+          if (budget_mb) *budget_mb = (double)info.Budget / (1024.0 * 1024.0);
+          ok = true;
+        }
+        a3->Release();
+      }
+      a1->Release();
+    }
+    factory->Release();
+  }
+  FreeLibrary(hDxgi);
+  return ok;
+}
 #endif
+
+// Process video-memory usage and budget in MB for a DXGI adapter (-1 = default GPU).
+// [[Rcpp::export]]
+Rcpp::NumericVector pliman_vram_usage_cpp(int device_id = -1) {
+  double u = NA_REAL, b = NA_REAL;
+#ifdef _WIN32
+  int id = (device_id >= 0) ? device_id : find_best_gpu_id();
+  if (!dxgi_vram_usage(id, &u, &b)) { u = NA_REAL; b = NA_REAL; }
+#else
+  (void)device_id;
+#endif
+  return Rcpp::NumericVector::create(Rcpp::Named("usage_mb") = u, Rcpp::Named("budget_mb") = b);
+}
 
 // [[Rcpp::export]]
 Rcpp::List pliman_gpu_info_cpp() {
@@ -324,6 +372,12 @@ struct SessionMeta {
   std::string fallback_reason;
   bool retry_gpu = false;
   std::chrono::steady_clock::time_point retry_gpu_at{};
+  // VRAM bookkeeping (Windows / DXGI): when the session was last used, and whether it
+  // was built while the process exceeded its video-memory budget (see
+  // relieve_vram_pressure()); such a session is rebuilt once memory is available.
+  std::chrono::steady_clock::time_point last_used_time{};
+  bool vram_pressured = false;
+  std::chrono::steady_clock::time_point vram_check_at{};
   std::vector<std::string> in_names_str, out_names_str;
   std::vector<const char*> in_names, out_names;
   std::vector<ONNXTensorElementDataType> in_types;
@@ -969,6 +1023,58 @@ static void evict_cached_session_by_key(const OrtApi* ort, const std::string& ke
   }
 }
 
+// GPU memory pressure (DirectML on small GPUs).
+//
+// Measured on a 4 GB GTX 1650: a YOLO session built while Grounding DINO + SAM 2.1 +
+// YOLO26x were resident (process usage 4513 MB for a 2812 MB budget) ran at 318-390
+// ms/call, and still 219-224 ms after those models were released, because WDDM had
+// placed part of its allocations in system memory; rebuilt with memory available it
+// ran at 72 ms (45 ms with nothing else loaded). Hence:
+//   * before a GPU session is built, sessions idle for >= 2 s are released (least
+//     recently used first) while usage exceeds 80% of the budget -- sessions taken in
+//     the same call (encoder + decoder) are never idle that long;
+//   * a session still built over budget is marked and rebuilt on a later use, once
+//     usage is back under 80% of the budget (checked at most every 5 s).
+// Disable with PLIMAN_VRAM_GUARD=0.
+static bool vram_guard_enabled() {
+  const char* ev = std::getenv("PLIMAN_VRAM_GUARD");
+  return !(ev != NULL && (ev[0] == '0' || ev[0] == 'f' || ev[0] == 'F'));
+}
+
+static const double kVramSoftLimit = 0.80;
+
+// Returns true when usage is (now) within the soft limit; false when no measurement
+// is available or the limit could not be reached.
+static bool relieve_vram_pressure(const OrtApi* ort, int adapter_id, const std::string& keep_key,
+                                  double* usage_out = NULL, double* budget_out = NULL) {
+#ifdef _WIN32
+  double u = 0.0, b = 0.0;
+  if (!dxgi_vram_usage(adapter_id, &u, &b) || b <= 0.0) return false;
+  const auto now = std::chrono::steady_clock::now();
+  while (u > kVramSoftLimit * b) {
+    std::string victim;
+    for (size_t i = 0; i < g_session_lru_order.size(); ++i) {   // oldest first
+      const std::string& k = g_session_lru_order[i];
+      if (k == keep_key) continue;
+      auto mit = g_session_meta.find(k);
+      if (mit == g_session_meta.end() || !mit->second || !mit->second->is_gpu) continue;
+      if (std::chrono::duration_cast<std::chrono::milliseconds>(now - mit->second->last_used_time).count() < 2000) continue;
+      victim = k;
+      break;
+    }
+    if (victim.empty()) break;
+    evict_cached_session_by_key(ort, victim);
+    if (!dxgi_vram_usage(adapter_id, &u, &b) || b <= 0.0) return false;
+  }
+  if (usage_out) *usage_out = u;
+  if (budget_out) *budget_out = b;
+  return u <= kVramSoftLimit * b;
+#else
+  (void)ort; (void)adapter_id; (void)keep_key; (void)usage_out; (void)budget_out;
+  return false;
+#endif
+}
+
 struct CachedIOShape {
   bool dynamic = true;
   bool batch_dynamic = false;
@@ -1289,6 +1395,22 @@ static CachedSession get_or_create_cached_session(
       evict_cached_session_by_key(ort, key);
       goto create_session;
     }
+    if (it->second.meta != NULL && it->second.meta->vram_pressured && vram_guard_enabled() &&
+        std::chrono::steady_clock::now() >= it->second.meta->vram_check_at) {
+      // Built over the VRAM budget (partly in system memory): rebuild once there is room.
+      bool room = false;
+#ifdef _WIN32
+      {
+        double vu = 0.0, vb = 0.0;
+        room = dxgi_vram_usage(actual_device_id, &vu, &vb) && vb > 0.0 && vu <= kVramSoftLimit * vb;
+      }
+#endif
+      if (room) {
+        evict_cached_session_by_key(ort, key);
+        goto create_session;
+      }
+      it->second.meta->vram_check_at = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
     if (g_session_lru_order.empty() || g_session_lru_order.back() != key) {
       for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
         if (*it_lru == key) {
@@ -1298,7 +1420,10 @@ static CachedSession get_or_create_cached_session(
       }
       g_session_lru_order.push_back(key);
     }
-    if (it->second.meta) it->second.meta->last_used = ++g_session_tick;
+    if (it->second.meta) {
+      it->second.meta->last_used = ++g_session_tick;
+      it->second.meta->last_used_time = std::chrono::steady_clock::now();
+    }
     return it->second;
   } else {
     get_file_stat(model_path, cur_mtime, cur_size);
@@ -1312,6 +1437,12 @@ create_session:
   while (g_session_cache.size() >= resolve_max_sessions() && !g_session_lru_order.empty()) {
     std::string lru_key = g_session_lru_order.front();
     evict_cached_session_by_key(ort, lru_key);
+  }
+
+  // Make room on the GPU first: a session built over the VRAM budget stays slow.
+  const int dxgi_adapter_id = actual_device_id;
+  if (use_gpu && vram_guard_enabled()) {
+    (void)relieve_vram_pressure(ort, dxgi_adapter_id, key);
   }
 
   CachedSession cs;
@@ -1497,6 +1628,16 @@ create_session:
   }
   meta->create_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_create0).count();
   meta->last_used = ++g_session_tick;
+  meta->last_used_time = std::chrono::steady_clock::now();
+#ifdef _WIN32
+  if (meta->is_gpu && vram_guard_enabled()) {
+    double vu = 0.0, vb = 0.0;
+    if (dxgi_vram_usage(dxgi_adapter_id, &vu, &vb) && vb > 0.0 && vu > vb) {
+      meta->vram_pressured = true;
+      meta->vram_check_at = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
+  }
+#endif
   populate_session_metadata(ort, cs.session, *meta);
 
   // Feed the IO-shape cache so get_onnx_model_io_shape_cpp() never needs its own lookup.
@@ -1601,7 +1742,7 @@ Rcpp::DataFrame onnx_session_info_cpp() {
   size_t n = g_session_lru_order.size();
   Rcpp::CharacterVector key(n), model(n), input_dims(n), provider(n), graph_cache(n), fallback_reason(n);
   Rcpp::NumericVector create_ms(n);
-  Rcpp::LogicalVector gpu(n), requested_gpu(n), batch_dynamic(n), spatial_dynamic(n), warmed_up(n), fell_back(n);
+  Rcpp::LogicalVector gpu(n), requested_gpu(n), batch_dynamic(n), spatial_dynamic(n), warmed_up(n), fell_back(n), vram_pressured(n);
   Rcpp::IntegerVector device_id(n), threads(n), n_inputs(n), n_outputs(n), lru_rank(n);
   for (size_t i = 0; i < n; ++i) {
     const std::string& k = g_session_lru_order[n - 1 - i];  // most recently used first
@@ -1615,8 +1756,10 @@ Rcpp::DataFrame onnx_session_info_cpp() {
       device_id[i] = NA_INTEGER; threads[i] = NA_INTEGER; n_inputs[i] = NA_INTEGER; n_outputs[i] = NA_INTEGER;
       provider[i] = NA_STRING; graph_cache[i] = NA_STRING; create_ms[i] = NA_REAL;
       fallback_reason[i] = NA_STRING;
+      vram_pressured[i] = NA_LOGICAL;
       continue;
     }
+    vram_pressured[i] = it->second->vram_pressured;
     const SessionMeta& m = *it->second;
     model[i] = m.model_path;
     provider[i] = m.provider;
@@ -1659,6 +1802,7 @@ Rcpp::DataFrame onnx_session_info_cpp() {
     Rcpp::Named("graph_cache") = graph_cache,
     Rcpp::Named("create_ms") = create_ms,
     Rcpp::Named("fallback_reason") = fallback_reason,
+    Rcpp::Named("vram_pressured") = vram_pressured,
     Rcpp::Named("lru_rank") = lru_rank,
     Rcpp::Named("key") = key,
     Rcpp::Named("stringsAsFactors") = false

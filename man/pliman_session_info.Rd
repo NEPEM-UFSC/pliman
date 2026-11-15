@@ -22,6 +22,14 @@ the session creation time \code{create_ms} and, for GPU requests served by the C
 (for example because another process holds the GPU memory) issues a warning, runs
 on the CPU and is retried on the GPU after 30 seconds; \code{\link[=pliman_clear_sessions]{pliman_clear_sessions()}}
 retries immediately.
+
+On Windows, GPU memory is managed automatically: before a new GPU session is built,
+sessions idle for at least 2 seconds are released (least recently used first) while
+the process uses more than 80\% of its video-memory budget, because a DirectML
+session built over budget keeps part of its memory in system RAM and stays several
+times slower. A session that still had to be built over budget is flagged in
+\code{vram_pressured} and rebuilt automatically once memory is available. Disable with
+the environment variable \code{PLIMAN_VRAM_GUARD=0}.
 \code{pliman_max_sessions()}: the previous limit, invisibly when \code{n} is given.
 }
 \description{
