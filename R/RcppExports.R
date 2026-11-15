@@ -881,6 +881,10 @@ ocr_components_cpp <- function(labels, score, n_labels, vertical_ratio = 3.0, sn
     .Call(`_pliman_ocr_components_cpp`, labels, score, n_labels, vertical_ratio, snap_deg)
 }
 
+pliman_vram_usage_cpp <- function(device_id = -1L) {
+    .Call(`_pliman_pliman_vram_usage_cpp`, device_id)
+}
+
 pliman_gpu_info_cpp <- function() {
     .Call(`_pliman_pliman_gpu_info_cpp`)
 }

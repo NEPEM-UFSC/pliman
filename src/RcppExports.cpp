@@ -2236,6 +2236,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// pliman_vram_usage_cpp
+Rcpp::NumericVector pliman_vram_usage_cpp(int device_id);
+RcppExport SEXP _pliman_pliman_vram_usage_cpp(SEXP device_idSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
+    rcpp_result_gen = Rcpp::wrap(pliman_vram_usage_cpp(device_id));
+    return rcpp_result_gen;
+END_RCPP
+}
 // pliman_gpu_info_cpp
 Rcpp::List pliman_gpu_info_cpp();
 RcppExport SEXP _pliman_pliman_gpu_info_cpp() {
@@ -3539,6 +3550,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_extract_contours_cpp", (DL_FUNC) &_pliman_extract_contours_cpp, 1},
     {"_pliman_ocr_warp_crops_cpp", (DL_FUNC) &_pliman_ocr_warp_crops_cpp, 10},
     {"_pliman_ocr_components_cpp", (DL_FUNC) &_pliman_ocr_components_cpp, 5},
+    {"_pliman_pliman_vram_usage_cpp", (DL_FUNC) &_pliman_pliman_vram_usage_cpp, 1},
     {"_pliman_pliman_gpu_info_cpp", (DL_FUNC) &_pliman_pliman_gpu_info_cpp, 0},
     {"_pliman_clear_onnx_sessions_cpp", (DL_FUNC) &_pliman_clear_onnx_sessions_cpp, 0},
     {"_pliman_onnx_evict_session_cpp", (DL_FUNC) &_pliman_onnx_evict_session_cpp, 1},
