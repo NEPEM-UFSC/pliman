@@ -726,6 +726,13 @@ frame_to_img <- function(video,
             } else {
               displayed_vals[[nm]] <<- 0.0
             }
+          } else if (nm == "fps") {
+            # Frame rate over the window = frames / elapsed time, i.e. the harmonic mean
+            # of the instantaneous rates. The arithmetic mean overstates it whenever
+            # frame times vary: with infer_every = 2, frames alternating ~60 ms and
+            # ~8 ms (16 and 125 fps) averaged to ~70 fps while the run went at ~24 fps.
+            pos <- vals[is.finite(vals) & vals > 0]
+            displayed_vals[[nm]] <<- if (length(pos) > 0L) length(pos) / sum(1 / pos) else 0.0
           } else {
             displayed_vals[[nm]] <<- mean(vals, na.rm = TRUE)
           }
