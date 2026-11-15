@@ -2500,8 +2500,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // run_yolo_cpp
-Rcpp::List run_yolo_cpp(SEXP tensor_vec, double orig_w, double orig_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, bool need_masks, bool return_features, Rcpp::Nullable<Rcpp::NumericVector> txt_feats, int target_size, int max_nms, int max_det);
-RcppExport SEXP _pliman_run_yolo_cpp(SEXP tensor_vecSEXP, SEXP orig_wSEXP, SEXP orig_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP need_masksSEXP, SEXP return_featuresSEXP, SEXP txt_featsSEXP, SEXP target_sizeSEXP, SEXP max_nmsSEXP, SEXP max_detSEXP) {
+Rcpp::List run_yolo_cpp(SEXP tensor_vec, double orig_w, double orig_h, double conf_threshold, double iou_threshold, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, bool need_masks, bool return_features, Rcpp::Nullable<Rcpp::NumericVector> txt_feats, int target_size, int max_nms, int max_det, bool filter_nested);
+RcppExport SEXP _pliman_run_yolo_cpp(SEXP tensor_vecSEXP, SEXP orig_wSEXP, SEXP orig_hSEXP, SEXP conf_thresholdSEXP, SEXP iou_thresholdSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP need_masksSEXP, SEXP return_featuresSEXP, SEXP txt_featsSEXP, SEXP target_sizeSEXP, SEXP max_nmsSEXP, SEXP max_detSEXP, SEXP filter_nestedSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -2521,7 +2521,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type target_size(target_sizeSEXP);
     Rcpp::traits::input_parameter< int >::type max_nms(max_nmsSEXP);
     Rcpp::traits::input_parameter< int >::type max_det(max_detSEXP);
-    rcpp_result_gen = Rcpp::wrap(run_yolo_cpp(tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size, max_nms, max_det));
+    Rcpp::traits::input_parameter< bool >::type filter_nested(filter_nestedSEXP);
+    rcpp_result_gen = Rcpp::wrap(run_yolo_cpp(tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size, max_nms, max_det, filter_nested));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -3487,7 +3488,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_yolo_sem_cpp", (DL_FUNC) &_pliman_run_yolo_sem_cpp, 10},
     {"_pliman_run_dinov2_cpp", (DL_FUNC) &_pliman_run_dinov2_cpp, 10},
     {"_pliman_get_onnx_model_io_shape_cpp", (DL_FUNC) &_pliman_get_onnx_model_io_shape_cpp, 5},
-    {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 16},
+    {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 17},
     {"_pliman_run_yolo_tiles_cpp", (DL_FUNC) &_pliman_run_yolo_tiles_cpp, 17},
     {"_pliman_run_yolo_cls_cpp", (DL_FUNC) &_pliman_run_yolo_cls_cpp, 6},
     {"_pliman_run_clip_vision_cpp", (DL_FUNC) &_pliman_run_clip_vision_cpp, 8},

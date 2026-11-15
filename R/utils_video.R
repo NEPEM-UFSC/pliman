@@ -1537,6 +1537,16 @@ video_detect_dl <- function(video = 0,
   start_sec <- if (!is.null(start_time) && is.numeric(start_time) && start_time[1] > 0) as.numeric(start_time[1]) else 0.0
   end_sec <- if (!is.null(end_time) && is.numeric(end_time) && end_time[1] > 0) as.numeric(end_time[1]) else 0.0
 
+  .fast_df <- function(lst, n = length(lst[[1L]])) {
+    if (n == 0L) {
+      attr(lst, "row.names") <- integer(0)
+    } else {
+      attr(lst, "row.names") <- .set_row_names(n)
+    }
+    class(lst) <- "data.frame"
+    lst
+  }
+
   .populate_seg_stats_df <- function(df_b, raw_res, num_boxes_orig) {
     if (nrow(df_b) == 0L) return(df_b)
     if (!is.null(raw_res$seg_stats) && is.matrix(raw_res$seg_stats) && ncol(raw_res$seg_stats) >= 8L) {
@@ -1868,15 +1878,9 @@ video_detect_dl <- function(video = 0,
         device_id = as.integer(device_id),
         need_masks = need_masks_flag,
         target_size = as.integer(target_size),
-        max_det = as.integer(max_det)
+        max_det = as.integer(max_det),
+        filter_nested = isTRUE(filter_nested)
       )
-      if (!need_masks_flag && nrow(res_single$boxes) > 1L) {
-        fn <- .filter_nested_mat(res_single$boxes, res_single$scores, res_single$class_ids, res_single$seg_stats)
-        res_single$boxes <- fn$boxes
-        res_single$scores <- fn$scores
-        res_single$class_ids <- fn$class_ids
-        res_single$seg_stats <- fn$seg_stats
-      }
       return(res_single)
     }
     sh <- if (!is.null(slice_height) && slice_height > 0) {
@@ -2332,10 +2336,12 @@ video_detect_dl <- function(video = 0,
           num_boxes <- nrow(raw_res$boxes)
           if (num_boxes > 0) {
             c_ids <- raw_res$class_ids
-            lbls <- ifelse(c_ids >= 0 & c_ids < length(class_names), class_names[c_ids + 1], as.character(c_ids))
-            df_b <- data.frame(
-              frame = frame_count,
-              timestamp = round(t_elapsed, 3),
+            valid_c <- c_ids >= 0L & c_ids < length(class_names)
+            lbls <- as.character(c_ids)
+            if (any(valid_c)) lbls[valid_c] <- class_names[c_ids[valid_c] + 1L]
+            df_b <- .fast_df(list(
+              frame = rep.int(frame_count, num_boxes),
+              timestamp = rep.int(round(t_elapsed, 3), num_boxes),
               id = seq_len(num_boxes),
               xmin = raw_res$boxes[, 1],
               ymin = raw_res$boxes[, 2],
@@ -2344,9 +2350,8 @@ video_detect_dl <- function(video = 0,
               label = lbls,
               score = round(raw_res$scores, 4),
               class_id = c_ids,
-              orig_idx = orig_idx,
-              stringsAsFactors = FALSE
-            )
+              orig_idx = orig_idx
+            ), num_boxes)
             if (!is.null(classes)) {
               keep_cls <- which(df_b$label %in% classes)
               df_b <- df_b[keep_cls, , drop = FALSE]
@@ -2357,6 +2362,7 @@ video_detect_dl <- function(video = 0,
 
             if ((isTRUE(track) || !is.null(count_line))) {
               t_trk_start <- Sys.time()
+              track_res <- NULL
               if (nrow(df_b) > 0) {
                 track_res <- tracker_update_cpp(
                   tracker = track_state,
@@ -2376,7 +2382,7 @@ video_detect_dl <- function(video = 0,
                   frame_w = orig_w,
                   frame_h = orig_h,
                   class_ids = df_b$class_id,
-                  mask_ids = if ("orig_idx" %in% names(df_b)) df_b$orig_idx else seq_len(nrow(df_b)),
+                  mask_ids = df_b$orig_idx,
                   interpolate_box = interpolate_box,
                   interpolate_mask = interpolate_mask,
                   min_hits = min_hits_val
@@ -2385,9 +2391,9 @@ video_detect_dl <- function(video = 0,
                 in_zone_val <- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
                 if (n_trk > 0) {
-                  df_b <- data.frame(
-                    frame = rep(frame_count, n_trk),
-                    timestamp = rep(round(t_elapsed, 3), n_trk),
+                  df_b <- .fast_df(list(
+                    frame = rep.int(frame_count, n_trk),
+                    timestamp = rep.int(round(t_elapsed, 3), n_trk),
                     id = as.integer(track_res$track_ids),
                     xmin = as.numeric(track_res$xmin),
                     ymin = as.numeric(track_res$ymin),
@@ -2397,9 +2403,8 @@ video_detect_dl <- function(video = 0,
                     score = as.numeric(track_res$scores),
                     class_id = as.integer(track_res$class_ids),
                     counted = as.logical(track_res$counted),
-                    orig_idx = as.integer(track_res$mask_ids),
-                    stringsAsFactors = FALSE
-                  )
+                    orig_idx = as.integer(track_res$mask_ids)
+                  ), n_trk)
                   if (!is.null(track_res$in_zone_vec)) {
                     df_b$in_zone <- as.logical(track_res$in_zone_vec)
                   } else if (!is.null(roi_coords)) {
@@ -2440,9 +2445,9 @@ video_detect_dl <- function(video = 0,
                 in_zone_val <- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
                 if (n_trk > 0) {
-                  df_b <- data.frame(
-                    frame = rep(frame_count, n_trk),
-                    timestamp = rep(round(t_elapsed, 3), n_trk),
+                  df_b <- .fast_df(list(
+                    frame = rep.int(frame_count, n_trk),
+                    timestamp = rep.int(round(t_elapsed, 3), n_trk),
                     id = as.integer(track_res$track_ids),
                     xmin = as.numeric(track_res$xmin),
                     ymin = as.numeric(track_res$ymin),
@@ -2452,9 +2457,8 @@ video_detect_dl <- function(video = 0,
                     score = as.numeric(track_res$scores),
                     class_id = as.integer(track_res$class_ids),
                     counted = as.logical(track_res$counted),
-                    orig_idx = as.integer(track_res$mask_ids),
-                    stringsAsFactors = FALSE
-                  )
+                    orig_idx = as.integer(track_res$mask_ids)
+                  ), n_trk)
                   if (!is.null(track_res$in_zone_vec)) {
                     df_b$in_zone <- as.logical(track_res$in_zone_vec)
                   } else if (!is.null(roi_coords)) {
@@ -2470,7 +2474,7 @@ video_detect_dl <- function(video = 0,
               }
               t_trk_end <- Sys.time()
               t_trk_ms <- as.numeric(t_trk_end - t_trk_start, units = "secs") * 1000
-              last_track_res <- track_res
+              if (!is.null(track_res)) last_track_res <- track_res
             }
 
             if (!("in_zone" %in% names(df_b)) && !is.null(roi_coords) && nrow(df_b) > 0) {
@@ -2539,10 +2543,8 @@ video_detect_dl <- function(video = 0,
 
         if (detect && return_data) {
           if (nrow(df_b) > 0) {
-            df_rec <- df_b
-            df_rec$orig_idx <- NULL
-            df_rec$color <- palette_colors
-            frame_records[[frame_count]] <- df_rec
+            df_b$color <- palette_colors
+            frame_records[[frame_count]] <- df_b
           }
           if (has_kpts) {
             kpts_list_frame <- lapply(seq_len(nrow(raw_res$keypoints)), function(k) {
@@ -2731,6 +2733,7 @@ video_detect_dl <- function(video = 0,
     valid_records <- frame_records[!sapply(frame_records, is.null)]
     valid_kpts <- frame_keypoints[!sapply(frame_keypoints, is.null)]
     all_dets <- if (length(valid_records) > 0) .rbind_df_fast(valid_records) else data.frame()
+    if ("orig_idx" %in% names(all_dets)) all_dets$orig_idx <- NULL
     all_kpts <- if (length(valid_kpts) > 0) do.call(rbind, valid_kpts) else NULL
     total_time <- as.numeric(Sys.time() - t_start, units = "secs")
     avg_fps <- if (total_time > 0 && frame_count > 0) (frame_count / total_time) else fps_smooth
@@ -3077,10 +3080,12 @@ video_detect_dl <- function(video = 0,
 
           if (num_boxes > 0) {
             c_ids <- raw_res$class_ids
-            lbls <- ifelse(c_ids >= 0 & c_ids < length(class_names), class_names[c_ids + 1], as.character(c_ids))
-            df_b <- data.frame(
-              frame = i,
-              timestamp = t_sec,
+            valid_c <- c_ids >= 0L & c_ids < length(class_names)
+            lbls <- as.character(c_ids)
+            if (any(valid_c)) lbls[valid_c] <- class_names[c_ids[valid_c] + 1L]
+            df_b <- .fast_df(list(
+              frame = rep.int(i, num_boxes),
+              timestamp = rep.int(t_sec, num_boxes),
               id = seq_len(num_boxes),
               xmin = raw_res$boxes[, 1],
               ymin = raw_res$boxes[, 2],
@@ -3089,9 +3094,8 @@ video_detect_dl <- function(video = 0,
               label = lbls,
               score = round(raw_res$scores, 4),
               class_id = c_ids,
-              orig_idx = orig_idx,
-              stringsAsFactors = FALSE
-            )
+              orig_idx = orig_idx
+            ), num_boxes)
             if (!is.null(classes)) {
               keep_cls <- which(df_b$label %in% classes)
               df_b <- df_b[keep_cls, , drop = FALSE]
@@ -3102,6 +3106,7 @@ video_detect_dl <- function(video = 0,
 
             if ((isTRUE(track) || !is.null(count_line))) {
               t_trk_start <- Sys.time()
+              track_res <- NULL
               if (nrow(df_b) > 0) {
                 track_res <- tracker_update_cpp(
                   tracker = track_state,
@@ -3121,7 +3126,7 @@ video_detect_dl <- function(video = 0,
                   frame_w = src_w,
                   frame_h = src_h,
                   class_ids = df_b$class_id,
-                  mask_ids = if ("orig_idx" %in% names(df_b)) df_b$orig_idx else seq_len(nrow(df_b)),
+                  mask_ids = df_b$orig_idx,
                   interpolate_box = interpolate_box,
                   interpolate_mask = interpolate_mask,
                   min_hits = min_hits_val
@@ -3130,9 +3135,9 @@ video_detect_dl <- function(video = 0,
                 in_zone_val <<- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
                 if (n_trk > 0) {
-                  df_b <- data.frame(
-                    frame = rep(i, n_trk),
-                    timestamp = rep(t_sec, n_trk),
+                  df_b <- .fast_df(list(
+                    frame = rep.int(i, n_trk),
+                    timestamp = rep.int(t_sec, n_trk),
                     id = as.integer(track_res$track_ids),
                     xmin = as.numeric(track_res$xmin),
                     ymin = as.numeric(track_res$ymin),
@@ -3142,9 +3147,8 @@ video_detect_dl <- function(video = 0,
                     score = as.numeric(track_res$scores),
                     class_id = as.integer(track_res$class_ids),
                     counted = as.logical(track_res$counted),
-                    orig_idx = as.integer(track_res$mask_ids),
-                    stringsAsFactors = FALSE
-                  )
+                    orig_idx = as.integer(track_res$mask_ids)
+                  ), n_trk)
                   if (!is.null(track_res$in_zone_vec)) {
                     df_b$in_zone <- as.logical(track_res$in_zone_vec)
                   } else if (!is.null(roi_coords)) {
@@ -3185,9 +3189,9 @@ video_detect_dl <- function(video = 0,
                 in_zone_val <<- track_res$in_zone
                 n_trk <- length(track_res$track_ids)
                 if (n_trk > 0) {
-                  df_b <- data.frame(
-                    frame = rep(i, n_trk),
-                    timestamp = rep(t_sec, n_trk),
+                  df_b <- .fast_df(list(
+                    frame = rep.int(i, n_trk),
+                    timestamp = rep.int(t_sec, n_trk),
                     id = as.integer(track_res$track_ids),
                     xmin = as.numeric(track_res$xmin),
                     ymin = as.numeric(track_res$ymin),
@@ -3197,9 +3201,8 @@ video_detect_dl <- function(video = 0,
                     score = as.numeric(track_res$scores),
                     class_id = as.integer(track_res$class_ids),
                     counted = as.logical(track_res$counted),
-                    orig_idx = as.integer(track_res$mask_ids),
-                    stringsAsFactors = FALSE
-                  )
+                    orig_idx = as.integer(track_res$mask_ids)
+                  ), n_trk)
                   if (!is.null(track_res$in_zone_vec)) {
                     df_b$in_zone <- as.logical(track_res$in_zone_vec)
                   } else if (!is.null(roi_coords)) {
@@ -3216,7 +3219,7 @@ video_detect_dl <- function(video = 0,
               t_trk_end <- Sys.time()
               t_trk_ms <<- as.numeric(t_trk_end - t_trk_start, units = "secs") * 1000
               .toc("track", t_trk_start)
-              last_track_res <<- track_res
+              if (!is.null(track_res)) last_track_res <<- track_res
             }
 
             if (!("in_zone" %in% names(df_b)) && !is.null(roi_coords) && nrow(df_b) > 0) {
@@ -3234,12 +3237,11 @@ video_detect_dl <- function(video = 0,
               kpt_mat_pass <- raw_res$keypoints
             }
           } else {
-            df_b <- data.frame(
+            df_b <- .fast_df(list(
               frame = integer(0), timestamp = numeric(0), id = integer(0),
               xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
-              label = character(0), score = numeric(0), class_id = integer(0),
-              stringsAsFactors = FALSE
-            )
+              label = character(0), score = numeric(0), class_id = integer(0)
+            ), 0L)
           }
 
           if (save_crops && nrow(df_b) > 0L) {
@@ -3324,10 +3326,8 @@ video_detect_dl <- function(video = 0,
 
         if (detect && return_data) {
           if (nrow(df_b) > 0) {
-            df_rec <- df_b
-            df_rec$orig_idx <- NULL
-            df_rec$color <- palette_colors
-            frame_records[[i]] <<- df_rec
+            df_b$color <- palette_colors
+            frame_records[[i]] <<- df_b
           }
           if (has_kpts) {
             kpts_list_frame <- lapply(seq_len(nrow(df_b)), function(k) {
@@ -3755,6 +3755,7 @@ video_detect_dl <- function(video = 0,
     valid_records <- frame_records[!sapply(frame_records, is.null)]
     valid_kpts <- frame_keypoints[!sapply(frame_keypoints, is.null)]
     all_dets <- if (length(valid_records) > 0) .rbind_df_fast(valid_records) else data.frame()
+    if ("orig_idx" %in% names(all_dets)) all_dets$orig_idx <- NULL
     all_kpts <- if (length(valid_kpts) > 0) do.call(rbind, valid_kpts) else NULL
     total_time <- as.numeric(Sys.time() - t_start, units = "secs")
   }
@@ -3787,6 +3788,9 @@ video_detect_dl <- function(video = 0,
     all_dets <- all_dets[all_dets$id %in% valid_track_ids, , drop = FALSE]
   }
 
+  track_state_final <- if (isTRUE(track) || !is.null(count_line)) tracker_export_state_cpp(track_state) else NULL
+  counts_by_cls <- if (!is.null(track_state_final)) track_state_final$counts_by_class else NULL
+
   if (is.null(all_dets) || nrow(all_dets) == 0) {
     all_dets <- data.frame(
       frame = integer(0), timestamp = numeric(0), id = integer(0),
@@ -3814,6 +3818,9 @@ video_detect_dl <- function(video = 0,
       pielou_evenness = 0.0,
       stringsAsFactors = FALSE
     )
+    if (!is.null(total_count_val)) {
+      summary_df$total_counted <- total_count_val
+    }
     by_class_df <- data.frame(
       class = character(0),
       total_detections = integer(0),
@@ -3906,8 +3913,6 @@ video_detect_dl <- function(video = 0,
     }
 
     # Summary by class
-    track_state_final <- tracker_export_state_cpp(track_state)
-    counts_by_cls <- if (isTRUE(track) || !is.null(count_line)) track_state_final$counts_by_class else NULL
     by_class_list <- lapply(all_classes, function(cls) {
       df_c <- all_dets[all_dets$label == cls, , drop = FALSE]
       n_c <- nrow(df_c)
@@ -4079,7 +4084,7 @@ video_detect_dl <- function(video = 0,
   }
 
   if (isTRUE(track) || !is.null(count_line)) {
-    if (length(track_state_final$crossing_events) > 0) {
+    if (!is.null(track_state_final) && length(track_state_final$crossing_events) > 0) {
       ev_df <- do.call(rbind, lapply(track_state_final$crossing_events, as.data.frame))
       if (!is.null(valid_track_ids)) {
         ev_df <- ev_df[ev_df$id %in% valid_track_ids, , drop = FALSE]

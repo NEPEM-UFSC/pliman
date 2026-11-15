@@ -195,3 +195,142 @@ test_that("one model can be evicted without flushing the session cache", {
   expect_equal(after, before - evicted)
   expect_gt(after, 0L)   # the other model is still warm
 })
+
+test_that("alternating between multiple models retains independent 2s stat rate limits", {
+  lib <- skip_if_no_onnx()
+  paths <- skip_if_no_model("yolo26n.onnx", "u2netp.onnx")
+
+  img <- image_pliman("soybean_touch.jpg")
+  invisible(image_detect_dl(img, model = "yolo26n", engine = "cpu", verbose = FALSE, plot = FALSE))
+  invisible(image_segment_dl(img, model = "u2netp", type = "mask", engine = "cpu", verbose = FALSE, plot = FALSE))
+
+  t_start <- Sys.time()
+  for (i in seq_len(10)) {
+    invisible(image_detect_dl(img, model = "yolo26n", engine = "cpu", verbose = FALSE, plot = FALSE))
+    invisible(image_segment_dl(img, model = "u2netp", type = "mask", engine = "cpu", verbose = FALSE, plot = FALSE))
+  }
+  elapsed <- as.numeric(Sys.time() - t_start, units = "secs")
+  expect_lt(elapsed, 10.0)
+})
+
+test_that("YOLO inference handles raw image after numeric vector without stale padding", {
+  lib <- skip_if_no_onnx()
+  paths <- skip_if_no_model("yolo26n.onnx")
+
+  tv <- numeric(1 * 3 * 640 * 640)
+  attr(tv, "target_size") <- 640L
+  res1 <- run_yolo_cpp(tv, 640L, 640L, model_path = paths[1], lib_path = lib, num_threads = 1L, need_masks = FALSE)
+  expect_true(is.list(res1))
+
+  raw_arr <- array(as.raw(128), dim = c(640, 480, 3))
+  res2 <- run_yolo_cpp(raw_arr, 640L, 480L, model_path = paths[1], lib_path = lib, num_threads = 1L, need_masks = FALSE)
+  expect_true(is.list(res2))
+  expect_true(is.matrix(res2$boxes))
+})
+
+test_that("video_detect_dl runs and tracks objects accurately on video_cows benchmark", {
+  video_file <- "D:/Downloads/pliman4/video_cows.mp4"
+  skip_if(!file.exists(video_file), "Benchmark video video_cows.mp4 not found")
+
+  res <- video_detect_dl(
+    video = video_file,
+    track = TRUE,
+    show = FALSE,
+    max_frames = 60,
+    verbose = FALSE
+  )
+  expect_s3_class(res, "pliman_video_detect")
+  expect_gt(nrow(res$summary), 0L)
+  expect_gt(res$summary$total_detections, 0L)
+  expect_equal(res$summary$video_source, "video_cows.mp4")
+  expect_false("orig_idx" %in% names(res$detections))
+})
+
+test_that("video_detect_dl handles 0-detection video segments and counting without crashing", {
+  video_file <- "D:/Downloads/pliman4/video_cows.mp4"
+  skip_if(!file.exists(video_file), "Benchmark video video_cows.mp4 not found")
+
+  # First 10 frames have 0 detections
+  res_zero <- video_detect_dl(
+    video = video_file,
+    track = TRUE,
+    show = FALSE,
+    max_frames = 10,
+    count_line = c(50, 50, 200, 200),
+    verbose = FALSE
+  )
+  expect_s3_class(res_zero, "pliman_video_detect")
+  expect_equal(res_zero$summary$total_detections, 0L)
+  expect_equal(res_zero$summary$unique_objects, 0L)
+  expect_equal(res_zero$total_counted, 0L)
+  expect_equal(nrow(res_zero$detections), 0L)
+
+  # Filtering by a non-existent class produces 0 detections
+  res_nocls <- video_detect_dl(
+    video = video_file,
+    classes = "airplane",
+    track = TRUE,
+    show = FALSE,
+    max_frames = 25,
+    verbose = FALSE
+  )
+  expect_s3_class(res_nocls, "pliman_video_detect")
+  expect_equal(res_nocls$summary$total_detections, 0L)
+  expect_equal(nrow(res_nocls$detections), 0L)
+})
+
+test_that("video_detect_dl handles tripwire line counting and ROI filtering on benchmark video", {
+  video_file <- "D:/Downloads/pliman4/video_cows.mp4"
+  skip_if(!file.exists(video_file), "Benchmark video video_cows.mp4 not found")
+
+  # Line crossing with count_line across cow path (x=200, y=300 to 600)
+  res_count <- video_detect_dl(
+    video = video_file,
+    track = TRUE,
+    count_line = c(200, 300, 200, 600),
+    show = FALSE,
+    max_frames = 60,
+    verbose = FALSE
+  )
+  expect_s3_class(res_count, "pliman_video_detect")
+  expect_gt(res_count$total_counted, 0L)
+  expect_gt(nrow(res_count$detections), 0L)
+
+  # ROI filter mode
+  res_roi <- video_detect_dl(
+    video = video_file,
+    track = TRUE,
+    min_frames = 5,
+    roi = c(100, 350, 400, 550),
+    roi_mode = "filter",
+    show = FALSE,
+    max_frames = 45,
+    verbose = FALSE
+  )
+  expect_s3_class(res_roi, "pliman_video_detect")
+  expect_gt(nrow(res_roi$detections), 0L)
+  expect_true(all(res_roi$detections$in_zone))
+})
+
+test_that("video_detect_dl handles instance segmentation model with mask metrics", {
+  video_file <- "D:/Downloads/pliman4/video_cows.mp4"
+  skip_if(!file.exists(video_file), "Benchmark video video_cows.mp4 not found")
+  skip_if_no_model("yolo26n-seg.onnx")
+
+  res_seg <- video_detect_dl(
+    video = video_file,
+    model = "yolo26n-seg",
+    track = TRUE,
+    min_frames = 5,
+    mask = TRUE,
+    show = FALSE,
+    max_frames = 45,
+    verbose = FALSE
+  )
+  expect_s3_class(res_seg, "pliman_video_detect")
+  expect_gt(nrow(res_seg$detections), 0L)
+  expect_true("area" %in% names(res_seg$detections))
+  expect_true("perimeter" %in% names(res_seg$detections))
+  expect_true("circularity" %in% names(res_seg$detections))
+})
+

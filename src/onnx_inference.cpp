@@ -321,6 +321,7 @@ struct CachedSession {
   int64_t file_mtime = 0;
   int64_t file_size = 0;
   SessionMeta* meta = NULL;
+  std::chrono::steady_clock::time_point last_stat_time{};
 };
 
 static void get_file_stat(const std::string& path, int64_t& out_mtime, int64_t& out_size) {
@@ -847,35 +848,45 @@ static CachedSession get_or_create_cached_session(
 #endif
 
   int64_t cur_mtime = 0, cur_size = 0;
-  get_file_stat(model_path, cur_mtime, cur_size);
 
   std::string key = model_path + "_th_" + std::to_string(num_threads) +
                     (use_gpu ? ("_gpu_" + std::to_string(actual_device_id)) : "_cpu");
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
-    if (cur_mtime != 0 && (it->second.file_mtime != cur_mtime || it->second.file_size != cur_size)) {
-      // Model file changed on disk: drop every cached variant of this path.
-      std::vector<std::string> stale_keys;
-      std::string prefix = model_path + "_th_";
-      for (const auto& pair : g_session_cache) {
-        if (pair.first.rfind(prefix, 0) == 0) stale_keys.push_back(pair.first);
-      }
-      for (const auto& sk : stale_keys) evict_cached_session_by_key(ort, sk);
-      g_io_shape_cache.erase(model_path);
-    } else {
-      if (g_session_lru_order.empty() || g_session_lru_order.back() != key) {
-        for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
-          if (*it_lru == key) {
-            g_session_lru_order.erase(it_lru);
-            break;
-          }
+    auto now_t = std::chrono::steady_clock::now();
+    bool should_stat = (it->second.last_stat_time.time_since_epoch().count() == 0) ||
+                       (std::chrono::duration_cast<std::chrono::seconds>(now_t - it->second.last_stat_time).count() >= 2);
+    if (should_stat) {
+      it->second.last_stat_time = now_t;
+      get_file_stat(model_path, cur_mtime, cur_size);
+      if (cur_mtime != 0 && (it->second.file_mtime != cur_mtime || it->second.file_size != cur_size)) {
+        // Model file changed on disk: drop every cached variant of this path.
+        std::vector<std::string> stale_keys;
+        std::string prefix = model_path + "_th_";
+        for (const auto& pair : g_session_cache) {
+          if (pair.first.rfind(prefix, 0) == 0) stale_keys.push_back(pair.first);
         }
-        g_session_lru_order.push_back(key);
+        for (const auto& sk : stale_keys) evict_cached_session_by_key(ort, sk);
+        g_io_shape_cache.erase(model_path);
+        goto create_session;
       }
-      if (it->second.meta) it->second.meta->last_used = ++g_session_tick;
-      return it->second;
     }
+    if (g_session_lru_order.empty() || g_session_lru_order.back() != key) {
+      for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
+        if (*it_lru == key) {
+          g_session_lru_order.erase(it_lru);
+          break;
+        }
+      }
+      g_session_lru_order.push_back(key);
+    }
+    if (it->second.meta) it->second.meta->last_used = ++g_session_tick;
+    return it->second;
+  } else {
+    get_file_stat(model_path, cur_mtime, cur_size);
   }
+
+create_session:
 
   // LRU eviction only. Variants of the same model with different thread counts or devices
   // may coexist (e.g. the PerSAM decoder at 1 CPU thread next to SAM2 on the GPU), which
@@ -978,6 +989,7 @@ static CachedSession get_or_create_cached_session(
   g_session_meta[key] = std::move(meta);
   cs.file_mtime = cur_mtime;
   cs.file_size = cur_size;
+  cs.last_stat_time = std::chrono::steady_clock::now();
   g_session_cache[key] = cs;
   g_session_lru_order.push_back(key);
   return cs;
@@ -4073,6 +4085,32 @@ Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_p
   }
 }
 
+struct YoloHorizWeight {
+  int x0;
+  int x1_idx;
+  float dx0;
+  float dx1;
+};
+
+struct YoloPreprocCache {
+  int orig_w = 0;
+  int orig_h = 0;
+  int target_size = 0;
+  float gain = 0.0f;
+  int new_w = 0;
+  int new_h = 0;
+  float pad_x = 0.0f;
+  float pad_y = 0.0f;
+  int x1 = 0;
+  int y1 = 0;
+  std::vector<YoloHorizWeight> hw;
+};
+static YoloPreprocCache g_yolo_preproc_cache;
+
+static inline void invalidate_yolo_preproc_cache() {
+  g_yolo_preproc_cache.orig_w = 0;
+}
+
 static void preprocess_yolo_to_float_vec(
     SEXP img_data,
     int target_size,
@@ -4127,42 +4165,65 @@ static void preprocess_yolo_to_float_vec(
     if (max_sample > 1.5) val_scale = 1.0f / 255.0f;
   }
 
-  float gain = std::min((float)target_size / (float)orig_w, (float)target_size / (float)orig_h);
-  int new_w = std::max(1, (int)std::round(orig_w * gain));
-  int new_h = std::max(1, (int)std::round(orig_h * gain));
-  float pad_x = ((float)target_size - (float)new_w) / 2.0f;
-  float pad_y = ((float)target_size - (float)new_h) / 2.0f;
-  int x1 = (int)std::floor(pad_x);
-  int y1 = (int)std::floor(pad_y);
+  float gain;
+  int new_w, new_h, x1, y1;
+  float pad_x, pad_y;
+
+  size_t plane_size = (size_t)target_size * target_size;
+  size_t total_floats = 3 * plane_size;
+
+  if (g_yolo_preproc_cache.orig_w == orig_w && g_yolo_preproc_cache.orig_h == orig_h &&
+      g_yolo_preproc_cache.target_size == target_size && out_float.size() == total_floats) {
+    gain = g_yolo_preproc_cache.gain;
+    new_w = g_yolo_preproc_cache.new_w;
+    new_h = g_yolo_preproc_cache.new_h;
+    pad_x = g_yolo_preproc_cache.pad_x;
+    pad_y = g_yolo_preproc_cache.pad_y;
+    x1 = g_yolo_preproc_cache.x1;
+    y1 = g_yolo_preproc_cache.y1;
+  } else {
+    gain = std::min((float)target_size / (float)orig_w, (float)target_size / (float)orig_h);
+    new_w = std::max(1, (int)std::round(orig_w * gain));
+    new_h = std::max(1, (int)std::round(orig_h * gain));
+    pad_x = ((float)target_size - (float)new_w) / 2.0f;
+    pad_y = ((float)target_size - (float)new_h) / 2.0f;
+    x1 = (int)std::floor(pad_x);
+    y1 = (int)std::floor(pad_y);
+
+    g_yolo_preproc_cache.orig_w = orig_w;
+    g_yolo_preproc_cache.orig_h = orig_h;
+    g_yolo_preproc_cache.target_size = target_size;
+    g_yolo_preproc_cache.gain = gain;
+    g_yolo_preproc_cache.new_w = new_w;
+    g_yolo_preproc_cache.new_h = new_h;
+    g_yolo_preproc_cache.pad_x = pad_x;
+    g_yolo_preproc_cache.pad_y = pad_y;
+    g_yolo_preproc_cache.x1 = x1;
+    g_yolo_preproc_cache.y1 = y1;
+
+    g_yolo_preproc_cache.hw.resize(new_w);
+    for (int x = 0; x < new_w; ++x) {
+      float src_x = ((float)x + 0.5f) / gain - 0.5f;
+      if (src_x < 0.0f) src_x = 0.0f;
+      if (src_x > (float)(orig_w - 1)) src_x = (float)(orig_w - 1);
+      int x0 = (int)std::floor(src_x);
+      int x1_idx = std::min(x0 + 1, orig_w - 1);
+      float dx = src_x - (float)x0;
+      g_yolo_preproc_cache.hw[x].x0 = x0;
+      g_yolo_preproc_cache.hw[x].x1_idx = x1_idx;
+      g_yolo_preproc_cache.hw[x].dx0 = 1.0f - dx;
+      g_yolo_preproc_cache.hw[x].dx1 = dx;
+    }
+
+    out_float.assign(total_floats, 114.0f / 255.0f);
+  }
 
   out_gain = (double)gain;
   out_pad_x = (double)pad_x;
   out_pad_y = (double)pad_y;
 
-  size_t plane_size = (size_t)target_size * target_size;
-  size_t total_floats = 3 * plane_size;
-  out_float.assign(total_floats, 114.0f / 255.0f);
   float* out_ptr = out_float.data();
-
-  struct HorizWeight {
-    int x0;
-    int x1_idx;
-    float dx0;
-    float dx1;
-  };
-  std::vector<HorizWeight> hw(new_w);
-  for (int x = 0; x < new_w; ++x) {
-    float src_x = ((float)x + 0.5f) / gain - 0.5f;
-    if (src_x < 0.0f) src_x = 0.0f;
-    if (src_x > (float)(orig_w - 1)) src_x = (float)(orig_w - 1);
-    int x0 = (int)std::floor(src_x);
-    int x1_idx = std::min(x0 + 1, orig_w - 1);
-    float dx = src_x - (float)x0;
-    hw[x].x0 = x0;
-    hw[x].x1_idx = x1_idx;
-    hw[x].dx0 = 1.0f - dx;
-    hw[x].dx1 = dx;
-  }
+  const auto& hw = g_yolo_preproc_cache.hw;
 
   if (is_raw_data && is_ch_first) {
     #pragma omp parallel for schedule(static) if(new_h > 30)
@@ -4182,7 +4243,7 @@ static void preprocess_yolo_to_float_vec(
       const Rbyte* row1 = raw_ptr + (size_t)y1_idx * row_stride;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -4216,7 +4277,7 @@ static void preprocess_yolo_to_float_vec(
       size_t dst_base = (size_t)dst_y * target_size + x1;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -4253,7 +4314,7 @@ static void preprocess_yolo_to_float_vec(
       size_t dst_base = (size_t)dst_y * target_size + x1;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -4294,16 +4355,31 @@ Rcpp::List run_yolo_cpp(
     Rcpp::Nullable<Rcpp::NumericVector> txt_feats = R_NilValue,
     int target_size = 640,
     int max_nms = 30000,
-    int max_det = 0
+    int max_det = 0,
+    bool filter_nested = false
 ) {
+  auto t_start_all = std::chrono::high_resolution_clock::now();
   const OrtApi* ort = get_ort_api(lib_path);
   CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
   OrtSession* session = cs.session;
   OrtMemoryInfo* memory_info = cs.mem_info;
 
+  const std::vector<const char*>* in_names_ptr = NULL;
+  const std::vector<const char*>* out_names_ptr = NULL;
   std::vector<std::string> in_names_str, out_names_str;
-  std::vector<const char*> in_names, out_names;
-  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+  std::vector<const char*> in_names_v, out_names_v;
+  if (cs.meta != NULL && !cs.meta->in_names.empty()) {
+    in_names_ptr = &cs.meta->in_names;
+    out_names_ptr = &cs.meta->out_names;
+  } else {
+    get_session_io_names(ort, session, in_names_str, in_names_v, out_names_str, out_names_v);
+    in_names_ptr = &in_names_v;
+    out_names_ptr = &out_names_v;
+  }
+  const std::vector<const char*>& in_names = *in_names_ptr;
+  const std::vector<const char*>& out_names = *out_names_ptr;
+
+  auto t_after_session = std::chrono::high_resolution_clock::now();
 
   static std::vector<float> input_vals;
   int64_t in_w = 640;
@@ -4355,13 +4431,15 @@ Rcpp::List run_yolo_cpp(
       has_pre_gain = true;
     }
     input_vals.resize(total_floats);
+    invalidate_yolo_preproc_cache();
     const double* t_ptr = REAL(tv);
     #pragma omp parallel for schedule(static) if(total_floats > 10000)
     for (int i = 0; i < (int)total_floats; ++i) input_vals[i] = (float)t_ptr[i];
   }
+  auto t_after_preproc = std::chrono::high_resolution_clock::now();
   int64_t in_shape[4] = {1, 3, in_h, in_w};
 
-  ONNXTensorElementDataType in_elem_type = session_input_type(ort, session, 0);
+  ONNXTensorElementDataType in_elem_type = (cs.meta != NULL) ? cs.meta->in_elem_type : session_input_type(ort, session, 0);
 
   OrtValue* in_tensor = NULL;
   std::vector<uint16_t> in_fp16;
@@ -4415,6 +4493,7 @@ Rcpp::List run_yolo_cpp(
     session, run_options, run_in_names.data(), (const OrtValue* const*)run_in_tensors.data(),
     run_in_tensors.size(), out_names.data(), num_outputs, out_tensors.data()
   );
+  auto t_after_run = std::chrono::high_resolution_clock::now();
 
   if (txt_tensor) ort->ReleaseValue(txt_tensor);
 
@@ -4610,10 +4689,16 @@ Rcpp::List run_yolo_cpp(
     // class row contiguously over blocks of anchors (class-major), keeping running
     // maxima in two small per-anchor arrays. Ties resolve to the lowest class index,
     // exactly like the original `s > max_s` scan with ascending c.
-    std::vector<float> best_s((size_t)num_anchors, 0.0f);
-    std::vector<int> best_c((size_t)num_anchors, 0);
-    float* bs_ptr = best_s.data();
-    int* bc_ptr = best_c.data();
+    static std::vector<float> best_s_buf;
+    static std::vector<int> best_c_buf;
+    if ((int)best_s_buf.size() < num_anchors) {
+      best_s_buf.resize(num_anchors);
+      best_c_buf.resize(num_anchors);
+    }
+    std::fill(best_s_buf.begin(), best_s_buf.begin() + num_anchors, 0.0f);
+    std::fill(best_c_buf.begin(), best_c_buf.begin() + num_anchors, 0);
+    float* bs_ptr = best_s_buf.data();
+    int* bc_ptr = best_c_buf.data();
     const int na = num_anchors;
     const int nf = num_features;
     if (is_pose) {
@@ -4731,11 +4816,20 @@ Rcpp::List run_yolo_cpp(
   {
     const size_t nc_total = candidates.size();
     std::vector<char> keep_flag(nc_total, 0);
-    std::map<int, std::vector<int> > by_class;
-    for (size_t i = 0; i < nc_total; ++i) by_class[candidates[i].class_id].push_back((int)i);
+    static std::vector<std::vector<int> > by_class_vec;
+    if ((int)by_class_vec.size() < num_classes + 1) {
+      by_class_vec.resize(num_classes + 1);
+    }
+    for (size_t c = 0; c < by_class_vec.size(); ++c) by_class_vec[c].clear();
+    for (size_t i = 0; i < nc_total; ++i) {
+      int cid = candidates[i].class_id;
+      if (cid >= 0 && cid <= num_classes) by_class_vec[cid].push_back((int)i);
+    }
     std::vector<std::vector<int>*> buckets;
-    buckets.reserve(by_class.size());
-    for (auto& kv : by_class) buckets.push_back(&kv.second);
+    buckets.reserve(num_classes);
+    for (int c = 0; c <= num_classes; ++c) {
+      if (!by_class_vec[c].empty()) buckets.push_back(&by_class_vec[c]);
+    }
     const float iou_thr = (float)iou_threshold;
     const int n_buckets = (int)buckets.size();
     #pragma omp parallel for schedule(dynamic, 1) if(n_buckets > 1 && nc_total > 512)
@@ -4770,6 +4864,45 @@ Rcpp::List run_yolo_cpp(
         kept.push_back(candidates[i]);
         if (max_det > 0 && kept.size() >= (size_t)max_det) break;
       }
+    }
+  }
+  auto t_after_nms = std::chrono::high_resolution_clock::now();
+
+  if (filter_nested && !need_masks && kept.size() > 1) {
+    int n_k = (int)kept.size();
+    std::vector<float> area(n_k);
+    std::vector<int> valid;
+    valid.reserve(n_k);
+    for (int j = 0; j < n_k; ++j) {
+      area[j] = std::max(0.0f, kept[j].x2 - kept[j].x1) * std::max(0.0f, kept[j].y2 - kept[j].y1);
+      if (kept[j].score >= 0.50f && area[j] > 0.0f) valid.push_back(j);
+    }
+    if (!valid.empty()) {
+      std::vector<char> k_fl(n_k, 1);
+      for (int i = 0; i < n_k; ++i) {
+        float ai = area[i];
+        if (ai <= 0.0f) continue;
+        for (size_t q = 0; q < valid.size(); ++q) {
+          int c = valid[q];
+          if (c == i) continue;
+          if (!(area[c] < ai * 0.70f)) continue;
+          if (!(kept[c].x2 > kept[i].x1 && kept[c].x1 < kept[i].x2 &&
+                kept[c].y2 > kept[i].y1 && kept[c].y1 < kept[i].y2)) continue;
+          float iw = std::min(kept[i].x2, kept[c].x2) - std::max(kept[i].x1, kept[c].x1);
+          float ih = std::min(kept[i].y2, kept[c].y2) - std::max(kept[i].y1, kept[c].y1);
+          float inter = std::max(0.0f, iw) * std::max(0.0f, ih);
+          if (inter / area[c] >= 0.85f) {
+            k_fl[i] = 0;
+            break;
+          }
+        }
+      }
+      std::vector<YoloCand> filtered;
+      filtered.reserve(n_k);
+      for (int i = 0; i < n_k; ++i) {
+        if (k_fl[i]) filtered.push_back(kept[i]);
+      }
+      kept.swap(filtered);
     }
   }
 
@@ -5257,6 +5390,25 @@ Rcpp::List run_yolo_cpp(
   for (size_t i = 0; i < num_outputs; ++i) ort->ReleaseValue(out_tensors[i]);
   ort->ReleaseValue(in_tensor);
   ort->ReleaseRunOptions(run_options);
+
+  if (std::getenv("PLIMAN_YOLO_PROFILE") != NULL) {
+    auto t_after_all = std::chrono::high_resolution_clock::now();
+    double ms_sess = std::chrono::duration<double, std::milli>(t_after_session - t_start_all).count();
+    double ms_prep = std::chrono::duration<double, std::milli>(t_after_preproc - t_after_session).count();
+    double ms_run  = std::chrono::duration<double, std::milli>(t_after_run - t_after_preproc).count();
+    double ms_nms  = std::chrono::duration<double, std::milli>(t_after_nms - t_after_run).count();
+    double ms_post = std::chrono::duration<double, std::milli>(t_after_all - t_after_nms).count();
+    double ms_tot  = std::chrono::duration<double, std::milli>(t_after_all - t_start_all).count();
+    static int profile_cnt = 0;
+    static double tot_sess = 0, tot_prep = 0, tot_run = 0, tot_nms = 0, tot_post = 0, tot_all = 0;
+    profile_cnt++;
+    tot_sess += ms_sess; tot_prep += ms_prep; tot_run += ms_run; tot_nms += ms_nms; tot_post += ms_post; tot_all += ms_tot;
+    if (profile_cnt % 50 == 0) {
+      Rprintf("[YOLO Profiler %d frames] sess: %.2fms | prep: %.2fms | run: %.2fms | nms: %.2fms | post: %.2fms | TOT: %.2fms\n",
+              profile_cnt, tot_sess / profile_cnt, tot_prep / profile_cnt, tot_run / profile_cnt,
+              tot_nms / profile_cnt, tot_post / profile_cnt, tot_all / profile_cnt);
+    }
+  }
 
   return Rcpp::List::create(
     Rcpp::Named("boxes") = boxes,
@@ -6543,7 +6695,7 @@ Rcpp::NumericVector preprocess_yolo_cpp(
       const Rbyte* row1 = raw_ptr + (size_t)y1_idx * row_stride;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -6581,7 +6733,7 @@ Rcpp::NumericVector preprocess_yolo_cpp(
       size_t dst_base = (size_t)dst_y * target_size + x1;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -6622,7 +6774,7 @@ Rcpp::NumericVector preprocess_yolo_cpp(
       size_t dst_base = (size_t)dst_y * target_size + x1;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;

@@ -949,8 +949,8 @@ get_onnx_model_io_shape_cpp <- function(model_path, lib_path = "", num_threads =
     .Call(`_pliman_get_onnx_model_io_shape_cpp`, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
-run_yolo_cpp <- function(tensor_vec, orig_w, orig_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, need_masks = TRUE, return_features = FALSE, txt_feats = NULL, target_size = 640L, max_nms = 30000L, max_det = 0L) {
-    .Call(`_pliman_run_yolo_cpp`, tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size, max_nms, max_det)
+run_yolo_cpp <- function(tensor_vec, orig_w, orig_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, need_masks = TRUE, return_features = FALSE, txt_feats = NULL, target_size = 640L, max_nms = 30000L, max_det = 0L, filter_nested = FALSE) {
+    .Call(`_pliman_run_yolo_cpp`, tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size, max_nms, max_det, filter_nested)
 }
 
 run_yolo_tiles_cpp <- function(img, tile_x, tile_y, tile_w, tile_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, target_size = 640L, include_full = FALSE, full_target_size = 0L, max_nms = 30000L, max_det = 0L) {
