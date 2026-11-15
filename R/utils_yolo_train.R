@@ -879,7 +879,10 @@ yolo_dataset_export <- function(img,
                 msg_done = "SAM 2.1 inference complete for {.val {curr_cl_name}}"
               )
             }
-            c_num_arr <- image_data(curr_img, type = "numeric")
+            # The native raw array preprocesses to a bit-identical tensor at a quarter of the
+            # memory: type = "numeric" materialised a full-resolution integer copy of every
+            # image (~145 MB for 12 MP) on each class and each review iteration.
+            c_num_arr <- image_data(curr_img)
             p_res <- tryCatch({
               .run_persam(
                 mat = c_num_arr,
@@ -1012,7 +1015,10 @@ yolo_dataset_export <- function(img,
           if (isTRUE(stop_early)) break
         } else {
           # Non-interactive / batch mode for class cl_idx
-          c_num_arr <- image_data(curr_img, type = "numeric")
+          # The native raw array preprocesses to a bit-identical tensor at a quarter of the
+          # memory: type = "numeric" materialised a full-resolution integer copy of every
+          # image (~145 MB for 12 MP) on each class and each review iteration.
+          c_num_arr <- image_data(curr_img)
           p_res <- NULL
           if (i == 1L && is.null(accumulated_prototypes_list[[cl_idx]])) {
             if (is.null(cached_pts)) {
@@ -2977,7 +2983,10 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
             prompt <- cbind(x = pts$x, y = pts$y)
           }
         }
-        c_num_arr <- image_data(curr_img, type = "numeric")
+        # The native raw array preprocesses to a bit-identical tensor at a quarter of the
+        # memory: type = "numeric" materialised a full-resolution integer copy of every
+        # image (~145 MB for 12 MP) on each class and each review iteration.
+        c_num_arr <- image_data(curr_img)
         if (isTRUE(verbose)) {
           cli::cli_progress_step(msg = "Running PerSAM / SAM 2.1 matching on {.file {base_stem}}...",
                                  msg_done = "PerSAM matching complete")

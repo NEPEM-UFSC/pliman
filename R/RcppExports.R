@@ -885,6 +885,22 @@ clear_onnx_sessions_cpp <- function() {
     invisible(.Call(`_pliman_clear_onnx_sessions_cpp`))
 }
 
+onnx_evict_session_cpp <- function(model_path) {
+    .Call(`_pliman_onnx_evict_session_cpp`, model_path)
+}
+
+onnx_clear_encoder_cache_cpp <- function() {
+    invisible(.Call(`_pliman_onnx_clear_encoder_cache_cpp`))
+}
+
+pliman_zncc_fft_stats_cpp <- function() {
+    .Call(`_pliman_pliman_zncc_fft_stats_cpp`)
+}
+
+pliman_omp_max_threads_cpp <- function() {
+    .Call(`_pliman_pliman_omp_max_threads_cpp`)
+}
+
 onnx_set_max_sessions_cpp <- function(n = 0L) {
     .Call(`_pliman_onnx_set_max_sessions_cpp`, n)
 }

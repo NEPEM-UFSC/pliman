@@ -28,3 +28,4 @@ vignettes
 ^models_optimized$
 ^AGENTS\.md$
 ^\.agents$
+^OPTIMIZATION_PLAN\.md$

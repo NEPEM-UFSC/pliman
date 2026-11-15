@@ -1038,7 +1038,13 @@ yolo_fewshot_fit <- function(img,
           curr_points <- as.matrix(curr_points[, 1:2])
         }
 
-        c_num_arr <- image_data(curr_im, type = "numeric")
+        # The native raw array preprocesses to a bit-identical tensor at a quarter of the
+
+        # memory: type = "numeric" materialised a full-resolution integer copy of every
+
+        # image (~145 MB for 12 MP) on each class and each review iteration.
+
+        c_num_arr <- image_data(curr_im)
         pre_proto <- if (is.null(curr_points) && length(all_prototypes_sem) > 0L) {
           list(
             semantic = all_prototypes_sem,
