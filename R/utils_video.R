@@ -2998,13 +2998,49 @@ video_detect_dl <- function(video = 0,
       b_raw
     } else NULL
 
+    # Inference pipeline (OPTIMIZATION_PLAN 6.1): right after frame i has been inferred,
+    # frame i+1 is decoded into a second buffer and its YOLO inference is started in a
+    # C++ worker thread (yolo_prefetch_cpp()), so it runs while R tracks, draws, encodes
+    # and displays frame i. run_yolo_cpp() then takes the finished outputs for frame i+1
+    # (byte-identical input verified), so detections are unchanged; only throughput
+    # differs.
+    #
+    # Opt-in: options(pliman.video_pipeline = TRUE). The overlap can only hide the
+    # per-frame work done outside inference, which is now 2-5 ms (tracking, drawing and
+    # encoding run in C++). Measured on 180 frames of 1280x720 (GTX 1650 / i7):
+    #   yolo26n, DirectML  sync 30.6 fps vs pipeline 28.5 fps (inference ~11 ms/frame)
+    #   yolo26s, CPU       sync 5.9-6.5 fps vs pipeline 5.9-7.0 fps (inference ~127 ms)
+    # i.e. within noise, with identical detections. It can help when the R side of the
+    # loop is heavier (e.g. many tracked objects, custom callbacks, slow displays).
+    use_pipeline <- isTRUE(getOption("pliman.video_pipeline", FALSE)) && use_native_stream &&
+      isTRUE(detect) && !isTRUE(sahi)
+    pl_bufs <- list(bm_stream, if (use_pipeline) {
+      b_raw2 <- raw(3L * src_w * src_h)
+      attr(b_raw2, "dim") <- c(3L, src_w, src_h)
+      b_raw2
+    } else NULL)
+
     process_loop <- function() {
+      on.exit(try(yolo_prefetch_cancel_cpp(), silent = TRUE), add = TRUE)
+      pl_cur <- 1L
+      pl_pre_read <- FALSE
+      pl_pre_has <- FALSE
+      pl_pre_tsec <- NA_real_
       for (i in seq_len(num_frames)) {
         .t_dec <- .tic()
+        pl_from_pre <- FALSE
         if (use_native_stream) {
-          has_frame <- read_native_video_frame_cpp(v_reader, bm_stream)
+          if (pl_pre_read) {
+            # frame already decoded (and possibly being inferred) during the previous iteration
+            pl_pre_read <- FALSE
+            pl_from_pre <- TRUE
+            pl_cur <- 3L - pl_cur
+            has_frame <- pl_pre_has
+          } else {
+            has_frame <- read_native_video_frame_cpp(v_reader, pl_bufs[[pl_cur]])
+          }
           if (!has_frame) break
-          bm <- bm_stream
+          bm <- pl_bufs[[pl_cur]]
           f_path <- ""
         } else {
           f_path <- frame_paths[i]
@@ -3022,7 +3058,11 @@ video_detect_dl <- function(video = 0,
         use_crop <- FALSE
         crop_coords <- c(0L, 0L, src_w, src_h)
         should_infer <- (i == 1L || (i %% infer_every == 0L))
-        t_sec <- if (use_native_stream) round(get_video_reader_timestamp_cpp(v_reader), 3) else round((i - 1) / src_fps, 3)
+        t_sec <- if (use_native_stream) {
+          if (pl_from_pre) pl_pre_tsec else round(get_video_reader_timestamp_cpp(v_reader), 3)
+        } else {
+          round((i - 1) / src_fps, 3)
+        }
 
         if (detect && should_infer) {
           use_crop <- (roi_mode == "crop" && !is.null(roi_coords))
@@ -3048,6 +3088,30 @@ video_detect_dl <- function(video = 0,
           t_inf_end <- Sys.time()
           t_inf_ms <<- as.numeric(t_inf_end - t_inf_start, units = "secs") * 1000
           .toc("infer", t_inf_start)
+
+          if (use_pipeline && i < num_frames) {
+            .t_dec_next <- .tic()
+            pl_nxt <- 3L - pl_cur
+            pl_pre_has <- read_native_video_frame_cpp(v_reader, pl_bufs[[pl_nxt]])
+            pl_pre_tsec <- round(get_video_reader_timestamp_cpp(v_reader), 3)
+            pl_pre_read <- TRUE
+            .toc("decode", .t_dec_next)
+            if (isTRUE(pl_pre_has) && ((i + 1L) %% infer_every == 0L)) {
+              # the feed must be built exactly as the next iteration will build it
+              feed_next <- if (use_crop) {
+                crop_bgr_cpp(pl_bufs[[pl_nxt]], crop_coords[1], crop_coords[2], crop_coords[3], crop_coords[4])
+              } else {
+                pl_bufs[[pl_nxt]]
+              }
+              invisible(tryCatch(
+                yolo_prefetch_cpp(feed_next, model_path = model_file, lib_path = lib_path,
+                                  num_threads = as.integer(threads), use_gpu = use_gpu,
+                                  device_id = as.integer(device_id), target_size = as.integer(target_size)),
+                error = function(e) FALSE
+              ))
+              rm(feed_next)
+            }
+          }
 
           has_masks <- need_masks_vid && isTRUE(raw_res$is_seg) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && nrow(raw_res$boxes) > 0L
           num_boxes_orig <- nrow(raw_res$boxes)

@@ -13,6 +13,8 @@
 #include <cstring>
 #include <chrono>
 #include <limits>
+#include <cstdio>
+#include <thread>
 #include <sys/stat.h>
 
 #ifdef _OPENMP
@@ -45,6 +47,10 @@ typedef const OrtApiBase* (ORT_API_CALL *OrtGetApiBaseFn)(void);
 static void* g_ort_lib_handle = NULL;
 static const OrtApi* g_ort_api = NULL;
 static std::string g_current_lib_path = "";
+// OrtApi version actually obtained from the loaded library. Entries added to the OrtApi
+// struct after this version must not be dereferenced (older runtimes return a shorter
+// table), so provider helpers check it before calling e.g. the *_V2 appenders.
+static uint32_t g_ort_api_version = 0;
 
 #ifdef _WIN32
 #include <dxgi.h>
@@ -244,10 +250,11 @@ static const OrtApi* get_ort_api(const std::string& lib_path) {
   }
 
   g_ort_api = api_base->GetApi(ORT_API_VERSION);
+  g_ort_api_version = g_ort_api ? (uint32_t)ORT_API_VERSION : 0;
   if (!g_ort_api) {
     for (uint32_t v = ORT_API_VERSION; v >= 1; --v) {
       g_ort_api = api_base->GetApi(v);
-      if (g_ort_api) break;
+      if (g_ort_api) { g_ort_api_version = v; break; }
     }
   }
   if (!g_ort_api) {
@@ -303,6 +310,20 @@ struct SessionMeta {
   bool is_gpu = false;
   bool fell_back_to_cpu = false;
   bool warmed_up = false;
+  // Execution provider that actually serves the session: "cpu", "dml", "cuda",
+  // "tensorrt", "coreml" or "openvino".
+  std::string provider = "cpu";
+  // Optimized-graph disk cache (PLIMAN_ORT_OPT_CACHE): "off", "hit" (loaded from a
+  // previously saved optimized graph) or "saved" (optimized graph written this time).
+  std::string graph_cache = "off";
+  double create_ms = 0.0;
+  // Why a requested GPU session runs on the CPU ("" otherwise). When the GPU session
+  // itself failed to build (typically out of VRAM because another process holds it),
+  // the failure may be transient: `retry_gpu_at` schedules a new GPU attempt instead of
+  // keeping the CPU fallback for the rest of the R session.
+  std::string fallback_reason;
+  bool retry_gpu = false;
+  std::chrono::steady_clock::time_point retry_gpu_at{};
   std::vector<std::string> in_names_str, out_names_str;
   std::vector<const char*> in_names, out_names;
   std::vector<ONNXTensorElementDataType> in_types;
@@ -375,6 +396,226 @@ static bool ort_spinning_enabled() {
     cached = (ev != NULL && (ev[0] == '0' || ev[0] == 'f' || ev[0] == 'F')) ? 0 : 1;
   }
   return cached == 1;
+}
+
+static inline void ort_ignore_status(const OrtApi* ort, OrtStatus* st);
+
+// ------------------------------------------------------------------------------------
+// Execution-provider and session-creation configuration
+//
+// Read from environment variables at session-creation time (cheap: sessions are created
+// rarely), so the R setters (pliman_gpu_provider(), pliman_onnx_profiling(),
+// pliman_onnx_graph_cache()) only need Sys.setenv() and the settings are inherited by
+// mirai / callr workers started afterwards.
+//
+//   PLIMAN_GPU_PROVIDER    auto | dml | cuda | tensorrt | coreml | openvino
+//                          (used only when a GPU session is requested; default "auto",
+//                          which means CUDA when the loaded runtime has it, else DirectML)
+//   PLIMAN_TRT_CACHE_DIR   TensorRT engine/timing cache directory
+//   PLIMAN_TRT_FP16        1 = let TensorRT build FP16 kernels
+//   PLIMAN_ORT_PROFILE     prefix (directory + stem) for ONNX Runtime JSON profiles
+//   PLIMAN_ORT_OPT_CACHE   directory for optimized CPU graphs (session start-up cache)
+// ------------------------------------------------------------------------------------
+static std::string env_string(const char* name) {
+  const char* v = std::getenv(name);
+  return (v != NULL) ? std::string(v) : std::string();
+}
+
+static std::string lower_copy(std::string s) {
+  std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+  return s;
+}
+
+static std::string resolve_gpu_provider_pref() {
+  std::string p = lower_copy(env_string("PLIMAN_GPU_PROVIDER"));
+  if (p == "directml") p = "dml";
+  if (p == "trt") p = "tensorrt";
+  if (p != "dml" && p != "cuda" && p != "tensorrt" && p != "coreml" && p != "openvino") p = "auto";
+  return p;
+}
+
+#ifdef _WIN32
+static std::wstring utf8_to_wide(const std::string& s) {
+  if (s.empty()) return std::wstring();
+  int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), NULL, 0);
+  std::wstring w(n, 0);
+  MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], n);
+  return w;
+}
+#endif
+
+static bool file_exists_utf8(const std::string& path) {
+#ifdef _WIN32
+  struct _stat64 st;
+  return _wstat64(utf8_to_wide(path).c_str(), &st) == 0;
+#else
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+#endif
+}
+
+static bool rename_utf8(const std::string& from, const std::string& to) {
+#ifdef _WIN32
+  return MoveFileExW(utf8_to_wide(from).c_str(), utf8_to_wide(to).c_str(),
+                     MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+  return std::rename(from.c_str(), to.c_str()) == 0;
+#endif
+}
+
+static void remove_utf8(const std::string& path) {
+#ifdef _WIN32
+  DeleteFileW(utf8_to_wide(path).c_str());
+#else
+  std::remove(path.c_str());
+#endif
+}
+
+static std::string path_basename(const std::string& p) {
+  size_t k = p.find_last_of("/\\");
+  return (k == std::string::npos) ? p : p.substr(k + 1);
+}
+
+// Execution providers compiled into the loaded runtime (e.g. "CUDAExecutionProvider").
+static std::vector<std::string> ort_available_providers(const OrtApi* ort) {
+  std::vector<std::string> out;
+  char** names = NULL;
+  int n = 0;
+  OrtStatus* st = ort->GetAvailableProviders(&names, &n);
+  if (st != NULL) { ort->ReleaseStatus(st); return out; }
+  for (int i = 0; i < n; ++i) if (names[i]) out.push_back(std::string(names[i]));
+  if (names) {
+    OrtStatus* st2 = ort->ReleaseAvailableProviders(names, n);
+    if (st2) ort->ReleaseStatus(st2);
+  }
+  return out;
+}
+
+static bool ort_has_provider(const OrtApi* ort, const char* ep_name) {
+  std::vector<std::string> av = ort_available_providers(ort);
+  return std::find(av.begin(), av.end(), std::string(ep_name)) != av.end();
+}
+
+static bool ort_append_status_ok(const OrtApi* ort, OrtStatus* st, std::string* err) {
+  if (st == NULL) return true;
+  if (err) *err = ort->GetErrorMessage(st);
+  ort->ReleaseStatus(st);
+  return false;
+}
+
+static bool append_cuda_provider(const OrtApi* ort, OrtSessionOptions* opts, int cuda_dev,
+                                 std::string* err) {
+  if (g_ort_api_version < 13 || !ort_has_provider(ort, "CUDAExecutionProvider")) return false;
+  OrtCUDAProviderOptionsV2* co = NULL;
+  if (!ort_append_status_ok(ort, ort->CreateCUDAProviderOptions(&co), err) || co == NULL) return false;
+  const std::string dev = std::to_string(cuda_dev < 0 ? 0 : cuda_dev);
+  // kSameAsRequested keeps the BFC arena from doubling past what the model needs, which
+  // matters on 4-6 GB cards running SAM + DINO side by side.
+  const char* keys[] = { "device_id", "arena_extend_strategy", "cudnn_conv_use_max_workspace" };
+  const char* vals[] = { dev.c_str(), "kSameAsRequested", "1" };
+  bool ok = ort_append_status_ok(ort, ort->UpdateCUDAProviderOptions(co, keys, vals, 3), err);
+  if (ok) ok = ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider_CUDA_V2(opts, co), err);
+  ort->ReleaseCUDAProviderOptions(co);
+  return ok;
+}
+
+static bool append_tensorrt_provider(const OrtApi* ort, OrtSessionOptions* opts, int cuda_dev,
+                                     std::string* err) {
+  if (g_ort_api_version < 10 || !ort_has_provider(ort, "TensorrtExecutionProvider")) return false;
+  OrtTensorRTProviderOptionsV2* to = NULL;
+  if (!ort_append_status_ok(ort, ort->CreateTensorRTProviderOptions(&to), err) || to == NULL) return false;
+  const std::string dev = std::to_string(cuda_dev < 0 ? 0 : cuda_dev);
+  const std::string cache_dir = env_string("PLIMAN_TRT_CACHE_DIR");
+  const std::string fp16 = env_string("PLIMAN_TRT_FP16");
+  const bool use_fp16 = !fp16.empty() && (fp16[0] == '1' || fp16[0] == 't' || fp16[0] == 'T');
+  std::vector<const char*> keys, vals;
+  keys.push_back("device_id"); vals.push_back(dev.c_str());
+  keys.push_back("trt_fp16_enable"); vals.push_back(use_fp16 ? "1" : "0");
+  if (!cache_dir.empty()) {
+    // Engine builds take seconds to minutes; caching them per model/GPU makes every
+    // later session start almost instantly.
+    keys.push_back("trt_engine_cache_enable"); vals.push_back("1");
+    keys.push_back("trt_engine_cache_path"); vals.push_back(cache_dir.c_str());
+    keys.push_back("trt_timing_cache_enable"); vals.push_back("1");
+    keys.push_back("trt_timing_cache_path"); vals.push_back(cache_dir.c_str());
+  }
+  bool ok = ort_append_status_ok(ort, ort->UpdateTensorRTProviderOptions(to, keys.data(), vals.data(), keys.size()), err);
+  if (ok) ok = ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider_TensorRT_V2(opts, to), err);
+  ort->ReleaseTensorRTProviderOptions(to);
+  // Nodes TensorRT cannot take go to CUDA rather than to the CPU.
+  if (ok) { std::string e2; (void)append_cuda_provider(ort, opts, cuda_dev, &e2); }
+  return ok;
+}
+
+static bool append_dml_provider(const OrtApi* ort, OrtSessionOptions* opts, int dml_dev,
+                                std::string* err) {
+#ifdef _WIN32
+  if (g_ort_lib_handle == NULL) return false;
+  OrtAppendDMLFn append_dml = (OrtAppendDMLFn)GetProcAddress((HMODULE)g_ort_lib_handle,
+                                                             "OrtSessionOptionsAppendExecutionProvider_DML");
+  if (!append_dml) return false;
+  if (!ort_append_status_ok(ort, append_dml(opts, dml_dev), err)) return false;
+  // DirectML requires sequential execution without memory patterns.
+  ort_ignore_status(ort, ort->DisableMemPattern(opts));
+  ort_ignore_status(ort, ort->SetSessionExecutionMode(opts, ORT_SEQUENTIAL));
+  return true;
+#else
+  (void)ort; (void)opts; (void)dml_dev; (void)err;
+  return false;
+#endif
+}
+
+static bool append_coreml_provider(const OrtApi* ort, OrtSessionOptions* opts, std::string* err) {
+  if (!ort_has_provider(ort, "CoreMLExecutionProvider")) return false;
+  if (g_ort_api_version >= 12) {
+    const char* keys[] = { "ModelFormat" };
+    const char* vals[] = { "MLProgram" };
+    if (ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider(opts, "CoreML", keys, vals, 1), err)) {
+      return true;
+    }
+  }
+#ifndef _WIN32
+  typedef OrtStatus* (*OrtAppendCoreMLFn)(OrtSessionOptions*, uint32_t);
+  OrtAppendCoreMLFn fn = g_ort_lib_handle
+    ? (OrtAppendCoreMLFn)dlsym(g_ort_lib_handle, "OrtSessionOptionsAppendExecutionProvider_CoreML")
+    : NULL;
+  if (fn) return ort_append_status_ok(ort, fn(opts, 0), err);
+#endif
+  return false;
+}
+
+static bool append_openvino_provider(const OrtApi* ort, OrtSessionOptions* opts, std::string* err) {
+  if (g_ort_api_version < 18 || !ort_has_provider(ort, "OpenVINOExecutionProvider")) return false;
+  std::string dev = env_string("PLIMAN_OPENVINO_DEVICE");
+  if (dev.empty()) dev = "AUTO:GPU,CPU";
+  const char* keys[] = { "device_type" };
+  const char* vals[] = { dev.c_str() };
+  return ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider_OpenVINO_V2(opts, keys, vals, 1), err);
+}
+
+// Appends the preferred accelerator to `opts`. An explicit preference that cannot be
+// honoured by the loaded runtime falls through to the automatic chain (CUDA, then
+// DirectML), so a session is never left without an accelerator just because the
+// preference names a provider this build lacks. Returns the provider that was attached,
+// or "" when none could be (the caller then builds a CPU session).
+static std::string append_gpu_provider(const OrtApi* ort, OrtSessionOptions* opts,
+                                       const std::string& pref, int dml_dev, int cuda_dev,
+                                       std::string* err) {
+  std::vector<std::string> chain;
+  if (pref != "auto") chain.push_back(pref);
+  chain.push_back("cuda");
+  chain.push_back("dml");
+  for (size_t i = 0; i < chain.size(); ++i) {
+    const std::string& p = chain[i];
+    bool ok = false;
+    if (p == "cuda") ok = append_cuda_provider(ort, opts, cuda_dev, err);
+    else if (p == "tensorrt") ok = append_tensorrt_provider(ort, opts, cuda_dev, err);
+    else if (p == "dml") ok = append_dml_provider(ort, opts, dml_dev, err);
+    else if (p == "coreml") ok = append_coreml_provider(ort, opts, err);
+    else if (p == "openvino") ok = append_openvino_provider(ort, opts, err);
+    if (ok) return p;
+  }
+  return std::string();
 }
 
 // FNV-1a style 64-bit hash over an entire byte range, consuming 8 bytes per step.
@@ -545,7 +786,169 @@ static bool sam2_encode_cached(const OrtApi* ort,
   return true;
 }
 
+// SAM 2.1 decoder runner that binds the three image-feature inputs once per image
+// (OrtIoBinding) and only rebinds the small prompt tensors for each batch.
+//
+// Plain Run() uploads every input on every call, so on a GPU session the ~21 MB of
+// encoder features (image_embed + high_res_feats_0/1) crossed the bus once per prompt
+// batch; IoBinding copies a CPU input to the provider's device when it is bound, so the
+// features now cross once per image. Outputs are bound to CPU memory and read exactly as
+// before. Considered only for GPU decoder sessions (CPU sessions see no copy to save).
+// When binding fails for any reason `ok()` is false and callers fall back to Run().
+//
+// Opt-in (PLIMAN_SAM_IOBINDING=1). Measured on a GTX 1650, 1985 x 1025 image with more
+// than one 32-prompt batch, encoder features cached, results identical to Run():
+//   DirectML  0.61 s with binding vs 0.61-0.66 s without
+//   CUDA      0.50 s with binding vs 0.48-0.50 s without
+// i.e. no measurable gain on either provider at this feature size, so the default stays
+// with plain Run(). It is kept for GPUs behind slower links (eGPU, PCIe x4), where the
+// per-batch upload weighs more.
+struct SamDecoderBinding {
+  const OrtApi* ort = NULL;
+  OrtIoBinding* binding = NULL;
+  OrtSession* session = NULL;
+  OrtMemoryInfo* out_mem = NULL;
+  bool ready = false;
+
+  static bool enabled() {
+    const char* ev = std::getenv("PLIMAN_SAM_IOBINDING");
+    return ev != NULL && (ev[0] == '1' || ev[0] == 't' || ev[0] == 'T');
+  }
+
+  SamDecoderBinding(const OrtApi* api, OrtSession* sess, OrtValue* const enc_outputs[3],
+                    OrtMemoryInfo* cpu_mem) : ort(api), session(sess), out_mem(cpu_mem) {
+    if (!enabled() || ort == NULL || session == NULL || cpu_mem == NULL) return;
+    if (ort->CreateIoBinding(session, &binding) != NULL || binding == NULL) { binding = NULL; return; }
+    const char* names[3] = { "image_embed", "high_res_feats_0", "high_res_feats_1" };
+    const OrtValue* vals[3] = { enc_outputs[2], enc_outputs[0], enc_outputs[1] };
+    for (int i = 0; i < 3; ++i) {
+      OrtStatus* st = ort->BindInput(binding, names[i], vals[i]);
+      if (st != NULL) { ort->ReleaseStatus(st); return; }
+    }
+    ready = true;
+  }
+
+  bool ok() const { return ready; }
+
+  // Same contract as Run(): on success out[0] = masks, out[1] = iou_predictions (the
+  // caller releases both) and NULL is returned; otherwise the error status.
+  OrtStatus* run(OrtRunOptions* run_options, OrtValue* pts, OrtValue* lbl,
+                 OrtValue* mask_in, OrtValue* has_mask, OrtValue* out[2]) {
+    out[0] = out[1] = NULL;
+    OrtStatus* st = NULL;
+    // Fresh output buffers for every batch. Letting the binding reuse the previous
+    // batch's outputs was ~25% faster on DirectML but returned wrong masks there (one
+    // instance lost on a 1985 x 1025 grain image), so it is never done.
+    ort->ClearBoundOutputs(binding);
+    if ((st = ort->BindOutputToDevice(binding, "masks", out_mem)) != NULL) return st;
+    if ((st = ort->BindOutputToDevice(binding, "iou_predictions", out_mem)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "point_coords", pts)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "point_labels", lbl)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "mask_input", mask_in)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "has_mask_input", has_mask)) != NULL) return st;
+    // Device uploads triggered by BindInput may be asynchronous on some providers.
+    if (g_ort_api_version >= 14 && (st = ort->SynchronizeBoundInputs(binding)) != NULL) return st;
+    if ((st = ort->RunWithBinding(session, run_options, binding)) != NULL) return st;
+    if (g_ort_api_version >= 14 && (st = ort->SynchronizeBoundOutputs(binding)) != NULL) return st;
+    OrtAllocator* alloc = NULL;
+    if ((st = ort->GetAllocatorWithDefaultOptions(&alloc)) != NULL) return st;
+    OrtValue** vals = NULL;
+    size_t n = 0;
+    if ((st = ort->GetBoundOutputValues(binding, alloc, &vals, &n)) != NULL) return st;
+    if (vals != NULL && n >= 2) {
+      out[0] = vals[0];
+      out[1] = vals[1];
+      for (size_t k = 2; k < n; ++k) ort->ReleaseValue(vals[k]);
+    } else if (vals != NULL) {
+      for (size_t k = 0; k < n; ++k) ort->ReleaseValue(vals[k]);
+    }
+    if (vals != NULL) alloc->Free(alloc, vals);
+    if (out[0] == NULL || out[1] == NULL) {
+      if (out[0]) ort->ReleaseValue(out[0]);
+      if (out[1]) ort->ReleaseValue(out[1]);
+      out[0] = out[1] = NULL;
+      return ort->CreateStatus(ORT_FAIL, "IoBinding returned no decoder outputs");
+    }
+    return NULL;
+  }
+
+  ~SamDecoderBinding() {
+    if (binding != NULL) ort->ReleaseIoBinding(binding);
+  }
+};
+
+// ------------------------------------------------------------------------------------
+// YOLO inference prefetch (video pipeline, OPTIMIZATION_PLAN 6.1)
+//
+// yolo_prefetch_cpp(frame) preprocesses the *next* frame on the R thread and starts the
+// ONNX Runtime Run() for it on a worker std::thread, while R tracks, draws and encodes the
+// current frame. The next run_yolo_cpp() call on that same frame (same model and
+// settings, byte-identical pixels verified by a full 64-bit hash) takes the finished
+// outputs instead of preprocessing and running again, and then post-processes them with
+// the unchanged code path: results are identical by construction. Any mismatch discards
+// the prefetched outputs and the call runs synchronously as before.
+//
+// The worker thread touches no R object: it only reads the float input owned by the slot
+// and the session, which cannot be released meanwhile because every session eviction /
+// cache flush joins the worker first (yolo_prefetch_discard()).
+// ------------------------------------------------------------------------------------
+struct YoloPrefetch {
+  bool active = false;
+  std::thread worker;
+  // request identity
+  std::string model_path;
+  int num_threads = 0;
+  bool use_gpu = false;
+  int device_id = -1;
+  int target_size = 0;
+  uint64_t src_hash = 0;
+  size_t src_bytes = 0;
+  int src_dims[3] = { 0, 0, 0 };
+  // preprocessing outputs
+  std::vector<float> input;
+  std::vector<uint16_t> input_fp16;
+  int64_t in_w = 0, in_h = 0;
+  int orig_w = 0, orig_h = 0;
+  double gain = 1.0, pad_x = 0.0, pad_y = 0.0;
+  // run state
+  OrtSession* session = NULL;
+  OrtValue* in_tensor = NULL;
+  OrtRunOptions* run_options = NULL;
+  std::vector<OrtValue*> outputs;
+  OrtStatus* status = NULL;
+  // statistics (exposed by yolo_prefetch_stats_cpp)
+  uint64_t n_submitted = 0, n_used = 0, n_discarded = 0;
+};
+static YoloPrefetch g_yolo_prefetch;
+
+static void yolo_prefetch_join() {
+  if (g_yolo_prefetch.worker.joinable()) g_yolo_prefetch.worker.join();
+}
+
+// Waits for a pending prefetch and releases everything it produced.
+static void yolo_prefetch_discard() {
+  YoloPrefetch& pf = g_yolo_prefetch;
+  yolo_prefetch_join();
+  if (!pf.active) return;
+  const OrtApi* ort = g_ort_api;
+  if (ort != NULL) {
+    for (size_t k = 0; k < pf.outputs.size(); ++k) if (pf.outputs[k]) ort->ReleaseValue(pf.outputs[k]);
+    if (pf.status) ort->ReleaseStatus(pf.status);
+    if (pf.in_tensor) ort->ReleaseValue(pf.in_tensor);
+    if (pf.run_options) ort->ReleaseRunOptions(pf.run_options);
+  }
+  pf.outputs.clear();
+  pf.status = NULL;
+  pf.in_tensor = NULL;
+  pf.run_options = NULL;
+  pf.session = NULL;
+  pf.active = false;
+  pf.n_discarded++;
+}
+
 static void evict_cached_session_by_key(const OrtApi* ort, const std::string& key) {
+  // a prefetched Run may still be using this session
+  yolo_prefetch_discard();
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
     CachedSession& cs = it->second;
@@ -619,6 +1022,7 @@ static inline float half_to_float(uint16_t h) {
 
 static void clear_onnx_sessions_internal() {
   if (g_ort_api == NULL) return;
+  yolo_prefetch_discard();
   encoder_cache_clear();
   g_io_shape_cache.clear();
   dense_zncc_clear_cache();
@@ -849,8 +1253,16 @@ static CachedSession get_or_create_cached_session(
 
   int64_t cur_mtime = 0, cur_size = 0;
 
+  // The provider preference and profiling switch are part of the key, so changing them
+  // mid-session builds a new session instead of silently reusing one created under the
+  // previous setting. The default ("auto", no profiling) keeps the historical key.
+  const std::string gpu_pref = use_gpu ? resolve_gpu_provider_pref() : std::string("cpu");
+  const std::string profile_prefix = env_string("PLIMAN_ORT_PROFILE");
+  const std::string opt_cache_dir = use_gpu ? std::string() : env_string("PLIMAN_ORT_OPT_CACHE");
   std::string key = model_path + "_th_" + std::to_string(num_threads) +
                     (use_gpu ? ("_gpu_" + std::to_string(actual_device_id)) : "_cpu");
+  if (use_gpu && gpu_pref != "auto") key += "_" + gpu_pref;
+  if (!profile_prefix.empty()) key += "_prof";
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
     auto now_t = std::chrono::steady_clock::now();
@@ -870,6 +1282,12 @@ static CachedSession get_or_create_cached_session(
         g_io_shape_cache.erase(model_path);
         goto create_session;
       }
+    }
+    if (it->second.meta != NULL && it->second.meta->retry_gpu &&
+        std::chrono::steady_clock::now() >= it->second.meta->retry_gpu_at) {
+      // CPU fallback of a GPU session that failed to build: try the GPU again.
+      evict_cached_session_by_key(ort, key);
+      goto create_session;
     }
     if (g_session_lru_order.empty() || g_session_lru_order.back() != key) {
       for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
@@ -898,25 +1316,24 @@ create_session:
 
   CachedSession cs;
   cs.env = ensure_global_env(ort);
-  bool dml_ok = false;
-  cs.options = make_session_options(ort, num_threads, use_gpu);
+  const auto t_create0 = std::chrono::steady_clock::now();
+  cs.options = make_session_options(ort, num_threads, false);
 
-#ifdef _WIN32
-  if (use_gpu && g_ort_lib_handle != NULL) {
-    OrtAppendDMLFn append_dml = (OrtAppendDMLFn)GetProcAddress((HMODULE)g_ort_lib_handle, "OrtSessionOptionsAppendExecutionProvider_DML");
-    if (append_dml) {
-      OrtStatus* dml_st = append_dml(cs.options, actual_device_id);
-      if (dml_st != NULL) {
-        ort->ReleaseStatus(dml_st);
-      } else {
-        dml_ok = true;
-      }
-    }
+  // DXGI adapter index for DirectML; CUDA ordinals are numbered independently (an
+  // integrated GPU is DXGI adapter 0 on hybrid laptops but has no CUDA ordinal), so CUDA
+  // and TensorRT use the explicit device_id when given and device 0 otherwise.
+  const int cuda_device_id = (device_id >= 0) ? device_id : 0;
+  std::string provider_used;
+  std::string provider_err;
+  if (use_gpu) {
+    provider_used = append_gpu_provider(ort, cs.options, gpu_pref, actual_device_id,
+                                        cuda_device_id, &provider_err);
   }
-#endif
+  bool gpu_ok = !provider_used.empty();
+  if (provider_used == "cuda" || provider_used == "tensorrt") actual_device_id = cuda_device_id;
 
   bool fell_back = false;
-  if (use_gpu && !dml_ok) {
+  if (use_gpu && !gpu_ok) {
     // GPU requested but no GPU execution provider could be attached: rebuild clean CPU
     // options (memory pattern on) instead of running the CPU EP with GPU-tuned options.
     ort->ReleaseSessionOptions(cs.options);
@@ -924,17 +1341,93 @@ create_session:
     fell_back = true;
   }
 
+  if (!profile_prefix.empty()) {
+    // One JSON trace per session, written when the session is released (cache eviction
+    // or pliman_clear_sessions()). It lists the provider that ran every node, which is
+    // how CPU fallbacks inside a "GPU" session are found.
+    std::string stem = profile_prefix + "_" + path_basename(model_path) + "_" +
+                       (provider_used.empty() ? std::string("cpu") : provider_used);
 #ifdef _WIN32
-  int size_needed = MultiByteToWideChar(CP_UTF8, 0, model_path.c_str(), (int)model_path.size(), NULL, 0);
-  std::wstring wmodel_path(size_needed, 0);
-  MultiByteToWideChar(CP_UTF8, 0, model_path.c_str(), (int)model_path.size(), &wmodel_path[0], size_needed);
+    std::wstring wstem = utf8_to_wide(stem);
+    ort_ignore_status(ort, ort->EnableProfiling(cs.options, wstem.c_str()));
+#else
+    ort_ignore_status(ort, ort->EnableProfiling(cs.options, stem.c_str()));
+#endif
+  }
+
+  // Optimized-graph disk cache (CPU sessions only). Graph optimization of large models
+  // (SAM encoder, Grounding DINO, RMBG) takes a noticeable part of session start-up; the
+  // optimized graph is saved once and later sessions load it with optimizations off.
+  // The file name encodes size, mtime and runtime API version, so a changed model or a
+  // different ONNX Runtime never reuses a stale graph. GPU sessions are excluded because
+  // a graph optimized for one execution provider may contain provider-specific nodes.
+  std::string load_path = model_path;
+  std::string opt_target, opt_tmp;
+  std::string graph_cache_state = "off";
+  if (!opt_cache_dir.empty() && !use_gpu && !file_exists_utf8(model_path + ".data") &&
+      !file_exists_utf8(model_path + "_data")) {
+    if (cur_mtime == 0) get_file_stat(model_path, cur_mtime, cur_size);
+    if (cur_size > 0 && cur_size < (int64_t)1800 * 1024 * 1024) {
+      std::string stem = path_basename(model_path);
+      if (stem.size() > 5 && lower_copy(stem.substr(stem.size() - 5)) == ".onnx") stem = stem.substr(0, stem.size() - 5);
+      opt_target = opt_cache_dir + "/" + stem + "_" + std::to_string((long long)cur_size) + "_" +
+                   std::to_string((long long)cur_mtime) + "_api" + std::to_string(g_ort_api_version) +
+                   ".opt.onnx";
+      if (file_exists_utf8(opt_target)) {
+        load_path = opt_target;
+        ort_ignore_status(ort, ort->SetSessionGraphOptimizationLevel(cs.options, ORT_DISABLE_ALL));
+        graph_cache_state = "hit";
+      } else {
+        opt_tmp = opt_target + ".tmp" + std::to_string((long long)std::chrono::steady_clock::now().time_since_epoch().count() % 1000000);
+#ifdef _WIN32
+        std::wstring wtmp = utf8_to_wide(opt_tmp);
+        ort_ignore_status(ort, ort->SetOptimizedModelFilePath(cs.options, wtmp.c_str()));
+#else
+        ort_ignore_status(ort, ort->SetOptimizedModelFilePath(cs.options, opt_tmp.c_str()));
+#endif
+      }
+    }
+  }
+
+#ifdef _WIN32
+  std::wstring wmodel_path = utf8_to_wide(load_path);
   OrtStatus* status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
 #else
-  OrtStatus* status = ort->CreateSession(cs.env, model_path.c_str(), cs.options, &cs.session);
+  OrtStatus* status = ort->CreateSession(cs.env, load_path.c_str(), cs.options, &cs.session);
 #endif
 
+  if ((status != NULL || !cs.session) && graph_cache_state == "hit") {
+    // A cached graph the runtime rejects (truncated file, incompatible build): drop it
+    // and load the original model.
+    if (status) ort->ReleaseStatus(status);
+    status = NULL;
+    cs.session = NULL;
+    remove_utf8(opt_target);
+    ort->ReleaseSessionOptions(cs.options);
+    cs.options = make_session_options(ort, num_threads, false);
+    graph_cache_state = "off";
+    load_path = model_path;
+#ifdef _WIN32
+    wmodel_path = utf8_to_wide(load_path);
+    status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
+#else
+    status = ort->CreateSession(cs.env, load_path.c_str(), cs.options, &cs.session);
+#endif
+  }
+
+  // Test hook: simulate a GPU session that fails to build (VRAM exhausted), so the
+  // fallback/retry path can be exercised without actually exhausting the GPU.
+  if (status == NULL && cs.session != NULL && use_gpu && gpu_ok &&
+      !env_string("PLIMAN_TEST_FAIL_GPU_SESSION").empty()) {
+    ort->ReleaseSession(cs.session);
+    cs.session = NULL;
+    status = ort->CreateStatus(ORT_FAIL, "simulated GPU session failure (PLIMAN_TEST_FAIL_GPU_SESSION)");
+  }
+
   // If GPU session creation failed, gracefully fall back to a CPU session.
-  if ((status != NULL || !cs.session) && use_gpu && dml_ok) {
+  std::string gpu_create_err;
+  if ((status != NULL || !cs.session) && use_gpu && gpu_ok) {
+    gpu_create_err = status ? ort->GetErrorMessage(status) : "unknown error";
     if (status) ort->ReleaseStatus(status);
     if (cs.options) ort->ReleaseSessionOptions(cs.options);
     cs.session = NULL;
@@ -943,7 +1436,7 @@ create_session:
 #ifdef _WIN32
     status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
 #else
-    status = ort->CreateSession(cs.env, model_path.c_str(), cs.options, &cs.session);
+    status = ort->CreateSession(cs.env, load_path.c_str(), cs.options, &cs.session);
 #endif
   }
 
@@ -951,7 +1444,18 @@ create_session:
     std::string msg = status ? ort->GetErrorMessage(status) : "Unknown error";
     if (status) ort->ReleaseStatus(status);
     if (cs.options) ort->ReleaseSessionOptions(cs.options);
+    if (!opt_tmp.empty()) remove_utf8(opt_tmp);
     Rcpp::stop("Failed to create ONNX session for " + model_path + ": " + msg);
+  }
+
+  if (!opt_tmp.empty()) {
+    // Publish the optimized graph atomically so a concurrent worker never reads a
+    // partially written file.
+    if (file_exists_utf8(opt_tmp) && rename_utf8(opt_tmp, opt_target)) {
+      graph_cache_state = "saved";
+    } else {
+      remove_utf8(opt_tmp);
+    }
   }
 
   (void)ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &cs.mem_info);
@@ -962,8 +1466,36 @@ create_session:
   meta->num_threads = num_threads;
   meta->device_id = actual_device_id;
   meta->requested_gpu = use_gpu;
-  meta->is_gpu = use_gpu && dml_ok && !fell_back;
+  meta->is_gpu = use_gpu && gpu_ok && !fell_back;
   meta->fell_back_to_cpu = use_gpu && fell_back;
+  meta->provider = meta->is_gpu ? provider_used : std::string("cpu");
+  meta->graph_cache = graph_cache_state;
+  if (meta->fell_back_to_cpu) {
+    if (!gpu_create_err.empty()) {
+      meta->fallback_reason = "GPU session (" + provider_used + ") failed: " + gpu_create_err;
+      meta->retry_gpu = true;
+      long retry_s = 30;
+      const std::string ev_retry = env_string("PLIMAN_GPU_RETRY_S");
+      if (!ev_retry.empty()) {
+        long v = std::strtol(ev_retry.c_str(), NULL, 10);
+        if (v >= 0 && v <= 86400) retry_s = v;
+      }
+      meta->retry_gpu_at = std::chrono::steady_clock::now() + std::chrono::seconds(retry_s);
+    } else {
+      meta->fallback_reason = provider_err.empty()
+        ? std::string("no GPU execution provider in this ONNX Runtime library")
+        : ("no GPU execution provider could be attached: " + provider_err);
+    }
+    // A GPU that failed to build the session (e.g. VRAM held by another process) used to
+    // leave the model on the CPU silently for the rest of the R session -- a 20 fps
+    // video run dropped to 2 fps with no hint. Reported now. A runtime without any GPU
+    // provider (CPU builds on Linux/macOS) is only recorded in pliman_session_info().
+    if (meta->retry_gpu) {
+      Rcpp::warning("ONNX model '%s' requested on the GPU is running on the CPU (%s). The GPU is retried after 30 s; pliman_clear_sessions() retries immediately.",
+                    path_basename(model_path).c_str(), meta->fallback_reason.c_str());
+    }
+  }
+  meta->create_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_create0).count();
   meta->last_used = ++g_session_tick;
   populate_session_metadata(ort, cs.session, *meta);
 
@@ -1067,7 +1599,8 @@ int onnx_set_max_sessions_cpp(int n = 0) {
 // [[Rcpp::export]]
 Rcpp::DataFrame onnx_session_info_cpp() {
   size_t n = g_session_lru_order.size();
-  Rcpp::CharacterVector key(n), model(n), input_dims(n);
+  Rcpp::CharacterVector key(n), model(n), input_dims(n), provider(n), graph_cache(n), fallback_reason(n);
+  Rcpp::NumericVector create_ms(n);
   Rcpp::LogicalVector gpu(n), requested_gpu(n), batch_dynamic(n), spatial_dynamic(n), warmed_up(n), fell_back(n);
   Rcpp::IntegerVector device_id(n), threads(n), n_inputs(n), n_outputs(n), lru_rank(n);
   for (size_t i = 0; i < n; ++i) {
@@ -1080,10 +1613,16 @@ Rcpp::DataFrame onnx_session_info_cpp() {
       gpu[i] = NA_LOGICAL; requested_gpu[i] = NA_LOGICAL; batch_dynamic[i] = NA_LOGICAL;
       spatial_dynamic[i] = NA_LOGICAL; warmed_up[i] = NA_LOGICAL; fell_back[i] = NA_LOGICAL;
       device_id[i] = NA_INTEGER; threads[i] = NA_INTEGER; n_inputs[i] = NA_INTEGER; n_outputs[i] = NA_INTEGER;
+      provider[i] = NA_STRING; graph_cache[i] = NA_STRING; create_ms[i] = NA_REAL;
+      fallback_reason[i] = NA_STRING;
       continue;
     }
     const SessionMeta& m = *it->second;
     model[i] = m.model_path;
+    provider[i] = m.provider;
+    fallback_reason[i] = m.fallback_reason;
+    graph_cache[i] = m.graph_cache;
+    create_ms[i] = m.create_ms;
     gpu[i] = m.is_gpu;
     requested_gpu[i] = m.requested_gpu;
     device_id[i] = m.device_id;
@@ -1116,10 +1655,28 @@ Rcpp::DataFrame onnx_session_info_cpp() {
     Rcpp::Named("spatial_dynamic") = spatial_dynamic,
     Rcpp::Named("warmed_up") = warmed_up,
     Rcpp::Named("fell_back_to_cpu") = fell_back,
+    Rcpp::Named("provider") = provider,
+    Rcpp::Named("graph_cache") = graph_cache,
+    Rcpp::Named("create_ms") = create_ms,
+    Rcpp::Named("fallback_reason") = fallback_reason,
     Rcpp::Named("lru_rank") = lru_rank,
     Rcpp::Named("key") = key,
     Rcpp::Named("stringsAsFactors") = false
   );
+}
+
+// Execution providers compiled into the ONNX Runtime library at `lib_path`.
+// [[Rcpp::export]]
+Rcpp::CharacterVector onnx_available_providers_cpp(std::string lib_path) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  std::vector<std::string> av = ort_available_providers(ort);
+  return Rcpp::wrap(av);
+}
+
+// OrtApi version negotiated with the loaded runtime (0 when none is loaded).
+// [[Rcpp::export]]
+int onnx_api_version_cpp() {
+  return (int)g_ort_api_version;
 }
 
 // [[Rcpp::export]]
@@ -1529,10 +2086,20 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
   std::vector<float> img_values;
   sexp_to_float(pixel_values, img_values, total_pix);
   OrtValue* pixel_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, img_values.data(), total_pix * sizeof(float),
-    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pixel_tensor
-  );
+  // FP16 exports converted without keep_io_types take half-precision pixels.
+  std::vector<uint16_t> img_values_fp16;
+  if (session_input_type(ort, session, 0) == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    float_vec_to_half(img_values, img_values_fp16);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, img_values_fp16.data(), total_pix * sizeof(uint16_t),
+      img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &pixel_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, img_values.data(), total_pix * sizeof(float),
+      img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pixel_tensor
+    );
+  }
 
   // 2. Prepare input_ids [1, seq_len]
   int seq_len = input_ids.size();
@@ -1605,11 +2172,31 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
     Rcpp::stop("Grounding DINO inference failed: " + msg);
   }
 
+  // Outputs may be half precision (FP16 export without keep_io_types): widen them.
+  std::vector<float> logits_conv, boxes_conv;
   float* logits_data = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[0], (void**)&logits_data);
-
   float* boxes_data = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[1], (void**)&boxes_data);
+  for (int oi = 0; oi < 2; ++oi) {
+    ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    size_t cnt = 0;
+    OrtTensorTypeAndShapeInfo* oinfo = NULL;
+    if (ort->GetTensorTypeAndShape(out_tensors[oi], &oinfo) == NULL && oinfo != NULL) {
+      (void)ort->GetTensorElementType(oinfo, &et);
+      (void)ort->GetTensorShapeElementCount(oinfo, &cnt);
+      ort->ReleaseTensorTypeAndShapeInfo(oinfo);
+    }
+    void* raw = NULL;
+    (void)ort->GetTensorMutableData(out_tensors[oi], &raw);
+    std::vector<float>& conv = (oi == 0) ? logits_conv : boxes_conv;
+    float* ptr = (float*)raw;
+    if (et == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16 && raw != NULL) {
+      conv.resize(cnt);
+      const uint16_t* h = (const uint16_t*)raw;
+      for (size_t k = 0; k < cnt; ++k) conv[k] = half_to_float(h[k]);
+      ptr = conv.data();
+    }
+    if (oi == 0) logits_data = ptr; else boxes_data = ptr;
+  }
 
   // Read the query and token counts from the logits tensor instead of assuming the
   // 900 x 256 shape of one particular export: a model exported with different values
@@ -1799,6 +2386,14 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
 
   int b_size = std::max(1, batch_size);
 
+  // GPU decoder: upload the image features once for all box batches (IoBinding).
+  const bool inst_dec_on_gpu = (cs_dec.meta != NULL) && cs_dec.meta->is_gpu;
+  std::unique_ptr<SamDecoderBinding> inst_binding;
+  if (inst_dec_on_gpu && num_boxes > b_size) {
+    inst_binding.reset(new SamDecoderBinding(ort, session_dec, enc_outputs, memory_info));
+    if (!inst_binding->ok()) inst_binding.reset();
+  }
+
   for (int start_idx = 0; start_idx < num_boxes; start_idx += b_size) {
     int cur_batch = std::min(b_size, num_boxes - start_idx);
 
@@ -1858,9 +2453,9 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
     };
 
     OrtValue* cur_dec_outputs[2] = { NULL, NULL };
-    OrtStatus* dec_status = ort->Run(
-      session_dec, run_options, dec_in_names, cur_dec_in_values, 7, dec_out_names, 2, cur_dec_outputs
-    );
+    OrtStatus* dec_status = inst_binding
+      ? inst_binding->run(run_options, pts_tensor, lbl_tensor, mask_input_tensor, has_mask_tensor, cur_dec_outputs)
+      : ort->Run(session_dec, run_options, dec_in_names, cur_dec_in_values, 7, dec_out_names, 2, cur_dec_outputs);
 
     if (dec_status == NULL) {
       OrtTensorTypeAndShapeInfo* iou_shape_info = NULL;
@@ -3196,6 +3791,13 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
 
   std::vector<float> b_coords, b_labels, b_mask_in, b_has_mask;
 
+  // GPU decoder with more than one batch: bind the image features once (IoBinding).
+  std::unique_ptr<SamDecoderBinding> peak_binding;
+  if (!use_omp_peaks && dec_on_gpu && num_peaks > dec_batch) {
+    peak_binding.reset(new SamDecoderBinding(ort, session_dec, enc_outputs, memory_info));
+    if (!peak_binding->ok()) peak_binding.reset();
+  }
+
   for (int start_p = 0; !use_omp_peaks && start_p < num_peaks; start_p += dec_batch) {
     const int cur = std::min(dec_batch, num_peaks - start_p);
 
@@ -3230,8 +3832,9 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       enc_outputs[2], enc_outputs[0], enc_outputs[1], t_pts, t_lbl, t_mi, t_hm
     };
     OrtValue* b_out[2] = { NULL, NULL };
-    OrtStatus* b_st = ort->Run(session_dec, run_options, dec_in_names, b_in, 7,
-                               dec_out_names, 2, b_out);
+    OrtStatus* b_st = peak_binding
+      ? peak_binding->run(run_options, t_pts, t_lbl, t_mi, t_hm, b_out)
+      : ort->Run(session_dec, run_options, dec_in_names, b_in, 7, dec_out_names, 2, b_out);
 
     if (b_st == NULL) {
       OrtTensorTypeAndShapeInfo* iou_info = NULL;
@@ -4338,6 +4941,159 @@ static void preprocess_yolo_to_float_vec(
   }
 }
 
+static uint64_t raw_image_hash(SEXP img, size_t* nbytes, int dims_out[3]) {
+  const size_t n = (size_t)Rf_xlength(img);
+  if (nbytes) *nbytes = n;
+  SEXP d = Rf_getAttrib(img, R_DimSymbol);
+  dims_out[0] = dims_out[1] = dims_out[2] = 0;
+  if (d != R_NilValue) {
+    const int nd = std::min(3, Rf_length(d));
+    for (int k = 0; k < nd; ++k) dims_out[k] = INTEGER(d)[k];
+  }
+  return hash_bytes64(RAW(img), n);
+}
+
+// Starts inference of `img` (an interleaved [3, W, H] raw frame) in the background; see
+// the YoloPrefetch notes above. Returns FALSE, without starting anything, for inputs the
+// prefetch path does not cover (non-raw frames, models with extra inputs such as
+// YOLO-World text features); the caller then simply runs run_yolo_cpp() as usual.
+// [[Rcpp::export]]
+bool yolo_prefetch_cpp(SEXP img,
+                       std::string model_path,
+                       std::string lib_path,
+                       int num_threads = 0,
+                       bool use_gpu = false,
+                       int device_id = -1,
+                       int target_size = 640) {
+  yolo_prefetch_discard();
+  if (TYPEOF(img) != RAWSXP) return false;
+  SEXP dim_attr = Rf_getAttrib(img, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) != 3 || INTEGER(dim_attr)[0] != 3) return false;
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  if (cs.meta == NULL || cs.meta->in_names.size() != 1) return false;
+  SessionMeta* meta = cs.meta;
+
+  YoloPrefetch& pf = g_yolo_prefetch;
+  const int eff_ts = (target_size > 0) ? target_size : 640;
+  // Fresh buffer and preprocessing cache: the letterbox fast path in
+  // preprocess_yolo_to_float_vec() reuses padding already present in its output buffer,
+  // which is only valid for the buffer that cache was built with.
+  pf.input.clear();
+  invalidate_yolo_preproc_cache();
+  int ow = 0, oh = 0;
+  preprocess_yolo_to_float_vec(img, eff_ts, pf.input, ow, oh, pf.gain, pf.pad_x, pf.pad_y);
+  invalidate_yolo_preproc_cache();
+  pf.orig_w = ow;
+  pf.orig_h = oh;
+  pf.in_w = eff_ts;
+  pf.in_h = eff_ts;
+
+  const int64_t in_shape[4] = { 1, 3, pf.in_h, pf.in_w };
+  const size_t total = pf.input.size();
+  OrtStatus* st = NULL;
+  if (meta->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    float_vec_to_half(pf.input, pf.input_fp16);
+    st = ort->CreateTensorWithDataAsOrtValue(cs.mem_info, pf.input_fp16.data(), total * sizeof(uint16_t),
+                                             in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &pf.in_tensor);
+  } else if (meta->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+    st = ort->CreateTensorWithDataAsOrtValue(cs.mem_info, pf.input.data(), total * sizeof(float),
+                                             in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pf.in_tensor);
+  } else {
+    return false;
+  }
+  if (st != NULL || pf.in_tensor == NULL) {
+    if (st) ort->ReleaseStatus(st);
+    pf.in_tensor = NULL;
+    return false;
+  }
+  (void)ort->CreateRunOptions(&pf.run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(pf.run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  pf.src_hash = raw_image_hash(img, &pf.src_bytes, pf.src_dims);
+  pf.model_path = model_path;
+  pf.num_threads = num_threads;
+  pf.use_gpu = use_gpu;
+  pf.device_id = device_id;
+  pf.target_size = eff_ts;
+  pf.session = cs.session;
+  pf.outputs.assign(meta->out_names.size(), (OrtValue*)NULL);
+  pf.status = NULL;
+  pf.active = true;
+  pf.n_submitted++;
+
+  // Everything the worker reads is owned by the slot or by the cached session metadata.
+  const char* const* in_names = meta->in_names.data();
+  const char* const* out_names = meta->out_names.data();
+  const size_t n_out = meta->out_names.size();
+  OrtSession* session = cs.session;
+  pf.worker = std::thread([ort, session, in_names, out_names, n_out]() {
+    YoloPrefetch& p = g_yolo_prefetch;
+    p.status = ort->Run(session, p.run_options, in_names, (const OrtValue* const*)&p.in_tensor, 1,
+                        out_names, n_out, p.outputs.data());
+  });
+  return true;
+}
+
+// Prefetch counters: submitted, used by run_yolo_cpp(), discarded (mismatch/flush).
+// [[Rcpp::export]]
+Rcpp::IntegerVector yolo_prefetch_stats_cpp() {
+  return Rcpp::IntegerVector::create(
+    Rcpp::Named("submitted") = (int)g_yolo_prefetch.n_submitted,
+    Rcpp::Named("used") = (int)g_yolo_prefetch.n_used,
+    Rcpp::Named("discarded") = (int)g_yolo_prefetch.n_discarded
+  );
+}
+
+// Waits for and drops any pending prefetch (end of a video loop, interrupts).
+// [[Rcpp::export]]
+void yolo_prefetch_cancel_cpp() {
+  yolo_prefetch_discard();
+}
+
+// Outputs computed by a caller for the next run_yolo_cpp() call: one slice of a batched
+// Run (run_yolo_tiles_cpp() tile batching). Set immediately before the call and consumed
+// by it, on the R thread, so there is no ambiguity about which call it belongs to.
+struct YoloInjected {
+  bool active = false;
+  std::vector<OrtValue*> outputs;   // views onto the batch outputs; released by the consumer
+  int64_t in_w = 0, in_h = 0;
+  int orig_w = 0, orig_h = 0;
+  double gain = 1.0, pad_x = 0.0, pad_y = 0.0;
+  size_t total_floats = 0;
+};
+static YoloInjected g_yolo_inject;
+
+// If the pending prefetch was made for exactly this request, waits for it and hands its
+// outputs, input tensor, run options and status over to the caller (who releases them).
+static bool yolo_prefetch_take(SEXP tensor_vec, const std::string& model_path, int num_threads,
+                               bool use_gpu, int device_id, int target_size, bool has_extra_inputs,
+                               YoloPrefetch** out) {
+  YoloPrefetch& pf = g_yolo_prefetch;
+  if (!pf.active) return false;
+  bool match = !has_extra_inputs && TYPEOF(tensor_vec) == RAWSXP &&
+               pf.model_path == model_path && pf.num_threads == num_threads &&
+               pf.use_gpu == use_gpu && pf.device_id == device_id &&
+               pf.target_size == ((target_size > 0) ? target_size : 640);
+  if (match) {
+    size_t nb = 0;
+    int dims[3];
+    const uint64_t h = raw_image_hash(tensor_vec, &nb, dims);
+    match = (h == pf.src_hash && nb == pf.src_bytes && dims[0] == pf.src_dims[0] &&
+             dims[1] == pf.src_dims[1] && dims[2] == pf.src_dims[2]);
+  }
+  if (!match) {
+    yolo_prefetch_discard();
+    return false;
+  }
+  yolo_prefetch_join();
+  pf.active = false;
+  pf.n_used++;
+  *out = &pf;
+  return true;
+}
+
 // [[Rcpp::export]]
 Rcpp::List run_yolo_cpp(
     SEXP tensor_vec,
@@ -4381,6 +5137,21 @@ Rcpp::List run_yolo_cpp(
 
   auto t_after_session = std::chrono::high_resolution_clock::now();
 
+  // Outputs already computed elsewhere for this exact input: a slice of a batched tile
+  // Run (injected by run_yolo_tiles_cpp) or a background Run started by
+  // yolo_prefetch_cpp(). Either way only post-processing remains.
+  YoloPrefetch* pf_take = NULL;
+  YoloInjected inj;
+  const bool used_inject = g_yolo_inject.active;
+  if (used_inject) {
+    inj = g_yolo_inject;
+    g_yolo_inject.active = false;
+    g_yolo_inject.outputs.clear();
+  }
+  const bool used_prefetch = used_inject ||
+    yolo_prefetch_take(tensor_vec, model_path, num_threads, use_gpu, device_id,
+                       target_size, in_names.size() != 1, &pf_take);
+
   static std::vector<float> input_vals;
   int64_t in_w = 640;
   int64_t in_h = 640;
@@ -4393,7 +5164,28 @@ Rcpp::List run_yolo_cpp(
   bool is_raw_image = (TYPEOF(tensor_vec) == RAWSXP) ||
                       (dim_attr != R_NilValue && Rf_length(dim_attr) >= 2 && Rf_length(dim_attr) <= 3 && ts_attr == R_NilValue);
 
-  if (is_raw_image) {
+  if (used_inject) {
+    if (orig_w <= 0) orig_w = (double)inj.orig_w;
+    if (orig_h <= 0) orig_h = (double)inj.orig_h;
+    in_w = inj.in_w;
+    in_h = inj.in_h;
+    total_floats = inj.total_floats;
+    has_pre_gain = true;
+    pre_gain = inj.gain;
+    pre_pad_x = inj.pad_x;
+    pre_pad_y = inj.pad_y;
+  } else if (used_prefetch) {
+    // same values preprocess_yolo_to_float_vec() produced for this frame at submit time
+    if (orig_w <= 0) orig_w = (double)pf_take->orig_w;
+    if (orig_h <= 0) orig_h = (double)pf_take->orig_h;
+    in_w = pf_take->in_w;
+    in_h = pf_take->in_h;
+    total_floats = pf_take->input.size();
+    has_pre_gain = true;
+    pre_gain = pf_take->gain;
+    pre_pad_x = pf_take->pad_x;
+    pre_pad_y = pf_take->pad_y;
+  } else if (is_raw_image) {
     int ow_img = 0, oh_img = 0;
     int eff_ts = (target_size > 0) ? target_size : 640;
     preprocess_yolo_to_float_vec(tensor_vec, eff_ts, input_vals, ow_img, oh_img, pre_gain, pre_pad_x, pre_pad_y);
@@ -4443,7 +5235,13 @@ Rcpp::List run_yolo_cpp(
 
   OrtValue* in_tensor = NULL;
   std::vector<uint16_t> in_fp16;
-  if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+  if (used_inject) {
+    in_tensor = NULL;  // the batch input belongs to run_yolo_tiles_cpp()
+  } else if (used_prefetch) {
+    // ownership moves to this call (released at the end, as for a local tensor)
+    in_tensor = pf_take->in_tensor;
+    pf_take->in_tensor = NULL;
+  } else if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
     in_fp16.resize(total_floats);
     #pragma omp parallel for schedule(static) if(total_floats > 10000)
     for (int i = 0; i < (int)total_floats; ++i) {
@@ -4489,10 +5287,26 @@ Rcpp::List run_yolo_cpp(
 
   size_t num_outputs = out_names.size();
   std::vector<OrtValue*> out_tensors(num_outputs, NULL);
-  OrtStatus* status = ort->Run(
-    session, run_options, run_in_names.data(), (const OrtValue* const*)run_in_tensors.data(),
-    run_in_tensors.size(), out_names.data(), num_outputs, out_tensors.data()
-  );
+  OrtStatus* status = NULL;
+  if (used_inject) {
+    for (size_t k = 0; k < num_outputs && k < inj.outputs.size(); ++k) out_tensors[k] = inj.outputs[k];
+    for (size_t k = num_outputs; k < inj.outputs.size(); ++k) if (inj.outputs[k]) ort->ReleaseValue(inj.outputs[k]);
+  } else if (used_prefetch) {
+    for (size_t k = 0; k < num_outputs && k < pf_take->outputs.size(); ++k) {
+      out_tensors[k] = pf_take->outputs[k];
+      pf_take->outputs[k] = NULL;
+    }
+    status = pf_take->status;
+    pf_take->status = NULL;
+    if (pf_take->run_options) ort->ReleaseRunOptions(pf_take->run_options);
+    pf_take->run_options = NULL;
+    pf_take->session = NULL;
+  } else {
+    status = ort->Run(
+      session, run_options, run_in_names.data(), (const OrtValue* const*)run_in_tensors.data(),
+      run_in_tensors.size(), out_names.data(), num_outputs, out_tensors.data()
+    );
+  }
   auto t_after_run = std::chrono::high_resolution_clock::now();
 
   if (txt_tensor) ort->ReleaseValue(txt_tensor);
@@ -5548,7 +6362,37 @@ Rcpp::List run_yolo_tiles_cpp(
     collect(r, 0, 0.0, 0.0, W, H);
   }
 
-  for (int t = 0; t < tile_x.size(); ++t) {
+  // Batched tile inference (OPTIMIZATION_PLAN 5.1). With a batch-dynamic export
+  // (yolo_export(dynamic = TRUE)), B tiles are letterboxed into one [B, 3, S, S] tensor
+  // and sent in a single Run; each tile's slice of the outputs is then handed to
+  // run_yolo_cpp() (g_yolo_inject) and post-processed by exactly the code the per-tile
+  // path uses. Default B is 8 under CUDA/TensorRT and 1 (off) elsewhere; override with
+  // PLIMAN_YOLO_TILE_BATCH. Measured with a batch-dynamic yolo26n on 24 tiles of a
+  // 3000 x 1688 image (GTX 1650 / i7, boxes equal within 2.4e-4 px for every B):
+  //              B=1      B=4      B=8      B=16
+  //   CUDA      0.42 s   0.36 s   0.35 s   0.35 s
+  //   DirectML  0.43 s   0.78 s   0.56 s   0.49 s
+  //   CPU       1.30 s   1.50 s   1.61 s   1.67 s
+  // The distributed YOLO models have a fixed batch of 1 and always take the per-tile path.
+  const int n_tiles = (int)tile_x.size();
+  int tile_batch = 1;
+  const OrtApi* ort_t = get_ort_api(lib_path);
+  CachedSession cs_t = get_or_create_cached_session(ort_t, model_path, num_threads, use_gpu, device_id);
+  const SessionMeta* meta_t = cs_t.meta;
+  if (meta_t != NULL && meta_t->batch_dynamic && meta_t->in_names.size() == 1 &&
+      (meta_t->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
+       meta_t->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16)) {
+    tile_batch = (meta_t->is_gpu && (meta_t->provider == "cuda" || meta_t->provider == "tensorrt")) ? 8 : 1;
+    const char* ev = std::getenv("PLIMAN_YOLO_TILE_BATCH");
+    if (ev != NULL) {
+      long v = std::strtol(ev, NULL, 10);
+      if (v >= 1 && v <= 64) tile_batch = (int)v;
+    }
+  }
+  const int S = (target_size > 0) ? target_size : 640;
+
+  // Per-tile synchronous inference (also the fallback of a failed batch).
+  auto run_tile_single = [&](int t) {
     int x0 = std::max(0, std::min(W - 1, (int)tile_x[t]));
     int y0 = std::max(0, std::min(H - 1, (int)tile_y[t]));
     int cw = std::max(1, std::min(tile_w, W - x0));
@@ -5558,7 +6402,131 @@ Rcpp::List run_yolo_tiles_cpp(
                                 num_threads, use_gpu, device_id, false, false, R_NilValue, target_size, max_nms, max_det);
     UNPROTECT(1);
     collect(r, t + 1, (double)x0, (double)y0, cw, ch);
-    if ((t & 7) == 7) Rcpp::checkUserInterrupt();
+  };
+
+  for (int t0 = 0; t0 < n_tiles; ) {
+    const int b = std::min(tile_batch, n_tiles - t0);
+    if (b < 2) {
+      run_tile_single(t0);
+      ++t0;
+      if ((t0 & 7) == 0) Rcpp::checkUserInterrupt();
+      continue;
+    }
+
+    Rcpp::List tiles(b);  // keeps the crops protected
+    std::vector<int> tx0(b), ty0(b), tcw(b), tch(b), tow(b), toh(b);
+    std::vector<double> tgain(b), tpx(b), tpy(b);
+    const size_t per_in = (size_t)3 * S * S;
+    std::vector<float> batch_in((size_t)b * per_in);
+    std::vector<float> tmp;
+    for (int k = 0; k < b; ++k) {
+      const int t = t0 + k;
+      tx0[k] = std::max(0, std::min(W - 1, (int)tile_x[t]));
+      ty0[k] = std::max(0, std::min(H - 1, (int)tile_y[t]));
+      tcw[k] = std::max(1, std::min(tile_w, W - tx0[k]));
+      tch[k] = std::max(1, std::min(tile_h, H - ty0[k]));
+      tiles[k] = crop_image_tile(img, tx0[k], ty0[k], tcw[k], tch[k]);
+      // fresh buffer + cache: see the letterbox note in yolo_prefetch_cpp()
+      tmp.clear();
+      invalidate_yolo_preproc_cache();
+      preprocess_yolo_to_float_vec(tiles[k], S, tmp, tow[k], toh[k], tgain[k], tpx[k], tpy[k]);
+      std::memcpy(batch_in.data() + (size_t)k * per_in, tmp.data(), per_in * sizeof(float));
+    }
+    invalidate_yolo_preproc_cache();
+
+    const int64_t in_shape[4] = { (int64_t)b, 3, (int64_t)S, (int64_t)S };
+    OrtValue* in_t = NULL;
+    std::vector<uint16_t> batch_fp16;
+    if (meta_t->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+      float_vec_to_half(batch_in, batch_fp16);
+      (void)ort_t->CreateTensorWithDataAsOrtValue(cs_t.mem_info, batch_fp16.data(), batch_fp16.size() * sizeof(uint16_t),
+                                                  in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_t);
+    } else {
+      (void)ort_t->CreateTensorWithDataAsOrtValue(cs_t.mem_info, batch_in.data(), batch_in.size() * sizeof(float),
+                                                  in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_t);
+    }
+    const size_t n_out = meta_t->out_names.size();
+    std::vector<OrtValue*> outs(n_out, (OrtValue*)NULL);
+    OrtStatus* st = (in_t == NULL) ? ort_t->CreateStatus(ORT_FAIL, "input") :
+      ort_t->Run(cs_t.session, NULL, meta_t->in_names.data(), (const OrtValue* const*)&in_t, 1,
+                 meta_t->out_names.data(), n_out, outs.data());
+
+    // Slice geometry of every output: [b, ...] -> b views of [1, ...].
+    bool sliceable = (st == NULL);
+    std::vector<std::vector<int64_t> > odims(n_out);
+    std::vector<ONNXTensorElementDataType> otype(n_out, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
+    std::vector<size_t> oper(n_out, 0);
+    for (size_t o = 0; sliceable && o < n_out; ++o) {
+      OrtTensorTypeAndShapeInfo* info = NULL;
+      if (outs[o] == NULL || ort_t->GetTensorTypeAndShape(outs[o], &info) != NULL || info == NULL) { sliceable = false; break; }
+      size_t nd = 0, cnt = 0;
+      (void)ort_t->GetDimensionsCount(info, &nd);
+      odims[o].assign(nd, 0);
+      if (nd > 0) (void)ort_t->GetDimensions(info, odims[o].data(), nd);
+      (void)ort_t->GetTensorElementType(info, &otype[o]);
+      (void)ort_t->GetTensorShapeElementCount(info, &cnt);
+      ort_t->ReleaseTensorTypeAndShapeInfo(info);
+      if (nd < 1 || odims[o][0] != b || cnt % (size_t)b != 0 ||
+          (otype[o] != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT && otype[o] != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16)) {
+        sliceable = false;
+        break;
+      }
+      oper[o] = cnt / (size_t)b;
+      odims[o][0] = 1;
+    }
+
+    if (!sliceable) {
+      // The batched Run failed or produced something we cannot slice: per-tile path.
+      if (st) ort_t->ReleaseStatus(st);
+      for (size_t o = 0; o < n_out; ++o) if (outs[o]) ort_t->ReleaseValue(outs[o]);
+      if (in_t) ort_t->ReleaseValue(in_t);
+      for (int k = 0; k < b; ++k) run_tile_single(t0 + k);
+      t0 += b;
+      Rcpp::checkUserInterrupt();
+      continue;
+    }
+
+    for (int k = 0; k < b; ++k) {
+      g_yolo_inject.outputs.assign(n_out, (OrtValue*)NULL);
+      for (size_t o = 0; o < n_out; ++o) {
+        const size_t esz = (otype[o] == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) ? 2 : 4;
+        void* base = NULL;
+        (void)ort_t->GetTensorMutableData(outs[o], &base);
+        (void)ort_t->CreateTensorWithDataAsOrtValue(cs_t.mem_info, (char*)base + (size_t)k * oper[o] * esz,
+                                                    oper[o] * esz, odims[o].data(), odims[o].size(),
+                                                    otype[o], &g_yolo_inject.outputs[o]);
+      }
+      g_yolo_inject.in_w = S;
+      g_yolo_inject.in_h = S;
+      g_yolo_inject.orig_w = tow[k];
+      g_yolo_inject.orig_h = toh[k];
+      g_yolo_inject.gain = tgain[k];
+      g_yolo_inject.pad_x = tpx[k];
+      g_yolo_inject.pad_y = tpy[k];
+      g_yolo_inject.total_floats = per_in;
+      g_yolo_inject.active = true;
+      try {
+        Rcpp::List r = run_yolo_cpp(tiles[k], (double)tcw[k], (double)tch[k], conf_threshold, iou_threshold,
+                                    model_path, lib_path, num_threads, use_gpu, device_id, false, false,
+                                    R_NilValue, target_size, max_nms, max_det);
+        collect(r, t0 + k + 1, (double)tx0[k], (double)ty0[k], tcw[k], tch[k]);
+      } catch (...) {
+        // never leave views that point into this batch for an unrelated later call
+        if (g_yolo_inject.active) {
+          for (size_t o = 0; o < g_yolo_inject.outputs.size(); ++o)
+            if (g_yolo_inject.outputs[o]) ort_t->ReleaseValue(g_yolo_inject.outputs[o]);
+          g_yolo_inject.outputs.clear();
+          g_yolo_inject.active = false;
+        }
+        for (size_t o = 0; o < n_out; ++o) if (outs[o]) ort_t->ReleaseValue(outs[o]);
+        ort_t->ReleaseValue(in_t);
+        throw;
+      }
+    }
+    for (size_t o = 0; o < n_out; ++o) if (outs[o]) ort_t->ReleaseValue(outs[o]);
+    ort_t->ReleaseValue(in_t);
+    t0 += b;
+    Rcpp::checkUserInterrupt();
   }
 
   int n = (int)bsc.size();

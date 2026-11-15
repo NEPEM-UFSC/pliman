@@ -2118,8 +2118,12 @@ pliman_onnx_dir <- function(dir = NULL) {
 #' @param version Character string with the ONNX Runtime release version (default `"1.20.1"`).
 #' @param dir Directory to store the library (default: `pliman_onnx_dir()`).
 #' @param force Logical. If `TRUE`, forces re-download even if already present (default `FALSE`).
-#' @param engine Execution engine: `"cpu"` (default) or `"gpu"`. When `"gpu"` on Windows,
+#' @param engine Execution engine: `"gpu"` (default), `"cpu"` or `"cuda"`. When `"gpu"` on Windows,
 #'   downloads and configures `onnxruntime-directml.dll` and `DirectML.dll` from Microsoft's NuGet CDN.
+#'   `"cuda"` downloads the official CUDA/TensorRT build of ONNX Runtime (Windows and
+#'   Linux x64) into `file.path(dir, "cuda")`; it is used after
+#'   `pliman_gpu_provider("cuda")` and needs the NVIDIA CUDA 12 / cuDNN 9 libraries
+#'   (see [pliman_gpu_provider()]).
 #' @return A character string with the path to the installed shared library.
 #' @export
 #' @examplesIf interactive()
@@ -2128,11 +2132,15 @@ pliman_onnx_dir <- function(dir = NULL) {
 pliman_download_onnx <- function(version = "1.20.1",
                                  dir = pliman_onnx_dir(),
                                  force = FALSE,
-                                 engine = c("gpu", "cpu")) {
+                                 engine = c("gpu", "cpu", "cuda")) {
   engine <- match.arg(engine)
   os <- tolower(Sys.info()[["sysname"]])
 
   if (!dir.exists(dir)) dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+
+  if (engine == "cuda") {
+    return(.download_onnx_cuda(version = version, dir = dir, force = force))
+  }
 
   if (engine == "gpu") {
     if (os != "windows") {
@@ -2265,19 +2273,20 @@ pliman_download_onnx <- function(version = "1.20.1",
 #'
 #' @param version Character string with the ONNX Runtime release version (default `"1.20.1"`).
 #' @param force Logical. If `TRUE`, forces re-download even if already present (default `FALSE`).
-#' @param engine Execution engine: `"cpu"` (default) or `"gpu"`.
+#' @param engine Execution engine: `"gpu"` (default, DirectML on Windows), `"cpu"`, or
+#'   `"cuda"` (CUDA/TensorRT build; activate with [pliman_gpu_provider()]).
 #' @return A character string with the path to the installed shared library.
 #' @export
 #' @examplesIf interactive()
 #'   onnx_install()
 #'   onnx_install(engine = "gpu")
-onnx_install <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu")) {
+onnx_install <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu", "cuda")) {
   pliman_download_onnx(version = version, force = force, engine = engine)
 }
 
 #' @rdname onnx_install
 #' @export
-pliman_install_onnx <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu")) {
+pliman_install_onnx <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu", "cuda")) {
   onnx_install(version = version, force = force, engine = engine)
 }
 
@@ -2292,6 +2301,9 @@ pliman_install_onnx <- function(version = "1.20.1", force = FALSE, engine = c("g
 #' @export
 pliman_onnx_lib_path <- function(engine = c("gpu", "cpu")) {
   engine <- match.arg(engine)
+  # PLIMAN_ONNX_LIB, or the CUDA build when pliman_gpu_provider("cuda"/"tensorrt")
+  override <- .onnx_lib_override()
+  if (!is.null(override)) return(override)
   cache_key <- paste0("onnx_lib_path::", engine)
   if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
     cached_p <- get(cache_key, envir = .onnx_meta_cache, inherits = FALSE)
@@ -2311,7 +2323,9 @@ pliman_onnx_lib_path <- function(engine = c("gpu", "cpu")) {
       return(NULL)
     }
   } else if (engine == "gpu") {
-    cli::cli_alert_warning("DirectML GPU acceleration is only supported on Windows (DirectX 12). Falling back to 'cpu'.")
+    if (!tolower(Sys.getenv("PLIMAN_GPU_PROVIDER", "auto")) %in% c("coreml", "openvino")) {
+      cli::cli_alert_warning("DirectML GPU acceleration is only supported on Windows (DirectX 12). Falling back to 'cpu'.")
+    }
     engine <- "cpu"
   }
 
@@ -2954,7 +2968,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
 
     # Ensure SAM models are downloaded
     model_file <- pliman_download_model(model = model, dir = dir)
-    enc_path <- file.path(dir, "sam2.1.encoder.onnx")
+    enc_path <- .resolve_sam_encoder(dir, use_gpu)
     dec_path <- file.path(dir, "sam2.1.decoder.onnx")
 
     # SAM uses standard ImageNet normalization and 1024x1024
@@ -4102,9 +4116,11 @@ image_remove_bg_dl <- function(img,
     pliman_download_model("sam2.1", dir = dir)
   }
 
-  dino_model <- file.path(dir, "groundingdino-tiny.onnx")
+  # INT8 by default; an FP16 variant on CUDA/TensorRT or when chosen explicitly
+  # (see .resolve_dino_model() in utils_dl_providers.R)
+  dino_model <- .resolve_dino_model(dir, use_gpu)
   vocab_file <- file.path(dir, "vocab.txt")
-  sam_enc <- file.path(dir, "sam2.1.encoder.onnx")
+  sam_enc <- .resolve_sam_encoder(dir, use_gpu)
   sam_dec <- file.path(dir, "sam2.1.decoder.onnx")
 
   dims <- dim(mat)
@@ -4395,7 +4411,7 @@ image_remove_bg_dl <- function(img,
 
   dir <- pliman_model_dir(dir)
   pliman_download_model("sam2.1", dir = dir)
-  sam_enc <- file.path(dir, "sam2.1.encoder.onnx")
+  sam_enc <- .resolve_sam_encoder(dir, use_gpu)
   sam_dec <- file.path(dir, "sam2.1.decoder.onnx")
   lib_file <- pliman_onnx_lib_path(engine = engine)
   if (is.null(lib_file) || !file.exists(lib_file)) {
@@ -4740,7 +4756,7 @@ image_remove_bg_dl <- function(img,
 
   # Ensure SAM 2.1 model is downloaded
   pliman_download_model("sam2.1", dir = dir)
-  sam_enc <- file.path(dir, "sam2.1.encoder.onnx")
+  sam_enc <- .resolve_sam_encoder(dir, use_gpu)
   sam_dec <- file.path(dir, "sam2.1.decoder.onnx")
 
   dims <- dim(mat)

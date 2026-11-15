@@ -2,6 +2,10 @@
 ## New Functions
 * New `yolo_benchmark()` to measure YOLO inference speed (raw C++ inference, the full `image_detect_dl()` pipeline and, optionally, SAHI) with warm-up iterations excluded from the timings.
 * New `pliman_session_info()` and `pliman_max_sessions()` to inspect and size the cache of ONNX Runtime sessions.
+* New `pliman_gpu_provider()` and `onnx_available_providers()`: GPU sessions can now use the NVIDIA CUDA and TensorRT execution providers (Windows and Linux, with `onnx_install(engine = "cuda")`), CoreML (macOS) and OpenVINO, besides DirectML. The default (`"auto"`) keeps the previous behaviour; a provider that cannot start falls back to CUDA, DirectML and then the CPU. `pliman_session_info()` reports the provider actually used.
+* New `pliman_onnx_profiling()` and `onnx_profile_summary()` to trace which execution provider ran each operator (finds CPU fallbacks inside GPU sessions).
+* New `pliman_onnx_graph_cache()` (opt-in): saves ONNX Runtime's optimized graphs to disk so later CPU sessions start faster (SAM 2.1 encoder 3.3 s -> 0.18 s, Grounding DINO 1.7 s -> 0.7 s), with identical predictions.
+* New `pliman_build_model_variant()` to build INT8/FP16 SAM 2.1 encoders and a mixed-precision FP16 Grounding DINO, selectable with `options(pliman.sam_encoder = )` and used automatically for Grounding DINO under CUDA/TensorRT. Speed depends on the hardware (see its documentation).
 * Modernized `get_card_colors()` with perspective-aware **Bilinear Homography**, dynamic **Negative Buffering** (`buffer = 0.45`), outer margins, multi-statistic extraction (`mean`, `median`, `sd`, `n_pixels`), automated reference matching, $\Delta E$ calculations, and modern overlay/swatch plotting.
 * Modernized `image_correction()` to support industry-standard **CCM (Color Correction Matrix 3x3)** with Ridge Regularization, **Affine (4x3)**, **White Balance**, **Cubic (9-term)**, and **Root-Polynomial (20-term)** models with native C++ acceleration and direct integration with `get_card_colors()`.
 * New `colorchecker_ref()` providing standard reference sRGB coordinates for 24-patch ColorChecker Classic (Macbeth) charts.
@@ -27,6 +31,10 @@
   - Grounded-SAM no longer clears all cached sessions on GPUs with less than 6 GB of memory. Grounded-SAM and PerSAM process each instance mask in a window around its box instead of the full image.
   - `.preprocess_nchw()` (U2Net, RMBG, BEN2, SAM, Grounding DINO, StarDist, DINOv2, CLIP, depth) runs in C++ with identical results.
   - Parallel batch functions give each CPU worker `physical cores / workers` ONNX threads, cap concurrent GPU workers at `getOption("pliman.gpu_workers", 2)`, and no longer serialise the whole input list with every chunk.
+  - `save_image = TRUE` in `image_detect_dl_batch()` and `image_detect_sahi_batch()` draws and encodes annotated images natively instead of through the R graphics device (falls back to it for other formats or with `options(pliman.native_save = FALSE)`).
+  - SAHI tiles of batch-dynamic YOLO exports run in batches of 8 under CUDA/TensorRT (`PLIMAN_YOLO_TILE_BATCH`), with the same post-processing per tile.
+  - Grounding DINO accepts FP16 exports; with an FP16 model the pixel tensor is converted and the outputs widened automatically.
+  - Opt-in `options(pliman.video_pipeline = TRUE)` overlaps YOLO inference of the next video frame with tracking/drawing of the current one (identical detections).
 * New `max_det` argument in `image_detect_dl()` and `video_detect_dl()` (maximum detections kept after NMS; `0` keeps all). New `filter_nested` argument in `video_detect_dl()`.
 * Documented inference-speed guidance and hardware dependence of FP16, INT8 and TensorRT (Tensor Cores; `.engine` files cannot be run by pliman) in `image_detect_dl()`, `video_detect_dl()`, batch and SAHI functions, `yolo_export_engine()`, `onnx_quantize()` and the README. Added deep-learning groups to the pkgdown reference.
 * Reduced external package dependencies by replacing heavy external imports (such as **EBImage**`) with native, standalone C++ algorithms for image processing and segmentation.

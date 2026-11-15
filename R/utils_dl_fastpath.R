@@ -196,6 +196,75 @@
   out
 }
 
+# Saves one annotated detection image for the batch functions without the R graphics
+# device: the image is read (or converted) into an interleaved RGB buffer, boxes and
+# labels are drawn by draw_yolo_detections_bgr_cpp() (the video renderer) and the buffer
+# is encoded by stb_image_write. Opening a jpeg()/png() device, plot()-ing the full
+# image and drawing boxes with base graphics cost 0.5-2 s per image; this is a few tens
+# of milliseconds.
+#
+# Returns FALSE (nothing written) whenever the request needs the R renderer -- an output
+# format other than JPEG/PNG/BMP, keypoints, or `options(pliman.native_save = FALSE)` --
+# so the caller can fall back to it.
+.save_detections_native <- function(src, res, out_file, args, show_point = FALSE) {
+  if (!isTRUE(getOption("pliman.native_save", TRUE))) return(FALSE)
+  ext <- tolower(tools::file_ext(out_file))
+  if (!ext %in% c("jpg", "jpeg", "png", "bmp")) return(FALSE)
+  if (is.list(res) && !is.data.frame(res) && !is.null(res$keypoints) && length(res$keypoints) > 0) return(FALSE)
+  bm <- NULL
+  if (is.character(src) && length(src) == 1L && file.exists(src) &&
+      tolower(tools::file_ext(src)) %in% c("jpg", "jpeg", "png", "bmp", "tga", "gif")) {
+    bm <- tryCatch(load_frame_bgr_cpp(normalizePath(src, winslash = "/")), error = function(e) NULL)
+    if (!is.null(bm) && length(bm) == 0L) bm <- NULL
+  }
+  if (is.null(bm)) {
+    if (is.character(src)) return(FALSE)
+    arr <- tryCatch(image_data(src), error = function(e) NULL)
+    if (is.null(arr)) return(FALSE)
+    bm <- image_to_rgb_buffer_cpp(arr)
+  }
+  bx <- .extract_boxes(res)
+  has_bx <- is.data.frame(bx) && nrow(bx) > 0
+  arg <- function(name, default) if (!is.null(args[[name]])) args[[name]] else default
+  pal <- if (has_bx) {
+    .get_class_palette(labels = bx$label, n = nrow(bx),
+                       rainbow = arg("rainbow", TRUE), user_col = args$col)
+  } else {
+    character(0)
+  }
+  num <- function(col) if (has_bx && col %in% names(bx)) as.numeric(bx[[col]]) else numeric(0)
+  scores <- if (has_bx) {
+    sc <- if ("score" %in% names(bx)) bx$score else if ("conf" %in% names(bx)) bx$conf else rep(NA_real_, nrow(bx))
+    as.numeric(sc)
+  } else {
+    numeric(0)
+  }
+  ok <- draw_yolo_detections_bgr_cpp(
+    bm = bm,
+    xmin = num("xmin"), ymin = num("ymin"), xmax = num("xmax"), ymax = num("ymax"),
+    labels = if (has_bx) as.character(bx$label) else character(0),
+    scores = scores,
+    colors = as.character(pal),
+    lwd = as.integer(max(1, round(arg("lwd", 2)))),
+    hud_text = "",
+    font_scale = as.numeric(arg("cex", 1.0)),
+    draw_boxes = isTRUE(arg("show_box", arg("bbox", TRUE))),
+    track_ids = if (has_bx && isTRUE(arg("show_id", FALSE)) && "id" %in% names(bx)) as.integer(bx$id) else NULL,
+    show_text = isTRUE(arg("show_text", TRUE)),
+    show_conf = isTRUE(arg("show_conf", TRUE)),
+    show_class = isTRUE(arg("show_class", TRUE)),
+    show_id = isTRUE(arg("show_id", FALSE)),
+    badge = isTRUE(arg("badge", TRUE)),
+    pad_scale = as.numeric(arg("pad", 1.0)),
+    draw_masks = FALSE,
+    show_point = isTRUE(show_point),
+    point_radius = as.integer(max(1, round(2 * arg("point_size", 1.5)))),
+    point_col = if (!is.null(args$point_col)) as.character(args$point_col[1]) else ""
+  )
+  if (!isTRUE(ok)) return(FALSE)
+  isTRUE(save_frame_bgr_cpp(bm, out_file, quality = 95L))
+}
+
 # Builds a minimal enclosure for batch worker functions so that serialising the worker
 # to mirai daemons does not drag the caller's frame (the full list of input images,
 # intermediate results, ...) along with every chunk.

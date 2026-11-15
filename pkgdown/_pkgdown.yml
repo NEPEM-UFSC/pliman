@@ -333,6 +333,11 @@ reference:
       - yolo_benchmark
       - pliman_session_info
       - pliman_clear_sessions
+      - pliman_gpu_provider
+      - onnx_available_providers
+      - pliman_onnx_profiling
+      - pliman_onnx_graph_cache
+      - pliman_build_model_variant
       - yolo_export_fp16
       - yolo_export_engine
       - onnx_quantize
