@@ -2244,6 +2244,46 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// onnx_evict_session_cpp
+int onnx_evict_session_cpp(std::string model_path);
+RcppExport SEXP _pliman_onnx_evict_session_cpp(SEXP model_pathSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type model_path(model_pathSEXP);
+    rcpp_result_gen = Rcpp::wrap(onnx_evict_session_cpp(model_path));
+    return rcpp_result_gen;
+END_RCPP
+}
+// onnx_clear_encoder_cache_cpp
+void onnx_clear_encoder_cache_cpp();
+RcppExport SEXP _pliman_onnx_clear_encoder_cache_cpp() {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    onnx_clear_encoder_cache_cpp();
+    return R_NilValue;
+END_RCPP
+}
+// pliman_zncc_fft_stats_cpp
+Rcpp::IntegerVector pliman_zncc_fft_stats_cpp();
+RcppExport SEXP _pliman_pliman_zncc_fft_stats_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(pliman_zncc_fft_stats_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
+// pliman_omp_max_threads_cpp
+int pliman_omp_max_threads_cpp();
+RcppExport SEXP _pliman_pliman_omp_max_threads_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(pliman_omp_max_threads_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
 // onnx_set_max_sessions_cpp
 int onnx_set_max_sessions_cpp(int n);
 RcppExport SEXP _pliman_onnx_set_max_sessions_cpp(SEXP nSEXP) {
@@ -3431,6 +3471,10 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_ocr_components_cpp", (DL_FUNC) &_pliman_ocr_components_cpp, 5},
     {"_pliman_pliman_gpu_info_cpp", (DL_FUNC) &_pliman_pliman_gpu_info_cpp, 0},
     {"_pliman_clear_onnx_sessions_cpp", (DL_FUNC) &_pliman_clear_onnx_sessions_cpp, 0},
+    {"_pliman_onnx_evict_session_cpp", (DL_FUNC) &_pliman_onnx_evict_session_cpp, 1},
+    {"_pliman_onnx_clear_encoder_cache_cpp", (DL_FUNC) &_pliman_onnx_clear_encoder_cache_cpp, 0},
+    {"_pliman_pliman_zncc_fft_stats_cpp", (DL_FUNC) &_pliman_pliman_zncc_fft_stats_cpp, 0},
+    {"_pliman_pliman_omp_max_threads_cpp", (DL_FUNC) &_pliman_pliman_omp_max_threads_cpp, 0},
     {"_pliman_onnx_set_max_sessions_cpp", (DL_FUNC) &_pliman_onnx_set_max_sessions_cpp, 1},
     {"_pliman_onnx_session_info_cpp", (DL_FUNC) &_pliman_onnx_session_info_cpp, 0},
     {"_pliman_run_onnx_inference_cpp", (DL_FUNC) &_pliman_run_onnx_inference_cpp, 7},

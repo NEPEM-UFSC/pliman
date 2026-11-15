@@ -2815,7 +2815,9 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
   if (is.null(tensor_dims)) {
     tensor_dims <- as.integer(c(1, 3, target_size, target_size))
   }
-  tensor_vec <- as.numeric(tensor)
+  # `tensor` is already a plain double vector; as.numeric() would copy it (25 MB for a
+  # 1024x1024x3 tensor) only to drop the dims attribute, which the C++ side ignores.
+  tensor_vec <- tensor
 
   pred_mat <- run_onnx_inference_cpp(
     tensor_vec = tensor_vec,
@@ -2847,6 +2849,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
                              exemplar = FALSE,
                              threads = 0,
                              engine = c("gpu", "cpu"),
+                             sam_device = c("cpu", "gpu", "auto"),
                              device_id = -1,
                              verbose = TRUE,
                              dir = pliman_model_dir()) {
@@ -2877,6 +2880,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
       threshold = threshold,
       threads = threads,
       engine = engine,
+      sam_device = sam_device,
       device_id = device_id,
       fill_hull = fill_hull,
       filter = filter,
@@ -2993,7 +2997,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
     }
 
     pred_raw <- run_sam2_inference_cpp(
-      tensor_vec = as.numeric(tensor),
+      tensor_vec = tensor,
       points_x = pts_x,
       points_y = pts_y,
       point_labels = pts_lbl,
@@ -4126,7 +4130,7 @@ image_remove_bg_dl <- function(img,
   }
 
   dino_res <- run_grounding_dino_cpp(
-    pixel_values = as.numeric(dino_tensor),
+    pixel_values = dino_tensor,
     input_ids = as.integer(tok$input_ids),
     token_type_ids = as.integer(tok$token_type_ids),
     attention_mask = as.integer(tok$attention_mask),
@@ -4261,13 +4265,21 @@ image_remove_bg_dl <- function(img,
     ))
   }
 
-  # 4. Run SAM 2.1 on all detected boxes
+  # 4. Run SAM 2.1 on all detected boxes.
+  # On GPUs with limited VRAM the Grounding DINO session is released before SAM 2.1 is
+  # built, so the two large models are not resident simultaneously. Only that one model
+  # is evicted: the previous `clear_onnx_sessions_cpp()` flushed *every* cached session,
+  # so in a batch or auto-labelling loop both DINO and SAM were reconstructed from
+  # scratch on every image, which costs seconds per image and dominated the run.
   if (use_gpu && isTRUE(mask)) {
     gpu_info <- .gpu_info_cached()
     if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
       def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
-      if (gpu_info$vram_mb[def_id] < 6000) {
-        clear_onnx_sessions_cpp()
+      if (isTRUE(gpu_info$vram_mb[def_id] < 6000)) {
+        invisible(tryCatch(
+          onnx_evict_session_cpp(normalizePath(dino_model, winslash = "/", mustWork = FALSE)),
+          error = function(e) 0L
+        ))
       }
     }
   }
@@ -4285,7 +4297,7 @@ image_remove_bg_dl <- function(img,
                                 letterbox = FALSE)
 
   raw_masks <- run_sam2_instances_cpp(
-    tensor_vec = as.numeric(sam_tensor),
+    tensor_vec = sam_tensor,
     boxes = boxes_px,
     orig_w = as.double(orig_w),
     orig_h = as.double(orig_h),
@@ -4454,7 +4466,7 @@ image_remove_bg_dl <- function(img,
   bs <- if (is.null(batch_size) || is.na(batch_size) || batch_size <= 0) 64L else as.integer(batch_size)
 
   raw_masks <- run_sam2_instances_cpp(
-    tensor_vec = as.numeric(sam_tensor),
+    tensor_vec = sam_tensor,
     boxes = boxes_px,
     orig_w = as.double(orig_w),
     orig_h = as.double(orig_h),
@@ -4583,14 +4595,21 @@ image_remove_bg_dl <- function(img,
     return(proto)
   }
 
+  # Every per-prototype component must be subset with the same indices, otherwise the
+  # semantic vectors, the high-resolution vectors and the dense ZNCC kernels describe
+  # different exemplars.
+  .subset_proto <- function(p, idx) {
+    if (!is.null(p$hr0) && length(p$hr0) >= max(idx)) p$hr0 <- p$hr0[idx]
+    if (!is.null(p$dense) && length(p$dense) >= max(idx)) p$dense <- p$dense[idx]
+    p
+  }
+
   tryCatch({
     mat <- do.call(cbind, sem_list)
     if (!is.matrix(mat) || nrow(mat) != 256L) {
-      proto$semantic <- sem_list[seq_len(min(n, max_protos))]
-      if (!is.null(proto$hr0) && length(proto$hr0) >= n) {
-        proto$hr0 <- proto$hr0[seq_len(min(n, max_protos))]
-      }
-      return(proto)
+      keep <- seq_len(min(n, max_protos))
+      proto$semantic <- sem_list[keep]
+      return(.subset_proto(proto, keep))
     }
 
     # Cosine similarity matrix between prototypes
@@ -4612,16 +4631,11 @@ image_remove_bg_dl <- function(img,
     }
 
     proto$semantic <- sem_list[selected]
-    if (!is.null(proto$hr0) && length(proto$hr0) >= n) {
-      proto$hr0 <- proto$hr0[selected]
-    }
-    return(proto)
+    return(.subset_proto(proto, selected))
   }, error = function(e) {
-    proto$semantic <- sem_list[seq_len(min(n, max_protos))]
-    if (!is.null(proto$hr0) && length(proto$hr0) >= n) {
-      proto$hr0 <- proto$hr0[seq_len(min(n, max_protos))]
-    }
-    return(proto)
+    keep <- seq_len(min(n, max_protos))
+    proto$semantic <- sem_list[keep]
+    return(.subset_proto(proto, keep))
   })
 }
 
@@ -4638,6 +4652,7 @@ image_remove_bg_dl <- function(img,
                         superres_map = FALSE,
                         threads = 0,
                         engine = c("gpu", "cpu"),
+                        sam_device = c("cpu", "gpu", "auto"),
                         device_id = -1,
                         fill_hull = TRUE,
                         filter = 0,
@@ -4674,14 +4689,40 @@ image_remove_bg_dl <- function(img,
   } else {
     feat_res <- 1024L
   }
-  if (engine == "gpu" && .Platform$OS.type == "windows") {
+  # Device policy for the SAM 2.1 backbone.
+  #
+  # `sam_device = "cpu"` (the default) reproduces the previous behaviour exactly: the
+  # Hiera encoder has been reported to trigger DirectML driver faults
+  # (DXGI_ERROR_DEVICE_HUNG) on some driver/runtime combinations, and the failure mode
+  # is a hard session crash rather than a recoverable error, so CPU remains the safe
+  # default. `"gpu"` opts in where DirectML is known to be stable, which is typically
+  # an order of magnitude faster because the encoder dominates the cost.
+  # `"auto"` follows `engine`.
+  sam_device <- match.arg(sam_device)
+  want_gpu <- switch(sam_device,
+                     "cpu"  = FALSE,
+                     "gpu"  = TRUE,
+                     "auto" = (engine == "gpu"))
+
+  if (isTRUE(want_gpu) && .Platform$OS.type != "windows") {
     if (isTRUE(verbose)) {
-      cli::cli_alert_info("SAM 2.1 Vision Transformer uses CPU execution (DirectML GPU has known driver limitations with ViT attention layers).")
+      cli::cli_alert_info("GPU execution for SAM 2.1 requires DirectML (Windows); using CPU.")
+    }
+    want_gpu <- FALSE
+  }
+
+  if (isTRUE(want_gpu)) {
+    use_gpu <- TRUE
+    engine <- "gpu"
+    if (isTRUE(verbose)) {
+      cli::cli_alert_info("SAM 2.1 running on GPU (DirectML) at your request ({.code sam_device = \"gpu\"}).")
+    }
+  } else {
+    if (engine == "gpu" && isTRUE(verbose)) {
+      cli::cli_alert_info("SAM 2.1 Vision Transformer uses CPU execution by default; pass {.code sam_device = \"gpu\"} to run it on DirectML.")
     }
     use_gpu <- FALSE
     engine <- "cpu"
-  } else {
-    use_gpu <- (engine == "gpu")
   }
   c_max_objects <- if (is.null(max_objects) || is.infinite(max_objects) || max_objects <= 0) -1L else as.integer(max_objects)
   dir <- pliman_model_dir(dir)
@@ -4760,7 +4801,7 @@ image_remove_bg_dl <- function(img,
 
   persam_res <- tryCatch({
     run_sam2_persam_cpp(
-      tensor_vec = as.numeric(sam_tensor),
+      tensor_vec = sam_tensor,
       exemplar_x = as.numeric(ex_x),
       exemplar_y = as.numeric(ex_y),
       orig_w = as.double(orig_w),
@@ -4784,7 +4825,7 @@ image_remove_bg_dl <- function(img,
         cli::cli_alert_warning("GPU execution failed ({e$message}). Retrying on CPU...")
       }
       run_sam2_persam_cpp(
-        tensor_vec = as.numeric(sam_tensor),
+        tensor_vec = sam_tensor,
         exemplar_x = as.numeric(ex_x),
         exemplar_y = as.numeric(ex_y),
         orig_w = as.double(orig_w),
@@ -5314,13 +5355,25 @@ image_remove_bg_dl <- function(img,
   contornos <- if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat)) {
     extract_contours_cpp(lbl_mat)
   } else list()
-  if (is.list(contornos)) {
-    contornos <- contornos[!vapply(contornos, is.null, logical(1))]
-  }
+
+  # `extract_contours_cpp()` returns one slot per label id, so slot k belongs to
+  # instance k and is NULL when that instance has no pixels left -- which happens when
+  # it is fully overlapped by a higher-scoring instance (overlapping pixels keep the
+  # best-scoring label) or when morphology removed its mask.
+  #
+  # poly_measures() takes each polygon's `id` from its position in the list it is
+  # given, and the per-instance traits are later joined onto the boxes by that id. The
+  # features therefore have to be computed BEFORE the empty slots are dropped:
+  # compacting first renumbers every later instance and silently attaches its traits to
+  # the wrong object.
   feats <- if (length(contornos) > 0) {
     tryCatch(poly_measures(contornos), error = function(e) data.frame())
   } else {
     data.frame()
+  }
+
+  if (is.list(contornos)) {
+    contornos <- contornos[!vapply(contornos, is.null, logical(1))]
   }
 
   has_kpts <- !is.null(raw_res$keypoints) && is.matrix(raw_res$keypoints) && ncol(raw_res$keypoints) == 51 && num_boxes > 0
@@ -5931,7 +5984,8 @@ plot_yolo_heatmap <- function(img,
     "opening", "closing", "min_area", "invert", "pick_object", "show_mask",
     "show_text", "show_conf", "show_class", "show_id", "lwd", "col", "border",
     "alpha", "pad", "cex", "dir", "exemplar", "sim_threshold", "min_dist",
-    "feat_res", "max_objects", "superres_map", "k_steps", "sam_points", "grid"
+    "feat_res", "max_objects", "superres_map", "k_steps", "sam_points", "grid",
+    "sam_device"
   )
   dots[setdiff(names(dots), exclude)]
 }
@@ -6187,6 +6241,7 @@ image_segment_dl <- function(img,
                              plot_features = FALSE,
                              threads = 0,
                              engine = c("gpu", "cpu"),
+                             sam_device = c("cpu", "gpu", "auto"),
                              device_id = -1,
                              fill_hull = TRUE,
                              filter = 0,
@@ -6509,6 +6564,7 @@ image_segment_dl <- function(img,
         superres_map = superres_map,
         threads = threads,
         engine = engine,
+        sam_device = sam_device,
         device_id = device_id,
         fill_hull = fill_hull,
         filter = filter,
@@ -6875,6 +6931,15 @@ image_segment_dl <- function(img,
           conts_all <- extract_contours_cpp(lbl_mat)
         }
       }
+
+      # One slot per label id, so slot k belongs to instance k -- but the list is only
+      # as long as the highest id that still has pixels. An instance fully overlapped
+      # by a higher-scoring one leaves no pixels at all, so when it is the last
+      # detection the list comes back shorter than the number of boxes and indexing it
+      # by k overruns. Pad to num_inst (NULL for the missing ones, which the loops
+      # below resolve to the box corners); the alignment of the remaining slots is
+      # already correct.
+      length(conts_all) <- num_inst
 
       instance_conts <- vector("list", num_inst)
       for (k in seq_len(num_inst)) {

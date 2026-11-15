@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <limits>
 #include <sys/stat.h>
 
 #ifdef _OPENMP
@@ -35,6 +36,7 @@
 #endif
 
 #include "onnxruntime_c_api.h"
+#include "dense_zncc.h"
 
 // [[Rcpp::depends(RcppArmadillo)]]
 
@@ -191,6 +193,11 @@ Rcpp::List pliman_gpu_info_cpp() {
 }
 
 static void clear_onnx_sessions_internal();
+static void get_session_io_names(const OrtApi* ort, OrtSession* session,
+                                 std::vector<std::string>& in_names_str,
+                                 std::vector<const char*>& in_names,
+                                 std::vector<std::string>& out_names_str,
+                                 std::vector<const char*>& out_names);
 
 static const OrtApi* get_ort_api(const std::string& lib_path) {
   if (g_ort_api != NULL && g_current_lib_path == lib_path) {
@@ -369,6 +376,28 @@ static bool ort_spinning_enabled() {
   return cached == 1;
 }
 
+// FNV-1a style 64-bit hash over an entire byte range, consuming 8 bytes per step.
+// Used to key the SAM 2.1 encoder feature cache on the full input tensor: an earlier
+// version hashed only ~4096 sampled elements, so two different frames of the same
+// fixed-camera scene could collide and silently reuse stale embeddings.
+static uint64_t hash_bytes64(const void* p, size_t nbytes) {
+  const uint8_t* b = (const uint8_t*)p;
+  uint64_t h = 1469598103934665603ULL;
+  size_t i = 0;
+  for (; i + 8 <= nbytes; i += 8) {
+    uint64_t v;
+    std::memcpy(&v, b + i, 8);
+    h ^= v;
+    h *= 1099511628211ULL;
+    h ^= (h >> 29);
+  }
+  for (; i < nbytes; ++i) {
+    h ^= (uint64_t)b[i];
+    h *= 1099511628211ULL;
+  }
+  return h;
+}
+
 struct CachedEncoderFeatures {
   bool valid = false;
   uint64_t tensor_hash = 0;
@@ -377,8 +406,143 @@ struct CachedEncoderFeatures {
   std::vector<float> hr0;
   std::vector<float> hr1;
   std::vector<float> embed;
+  uint64_t last_used = 0;
 };
-static CachedEncoderFeatures g_cached_encoder;
+
+// Several encoder outputs are retained (LRU), not just the most recent one: labelling
+// one image for multiple classes, the interactive review loop, and stepping back to a
+// previous image all re-encode the same pixels otherwise. Capacity is set by
+// PLIMAN_SAM_CACHE (default 4); each entry holds ~16 MB of float features.
+static std::vector<CachedEncoderFeatures> g_encoder_cache;
+static uint64_t g_encoder_tick = 0;
+
+static size_t resolve_encoder_cache_size() {
+  static size_t cached = 0;
+  if (cached == 0) {
+    cached = 4;
+    const char* ev = std::getenv("PLIMAN_SAM_CACHE");
+    if (ev != NULL) {
+      long v = std::strtol(ev, NULL, 10);
+      if (v >= 1 && v <= 64) cached = (size_t)v;
+    }
+  }
+  return cached;
+}
+
+static CachedEncoderFeatures* encoder_cache_find(const std::string& enc_path,
+                                                 uint64_t hash, size_t tensor_size) {
+  for (size_t i = 0; i < g_encoder_cache.size(); ++i) {
+    CachedEncoderFeatures& e = g_encoder_cache[i];
+    if (e.valid && e.tensor_hash == hash && e.tensor_size == tensor_size &&
+        e.enc_path == enc_path) {
+      e.last_used = ++g_encoder_tick;
+      return &e;
+    }
+  }
+  return NULL;
+}
+
+static CachedEncoderFeatures* encoder_cache_slot() {
+  for (size_t i = 0; i < g_encoder_cache.size(); ++i) {
+    if (!g_encoder_cache[i].valid) return &g_encoder_cache[i];
+  }
+  if (g_encoder_cache.size() < resolve_encoder_cache_size()) {
+    g_encoder_cache.push_back(CachedEncoderFeatures());
+    return &g_encoder_cache.back();
+  }
+  CachedEncoderFeatures* lru = &g_encoder_cache[0];
+  for (size_t i = 1; i < g_encoder_cache.size(); ++i) {
+    if (g_encoder_cache[i].last_used < lru->last_used) lru = &g_encoder_cache[i];
+  }
+  return lru;
+}
+
+static void encoder_cache_clear() {
+  g_encoder_cache.clear();
+  g_encoder_tick = 0;
+}
+
+// Runs the SAM 2.1 image encoder for `img_values`, or reuses cached features when the
+// same tensor has already been encoded by this process. Shared by every SAM runner
+// (point/box prompting, Grounded-SAM box batches, PerSAM exemplar matching), so a
+// second call on the same image -- a different text prompt, a different exemplar click,
+// or a Grounded-SAM pass followed by a PerSAM pass -- skips the backbone entirely,
+// which is the dominant cost of all three.
+//
+// On success `enc_outputs` holds {high_res_feats_0, high_res_feats_1, image_embed},
+// which the caller releases as usual. `*out_input_tensor` is non-NULL only when the
+// encoder actually ran, and must be released too.
+static bool sam2_encode_cached(const OrtApi* ort,
+                               OrtSession* session_enc,
+                               OrtMemoryInfo* mem_info,
+                               OrtRunOptions* run_options,
+                               const std::string& enc_path,
+                               const std::vector<float>& img_values,
+                               OrtValue* enc_outputs[3],
+                               OrtValue** out_input_tensor,
+                               std::string* err_msg,
+                               uint64_t* out_hash = NULL) {
+  static const int64_t hr0_shape[4] = { 1, 32, 256, 256 };
+  static const int64_t hr1_shape[4] = { 1, 64, 128, 128 };
+  static const int64_t embed_shape[4] = { 1, 256, 64, 64 };
+  const size_t n = img_values.size();
+
+  if (out_input_tensor) *out_input_tensor = NULL;
+  enc_outputs[0] = enc_outputs[1] = enc_outputs[2] = NULL;
+
+  const uint64_t h = hash_bytes64(img_values.data(), n * sizeof(float));
+  if (out_hash) *out_hash = h;
+  CachedEncoderFeatures* hit = encoder_cache_find(enc_path, h, n);
+  if (hit != NULL) {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      mem_info, hit->hr0.data(), hit->hr0.size() * sizeof(float),
+      hr0_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[0]);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      mem_info, hit->hr1.data(), hit->hr1.size() * sizeof(float),
+      hr1_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[1]);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      mem_info, hit->embed.data(), hit->embed.size() * sizeof(float),
+      embed_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[2]);
+    return true;
+  }
+
+  const int64_t img_shape[4] = { 1, 3, 1024, 1024 };
+  OrtValue* in_t = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    mem_info, (void*)img_values.data(), n * sizeof(float),
+    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_t);
+  if (out_input_tensor) *out_input_tensor = in_t;
+
+  const char* enc_in_names[] = { "image" };
+  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
+  OrtStatus* st = ort->Run(session_enc, run_options, enc_in_names,
+                           (const OrtValue* const*)&in_t, 1,
+                           enc_out_names, 3, enc_outputs);
+  if (st != NULL) {
+    if (err_msg) *err_msg = ort->GetErrorMessage(st);
+    ort->ReleaseStatus(st);
+    return false;
+  }
+
+  float* p_hr0 = NULL;
+  float* p_hr1 = NULL;
+  float* p_emb = NULL;
+  (void)ort->GetTensorMutableData(enc_outputs[0], (void**)&p_hr0);
+  (void)ort->GetTensorMutableData(enc_outputs[1], (void**)&p_hr1);
+  (void)ort->GetTensorMutableData(enc_outputs[2], (void**)&p_emb);
+  if (p_hr0 && p_hr1 && p_emb) {
+    CachedEncoderFeatures* slot = encoder_cache_slot();
+    slot->hr0.assign(p_hr0, p_hr0 + (size_t)1 * 32 * 256 * 256);
+    slot->hr1.assign(p_hr1, p_hr1 + (size_t)1 * 64 * 128 * 128);
+    slot->embed.assign(p_emb, p_emb + (size_t)1 * 256 * 64 * 64);
+    slot->tensor_hash = h;
+    slot->tensor_size = n;
+    slot->enc_path = enc_path;
+    slot->last_used = ++g_encoder_tick;
+    slot->valid = true;
+  }
+  return true;
+}
 
 static void evict_cached_session_by_key(const OrtApi* ort, const std::string& key) {
   auto it = g_session_cache.find(key);
@@ -454,11 +618,9 @@ static inline float half_to_float(uint16_t h) {
 
 static void clear_onnx_sessions_internal() {
   if (g_ort_api == NULL) return;
-  g_cached_encoder.valid = false;
-  g_cached_encoder.hr0.clear();
-  g_cached_encoder.hr1.clear();
-  g_cached_encoder.embed.clear();
+  encoder_cache_clear();
   g_io_shape_cache.clear();
+  dense_zncc_clear_cache();
   for (auto& pair : g_session_cache) {
     CachedSession& cs = pair.second;
     if (cs.session) g_ort_api->ReleaseSession(cs.session);
@@ -826,6 +988,55 @@ void clear_onnx_sessions_cpp() {
   clear_onnx_sessions_internal();
 }
 
+// Releases only the sessions belonging to one model file (all thread-count and device
+// variants of it), leaving every other cached session warm. Used to free VRAM between
+// the two stages of a composite pipeline -- Grounding DINO then SAM 2.1, say -- without
+// the wholesale cache flush that forced both models to be rebuilt on the next image.
+// Returns the number of sessions released.
+// [[Rcpp::export]]
+int onnx_evict_session_cpp(std::string model_path) {
+  if (g_ort_api == NULL) return 0;
+  const std::string prefix = model_path + "_th_";
+  std::vector<std::string> stale;
+  for (std::map<std::string, CachedSession>::const_iterator it = g_session_cache.begin();
+       it != g_session_cache.end(); ++it) {
+    if (it->first.rfind(prefix, 0) == 0) stale.push_back(it->first);
+  }
+  for (size_t i = 0; i < stale.size(); ++i) {
+    evict_cached_session_by_key(g_ort_api, stale[i]);
+  }
+  g_io_shape_cache.erase(model_path);
+  return (int)stale.size();
+}
+
+// Drops the cached SAM 2.1 encoder features without touching the ONNX sessions.
+// [[Rcpp::export]]
+void onnx_clear_encoder_cache_cpp() {
+  encoder_cache_clear();
+}
+
+// Attempts and successes of the FFT-based dense ZNCC backend (@seealso dense_zncc.cpp).
+// Lets the regression test assert that the fast path is actually taken rather than
+// silently falling back to direct evaluation.
+// [[Rcpp::export]]
+Rcpp::IntegerVector pliman_zncc_fft_stats_cpp() {
+  return Rcpp::IntegerVector::create(
+    Rcpp::Named("attempts") = (int)g_zncc_fft_attempts,
+    Rcpp::Named("success") = (int)g_zncc_fft_success
+  );
+}
+
+// Process-wide OpenMP thread default. Exposed for diagnostics and for the regression
+// test asserting that a per-call `threads` argument does not mutate it.
+// [[Rcpp::export]]
+int pliman_omp_max_threads_cpp() {
+#ifdef _OPENMP
+  return omp_get_max_threads();
+#else
+  return 1;
+#endif
+}
+
 // [[Rcpp::export]]
 int onnx_set_max_sessions_cpp(int n = 0) {
   int prev = (int)resolve_max_sessions();
@@ -913,14 +1124,17 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
   OrtSession* session = cs.session;
   OrtMemoryInfo* memory_info = cs.mem_info;
 
-  OrtAllocator* allocator = NULL;
-  (void)ort->GetAllocatorWithDefaultOptions(&allocator);
-
-  char* input_name = NULL;
-  (void)ort->SessionGetInputName(session, 0, allocator, &input_name);
-
-  char* output_name = NULL;
-  (void)ort->SessionGetOutputName(session, 0, allocator, &output_name);
+  // Input/output names come from the cached session metadata. Querying them from the
+  // session on every call allocated and freed two strings through the ORT allocator per
+  // inference, which is pure overhead in batch and per-frame use.
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names_v, out_names_v;
+  get_session_io_names(ort, session, in_names_str, in_names_v, out_names_str, out_names_v);
+  if (in_names_v.empty() || out_names_v.empty()) {
+    Rcpp::stop("ONNX model exposes no inputs or outputs: " + model_path);
+  }
+  const char* input_name = in_names_v[0];
+  const char* output_name = out_names_v[0];
 
   int64_t input_shape[4] = {
     (int64_t)tensor_dims[0],
@@ -984,8 +1198,6 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
     std::string msg = ort->GetErrorMessage(status);
     ort->ReleaseStatus(status);
     ort->ReleaseValue(input_tensor);
-    allocator->Free(allocator, input_name);
-    allocator->Free(allocator, output_name);
     Rcpp::stop("ONNX Run failed: " + msg);
   }
 
@@ -1034,8 +1246,6 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
   ort->ReleaseTensorTypeAndShapeInfo(shape_info);
   ort->ReleaseValue(input_tensor);
   ort->ReleaseValue(output_tensor);
-  allocator->Free(allocator, input_name);
-  allocator->Free(allocator, output_name);
 
   return out_mat;
 }
@@ -1060,50 +1270,25 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
 
   // 3. Prepare Image Tensor [1, 3, 1024, 1024]
-  int64_t img_shape[4] = {1, 3, 1024, 1024};
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
   std::vector<float> img_values;
   sexp_to_float(tensor_vec, img_values, total_img_floats);
-
-  OrtValue* input_img_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info,
-    img_values.data(),
-    total_img_floats * sizeof(float),
-    img_shape,
-    4,
-    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
-    &input_img_tensor
-  );
-
-  // 4. Run Encoder
-  const char* enc_in_names[] = { "image" };
-  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
-  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
 
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
   (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
 
-  OrtStatus* status = ort->Run(
-    session_enc,
-    run_options,
-    enc_in_names,
-    (const OrtValue* const*)&input_img_tensor,
-    1,
-    enc_out_names,
-    3,
-    enc_outputs
-  );
-
-  if (status != NULL) {
-    std::string msg = ort->GetErrorMessage(status);
-    ort->ReleaseStatus(status);
-    ort->ReleaseValue(input_img_tensor);
-    Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
+  // 4. Encode (shared cache: a repeated prompt on the same image skips the backbone)
+  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  OrtValue* input_img_tensor = NULL;
+  std::string enc_err;
+  if (!sam2_encode_cached(ort, session_enc, memory_info, run_options, encoder_path,
+                          img_values, enc_outputs, &input_img_tensor, &enc_err)) {
+    ort->ReleaseRunOptions(run_options);
+    if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
+    Rcpp::stop("SAM 2.1 Encoder Run failed: " + enc_err);
   }
 
-  // 5. Prepare Decoder Prompts & Inputs
   // 5. Prepare Decoder Constant Inputs
   int mask_h = 256;
   int mask_w = 256;
@@ -1154,24 +1339,47 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
     }
   }
 
-  int num_pts = (int)points_x.size();
-  if (num_pts < 1) num_pts = 1;
+  const int n_in_pts = (int)points_x.size();
 
-  for (int p = 0; p < num_pts; ++p) {
-    float cur_pt_coords[2] = {
-      (float)(p < (int)points_x.size() ? points_x[p] : 512.0),
-      (float)(p < (int)points_y.size() ? points_y[p] : 512.0)
-    };
-    float cur_pt_lbl = (float)(p < (int)point_labels.size() ? point_labels[p] : 1);
+  // A box prompt is a *single* prompt made of two labelled corner points (labels 2 and
+  // 3). Feeding the corners through the per-point loop below sent them as two separate
+  // one-point prompts, which SAM interprets as two unrelated clicks with invalid
+  // labels; the resulting mask bore no relation to the requested box. Detect that case
+  // and issue one prompt of shape [1, 2, 2]. Label-1 point sets keep the per-point
+  // loop, whose max-over-masks behaviour is what gives "segment each clicked object".
+  bool box_prompt = false;
+  if (n_in_pts == 2 && (int)point_labels.size() == 2) {
+    const int l0 = point_labels[0], l1 = point_labels[1];
+    box_prompt = (l0 == 2 && l1 == 3) || (l0 == 3 && l1 == 2);
+  }
 
-    int64_t single_pt_shape[3] = { 1, 1, 2 };
-    int64_t single_lbl_shape[2] = { 1, 1 };
+  const int num_prompts = box_prompt ? 1 : std::max(1, n_in_pts);
+  const int pts_per_prompt = box_prompt ? 2 : 1;
+
+  for (int p = 0; p < num_prompts; ++p) {
+    float cur_pt_coords[4];
+    float cur_pt_lbl[2];
+    if (box_prompt) {
+      cur_pt_coords[0] = (float)points_x[0];
+      cur_pt_coords[1] = (float)points_y[0];
+      cur_pt_coords[2] = (float)points_x[1];
+      cur_pt_coords[3] = (float)points_y[1];
+      cur_pt_lbl[0] = (float)point_labels[0];
+      cur_pt_lbl[1] = (float)point_labels[1];
+    } else {
+      cur_pt_coords[0] = (float)(p < n_in_pts ? points_x[p] : 512.0);
+      cur_pt_coords[1] = (float)(p < n_in_pts ? points_y[p] : 512.0);
+      cur_pt_lbl[0] = (float)(p < (int)point_labels.size() ? point_labels[p] : 1);
+    }
+
+    int64_t single_pt_shape[3] = { 1, (int64_t)pts_per_prompt, 2 };
+    int64_t single_lbl_shape[2] = { 1, (int64_t)pts_per_prompt };
 
     OrtValue* single_pts_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info,
       cur_pt_coords,
-      2 * sizeof(float),
+      (size_t)pts_per_prompt * 2 * sizeof(float),
       single_pt_shape,
       3,
       ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
@@ -1181,8 +1389,8 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
     OrtValue* single_lbl_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info,
-      &cur_pt_lbl,
-      sizeof(float),
+      cur_pt_lbl,
+      (size_t)pts_per_prompt * sizeof(float),
       single_lbl_shape,
       2,
       ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
@@ -1270,7 +1478,7 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
   }
 
   ort->ReleaseRunOptions(run_options);
-  ort->ReleaseValue(input_img_tensor);
+  if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
   ort->ReleaseValue(mask_input_tensor);
   ort->ReleaseValue(has_mask_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);
@@ -1343,10 +1551,12 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
     seq_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, &att_tensor
   );
 
-  // 5. Prepare pixel_mask [1, 800, 800]
+  // 5. Prepare pixel_mask [1, 800, 800]. The contents are constant (all ones), so the
+  // 5 MB int64 buffer is allocated and filled once per process rather than per call.
   int64_t mask_shape[3] = { 1, 800, 800 };
   size_t total_mask_pix = 800 * 800;
-  std::vector<int64_t> mask_vec(total_mask_pix, 1LL);
+  static std::vector<int64_t> mask_vec;
+  if (mask_vec.size() != total_mask_pix) mask_vec.assign(total_mask_pix, 1LL);
   OrtValue* mask_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, mask_vec.data(), total_mask_pix * sizeof(int64_t),
@@ -1389,35 +1599,77 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
   float* boxes_data = NULL;
   (void)ort->GetTensorMutableData(out_tensors[1], (void**)&boxes_data);
 
-  // Post-processing: 900 queries, 256 token logits
-  std::vector<DinoBox> candidates;
-  for (int q = 0; q < 900; ++q) {
-    float cx = boxes_data[q * 4 + 0];
-    float cy = boxes_data[q * 4 + 1];
-    float w  = boxes_data[q * 4 + 2];
-    float h  = boxes_data[q * 4 + 3];
+  // Read the query and token counts from the logits tensor instead of assuming the
+  // 900 x 256 shape of one particular export: a model exported with different values
+  // previously caused out-of-bounds reads.
+  int num_queries = 900;
+  int num_tokens = 256;
+  {
+    OrtTensorTypeAndShapeInfo* lg_info = NULL;
+    if (ort->GetTensorTypeAndShape(out_tensors[0], &lg_info) == NULL && lg_info != NULL) {
+      size_t nd = 0;
+      (void)ort->GetDimensionsCount(lg_info, &nd);
+      std::vector<int64_t> lg_dims(nd);
+      if (nd > 0) (void)ort->GetDimensions(lg_info, lg_dims.data(), nd);
+      if (nd >= 3) {
+        if (lg_dims[1] > 0) num_queries = (int)lg_dims[1];
+        if (lg_dims[2] > 0) num_tokens = (int)lg_dims[2];
+      } else if (nd == 2) {
+        if (lg_dims[0] > 0) num_queries = (int)lg_dims[0];
+        if (lg_dims[1] > 0) num_tokens = (int)lg_dims[1];
+      }
+      ort->ReleaseTensorTypeAndShapeInfo(lg_info);
+    }
+  }
 
-    double max_prob = -1.0;
+  // Tokens [1, seq_len - 2] carry the prompt; index 0 is [CLS] and seq_len-1 is [SEP].
+  const int t_end = std::min(seq_len - 1, num_tokens);
+
+  // Compare logits rather than probabilities to find the winning token, and convert
+  // only once per query: sigmoid is monotonic, so the argmax is identical, and the
+  // thresholds are mapped into logit space so that the exp() is skipped entirely for
+  // queries that cannot pass. Thresholds <= 0 or >= 1 are handled without logit().
+  const double eff_text_thr = (text_threshold > 0.0) ? text_threshold : 0.0;
+  const double gate_prob = std::max(box_threshold, eff_text_thr);
+  const bool gate_always = (gate_prob <= 0.0);
+  const float gate_logit = gate_always ? -std::numeric_limits<float>::infinity()
+                         : (gate_prob >= 1.0 ? std::numeric_limits<float>::infinity()
+                            : (float)std::log(gate_prob / (1.0 - gate_prob)));
+
+  std::vector<DinoBox> candidates;
+  for (int q = 0; q < num_queries; ++q) {
+    const float* row = logits_data + (size_t)q * num_tokens;
+
+    float max_logit = -std::numeric_limits<float>::infinity();
     int best_t = -1;
-    for (int t = 1; t < seq_len - 1; ++t) {
-      float logit = logits_data[q * 256 + t];
-      double prob = 1.0 / (1.0 + std::exp(-(double)logit));
-      if (prob > max_prob) {
-        max_prob = prob;
+    for (int t = 1; t < t_end; ++t) {
+      if (row[t] > max_logit) {
+        max_logit = row[t];
         best_t = t;
       }
     }
+    if (best_t < 0) continue;
 
-    if (max_prob >= box_threshold) {
-      DinoBox b;
-      b.x1 = std::max(0.0, (double)(cx - w / 2.0));
-      b.y1 = std::max(0.0, (double)(cy - h / 2.0));
-      b.x2 = std::min(1.0, (double)(cx + w / 2.0));
-      b.y2 = std::min(1.0, (double)(cy + h / 2.0));
-      b.score = max_prob;
-      b.token_idx = best_t;
-      candidates.push_back(b);
-    }
+    // A box survives only if its strongest prompt token clears both box_threshold and
+    // text_threshold. The latter was previously accepted and never used, so
+    // text_threshold had no effect on the result at all.
+    if (!(max_logit >= gate_logit)) continue;
+
+    const double max_prob = 1.0 / (1.0 + std::exp(-(double)max_logit));
+
+    float cx = boxes_data[(size_t)q * 4 + 0];
+    float cy = boxes_data[(size_t)q * 4 + 1];
+    float w  = boxes_data[(size_t)q * 4 + 2];
+    float h  = boxes_data[(size_t)q * 4 + 3];
+
+    DinoBox b;
+    b.x1 = std::max(0.0, (double)(cx - w / 2.0));
+    b.y1 = std::max(0.0, (double)(cy - h / 2.0));
+    b.x2 = std::min(1.0, (double)(cx + w / 2.0));
+    b.y2 = std::min(1.0, (double)(cy + h / 2.0));
+    b.score = max_prob;
+    b.token_idx = best_t;
+    candidates.push_back(b);
   }
 
   std::sort(candidates.begin(), candidates.end(), [](const DinoBox& a, const DinoBox& b) {
@@ -1500,37 +1752,25 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
   OrtSession* session_dec = cs_dec.session;
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
 
-  // 1. Run Encoder ONCE on [1, 3, 1024, 1024]
-  int64_t img_shape[4] = {1, 3, 1024, 1024};
+  // 1. Encode ONCE on [1, 3, 1024, 1024], through the shared feature cache. A second
+  // Grounded-SAM pass over the same image -- another text prompt, or a re-run after a
+  // threshold change in the review loop -- now skips the backbone entirely.
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
   std::vector<float> img_values;
   sexp_to_float(tensor_vec, img_values, total_img_floats);
-
-  OrtValue* input_img_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, img_values.data(), total_img_floats * sizeof(float),
-    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_img_tensor
-  );
-
-  const char* enc_in_names[] = { "image" };
-  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
-  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
 
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
   (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
 
-  OrtStatus* status = ort->Run(
-    session_enc, run_options, enc_in_names, (const OrtValue* const*)&input_img_tensor,
-    1, enc_out_names, 3, enc_outputs
-  );
-
-  if (status != NULL) {
-    std::string msg = ort->GetErrorMessage(status);
-    ort->ReleaseStatus(status);
+  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  OrtValue* input_img_tensor = NULL;
+  std::string enc_err;
+  if (!sam2_encode_cached(ort, session_enc, memory_info, run_options, encoder_path,
+                          img_values, enc_outputs, &input_img_tensor, &enc_err)) {
     ort->ReleaseRunOptions(run_options);
-    ort->ReleaseValue(input_img_tensor);
-    Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
+    if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
+    Rcpp::stop("SAM 2.1 Encoder Run failed: " + enc_err);
   }
 
   // 2. Decoder Common Setup
@@ -1722,26 +1962,11 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
 
   // Cleanup
   ort->ReleaseRunOptions(run_options);
-  ort->ReleaseValue(input_img_tensor);
+  if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);
 
   return res_masks;
 }
-
-struct ZnccKernelEntry {
-  int dx;
-  int dy;
-  float w;
-  float t_zero[3];
-};
-
-struct DenseExemplarKernel {
-  std::vector<ZnccKernelEntry> entries;
-  float tmpl_std;
-  float sum_w;
-  float inv_sum_w;
-  int radius;
-};
 
 // [[Rcpp::export]]
 Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
@@ -1761,103 +1986,54 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
                                bool use_gpu = false,
                                int device_id = -1,
                                Rcpp::Nullable<Rcpp::List> precomputed_prototypes = R_NilValue) {
-  // SAM 2.1 Vision Transformer backbone has known DirectML driver issues (DXGI_ERROR_DEVICE_HUNG 887A0006)
-  // on Windows when executing hierarchical attention / mask downscaling kernels.
-  // We force CPU execution for SAM 2.1 to guarantee 100% session stability and prevent RStudio crashes.
-  (void)use_gpu;
-  (void)device_id;
+  // The SAM 2.1 Hiera backbone has been reported to trigger DirectML driver faults
+  // (DXGI_ERROR_DEVICE_HUNG 887A0006) in its hierarchical attention / mask-downscaling
+  // kernels on some driver and runtime combinations, which takes down the whole R
+  // session rather than raising a recoverable error. GPU execution is therefore
+  // opt-in: `use_gpu` is honoured when the caller explicitly asks for it (R exposes
+  // this as `sam_device = "gpu"`), while the default path stays on CPU and is
+  // numerically unchanged. On hardware where DirectML is stable this is roughly an
+  // order of magnitude faster, since the encoder dominates the cost.
   if (max_objects <= 0) max_objects = 100000;
 
   const OrtApi* ort = get_ort_api(lib_path);
 
-  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, false, -1);
-  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path, 1, false, -1);
+  // Decoder threading depends on how stage 7 drives it, and the two devices want
+  // opposite strategies (measured, see the comment there): on GPU one batched Run at a
+  // time with the full thread budget; on CPU many single-prompt Runs fanned out across
+  // an OpenMP loop, each with one intra-op thread so the two levels do not multiply.
+  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, use_gpu, device_id);
+  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path,
+                                                     use_gpu ? num_threads : 1,
+                                                     use_gpu, device_id);
+  const bool dec_on_gpu = (cs_dec.meta != NULL) && cs_dec.meta->is_gpu;
   OrtSession* session_enc = cs_enc.session;
   OrtSession* session_dec = cs_dec.session;
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
 
-  // 1. Run SAM 2.1 Encoder ONCE on [1, 3, 1024, 1024] (with static cache for instant review updates)
-  int64_t img_shape[4] = {1, 3, 1024, 1024};
+  // 1. Run the SAM 2.1 encoder once on [1, 3, 1024, 1024]; sam2_encode_cached() owns
+  // the tensor shape and the feature cache.
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
   std::vector<float> img_values;
   sexp_to_float(tensor_vec, img_values, total_img_floats);
 
-  uint64_t cur_hash = 14695981039346656037ULL;
-  size_t hash_step = (total_img_floats > 16384) ? (total_img_floats / 4096) : 1;
-  for (size_t i = 0; i < total_img_floats; i += hash_step) {
-    uint32_t val = 0;
-    float f = img_values[i];
-    std::memcpy(&val, &f, sizeof(float));
-    cur_hash ^= val;
-    cur_hash *= 1099511628211ULL;
-  }
-
-  int64_t hr0_shape[4] = { 1, 32, 256, 256 };
-  int64_t hr1_shape[4] = { 1, 64, 128, 128 };
-  int64_t embed_shape[4] = { 1, 256, 64, 64 };
-
-  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
   (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
 
+  // 1b. Encode through the shared feature cache. Re-running the same image with a
+  // different sim_threshold, min_dist or feat_res therefore costs only the matching
+  // and decoding stages, which is what makes interactive tuning usable.
+  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
   OrtValue* input_img_tensor = NULL;
-
-  bool is_cached = g_cached_encoder.valid &&
-                   g_cached_encoder.enc_path == encoder_path &&
-                   g_cached_encoder.tensor_size == total_img_floats &&
-                   g_cached_encoder.tensor_hash == cur_hash;
-
-  if (is_cached) {
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, g_cached_encoder.hr0.data(), g_cached_encoder.hr0.size() * sizeof(float),
-      hr0_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[0]
-    );
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, g_cached_encoder.hr1.data(), g_cached_encoder.hr1.size() * sizeof(float),
-      hr1_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[1]
-    );
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, g_cached_encoder.embed.data(), g_cached_encoder.embed.size() * sizeof(float),
-      embed_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[2]
-    );
-  } else {
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, img_values.data(), total_img_floats * sizeof(float),
-      img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_img_tensor
-    );
-
-    const char* enc_in_names[] = { "image" };
-    const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
-
-    OrtStatus* status = ort->Run(
-      session_enc, run_options, enc_in_names, (const OrtValue* const*)&input_img_tensor,
-      1, enc_out_names, 3, enc_outputs
-    );
-
-    if (status != NULL) {
-      std::string msg = ort->GetErrorMessage(status);
-      ort->ReleaseStatus(status);
-      ort->ReleaseRunOptions(run_options);
-      ort->ReleaseValue(input_img_tensor);
-      Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
-    }
-
-    // Cache the encoder outputs for instantaneous re-evaluations
-    float* p_hr0 = NULL;
-    float* p_hr1 = NULL;
-    float* p_emb = NULL;
-    (void)ort->GetTensorMutableData(enc_outputs[0], (void**)&p_hr0);
-    (void)ort->GetTensorMutableData(enc_outputs[1], (void**)&p_hr1);
-    (void)ort->GetTensorMutableData(enc_outputs[2], (void**)&p_emb);
-
-    g_cached_encoder.hr0.assign(p_hr0, p_hr0 + (1 * 32 * 256 * 256));
-    g_cached_encoder.hr1.assign(p_hr1, p_hr1 + (1 * 64 * 128 * 128));
-    g_cached_encoder.embed.assign(p_emb, p_emb + (1 * 256 * 64 * 64));
-    g_cached_encoder.tensor_hash = cur_hash;
-    g_cached_encoder.tensor_size = total_img_floats;
-    g_cached_encoder.enc_path = encoder_path;
-    g_cached_encoder.valid = true;
+  std::string enc_err;
+  uint64_t cur_img_key = 0;
+  if (!sam2_encode_cached(ort, session_enc, memory_info, run_options, encoder_path,
+                          img_values, enc_outputs, &input_img_tensor, &enc_err,
+                          &cur_img_key)) {
+    ort->ReleaseRunOptions(run_options);
+    if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
+    Rcpp::stop("SAM 2.1 Encoder Run failed: " + enc_err);
   }
 
   // 2. Decoder Common Setup
@@ -1901,6 +2077,15 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   float max_ex_area = 0.0f;
   float avg_ex_area = 100.0f;
 
+  // Prototypes carried over from previous images are held separately and appended
+  // *after* the prototypes extracted from the clicks on this image. The previous code
+  // loaded them first and appended the new ones, so the later resize(8) discarded
+  // exactly the freshly clicked exemplars: with 8 accumulated prototypes, new clicks
+  // in the review loop had no effect on the similarity map.
+  std::vector<std::vector<float>> carried_prototypes;
+  std::vector<std::vector<float>> carried_prototypes_hr0;
+  std::vector<DenseExemplarKernel> carried_dense_kernels;
+
   if (precomputed_prototypes.isNotNull()) {
     Rcpp::List p_list(precomputed_prototypes.get());
     if (p_list.containsElementNamed("semantic")) {
@@ -1909,7 +2094,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       for (int i = 0; i < max_to_load; ++i) {
         Rcpp::NumericVector sv = sem_list[i];
         std::vector<float> fv(sv.begin(), sv.end());
-        exemplar_prototypes.push_back(fv);
+        carried_prototypes.push_back(fv);
       }
     }
     if (p_list.containsElementNamed("hr0")) {
@@ -1918,7 +2103,45 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       for (int i = 0; i < max_to_load; ++i) {
         Rcpp::NumericVector hv = hr_list[i];
         std::vector<float> fv(hv.begin(), hv.end());
-        exemplar_prototypes_hr0.push_back(fv);
+        carried_prototypes_hr0.push_back(fv);
+      }
+    }
+    // Dense ZNCC kernels serialized by a previous call, so that feat_res = 1024 works
+    // on images 2..N of a batch instead of producing an all-zero similarity map.
+    if (p_list.containsElementNamed("dense")) {
+      Rcpp::List d_list = p_list["dense"];
+      int max_to_load = std::min((int)d_list.size(), 8);
+      for (int i = 0; i < max_to_load; ++i) {
+        if (Rf_isNull(d_list[i])) continue;
+        Rcpp::List dk = d_list[i];
+        if (!dk.containsElementNamed("dx") || !dk.containsElementNamed("t_zero")) continue;
+        Rcpp::IntegerVector dxv = dk["dx"];
+        Rcpp::IntegerVector dyv = dk["dy"];
+        Rcpp::NumericVector wv  = dk["w"];
+        Rcpp::NumericMatrix tz  = dk["t_zero"];
+        int n_ent = (int)dxv.size();
+        if (n_ent < 1 || (int)dyv.size() != n_ent || (int)wv.size() != n_ent ||
+            tz.nrow() != n_ent || tz.ncol() != 3) continue;
+        DenseExemplarKernel dkern;
+        dkern.radius = dk.containsElementNamed("radius") ? Rcpp::as<int>(dk["radius"]) : 16;
+        dkern.sum_w = dk.containsElementNamed("sum_w") ? Rcpp::as<float>(dk["sum_w"]) : 1.0f;
+        if (dkern.sum_w < 1e-5f) dkern.sum_w = 1.0f;
+        dkern.inv_sum_w = 1.0f / dkern.sum_w;
+        dkern.tmpl_std = dk.containsElementNamed("tmpl_std") ? Rcpp::as<float>(dk["tmpl_std"]) : 1.0f;
+        if (dkern.tmpl_std < 1e-6f) dkern.tmpl_std = 1.0f;
+        dkern.entries.reserve(n_ent);
+        for (int k = 0; k < n_ent; ++k) {
+          ZnccKernelEntry ke;
+          ke.dx = dxv[k];
+          ke.dy = dyv[k];
+          ke.w = (float)wv[k];
+          ke.t_zero[0] = (float)tz(k, 0);
+          ke.t_zero[1] = (float)tz(k, 1);
+          ke.t_zero[2] = (float)tz(k, 2);
+          dkern.entries.push_back(ke);
+        }
+        build_zncc_spans(dkern);
+        carried_dense_kernels.push_back(dkern);
       }
     }
     if (p_list.containsElementNamed("avg_area")) {
@@ -2168,6 +2391,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       }
       d_kernel.tmpl_std = std::sqrt(tmpl_std_sq);
       if (d_kernel.tmpl_std < 1e-6f) d_kernel.tmpl_std = 1.0f;
+      build_zncc_spans(d_kernel);
       exemplar_dense_kernels.push_back(d_kernel);
 
       ort->ReleaseTensorTypeAndShapeInfo(iou_shape_info);
@@ -2232,6 +2456,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       }
       d_kernel.tmpl_std = std::sqrt(tmpl_std_sq);
       if (d_kernel.tmpl_std < 1e-6f) d_kernel.tmpl_std = 1.0f;
+      build_zncc_spans(d_kernel);
       exemplar_dense_kernels.push_back(d_kernel);
     }
 
@@ -2263,13 +2488,6 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     exemplar_prototypes_hr0.push_back(proto_hr0);
   }
 
-  if (exemplar_prototypes.size() > 8) {
-    exemplar_prototypes.resize(8);
-  }
-  if (exemplar_prototypes_hr0.size() > 8) {
-    exemplar_prototypes_hr0.resize(8);
-  }
-
     if (!exemplar_areas.empty()) {
       float sum_area = 0.0f;
       int cnt_area = 0;
@@ -2288,6 +2506,21 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       max_ex_area = std::max(min_ex_area, avg_ex_area * 2.20f);
     }
   }
+
+  // Merge carried-over prototypes *after* this image's own, then cap at 8. Keeping the
+  // freshly clicked exemplars at the front is what makes a new click in the review loop
+  // actually change the similarity map.
+  for (size_t i = 0; i < carried_prototypes.size() && exemplar_prototypes.size() < 8; ++i) {
+    exemplar_prototypes.push_back(carried_prototypes[i]);
+  }
+  for (size_t i = 0; i < carried_prototypes_hr0.size() && exemplar_prototypes_hr0.size() < 8; ++i) {
+    exemplar_prototypes_hr0.push_back(carried_prototypes_hr0[i]);
+  }
+  for (size_t i = 0; i < carried_dense_kernels.size() && exemplar_dense_kernels.size() < 8; ++i) {
+    exemplar_dense_kernels.push_back(carried_dense_kernels[i]);
+  }
+  if (exemplar_prototypes.size() > 8) exemplar_prototypes.resize(8);
+  if (exemplar_prototypes_hr0.size() > 8) exemplar_prototypes_hr0.resize(8);
 
   // 4. Compute Cosine Similarity Heatmap with Multi-Prototype Max-Pooling (64x64 base):
   std::vector<float> sim_grid(64 * 64, 0.0f);
@@ -2339,6 +2572,17 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
 
   int grid_res = (feat_res > 64) ? feat_res : 64;
   std::vector<float> peak_grid;
+
+  // The dense stride-1 path needs ZNCC templates. With only carried-over prototypes and
+  // no serialized kernels there are none, and the dense pass would scan 1M pixels only
+  // to return an all-zero map (and therefore zero instances). Fall back to the 256 path
+  // instead of silently producing nothing.
+  if (grid_res > 256 && exemplar_dense_kernels.empty()) {
+    Rcpp::warning("PerSAM: no dense exemplar kernels available for feat_res = 1024 "
+                  "(prototypes were supplied without serialized kernels); "
+                  "falling back to feat_res = 256.");
+    grid_res = 256;
+  }
 
   if (grid_res <= 64) {
     // Mode 1: Fast 64x64 ViT path (blazing fast, ideal for large objects like people, leaves)
@@ -2452,11 +2696,54 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     const float* img_c2 = img_values.data() + 2 * plane_size;
     int num_kernels = (int)exemplar_dense_kernels.size();
 
+    // Direct evaluation costs O(pixels x radius^2). For the small templates this mode
+    // is meant for -- grains, seeds and spores give radii of 6 to 15 -- it is cheap
+    // (0.4s or less, measured). It becomes the dominant stage only once the exemplar is
+    // large: at the radius cap of 48 it takes 5.3s, against 3.4s when the same six
+    // correlations are evaluated as products of spectra (1.57x, identical instances).
+    // The FFT path is therefore gated on the radius rather than used unconditionally:
+    // below the gate it would only add transform overhead. When it does run, the
+    // interior is already filled in and the loop below finishes the border frame,
+    // where sampling clamps and the two methods would not agree. If FFTW is
+    // unavailable the direct path still handles everything.
+    int fft_rad = 0;
+    for (int p = 0; p < num_kernels; ++p) {
+      fft_rad = std::max(fft_rad, exemplar_dense_kernels[p].radius);
+    }
+    int fft_min_radius = 20;
+    {
+      const char* ev = std::getenv("PLIMAN_ZNCC_FFT_MIN_RADIUS");
+      if (ev != NULL) {
+        long v = std::strtol(ev, NULL, 10);
+        if (v >= 0 && v <= 4096) fft_min_radius = (int)v;
+      }
+    }
+    bool fft_done = false;
+    if (num_kernels > 0 && fft_rad >= fft_min_radius) {
+      fft_done = dense_zncc_fft(img_c0, img_c1, img_c2, 1024, 1024,
+                                (unsigned long long)cur_img_key,
+                                exemplar_dense_kernels, vit_1024, vit_thresh,
+                                dense_out);
+    }
+
     #pragma omp parallel for schedule(dynamic, 16)
     for (int y = 0; y < 1024; ++y) {
       for (int x = 0; x < 1024; ++x) {
         float v_sim = vit_1024[(size_t)y * 1024 + x];
         if (v_sim < vit_thresh) continue;
+
+        // Interior pixels already carry their value when the FFT path ran.
+        if (fft_done) {
+          bool interior = true;
+          for (int p = 0; p < num_kernels; ++p) {
+            const int rr = exemplar_dense_kernels[p].radius;
+            if (!(x >= rr && x < 1024 - rr && y >= rr && y < 1024 - rr)) {
+              interior = false;
+              break;
+            }
+          }
+          if (interior) continue;
+        }
 
         float max_zncc = 0.0f;
         for (int p = 0; p < num_kernels; ++p) {
@@ -2469,24 +2756,45 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
           float sq0 = 0.0f, sq1 = 0.0f, sq2 = 0.0f;
 
           if (x >= rad && x < 1024 - rad && y >= rad && y < 1024 - rad) {
-            size_t center_idx = (size_t)y * 1024 + x;
-            for (size_t k = 0; k < num_k_entries; ++k) {
-              const ZnccKernelEntry& ke = dk.entries[k];
-              size_t idx = center_idx + (size_t)ke.dy * 1024 + ke.dx;
-              float i0 = img_c0[idx];
-              float i1 = img_c1[idx];
-              float i2 = img_c2[idx];
-              float w = ke.w;
-
-              dot += w * (i0 * ke.t_zero[0] + i1 * ke.t_zero[1] + i2 * ke.t_zero[2]);
-              s0 += w * i0;
-              s1 += w * i1;
-              s2 += w * i2;
-              sq0 += w * i0 * i0;
-              sq1 += w * i1 * i1;
-              sq2 += w * i2 * i2;
+            // Interior fast path. Walking the kernel as runs of consecutive dx turns
+            // the per-entry gather over a disk into contiguous streaming loads from
+            // both the image planes and the packed weight arrays, which is what the
+            // compiler needs to vectorize this loop. The weights carry w * t_zero
+            // premultiplied, so the dot product costs one multiply-add per channel.
+            const size_t center_idx = (size_t)y * 1024 + x;
+            const float* w_arr = dk.w_arr.data();
+            const float* wt_arr = dk.wt_arr.data();
+            const size_t n_spans = dk.spans.size();
+            for (size_t sp = 0; sp < n_spans; ++sp) {
+              const ZnccSpan& S = dk.spans[sp];
+              const size_t base = center_idx + (size_t)S.dy * 1024 + S.dx0;
+              const float* p0 = img_c0 + base;
+              const float* p1 = img_c1 + base;
+              const float* p2 = img_c2 + base;
+              const float* wp = w_arr + S.off;
+              const float* tp = wt_arr + S.off * 3;
+              const int len = S.len;
+              #pragma omp simd reduction(+:dot,s0,s1,s2,sq0,sq1,sq2)
+              for (int k = 0; k < len; ++k) {
+                const float i0 = p0[k];
+                const float i1 = p1[k];
+                const float i2 = p2[k];
+                const float w = wp[k];
+                dot += i0 * tp[3 * k] + i1 * tp[3 * k + 1] + i2 * tp[3 * k + 2];
+                const float wi0 = w * i0;
+                const float wi1 = w * i1;
+                const float wi2 = w * i2;
+                s0 += wi0;
+                s1 += wi1;
+                s2 += wi2;
+                sq0 += wi0 * i0;
+                sq1 += wi1 * i1;
+                sq2 += wi2 * i2;
+              }
             }
           } else {
+            // Border pixels need per-sample clamping, which breaks contiguity; they are
+            // a thin frame of the image, so the original entry walk is kept for them.
             for (size_t k = 0; k < num_k_entries; ++k) {
               const ZnccKernelEntry& ke = dk.entries[k];
               int px = std::max(0, std::min(1023, x + ke.dx));
@@ -2601,19 +2909,57 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     }
   }
 
-  for (size_t i = 0; i < cand_peaks.size(); ++i) {
-    bool suppressed = false;
+  // Spatial NMS over candidate peaks. Comparing each candidate against every accepted
+  // peak is O(N_cand x N_accepted), which dominates on dense scenes (thousands of
+  // peaks). Bucket accepted peaks into a grid of cells of side grid_min_dist: any peak
+  // closer than grid_min_dist must lie in the same or an adjacent cell, so only the 3x3
+  // neighbourhood needs checking. Identical acceptance decisions, O(N) cost.
+  {
+    const float cell = (grid_min_dist > 1.0f) ? grid_min_dist : 1.0f;
+    const int n_cells = std::max(1, (int)std::ceil((double)grid_res / (double)cell) + 1);
+    std::map<int, std::vector<size_t> > buckets;
+    const float min_dist_sq = grid_min_dist * grid_min_dist;
+
+    auto bucket_key = [n_cells](int cr, int ck) { return cr * n_cells + ck; };
+
+    auto insert_peak = [&](size_t idx, int r, int k) {
+      int cr = std::min(n_cells - 1, std::max(0, (int)((float)r / cell)));
+      int ck = std::min(n_cells - 1, std::max(0, (int)((float)k / cell)));
+      buckets[bucket_key(cr, ck)].push_back(idx);
+    };
+
     for (size_t j = 0; j < accepted_peaks.size(); ++j) {
-      float dr = (float)(cand_peaks[i].r - accepted_peaks[j].r);
-      float dc = (float)(cand_peaks[i].k - accepted_peaks[j].k);
-      if (std::sqrt(dr * dr + dc * dc) < grid_min_dist) {
-        suppressed = true;
-        break;
-      }
+      insert_peak(j, accepted_peaks[j].r, accepted_peaks[j].k);
     }
-    if (!suppressed) {
-      accepted_peaks.push_back(cand_peaks[i]);
-      if (max_objects > 0 && (int)accepted_peaks.size() >= max_objects) break;
+
+    for (size_t i = 0; i < cand_peaks.size(); ++i) {
+      const int r = cand_peaks[i].r;
+      const int k = cand_peaks[i].k;
+      int cr = std::min(n_cells - 1, std::max(0, (int)((float)r / cell)));
+      int ck = std::min(n_cells - 1, std::max(0, (int)((float)k / cell)));
+
+      bool suppressed = false;
+      for (int dr_c = -1; dr_c <= 1 && !suppressed; ++dr_c) {
+        for (int dk_c = -1; dk_c <= 1 && !suppressed; ++dk_c) {
+          int nr = cr + dr_c, nk = ck + dk_c;
+          if (nr < 0 || nk < 0 || nr >= n_cells || nk >= n_cells) continue;
+          auto it_b = buckets.find(bucket_key(nr, nk));
+          if (it_b == buckets.end()) continue;
+          const std::vector<size_t>& cell_items = it_b->second;
+          for (size_t q = 0; q < cell_items.size(); ++q) {
+            const CandPeak& ap = accepted_peaks[cell_items[q]];
+            float dr = (float)(r - ap.r);
+            float dc = (float)(k - ap.k);
+            if (dr * dr + dc * dc < min_dist_sq) { suppressed = true; break; }
+          }
+        }
+      }
+
+      if (!suppressed) {
+        accepted_peaks.push_back(cand_peaks[i]);
+        insert_peak(accepted_peaks.size() - 1, r, k);
+        if (max_objects > 0 && (int)accepted_peaks.size() >= max_objects) break;
+      }
     }
   }
 
@@ -2634,171 +2980,284 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     raw_instances[p].valid = false;
   }
 
-#if defined(_OPENMP)
-  int actual_omp_threads = (num_threads > 0) ? num_threads : omp_get_max_threads();
-  omp_set_num_threads(actual_omp_threads);
-#else
-  int actual_omp_threads = 1;
-#endif
+  // 7. Decode every accepted peak.
+  //
+  // The SAM 2.1 decoder accepts a prompt batch (`num_labels` is dynamic in the exported
+  // graph), so B prompts go out in ONE Run instead of one Run per peak. The former
+  // scheme pushed peaks through an OpenMP loop against a deliberately single-threaded
+  // decoder session: it paid the full per-call overhead N times and gave each call one
+  // core. Batching hands ORT one large GEMM per batch with the whole thread budget, and
+  // is what makes a GPU decoder session worthwhile at all (one submission per batch
+  // instead of N concurrent ones from many host threads).
+  //
+  // Mask selection and binarization are the former logic unchanged, applied to each
+  // slice of the batch, so the instances produced are identical.
 
-  #pragma omp parallel for num_threads(actual_omp_threads) schedule(dynamic)
-  for (int p = 0; p < num_peaks; ++p) {
-    float cand_px = accepted_peaks[p].px;
-    float cand_py = accepted_peaks[p].py;
-
-    float pt_coords[2] = { cand_px, cand_py };
-    float pt_label[1] = { 1.0f };
-
-    int64_t pt_shape[3] = { 1, 1, 2 };
-    int64_t lbl_shape[2] = { 1, 1 };
-
-    OrtValue* cand_pts_tensor = NULL;
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, pt_coords, 2 * sizeof(float),
-      pt_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &cand_pts_tensor
-    );
-
-    OrtValue* cand_lbl_tensor = NULL;
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, pt_label, 1 * sizeof(float),
-      lbl_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &cand_lbl_tensor
-    );
-
-    const OrtValue* cand_dec_in_values[] = {
-      enc_outputs[2], enc_outputs[0], enc_outputs[1],
-      cand_pts_tensor, cand_lbl_tensor, mask_input_tensor, has_mask_tensor
-    };
-
-    OrtValue* cand_dec_outputs[2] = { NULL, NULL };
-    OrtStatus* dec_status = ort->Run(
-      session_dec, run_options, dec_in_names, cand_dec_in_values, 7, dec_out_names, 2, cand_dec_outputs
-    );
-
-    if (dec_status == NULL) {
-      OrtTensorTypeAndShapeInfo* iou_shape_info = NULL;
-      (void)ort->GetTensorTypeAndShape(cand_dec_outputs[1], &iou_shape_info);
-      size_t iou_dims_count = 0;
-      (void)ort->GetDimensionsCount(iou_shape_info, &iou_dims_count);
-      std::vector<int64_t> iou_dims(iou_dims_count);
-      (void)ort->GetDimensions(iou_shape_info, iou_dims.data(), iou_dims_count);
-      int num_masks = (iou_dims_count >= 2) ? (int)iou_dims[1] : 1;
-
-      float* iou_data = NULL;
-      (void)ort->GetTensorMutableData(cand_dec_outputs[1], (void**)&iou_data);
-
-      float* mask_data = NULL;
-      (void)ort->GetTensorMutableData(cand_dec_outputs[0], (void**)&mask_data);
-
-      int best_idx = 0;
-      float best_score = -1e9f;
-      for (int m = 0; m < num_masks; ++m) {
-        size_t offset = (size_t)m * mask_h * mask_w;
-        int fg_c = 0;
-        float sum_r = 0.0f, sum_c = 0.0f;
-        for (int r = 0; r < mask_h; ++r) {
-          size_t roff = (size_t)r * mask_w;
-          for (int c = 0; c < mask_w; ++c) {
-            if (mask_data[offset + roff + c] > 0.0f) {
-              fg_c++;
-              sum_r += (float)r;
-              sum_c += (float)c;
-            }
-          }
-        }
-        float fg_ratio = (float)fg_c / (float)(mask_h * mask_w);
-        float score = iou_data[m];
-        if (fg_ratio > 0.80f) score -= 5.0f;
-
-        // Verify if prompt point is inside this candidate mask
-        int pr = (int)(cand_py / 4.0f);
-        int pc = (int)(cand_px / 4.0f);
-        pr = std::max(0, std::min(mask_h - 1, pr));
-        pc = std::max(0, std::min(mask_w - 1, pc));
-        bool pt_in_mask = (mask_data[offset + (size_t)pr * mask_w + pc] > 0.0f);
-        if (!pt_in_mask) score -= 3.0f;
-
-        // If mask is not empty, check compactness around prompt point
-        if (fg_c > 0) {
-          float cen_r = sum_r / (float)fg_c;
-          float cen_c = sum_c / (float)fg_c;
-          float dist_cen = std::sqrt((cen_r - (float)pr) * (cen_r - (float)pr) +
-                                     (cen_c - (float)pc) * (cen_c - (float)pc));
-          float r_approx = std::sqrt((float)fg_c / 3.14159f);
-          if (r_approx > 4.0f && dist_cen > r_approx * 1.5f) {
-            score -= 2.0f;
-          }
-        }
-
-        // Only penalize massive full-screen multi-object agglomerations, never small valid objects!
-        if (max_ex_area > 5.0f && fg_c > 0) {
-          if (fg_c > max_ex_area * 2.5f) {
-            float ratio = (float)fg_c / (max_ex_area * 2.5f);
-            score -= (ratio - 1.0f) * 2.0f;
-          }
-        }
-
-        if (p < num_exemplars) {
-          score += 5.0f;
-        }
-
-        if (score > best_score) {
-          best_score = score;
-          best_idx = m;
-        }
-      }
-
-      size_t slice_offset = (size_t)best_idx * mask_h * mask_w;
-      std::vector<uint8_t> bin_vec(mask_w * mask_h, 0);
-      int min_r = mask_h, max_r = -1, min_c = mask_w, max_c = -1;
-      int fg_total = 0;
-
-      // Direct logit thresholding: logit > 0.0f <=> sigmoid(logit) > 0.5
+  // Scores one decoded prompt and, if it survives, stores it in raw_instances[p].
+  // `mask_slice` points at this prompt's num_masks x 256 x 256 logits, `iou_slice` at
+  // its num_masks predicted IoUs.
+  auto process_prompt = [&](int p, const float* mask_slice, const float* iou_slice,
+                            int num_masks, float cand_px, float cand_py) {
+    int best_idx = 0;
+    float best_score = -1e9f;
+    for (int m = 0; m < num_masks; ++m) {
+      const size_t offset = (size_t)m * mask_h * mask_w;
+      int fg_c = 0;
+      float sum_r = 0.0f, sum_c = 0.0f;
       for (int r = 0; r < mask_h; ++r) {
-        size_t row_off = (size_t)r * mask_w;
+        const size_t roff = (size_t)r * mask_w;
         for (int c = 0; c < mask_w; ++c) {
-          float logit = mask_data[slice_offset + row_off + c];
-          if (logit > 0.0f) {
-            bin_vec[row_off + c] = 1;
-            fg_total++;
-            if (r < min_r) min_r = r;
-            if (r > max_r) max_r = r;
-            if (c < min_c) min_c = c;
-            if (c > max_c) max_c = c;
+          if (mask_slice[offset + roff + c] > 0.0f) {
+            fg_c++;
+            sum_r += (float)r;
+            sum_c += (float)c;
           }
         }
       }
+      float fg_ratio = (float)fg_c / (float)(mask_h * mask_w);
+      float score = iou_slice[m];
+      if (fg_ratio > 0.80f) score -= 5.0f;
 
-      int min_fg = (p < num_exemplars) ? 1 : std::max(2, std::min(10, (int)std::round(min_dist_1024 / 4.0f)));
-      if (fg_total >= min_fg && fg_total <= (int)(mask_h * mask_w * 0.85f)) {
-        double bx1 = (double)min_c / 256.0 * orig_w;
-        double by1 = (double)min_r / 256.0 * orig_h;
-        double bx2 = (double)(max_c + 1) / 256.0 * orig_w;
-        double by2 = (double)(max_r + 1) / 256.0 * orig_h;
+      // Verify if prompt point is inside this candidate mask
+      int pr = (int)(cand_py / 4.0f);
+      int pc = (int)(cand_px / 4.0f);
+      pr = std::max(0, std::min(mask_h - 1, pr));
+      pc = std::max(0, std::min(mask_w - 1, pc));
+      bool pt_in_mask = (mask_slice[offset + (size_t)pr * mask_w + pc] > 0.0f);
+      if (!pt_in_mask) score -= 3.0f;
 
-        raw_instances[p].x1 = bx1;
-        raw_instances[p].y1 = by1;
-        raw_instances[p].x2 = bx2;
-        raw_instances[p].y2 = by2;
-        raw_instances[p].sim_score = accepted_peaks[p].sim;
-        raw_instances[p].iou_pred = best_score;
-        raw_instances[p].bin_mask = std::move(bin_vec);
-        raw_instances[p].min_c = min_c;
-        raw_instances[p].max_c = max_c;
-        raw_instances[p].min_r = min_r;
-        raw_instances[p].max_r = max_r;
-        raw_instances[p].fg_count = fg_total;
-        raw_instances[p].valid = true;
+      // If mask is not empty, check compactness around prompt point
+      if (fg_c > 0) {
+        float cen_r = sum_r / (float)fg_c;
+        float cen_c = sum_c / (float)fg_c;
+        float dist_cen = std::sqrt((cen_r - (float)pr) * (cen_r - (float)pr) +
+                                   (cen_c - (float)pc) * (cen_c - (float)pc));
+        float r_approx = std::sqrt((float)fg_c / 3.14159f);
+        if (r_approx > 4.0f && dist_cen > r_approx * 1.5f) {
+          score -= 2.0f;
+        }
       }
 
-      ort->ReleaseTensorTypeAndShapeInfo(iou_shape_info);
-      ort->ReleaseValue(cand_dec_outputs[0]);
-      ort->ReleaseValue(cand_dec_outputs[1]);
-    } else {
-      ort->ReleaseStatus(dec_status);
+      // Only penalize massive full-screen multi-object agglomerations, never small valid objects!
+      if (max_ex_area > 5.0f && fg_c > 0) {
+        if (fg_c > max_ex_area * 2.5f) {
+          float ratio = (float)fg_c / (max_ex_area * 2.5f);
+          score -= (ratio - 1.0f) * 2.0f;
+        }
+      }
+
+      if (p < num_exemplars) {
+        score += 5.0f;
+      }
+
+      if (score > best_score) {
+        best_score = score;
+        best_idx = m;
+      }
     }
 
-    ort->ReleaseValue(cand_pts_tensor);
-    ort->ReleaseValue(cand_lbl_tensor);
+    const size_t slice_offset = (size_t)best_idx * mask_h * mask_w;
+    std::vector<uint8_t> bin_vec((size_t)mask_w * mask_h, 0);
+    int min_r = mask_h, max_r = -1, min_c = mask_w, max_c = -1;
+    int fg_total = 0;
+
+    // Direct logit thresholding: logit > 0.0f <=> sigmoid(logit) > 0.5
+    for (int r = 0; r < mask_h; ++r) {
+      const size_t row_off = (size_t)r * mask_w;
+      for (int c = 0; c < mask_w; ++c) {
+        if (mask_slice[slice_offset + row_off + c] > 0.0f) {
+          bin_vec[row_off + c] = 1;
+          fg_total++;
+          if (r < min_r) min_r = r;
+          if (r > max_r) max_r = r;
+          if (c < min_c) min_c = c;
+          if (c > max_c) max_c = c;
+        }
+      }
+    }
+
+    int min_fg = (p < num_exemplars) ? 1 : std::max(2, std::min(10, (int)std::round(min_dist_1024 / 4.0f)));
+    if (fg_total >= min_fg && fg_total <= (int)(mask_h * mask_w * 0.85f)) {
+      raw_instances[p].x1 = (double)min_c / 256.0 * orig_w;
+      raw_instances[p].y1 = (double)min_r / 256.0 * orig_h;
+      raw_instances[p].x2 = (double)(max_c + 1) / 256.0 * orig_w;
+      raw_instances[p].y2 = (double)(max_r + 1) / 256.0 * orig_h;
+      raw_instances[p].sim_score = accepted_peaks[p].sim;
+      raw_instances[p].iou_pred = best_score;
+      raw_instances[p].bin_mask = std::move(bin_vec);
+      raw_instances[p].min_c = min_c;
+      raw_instances[p].max_c = max_c;
+      raw_instances[p].min_r = min_r;
+      raw_instances[p].max_r = max_r;
+      raw_instances[p].fg_count = fg_total;
+      raw_instances[p].valid = true;
+    }
+  };
+
+  // Prompts per Run. Each prompt costs 3 x 256 x 256 floats of output (768 KB).
+  //
+  // Measured on an optimized build, 2448 x 2448 image yielding 176 peaks
+  // (GTX 1650 / 12-thread CPU). Instances were identical at every batch size:
+  //
+  //            batch=1   batch=8   batch=16   batch=32   batch=64
+  //   GPU       3.49s     2.76s      2.07s      1.92s      2.82s
+  //
+  // Batching pays off on the GPU because it amortizes submission latency, and falls
+  // back again at 64 where this card runs short of VRAM; 32 is the default there. On
+  // the CPU the decoder is small and the per-call overhead already low, so the
+  // OpenMP fan-out over peaks (8.05s here) beats any batched variant, and that is the
+  // path taken whenever the decoder session is on the CPU provider.
+  int dec_batch = dec_on_gpu ? 32 : 1;
+  {
+    const char* ev = std::getenv("PLIMAN_SAM_DECODER_BATCH");
+    if (ev != NULL) {
+      long v = std::strtol(ev, NULL, 10);
+      if (v >= 1 && v <= 256) dec_batch = (int)v;
+    }
+  }
+  if (dec_batch > num_peaks) dec_batch = std::max(1, num_peaks);
+
+  // CPU path: one prompt per Run, peaks fanned out across threads. Chosen whenever the
+  // decoder is on the CPU provider and no explicit batch size was requested.
+  const bool use_omp_peaks = (!dec_on_gpu && dec_batch == 1 && num_peaks > 1);
+
+#if defined(_OPENMP)
+  // num_threads(...) on the directive is sufficient. Calling omp_set_num_threads() here
+  // used to change the *process-wide* default, so one PerSAM call with threads = 2
+  // silently capped every other OpenMP region in the package for the rest of the
+  // R session.
+  const int peak_threads = (num_threads > 0) ? num_threads : omp_get_max_threads();
+#else
+  const int peak_threads = 1;
+#endif
+
+  if (use_omp_peaks) {
+    #pragma omp parallel for num_threads(peak_threads) schedule(dynamic)
+    for (int p = 0; p < num_peaks; ++p) {
+      float pt_coords[2] = { accepted_peaks[p].px, accepted_peaks[p].py };
+      float pt_label[1] = { 1.0f };
+      int64_t pt_shape[3] = { 1, 1, 2 };
+      int64_t lbl_shape[2] = { 1, 1 };
+
+      OrtValue* t_pts = NULL;
+      OrtValue* t_lbl = NULL;
+      (void)ort->CreateTensorWithDataAsOrtValue(memory_info, pt_coords, 2 * sizeof(float),
+        pt_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_pts);
+      (void)ort->CreateTensorWithDataAsOrtValue(memory_info, pt_label, sizeof(float),
+        lbl_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_lbl);
+
+      const OrtValue* s_in[] = {
+        enc_outputs[2], enc_outputs[0], enc_outputs[1],
+        t_pts, t_lbl, mask_input_tensor, has_mask_tensor
+      };
+      OrtValue* s_out[2] = { NULL, NULL };
+      OrtStatus* s_st = ort->Run(session_dec, run_options, dec_in_names, s_in, 7,
+                                 dec_out_names, 2, s_out);
+
+      if (s_st == NULL) {
+        OrtTensorTypeAndShapeInfo* iou_info = NULL;
+        (void)ort->GetTensorTypeAndShape(s_out[1], &iou_info);
+        size_t iou_nd = 0;
+        (void)ort->GetDimensionsCount(iou_info, &iou_nd);
+        std::vector<int64_t> iou_dims(iou_nd);
+        if (iou_nd > 0) (void)ort->GetDimensions(iou_info, iou_dims.data(), iou_nd);
+        const int num_masks = (iou_nd >= 2 && iou_dims[1] > 0) ? (int)iou_dims[1] : 3;
+        ort->ReleaseTensorTypeAndShapeInfo(iou_info);
+
+        float* iou_data = NULL;
+        float* mask_data = NULL;
+        (void)ort->GetTensorMutableData(s_out[1], (void**)&iou_data);
+        (void)ort->GetTensorMutableData(s_out[0], (void**)&mask_data);
+        if (iou_data != NULL && mask_data != NULL) {
+          process_prompt(p, mask_data, iou_data, num_masks,
+                         accepted_peaks[p].px, accepted_peaks[p].py);
+        }
+        ort->ReleaseValue(s_out[0]);
+        ort->ReleaseValue(s_out[1]);
+      } else {
+        ort->ReleaseStatus(s_st);
+      }
+      ort->ReleaseValue(t_pts);
+      ort->ReleaseValue(t_lbl);
+    }
+  }
+
+  std::vector<float> b_coords, b_labels, b_mask_in, b_has_mask;
+
+  for (int start_p = 0; !use_omp_peaks && start_p < num_peaks; start_p += dec_batch) {
+    const int cur = std::min(dec_batch, num_peaks - start_p);
+
+    b_coords.assign((size_t)cur * 2, 0.0f);
+    b_labels.assign((size_t)cur, 1.0f);
+    b_mask_in.assign((size_t)cur * 256 * 256, 0.0f);
+    b_has_mask.assign((size_t)cur, 0.0f);
+    for (int k = 0; k < cur; ++k) {
+      b_coords[(size_t)k * 2 + 0] = accepted_peaks[start_p + k].px;
+      b_coords[(size_t)k * 2 + 1] = accepted_peaks[start_p + k].py;
+    }
+
+    int64_t pts_shape[3] = { (int64_t)cur, 1, 2 };
+    int64_t lbl_shape[2] = { (int64_t)cur, 1 };
+    int64_t mi_shape[4]  = { (int64_t)cur, 1, 256, 256 };
+    int64_t hm_shape[1]  = { (int64_t)cur };
+
+    OrtValue* t_pts = NULL;
+    OrtValue* t_lbl = NULL;
+    OrtValue* t_mi = NULL;
+    OrtValue* t_hm = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_coords.data(),
+      b_coords.size() * sizeof(float), pts_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_pts);
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_labels.data(),
+      b_labels.size() * sizeof(float), lbl_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_lbl);
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_mask_in.data(),
+      b_mask_in.size() * sizeof(float), mi_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_mi);
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_has_mask.data(),
+      b_has_mask.size() * sizeof(float), hm_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_hm);
+
+    const OrtValue* b_in[] = {
+      enc_outputs[2], enc_outputs[0], enc_outputs[1], t_pts, t_lbl, t_mi, t_hm
+    };
+    OrtValue* b_out[2] = { NULL, NULL };
+    OrtStatus* b_st = ort->Run(session_dec, run_options, dec_in_names, b_in, 7,
+                               dec_out_names, 2, b_out);
+
+    if (b_st == NULL) {
+      OrtTensorTypeAndShapeInfo* iou_info = NULL;
+      (void)ort->GetTensorTypeAndShape(b_out[1], &iou_info);
+      size_t iou_nd = 0;
+      (void)ort->GetDimensionsCount(iou_info, &iou_nd);
+      std::vector<int64_t> iou_dims(iou_nd);
+      if (iou_nd > 0) (void)ort->GetDimensions(iou_info, iou_dims.data(), iou_nd);
+      const int num_masks = (iou_nd >= 2 && iou_dims[1] > 0) ? (int)iou_dims[1] : 3;
+      ort->ReleaseTensorTypeAndShapeInfo(iou_info);
+
+      float* iou_data = NULL;
+      float* mask_data = NULL;
+      (void)ort->GetTensorMutableData(b_out[1], (void**)&iou_data);
+      (void)ort->GetTensorMutableData(b_out[0], (void**)&mask_data);
+
+      if (iou_data != NULL && mask_data != NULL) {
+        const size_t per_prompt = (size_t)num_masks * mask_h * mask_w;
+        for (int k = 0; k < cur; ++k) {
+          process_prompt(start_p + k,
+                         mask_data + (size_t)k * per_prompt,
+                         iou_data + (size_t)k * num_masks,
+                         num_masks,
+                         accepted_peaks[start_p + k].px,
+                         accepted_peaks[start_p + k].py);
+        }
+      }
+      ort->ReleaseValue(b_out[0]);
+      ort->ReleaseValue(b_out[1]);
+    } else {
+      // A failed batch leaves its peaks invalid, exactly as a failed single Run did.
+      ort->ReleaseStatus(b_st);
+    }
+
+    ort->ReleaseValue(t_pts);
+    ort->ReleaseValue(t_lbl);
+    ort->ReleaseValue(t_mi);
+    ort->ReleaseValue(t_hm);
   }
 
   // Collect valid instances on main thread
@@ -2900,29 +3359,45 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   Rcpp::NumericVector res_scores(num_final);
   Rcpp::IntegerMatrix combined_labels((int)orig_w, (int)orig_h);
 
-  for (int i = 0; i < num_final; ++i) {
-    res_boxes(i, 0) = kept_instances[i].x1;
-    res_boxes(i, 1) = kept_instances[i].y1;
-    res_boxes(i, 2) = kept_instances[i].x2;
-    res_boxes(i, 3) = kept_instances[i].y2;
-    res_scores[i]   = kept_instances[i].sim_score;
+  // Project the 256x256 instance masks onto the full-resolution label matrix. The
+  // row/column index of the mask depends only on y (resp. x), so both are precomputed
+  // once instead of running a double division and std::round per pixel: on a 24 MP
+  // image with many instances that inner expression was the whole cost of this stage.
+  {
+    const int ow_i = (int)orig_w;
+    const int oh_i = (int)orig_h;
+    std::vector<int> col_lut((size_t)std::max(0, ow_i));
+    std::vector<int> row_lut((size_t)std::max(0, oh_i));
+    for (int x = 0; x < ow_i; ++x) {
+      col_lut[x] = std::min(255, std::max(0, (int)std::round((x + 0.5) / orig_w * 256.0 - 0.5)));
+    }
+    for (int y = 0; y < oh_i; ++y) {
+      row_lut[y] = std::min(255, std::max(0, (int)std::round((y + 0.5) / orig_h * 256.0 - 0.5)));
+    }
+    int* lbl_ptr = INTEGER(combined_labels);
 
-    int inst_id = i + 1;
-    const auto& inst = kept_instances[i];
-    int bx1 = std::max(0, (int)std::floor(inst.x1));
-    int by1 = std::max(0, (int)std::floor(inst.y1));
-    int bx2 = std::min((int)orig_w - 1, (int)std::ceil(inst.x2));
-    int by2 = std::min((int)orig_h - 1, (int)std::ceil(inst.y2));
+    for (int i = 0; i < num_final; ++i) {
+      res_boxes(i, 0) = kept_instances[i].x1;
+      res_boxes(i, 1) = kept_instances[i].y1;
+      res_boxes(i, 2) = kept_instances[i].x2;
+      res_boxes(i, 3) = kept_instances[i].y2;
+      res_scores[i]   = kept_instances[i].sim_score;
 
-    for (int y = by1; y <= by2; ++y) {
-      int r = std::min(255, std::max(0, (int)std::round((y + 0.5) / orig_h * 256.0 - 0.5)));
-      size_t row_off = (size_t)r * 256;
-      for (int x = bx1; x <= bx2; ++x) {
-        int c = std::min(255, std::max(0, (int)std::round((x + 0.5) / orig_w * 256.0 - 0.5)));
-        if (inst.bin_mask[row_off + c]) {
-          if (combined_labels(x, y) == 0) {
-            combined_labels(x, y) = inst_id;
-          }
+      const int inst_id = i + 1;
+      const PersamInst& inst = kept_instances[i];
+      int bx1 = std::max(0, (int)std::floor(inst.x1));
+      int by1 = std::max(0, (int)std::floor(inst.y1));
+      int bx2 = std::min(ow_i - 1, (int)std::ceil(inst.x2));
+      int by2 = std::min(oh_i - 1, (int)std::ceil(inst.y2));
+      if (bx1 > bx2 || by1 > by2) continue;
+
+      const uint8_t* bm = inst.bin_mask.data();
+      for (int y = by1; y <= by2; ++y) {
+        const size_t row_off = (size_t)row_lut[y] * 256;
+        // combined_labels is [width, height] column-major, so column y is contiguous.
+        int* col = lbl_ptr + (size_t)y * ow_i;
+        for (int x = bx1; x <= bx2; ++x) {
+          if (bm[row_off + col_lut[x]] && col[x] == 0) col[x] = inst_id;
         }
       }
     }
@@ -2944,9 +3419,38 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   for (size_t i = 0; i < exemplar_prototypes_hr0.size(); ++i) {
     hr0_ret[i] = Rcpp::wrap(exemplar_prototypes_hr0[i]);
   }
+  // Serialize the dense ZNCC kernels so that feat_res = 1024 keeps working when these
+  // prototypes are carried to the next image (previously the kernels were discarded and
+  // the dense path silently returned an empty similarity map).
+  Rcpp::List dense_ret(exemplar_dense_kernels.size());
+  for (size_t i = 0; i < exemplar_dense_kernels.size(); ++i) {
+    const DenseExemplarKernel& dk = exemplar_dense_kernels[i];
+    const int n_ent = (int)dk.entries.size();
+    Rcpp::IntegerVector dxv(n_ent), dyv(n_ent);
+    Rcpp::NumericVector wv(n_ent);
+    Rcpp::NumericMatrix tz(n_ent, 3);
+    for (int k = 0; k < n_ent; ++k) {
+      dxv[k] = dk.entries[k].dx;
+      dyv[k] = dk.entries[k].dy;
+      wv[k]  = dk.entries[k].w;
+      tz(k, 0) = dk.entries[k].t_zero[0];
+      tz(k, 1) = dk.entries[k].t_zero[1];
+      tz(k, 2) = dk.entries[k].t_zero[2];
+    }
+    dense_ret[i] = Rcpp::List::create(
+      Rcpp::Named("dx") = dxv,
+      Rcpp::Named("dy") = dyv,
+      Rcpp::Named("w") = wv,
+      Rcpp::Named("t_zero") = tz,
+      Rcpp::Named("radius") = dk.radius,
+      Rcpp::Named("sum_w") = dk.sum_w,
+      Rcpp::Named("tmpl_std") = dk.tmpl_std
+    );
+  }
   ret_protos = Rcpp::List::create(
     Rcpp::Named("semantic") = sem_ret,
     Rcpp::Named("hr0") = hr0_ret,
+    Rcpp::Named("dense") = dense_ret,
     Rcpp::Named("avg_area") = avg_ex_area,
     Rcpp::Named("min_area") = min_ex_area,
     Rcpp::Named("max_area") = max_ex_area
@@ -4651,7 +5155,10 @@ Rcpp::List run_yolo_cpp(
           float inst_score = kept[i].score;
 
           // 2. High-speed multi-threaded continuous bilinear interpolation on the original image grid
-          #pragma omp parallel for schedule(dynamic, 8) if(oy2 - oy1 > 16)
+          // Only parallelize rows when the enclosing per-instance loop is running
+          // serially. Both regions active at once oversubscribes the machine whenever
+          // OMP_MAX_ACTIVE_LEVELS > 1 (threads x threads workers for one image).
+          #pragma omp parallel for schedule(dynamic, 8) if(!par_inst && (oy2 - oy1 > 16))
           for (int oy = oy1; oy <= oy2; ++oy) {
             float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
             float proto_y = (can_y * scale_proto_y) - 0.5f;
