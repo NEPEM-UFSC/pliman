@@ -96,6 +96,22 @@
   "yolo11-seg"             = "yolo26n-seg",
   "yolo11n-seg"            = "yolo26n-seg",
 
+  # YOLO Semantic Segmentation
+  "yolo-sem"               = "yolo26n-sem",
+  "yolosem"                = "yolo26n-sem",
+  "yolo26-sem"             = "yolo26n-sem",
+  "yolo-26-sem"            = "yolo26n-sem",
+  "yolo26n-sem"            = "yolo26n-sem",
+  "yolo26s-sem"            = "yolo26s-sem",
+  "yolo26m-sem"            = "yolo26m-sem",
+  "yolo26l-sem"            = "yolo26l-sem",
+  "yolo26x-sem"            = "yolo26x-sem",
+  "yolo-26n-sem"           = "yolo26n-sem",
+  "yolo-26s-sem"           = "yolo26s-sem",
+  "yolo-26m-sem"           = "yolo26m-sem",
+  "yolo-26l-sem"           = "yolo26l-sem",
+  "yolo-26x-sem"           = "yolo26x-sem",
+
   # YOLO Pose Estimation
   "yolo-pose"              = "yolo26n-pose",
   "yolopose"               = "yolo26n-pose",

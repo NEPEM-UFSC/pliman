@@ -309,6 +309,12 @@ NULL
   "small vehicle", "helicopter", "roundabout", "soccer ball field", "swimming pool"
 )
 
+.cityscapes_classes <- c(
+  "road", "sidewalk", "building", "wall", "fence", "pole", "traffic light",
+  "traffic sign", "vegetation", "terrain", "sky", "person", "rider", "car",
+  "truck", "bus", "train", "motorcycle", "bicycle"
+)
+
 # Helper to automatically extract embedded class names from ONNX model metadata
 .get_onnx_classes <- function(model_file) {
   if (is.null(model_file) || !file.exists(model_file)) return(NULL)
@@ -1465,6 +1471,8 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 
         desc <- if (grepl("[-_]cls", a_name, ignore.case = TRUE)) {
           paste0("YOLO Classification Model: Real-time image classification (", a_name, ")")
+        } else if (grepl("[-_]sem", a_name, ignore.case = TRUE)) {
+          paste0("YOLO Semantic Segmentation Model: Dense pixel-level scene parsing (", a_name, ")")
         } else if (grepl("[-_]seg", a_name, ignore.case = TRUE)) {
           paste0("YOLO Instance Segmentation Model: Real-time mask segmentation (", a_name, ")")
         } else if (grepl("[-_]pose", a_name, ignore.case = TRUE)) {
@@ -1479,7 +1487,9 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
           paste0("Pre-trained neural model asset (", a_name, ")")
         }
 
-        inp_size <- if (grepl("obb|ifcnn", a_name, ignore.case = TRUE)) "dynamic" else 640
+        inp_size <- if (grepl("obb|ifcnn", a_name, ignore.case = TRUE)) "dynamic"
+                    else if (grepl("[-_]sem", a_name, ignore.case = TRUE)) 1024
+                    else 640
 
         models_info[[length(models_info) + 1]] <- list(
           name = clean_name,
@@ -1504,6 +1514,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       f_size <- tryCatch(round(file.info(cf_path)$size / (1024^2), 1), error = function(e) 0)
       c_model <- sub("\\.(onnx|pt)$", "", cf, ignore.case = TRUE)
       c_task <- if (grepl("[-_]cls", cf, ignore.case = TRUE)) "Classification"
+                else if (grepl("[-_]sem", cf, ignore.case = TRUE)) "Semantic Segmentation"
                 else if (grepl("[-_]seg", cf, ignore.case = TRUE)) "Instance Segmentation"
                 else if (grepl("[-_]obb", cf, ignore.case = TRUE)) "Oriented Bounding Box"
                 else if (grepl("[-_]pose", cf, ignore.case = TRUE)) "Pose Estimation"
@@ -5106,6 +5117,176 @@ image_remove_bg_dl <- function(img,
   vec
 }
 
+# Internal helper to run YOLO semantic segmentation (-sem models)
+.run_yolo_sem <- function(mat,
+                          model_file,
+                          target_size = 1024L,
+                          orig_w,
+                          orig_h,
+                          labels = NULL,
+                          threads = 0,
+                          use_gpu = TRUE,
+                          device_id = -1,
+                          lib_path = "",
+                          filter = 0,
+                          erode = 0,
+                          dilate = 0,
+                          opening = 0,
+                          closing = 0,
+                          min_area = 0) {
+  target_size <- as.integer(target_size)
+  tensor_in <- if (is.double(mat) && !is.null(attr(mat, "gain"))) {
+    mat
+  } else {
+    tryCatch(
+      preprocess_yolo_cpp(mat, target_size = target_size),
+      error = function(e) .preprocess_yolo(mat, target_size = target_size)
+    )
+  }
+
+  sem_mat <- run_yolo_sem_cpp(
+    tensor_vec  = tensor_in,
+    in_w        = target_size,
+    in_h        = target_size,
+    orig_w      = as.integer(orig_w),
+    orig_h      = as.integer(orig_h),
+    model_path  = model_file,
+    lib_path    = lib_path,
+    num_threads = as.integer(threads),
+    use_gpu     = isTRUE(use_gpu),
+    device_id   = as.integer(device_id)
+  )
+
+  embedded_classes <- .get_onnx_classes(model_file)
+  class_names <- if (!is.null(labels)) {
+    labels
+  } else if (!is.null(embedded_classes)) {
+    embedded_classes
+  } else {
+    .cityscapes_classes
+  }
+
+  u_cids <- sort(unique(as.vector(sem_mat)))
+  u_cids <- u_cids[!is.na(u_cids) & u_cids >= 0L]
+
+  lbl_mat <- matrix(0L, nrow = orig_w, ncol = orig_h)
+  box_rows <- list()
+  next_id <- 0L
+  eff_min_area <- if (min_area > 0) {
+    as.integer(min_area)
+  } else {
+    max(25L, as.integer(round(orig_w * orig_h * 0.0005)))
+  }
+
+  for (cid in u_cids) {
+    m_cls <- (sem_mat == cid)
+    if (!any(m_cls)) next
+
+    if (filter > 1 || erode > 0 || dilate > 0 || opening > 0 || closing > 0) {
+      m_img <- EBImage::Image(m_cls)
+      if (filter > 1) m_img <- image_filter(m_img, size = filter, plot = FALSE)
+      if (erode > 0) m_img <- image_erode(m_img, size = erode, plot = FALSE)
+      if (dilate > 0) m_img <- image_dilate(m_img, size = dilate, plot = FALSE)
+      if (opening > 0) m_img <- image_opening(m_img, size = opening, plot = FALSE)
+      if (closing > 0) m_img <- image_closing(m_img, size = closing, plot = FALSE)
+      m_cls <- m_img@.Data > 0
+      if (!any(m_cls)) next
+    }
+
+    cc <- bwlabel_cpp(m_cls)
+    max_cc <- max(cc)
+    if (max_cc <= 0L) next
+
+    tab_cc <- tabulate(cc, nbins = max_cc)
+    keep_cc <- which(tab_cc >= eff_min_area)
+    if (length(keep_cc) == 0L && min_area <= 0) {
+      best_cc <- which.max(tab_cc)
+      if (tab_cc[best_cc] >= 9L) keep_cc <- best_cc
+    }
+    if (length(keep_cc) == 0L) next
+
+    lbl_str <- if ((cid + 1L) <= length(class_names)) {
+      class_names[cid + 1L]
+    } else {
+      paste0("class_", cid)
+    }
+
+    for (comp_id in keep_cc) {
+      idx <- which(cc == comp_id, arr.ind = TRUE)
+      if (nrow(idx) == 0L) next
+      next_id <- next_id + 1L
+      lbl_mat[cc == comp_id] <- next_id
+      box_rows[[next_id]] <- data.frame(
+        id = next_id,
+        xmin = as.numeric(min(idx[, 1])),
+        ymin = as.numeric(min(idx[, 2])),
+        xmax = as.numeric(max(idx[, 1])),
+        ymax = as.numeric(max(idx[, 2])),
+        label = lbl_str,
+        score = 1.0,
+        class_id = as.integer(cid),
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  if (next_id == 0L) {
+    df_boxes <- data.frame(
+      id = integer(0), xmin = numeric(0), ymin = numeric(0),
+      xmax = numeric(0), ymax = numeric(0), label = character(0),
+      score = numeric(0), class_id = integer(0), stringsAsFactors = FALSE
+    )
+    counts_df <- data.frame(class = character(0), count = integer(0), stringsAsFactors = FALSE)
+    return(list(
+      boxes = df_boxes,
+      counts = counts_df,
+      summary = "0 objects",
+      contours = list(),
+      labels = as_image(lbl_mat, colormode = "Grayscale", storage = "integer"),
+      mask = NULL,
+      features = data.frame(),
+      keypoints = list(),
+      raw_keypoints = NULL,
+      semantic_map = sem_mat,
+      is_semantic = TRUE
+    ))
+  }
+
+  df_boxes <- do.call(rbind, box_rows)
+  rownames(df_boxes) <- NULL
+  counts <- table(factor(df_boxes$label, levels = unique(df_boxes$label)))
+  counts_df <- data.frame(
+    class = names(counts),
+    count = as.integer(counts),
+    stringsAsFactors = FALSE
+  )
+  summary_str <- .format_detection_summary(df_boxes$label)
+  labels_img <- as_image(lbl_mat, colormode = "Grayscale", storage = "integer")
+  contornos <- extract_contours_cpp(lbl_mat)
+  feats <- if (length(contornos) > 0L) {
+    tryCatch(poly_measures(contornos), error = function(e) data.frame())
+  } else {
+    data.frame()
+  }
+  if (is.list(contornos)) {
+    contornos <- contornos[!vapply(contornos, is.null, logical(1))]
+  }
+
+  list(
+    boxes = df_boxes,
+    counts = counts_df,
+    summary = summary_str,
+    contours = contornos,
+    labels = labels_img,
+    mask = NULL,
+    features = feats,
+    keypoints = list(),
+    raw_keypoints = NULL,
+    semantic_map = sem_mat,
+    is_semantic = TRUE
+  )
+}
+
 # Internal helper to run YOLO detection, segmentation, or pose estimation
 .run_yolo <- function(mat,
                       model = "yolo26n",
@@ -5147,6 +5328,8 @@ image_remove_bg_dl <- function(img,
   model_lower <- tolower(model)
   is_obb_model  <- grepl("obb", model_lower)
   is_nas_model  <- grepl("nas", model_lower)
+  is_sem_model  <- grepl("[-_]sem(\\.|$)|semantic", tolower(basename(model_file))) ||
+                   grepl("[-_]sem(\\.|$)|semantic", model_lower)
 
   # Resolve input resolution (imgsz)
   model_shape_info <- tryCatch(
@@ -5189,6 +5372,27 @@ image_remove_bg_dl <- function(img,
   dims_mat <- dim(mat)
   orig_w <- dims_mat[1]
   orig_h <- dims_mat[2]
+
+  if (isTRUE(is_sem_model)) {
+    return(.run_yolo_sem(
+      mat         = mat,
+      model_file  = model_file,
+      target_size = target_size,
+      orig_w      = orig_w,
+      orig_h      = orig_h,
+      labels      = labels,
+      threads     = threads,
+      use_gpu     = use_gpu,
+      device_id   = device_id,
+      lib_path    = lib_path,
+      filter      = filter,
+      erode       = erode,
+      dilate      = dilate,
+      opening     = opening,
+      closing     = closing,
+      min_area    = min_area
+    ))
+  }
 
   tensor_in <- if (is.raw(mat) || is.double(mat)) {
     mat
@@ -6502,12 +6706,14 @@ image_segment_dl <- function(img,
   is_custom_yolo <- !is_known_non_yolo && !is_bg_model && (
     grepl("yolo", model, ignore.case = TRUE) ||
     grepl("[-_]seg", model, ignore.case = TRUE) ||
+    grepl("[-_]sem", model, ignore.case = TRUE) ||
     grepl("[-_]det", model, ignore.case = TRUE) ||
     grepl("\\.(onnx|pt)$", model, ignore.case = TRUE)
   )
   use_yolo_seg <- !use_persam && !use_grounded_sam && !is_known_non_yolo && !is_bg_model && (
     model %in% c("yolo26n-seg", "yolo26s-seg", "yolo26m-seg", "yolo26l-seg", "yolo26x-seg",
-                 "yolo11n-seg", "yolo11s-seg", "yolo11m-seg", "yolo11l-seg", "yolo11x-seg", "yolo-seg") ||
+                 "yolo11n-seg", "yolo11s-seg", "yolo11m-seg", "yolo11l-seg", "yolo11x-seg", "yolo-seg",
+                 "yolo26n-sem", "yolo26s-sem", "yolo26m-sem", "yolo26l-sem", "yolo26x-sem", "yolo-sem") ||
     is_custom_yolo
   )
   use_stardist <- !use_persam && !use_grounded_sam && !use_yolo_seg && !is_bg_model && (model %in% c("stardist", "star-dist"))
@@ -6637,7 +6843,8 @@ image_segment_dl <- function(img,
       )
     }
 
-    if (isTRUE(filter_nested) && !is.null(gs_res) && !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 1L) {
+    if (isTRUE(filter_nested) && !is.null(gs_res) && !isTRUE(gs_res$is_semantic) &&
+        !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 1L) {
       gs_res <- .filter_nested_res(gs_res)
     }
 
@@ -7845,6 +8052,12 @@ image_detect_dl <- function(img,
     cli::cli_abort(c(
       "Model {.val {model[1]}} is an image classification model, not an object detector.",
       "i" = "Please use {.fn image_classify_dl} instead."
+    ))
+  }
+  if (!is_url && grepl("[-_]sem(\\.|$)", tolower(model_str))) {
+    cli::cli_abort(c(
+      "Model {.val {model[1]}} is a semantic segmentation model, not an object detector.",
+      "i" = "Please use {.fn image_segment_dl} instead."
     ))
   }
 
