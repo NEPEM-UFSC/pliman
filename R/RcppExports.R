@@ -583,6 +583,10 @@ rgb_buffer_to_image_cpp <- function(raw_buf, w, h) {
     .Call(`_pliman_rgb_buffer_to_image_cpp`, raw_buf, w, h)
 }
 
+image_to_rgb_buffer_cpp <- function(img) {
+    .Call(`_pliman_image_to_rgb_buffer_cpp`, img)
+}
+
 write_image_cpp <- function(img_sexp, filename, quality = 95L) {
     .Call(`_pliman_write_image_cpp`, img_sexp, filename, quality)
 }
@@ -909,6 +913,14 @@ onnx_session_info_cpp <- function() {
     .Call(`_pliman_onnx_session_info_cpp`)
 }
 
+onnx_available_providers_cpp <- function(lib_path) {
+    .Call(`_pliman_onnx_available_providers_cpp`, lib_path)
+}
+
+onnx_api_version_cpp <- function() {
+    .Call(`_pliman_onnx_api_version_cpp`)
+}
+
 run_onnx_inference_cpp <- function(tensor_vec, tensor_dims, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
     .Call(`_pliman_run_onnx_inference_cpp`, tensor_vec, tensor_dims, model_path, lib_path, num_threads, use_gpu, device_id)
 }
@@ -947,6 +959,18 @@ run_dinov2_cpp <- function(tensor_vec, in_w, in_h, patch_size = 14L, return_pca 
 
 get_onnx_model_io_shape_cpp <- function(model_path, lib_path = "", num_threads = 0L, use_gpu = TRUE, device_id = -1L) {
     .Call(`_pliman_get_onnx_model_io_shape_cpp`, model_path, lib_path, num_threads, use_gpu, device_id)
+}
+
+yolo_prefetch_cpp <- function(img, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L, target_size = 640L) {
+    .Call(`_pliman_yolo_prefetch_cpp`, img, model_path, lib_path, num_threads, use_gpu, device_id, target_size)
+}
+
+yolo_prefetch_stats_cpp <- function() {
+    .Call(`_pliman_yolo_prefetch_stats_cpp`)
+}
+
+yolo_prefetch_cancel_cpp <- function() {
+    invisible(.Call(`_pliman_yolo_prefetch_cancel_cpp`))
 }
 
 run_yolo_cpp <- function(tensor_vec, orig_w, orig_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, need_masks = TRUE, return_features = FALSE, txt_feats = NULL, target_size = 640L, max_nms = 30000L, max_det = 0L, filter_nested = FALSE) {

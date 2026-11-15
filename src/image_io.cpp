@@ -496,6 +496,54 @@ SEXP rgb_buffer_to_image_cpp(Rcpp::RawVector raw_buf, int w, int h) {
   return out;
 }
 
+// Inverse of rgb_buffer_to_image_cpp(): planar W x H x C image data (double in [0, 1]
+// or [0, 255], integer, logical or raw) -> interleaved [3, W, H] raw buffer, the layout
+// drawn on by draw_yolo_detections_bgr_cpp() and written by save_frame_bgr_cpp().
+// Grayscale input is replicated to three channels; extra channels (alpha) are dropped.
+// [[Rcpp::export]]
+Rcpp::RawVector image_to_rgb_buffer_cpp(SEXP img) {
+  SEXP dim_attr = Rf_getAttrib(img, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 2) Rcpp::stop("image_to_rgb_buffer_cpp: 2D or 3D array expected.");
+  const int* d = INTEGER(dim_attr);
+  const int w = d[0], h = d[1];
+  const int nch = (Rf_length(dim_attr) >= 3) ? d[2] : 1;
+  const std::size_t plane = (std::size_t)w * (std::size_t)h;
+  Rcpp::RawVector out(plane * 3);
+  unsigned char* dst = RAW(out);
+  const int type = TYPEOF(img);
+  double scale = 255.0;
+  if (type == REALSXP) {
+    const double* p = REAL(img);
+    const std::size_t n = std::min<std::size_t>(plane * (std::size_t)nch, 4096);
+    double mx = 0.0;
+    for (std::size_t i = 0; i < n; ++i) if (p[i] > mx) mx = p[i];
+    if (mx > 1.5) scale = 1.0;
+  }
+  if (type != RAWSXP && type != INTSXP && type != LGLSXP && type != REALSXP) {
+    Rcpp::stop("image_to_rgb_buffer_cpp: unsupported storage type.");
+  }
+  // Data pointers are taken here, on the R thread; the parallel loop only reads them.
+  const Rbyte* p_raw = (type == RAWSXP) ? RAW(img) : NULL;
+  const int* p_int = (type == INTSXP) ? INTEGER(img) : ((type == LGLSXP) ? LOGICAL(img) : NULL);
+  const double* p_dbl = (type == REALSXP) ? REAL(img) : NULL;
+  #pragma omp parallel for schedule(static) if(plane > 50000)
+  for (long long k = 0; k < (long long)plane; ++k) {
+    for (int c = 0; c < 3; ++c) {
+      const std::size_t src = (std::size_t)k + plane * (std::size_t)std::min(c, nch - 1);
+      double v;
+      if (p_raw) v = (double)p_raw[src];
+      else if (p_dbl) v = p_dbl[src] * scale;
+      else if (type == LGLSXP) v = p_int[src] ? 255.0 : 0.0;
+      else v = (double)p_int[src];
+      if (!(v > 0.0)) v = 0.0;
+      if (v > 255.0) v = 255.0;
+      dst[(std::size_t)k * 3 + c] = (unsigned char)(v + 0.5);
+    }
+  }
+  out.attr("dim") = Rcpp::IntegerVector::create(3, w, h);
+  return out;
+}
+
 // [[Rcpp::export]]
 bool write_image_cpp(SEXP img_sexp, std::string filename, int quality = 95) {
   RawVector raw_vec;
@@ -1832,6 +1880,10 @@ bool save_frame_bgr_cpp(Rcpp::RawVector bm, std::string filename, int quality = 
     for (char &c : ext) c = (char)::tolower(c);
     if (ext == ".bmp") {
       int ret = stbi_write_bmp(filename.c_str(), orig_w, orig_h, 3, p);
+      return ret != 0;
+    }
+    if (ext == ".png") {
+      int ret = stbi_write_png(filename.c_str(), orig_w, orig_h, 3, p, orig_w * 3);
       return ret != 0;
     }
   }

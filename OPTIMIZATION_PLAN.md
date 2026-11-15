@@ -175,6 +175,122 @@ Pendentes após a Fase 2:
 
 ---
 
+## STATUS — FASES 3 A 5
+
+Hardware: Intel i7 (12 threads), NVIDIA GTX 1650 (4 GB, **sem Tensor Cores**), Windows 11,
+ORT 1.20.1 (build DirectML e build CUDA oficial), CUDA 12.4 / cuDNN 9 vindos do PyTorch,
+build `-O2`. Testes: `tests/testthat/test-onnx-providers-pipeline.R` (48 asserções);
+suíte completa passando.
+
+### Fase 3 — GPU
+
+**§4.1 Provedores de execução.** Toda sessão passa por `get_or_create_cached_session()`,
+que agora anexa o provedor pedido em `PLIMAN_GPU_PROVIDER` (`auto | dml | cuda | tensorrt |
+coreml | openvino`), com cadeia de fallback provedor pedido → CUDA → DirectML → CPU.
+O padrão `auto` reproduz o comportamento anterior. API R: `pliman_gpu_provider()`
+(`cuda_path` para as DLLs CUDA, cache de engines TensorRT, `trt_fp16`),
+`onnx_available_providers()`, `onnx_install(engine = "cuda")` (build oficial do GitHub
+em `bin/cuda/`). `pliman_session_info()` ganhou `provider`, `graph_cache`, `create_ms`.
+Testado de fato: CUDA ativo; TensorRT sem as libs → CUDA; CUDA sem as DLLs → CPU, sem erro.
+O `engine = c("gpu","cpu")` dos ~40 runners não mudou: o provedor é uma configuração
+de processo, herdada por workers `mirai`.
+
+**§1.2 Profiler** — `pliman_onnx_profiling()` + `onnx_profile_summary()`.
+
+**§3.2-1 Grounding DINO.** O profiler **refutou a hipótese** do plano para o DirectML:
+
+| | DML (INT8) | CUDA (INT8) |
+|---|---|---|
+| Tempo/chamada (regime) | **0,8 s** (CPU: 8,6 s) | 3,2 s |
+| Nós na CPU | 39 triviais (0,2% do tempo) | 392 MatMulInteger + 291 DynamicQuantizeLinear (68%) + 693 cópias |
+
+O FP16 público (onnx-community, irmão exato do arquivo INT8 distribuído) piorou tudo
+(CUDA 7,3 s; DML 14,5 s): `GridSample` FP16 não tem kernel CUDA no ORT 1.20 (48 nós na
+CPU, 69% do tempo). Com os `GridSample` envolvidos em casts FP32: **CUDA 1,75 s (1,8×
+sobre o INT8)**, mesmas caixas. No DML a variante segue 14,5 s, por isso ela é escolhida
+automaticamente só com CUDA/TensorRT (`.resolve_dino_model()`); o DML mantém o INT8.
+O runner do DINO passou a aceitar E/S FP16 (§4.3).
+
+**§4.2 IoBinding** no decoder SAM em GPU (features ligadas uma vez por imagem):
+**sem ganho mensurável** (DML 0,61 s vs 0,61–0,66 s; CUDA 0,50 vs 0,48–0,50 s). A
+reutilização dos buffers de saída pelo binding dava ~25% no DML, mas **perdia uma
+instância** (resultado errado), então nunca é feita. Mantido opt-in
+(`PLIMAN_SAM_IOBINDING=1`) para GPUs com barramento lento.
+
+**Matriz YOLO** (`yolo_benchmark()`, 1600×900, média de 30):
+
+| Modelo | CPU | DirectML | CUDA |
+|---|---:|---:|---:|
+| yolo26n | 95,7 ms | **13,3 ms** | 25,0 ms |
+| yolo26s | 131,0 ms | **19,7 ms** | 22,7 ms |
+| yolo26m | 394,3 ms | **41,7 ms** | 50,3 ms |
+
+Nesta GPU o DirectML vence o CUDA em YOLO e empata no encoder SAM (0,36 vs 0,39 s).
+O CUDA ganha no DINO (com a variante mista) e no lote de tiles.
+
+### Fase 4 — Vídeo / lote
+
+**§7.2 `save_image` nativo** (`.save_detections_native()`): decodifica direto do arquivo,
+desenha com `draw_yolo_detections_bgr_cpp()` e grava com stb (JPEG/PNG/BMP; PNG novo em
+`save_frame_bgr_cpp`). 8 imagens: 0,36 s vs 0,61–2,36 s pelo `grDevices`. Fallback
+automático para outros formatos, keypoints ou `options(pliman.native_save = FALSE)`.
+
+**§5.1 Lote de tiles SAHI** com exports batch-dinâmicos: um `Run` `[B,3,S,S]`, e cada
+tile recebe uma *view* da sua fatia (`g_yolo_inject`), pós-processada pelo mesmo código
+do caminho por tile. Caixas iguais a ≤ 2,4e-4 px. 24 tiles:
+
+| | B=1 | B=4 | B=8 | B=16 |
+|---|---:|---:|---:|---:|
+| CUDA | 0,42 s | 0,36 s | **0,35 s** | 0,35 s |
+| DirectML | **0,43 s** | 0,78 s | 0,56 s | 0,49 s |
+| CPU | **1,30 s** | 1,50 s | 1,61 s | 1,67 s |
+
+Padrão B=8 só em CUDA/TensorRT (`PLIMAN_YOLO_TILE_BATCH`). **Os modelos YOLO distribuídos
+têm batch fixo = 1**, então o caminho só atua com `yolo_export(dynamic = TRUE)`.
+
+**§6.1 Pipeline assíncrono de vídeo**: pré-busca (`yolo_prefetch_cpp`). O quadro *i+1*
+é pré-processado e o `Run` dele vai para uma `std::thread`; o `run_yolo_cpp()` seguinte
+consome as saídas se o quadro for byte-idêntico (hash completo). Detecções **idênticas**
+(716/716 pré-buscas usadas). **Sem ganho de vazão**: yolo26n/DML 30,6 → 28,5 fps;
+yolo26s/CPU dentro do ruído. Motivo medido: o trabalho R fora da inferência já é de 2–5
+ms por quadro (tracker, desenho e codificação estão em C++), então quase todo o `Run`
+continua exposto. Fica **opt-in** (`options(pliman.video_pipeline = TRUE)`).
+
+**Não implementados, com justificativa:** §6.3 lote de quadros (mesmo bloqueio do batch
+fixo, e o ganho em DML seria negativo como nos tiles); §6.2 overhead R por quadro (medido
+em 0,11 ms/quadro em `rdata`, não há o que tirar); laço nativo completo.
+
+### Fase 5 — Modelos
+
+**Grafos pré-otimizados em disco** (`pliman_onnx_graph_cache()`, opt-in, só sessões CPU):
+
+| Sessão (processo novo) | sem cache | com cache |
+|---|---:|---:|
+| SAM 2.1 encoder | 3.254 ms | **178 ms** |
+| Grounding DINO | 1.700 ms | **690 ms** |
+| SAM 2.1 decoder | 206 ms | 102 ms |
+
+Caixas e rótulos idênticos. Chave = tamanho + mtime + versão da API; gravação atômica.
+É opt-in porque duplica o espaço em disco dos modelos grandes (~360 MB aqui).
+
+**Encoder SAM INT8/FP16** (`pliman_build_model_variant()`, `options(pliman.sam_encoder)`):
+
+| Encoder | FP32 | INT8 | FP16 |
+|---|---:|---:|---:|
+| CPU | **2,31 s** | 2,31 s (IoU 0,995) | 5,75 s |
+| DirectML | **0,36 s** | 38 s, **IoU 0** | 36,7 s |
+| CUDA | **0,39 s** | 4,65 s | 1,52 s |
+
+Nenhuma variante ganha nesta máquina (CPU sem VNNI, GPU sem Tensor Cores). O padrão
+continua FP32, sem seleção automática; INT8 é recusado em sessões GPU (máscaras erradas
+no DML). A conversão FP16 exigiu realinhar os `Cast` originais do modelo (o
+`onnxconverter_common` deixava o grafo inválido).
+
+**Não implementado:** encoders leves (EfficientSAM/EdgeSAM), que exigem novos modelos e
+outra interface de decoder. Cache de embeddings em disco (§2.5-4).
+
+---
+
 ## 0. Resumo executivo
 
 ### Os 12 itens de maior impacto (ordenados por ganho/esforço)

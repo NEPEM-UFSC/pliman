@@ -16,8 +16,13 @@ returns the current value.}
 \value{
 \code{pliman_session_info()}: a data.frame with one row per cached session
 (model, whether it runs on the GPU, threads, input dimensions, warm-up and CPU
-fallback flags), most recently used first. \code{pliman_max_sessions()}: the previous
-limit, invisibly when \code{n} is given.
+fallback flags, the execution \code{provider} actually used, the \code{graph_cache} state,
+the session creation time \code{create_ms} and, for GPU requests served by the CPU, the
+\code{fallback_reason}), most recently used first. A GPU session that fails to build
+(for example because another process holds the GPU memory) issues a warning, runs
+on the CPU and is retried on the GPU after 30 seconds; \code{\link[=pliman_clear_sessions]{pliman_clear_sessions()}}
+retries immediately.
+\code{pliman_max_sessions()}: the previous limit, invisibly when \code{n} is given.
 }
 \description{
 Deep-learning functions in pliman keep ONNX Runtime sessions in memory, so the model
@@ -37,6 +42,10 @@ ONNX Runtime worker threads keep the runtime default of busy-waiting ("spinning"
 briefly between runs, which gives the lowest latency. When several R processes share
 the CPU (e.g. parallel batch workers), set the environment variable
 \code{PLIMAN_ORT_SPIN=0} before the first inference to disable spinning.
+
+Which GPU provider serves a model (DirectML, CUDA, TensorRT, CoreML, OpenVINO) is
+chosen with \code{\link[=pliman_gpu_provider]{pliman_gpu_provider()}}; \code{\link[=pliman_onnx_profiling]{pliman_onnx_profiling()}} traces where every
+operator ran, and \code{\link[=pliman_onnx_graph_cache]{pliman_onnx_graph_cache()}} shortens session start-up.
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}

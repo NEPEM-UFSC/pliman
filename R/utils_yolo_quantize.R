@@ -825,9 +825,11 @@ print.pliman_fp16_summary <- function(x, ...) {
 #'   \item For a portable, half-size model that runs on any machine without TensorRT, use
 #'     [yolo_export_fp16()], which runs natively in pliman via DirectML.
 #'   \item pliman's own inference functions ([image_detect_dl()], [video_detect_dl()], ...)
-#'     run ONNX models through ONNX Runtime with the CPU or DirectML providers only; they
-#'     cannot execute `.engine` files. Use the engine from Python/Ultralytics or other
-#'     TensorRT runtimes.
+#'     run ONNX models through ONNX Runtime and cannot execute `.engine` files. Use the
+#'     engine from Python/Ultralytics or other TensorRT runtimes. To use TensorRT from
+#'     pliman itself, keep the `.onnx` model and select the TensorRT execution provider
+#'     with [pliman_gpu_provider()] (`"tensorrt"`), which builds and caches its own
+#'     engines.
 #'   \item With `half = TRUE` the speed-up depends on GPUs with native FP16 throughput
 #'     (NVIDIA Tensor Cores, RTX 20xx and newer). On GPUs without fast FP16 (e.g. GTX
 #'     10xx/16xx) the gain can be small or negative.

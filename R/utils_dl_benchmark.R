@@ -172,12 +172,21 @@ print.pliman_benchmark <- function(x, digits = 2, ...) {
 #' the CPU (e.g. parallel batch workers), set the environment variable
 #' `PLIMAN_ORT_SPIN=0` before the first inference to disable spinning.
 #'
+#' Which GPU provider serves a model (DirectML, CUDA, TensorRT, CoreML, OpenVINO) is
+#' chosen with [pliman_gpu_provider()]; [pliman_onnx_profiling()] traces where every
+#' operator ran, and [pliman_onnx_graph_cache()] shortens session start-up.
+#'
 #' @param n Integer. New maximum number of cached sessions (`>= 1`). `NULL` only
 #'   returns the current value.
 #' @return `pliman_session_info()`: a data.frame with one row per cached session
 #'   (model, whether it runs on the GPU, threads, input dimensions, warm-up and CPU
-#'   fallback flags), most recently used first. `pliman_max_sessions()`: the previous
-#'   limit, invisibly when `n` is given.
+#'   fallback flags, the execution `provider` actually used, the `graph_cache` state,
+#'   the session creation time `create_ms` and, for GPU requests served by the CPU, the
+#'   `fallback_reason`), most recently used first. A GPU session that fails to build
+#'   (for example because another process holds the GPU memory) issues a warning, runs
+#'   on the CPU and is retried on the GPU after 30 seconds; [pliman_clear_sessions()]
+#'   retries immediately.
+#'   `pliman_max_sessions()`: the previous limit, invisibly when `n` is given.
 #' @export
 #' @examplesIf interactive()
 #' library(pliman)

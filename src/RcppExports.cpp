@@ -1336,6 +1336,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// image_to_rgb_buffer_cpp
+Rcpp::RawVector image_to_rgb_buffer_cpp(SEXP img);
+RcppExport SEXP _pliman_image_to_rgb_buffer_cpp(SEXP imgSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img(imgSEXP);
+    rcpp_result_gen = Rcpp::wrap(image_to_rgb_buffer_cpp(img));
+    return rcpp_result_gen;
+END_RCPP
+}
 // write_image_cpp
 bool write_image_cpp(SEXP img_sexp, std::string filename, int quality);
 RcppExport SEXP _pliman_write_image_cpp(SEXP img_sexpSEXP, SEXP filenameSEXP, SEXP qualitySEXP) {
@@ -2305,6 +2316,27 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// onnx_available_providers_cpp
+Rcpp::CharacterVector onnx_available_providers_cpp(std::string lib_path);
+RcppExport SEXP _pliman_onnx_available_providers_cpp(SEXP lib_pathSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
+    rcpp_result_gen = Rcpp::wrap(onnx_available_providers_cpp(lib_path));
+    return rcpp_result_gen;
+END_RCPP
+}
+// onnx_api_version_cpp
+int onnx_api_version_cpp();
+RcppExport SEXP _pliman_onnx_api_version_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(onnx_api_version_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
 // run_onnx_inference_cpp
 Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec, Rcpp::IntegerVector tensor_dims, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id);
 RcppExport SEXP _pliman_run_onnx_inference_cpp(SEXP tensor_vecSEXP, SEXP tensor_dimsSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP) {
@@ -2497,6 +2529,42 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
     rcpp_result_gen = Rcpp::wrap(get_onnx_model_io_shape_cpp(model_path, lib_path, num_threads, use_gpu, device_id));
     return rcpp_result_gen;
+END_RCPP
+}
+// yolo_prefetch_cpp
+bool yolo_prefetch_cpp(SEXP img, std::string model_path, std::string lib_path, int num_threads, bool use_gpu, int device_id, int target_size);
+RcppExport SEXP _pliman_yolo_prefetch_cpp(SEXP imgSEXP, SEXP model_pathSEXP, SEXP lib_pathSEXP, SEXP num_threadsSEXP, SEXP use_gpuSEXP, SEXP device_idSEXP, SEXP target_sizeSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img(imgSEXP);
+    Rcpp::traits::input_parameter< std::string >::type model_path(model_pathSEXP);
+    Rcpp::traits::input_parameter< std::string >::type lib_path(lib_pathSEXP);
+    Rcpp::traits::input_parameter< int >::type num_threads(num_threadsSEXP);
+    Rcpp::traits::input_parameter< bool >::type use_gpu(use_gpuSEXP);
+    Rcpp::traits::input_parameter< int >::type device_id(device_idSEXP);
+    Rcpp::traits::input_parameter< int >::type target_size(target_sizeSEXP);
+    rcpp_result_gen = Rcpp::wrap(yolo_prefetch_cpp(img, model_path, lib_path, num_threads, use_gpu, device_id, target_size));
+    return rcpp_result_gen;
+END_RCPP
+}
+// yolo_prefetch_stats_cpp
+Rcpp::IntegerVector yolo_prefetch_stats_cpp();
+RcppExport SEXP _pliman_yolo_prefetch_stats_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(yolo_prefetch_stats_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
+// yolo_prefetch_cancel_cpp
+void yolo_prefetch_cancel_cpp();
+RcppExport SEXP _pliman_yolo_prefetch_cancel_cpp() {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    yolo_prefetch_cancel_cpp();
+    return R_NilValue;
 END_RCPP
 }
 // run_yolo_cpp
@@ -3407,6 +3475,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_read_image_cpp", (DL_FUNC) &_pliman_read_image_cpp, 1},
     {"_pliman_preprocess_yolo_file_cpp", (DL_FUNC) &_pliman_preprocess_yolo_file_cpp, 3},
     {"_pliman_rgb_buffer_to_image_cpp", (DL_FUNC) &_pliman_rgb_buffer_to_image_cpp, 3},
+    {"_pliman_image_to_rgb_buffer_cpp", (DL_FUNC) &_pliman_image_to_rgb_buffer_cpp, 1},
     {"_pliman_write_image_cpp", (DL_FUNC) &_pliman_write_image_cpp, 3},
     {"_pliman_draw_yolo_detections_bgr_cpp", (DL_FUNC) &_pliman_draw_yolo_detections_bgr_cpp, 52},
     {"_pliman_crop_bgr_cpp", (DL_FUNC) &_pliman_crop_bgr_cpp, 5},
@@ -3478,6 +3547,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_pliman_omp_max_threads_cpp", (DL_FUNC) &_pliman_pliman_omp_max_threads_cpp, 0},
     {"_pliman_onnx_set_max_sessions_cpp", (DL_FUNC) &_pliman_onnx_set_max_sessions_cpp, 1},
     {"_pliman_onnx_session_info_cpp", (DL_FUNC) &_pliman_onnx_session_info_cpp, 0},
+    {"_pliman_onnx_available_providers_cpp", (DL_FUNC) &_pliman_onnx_available_providers_cpp, 1},
+    {"_pliman_onnx_api_version_cpp", (DL_FUNC) &_pliman_onnx_api_version_cpp, 0},
     {"_pliman_run_onnx_inference_cpp", (DL_FUNC) &_pliman_run_onnx_inference_cpp, 7},
     {"_pliman_run_sam2_inference_cpp", (DL_FUNC) &_pliman_run_sam2_inference_cpp, 10},
     {"_pliman_run_grounding_dino_cpp", (DL_FUNC) &_pliman_run_grounding_dino_cpp, 12},
@@ -3488,6 +3559,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_run_yolo_sem_cpp", (DL_FUNC) &_pliman_run_yolo_sem_cpp, 10},
     {"_pliman_run_dinov2_cpp", (DL_FUNC) &_pliman_run_dinov2_cpp, 10},
     {"_pliman_get_onnx_model_io_shape_cpp", (DL_FUNC) &_pliman_get_onnx_model_io_shape_cpp, 5},
+    {"_pliman_yolo_prefetch_cpp", (DL_FUNC) &_pliman_yolo_prefetch_cpp, 7},
+    {"_pliman_yolo_prefetch_stats_cpp", (DL_FUNC) &_pliman_yolo_prefetch_stats_cpp, 0},
+    {"_pliman_yolo_prefetch_cancel_cpp", (DL_FUNC) &_pliman_yolo_prefetch_cancel_cpp, 0},
     {"_pliman_run_yolo_cpp", (DL_FUNC) &_pliman_run_yolo_cpp, 17},
     {"_pliman_run_yolo_tiles_cpp", (DL_FUNC) &_pliman_run_yolo_tiles_cpp, 17},
     {"_pliman_run_yolo_cls_cpp", (DL_FUNC) &_pliman_run_yolo_cls_cpp, 6},

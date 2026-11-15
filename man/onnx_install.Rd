@@ -5,12 +5,16 @@
 \alias{pliman_install_onnx}
 \title{Proprietary ONNX Runtime Installer for pliman}
 \usage{
-onnx_install(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu"))
+onnx_install(
+  version = "1.20.1",
+  force = FALSE,
+  engine = c("gpu", "cpu", "cuda")
+)
 
 pliman_install_onnx(
   version = "1.20.1",
   force = FALSE,
-  engine = c("gpu", "cpu")
+  engine = c("gpu", "cpu", "cuda")
 )
 }
 \arguments{
@@ -18,7 +22,8 @@ pliman_install_onnx(
 
 \item{force}{Logical. If \code{TRUE}, forces re-download even if already present (default \code{FALSE}).}
 
-\item{engine}{Execution engine: \code{"cpu"} (default) or \code{"gpu"}.}
+\item{engine}{Execution engine: \code{"gpu"} (default, DirectML on Windows), \code{"cpu"}, or
+\code{"cuda"} (CUDA/TensorRT build; activate with \code{\link[=pliman_gpu_provider]{pliman_gpu_provider()}}).}
 }
 \value{
 A character string with the path to the installed shared library.

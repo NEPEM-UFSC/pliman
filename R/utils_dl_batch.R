@@ -505,6 +505,22 @@ image_detect_dl_batch <- function(data,
     }
     for (i in seq_len(n_items)) {
       res_i <- results[[i]]
+      out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
+      # Native renderer first (decodes the file directly when the item is a path, so the
+      # image is not re-imported into R); falls back to the graphics device below.
+      native_src <- if (is.character(items[[i]])) {
+        items[[i]]
+      } else if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else {
+        items[[i]]
+      }
+      saved_native <- tryCatch(.save_detections_native(native_src, res_i, out_file, dots_args, show_point),
+                               error = function(e) FALSE)
+      rm(native_src)
+      if (isTRUE(saved_native)) next
       im_obj <- if (inherits(res_i, c("Image", "image"))) {
         res_i
       } else if (!is.null(attr(res_i, "image"))) {
@@ -1008,6 +1024,22 @@ image_detect_sahi_batch <- function(data,
     }
     for (i in seq_len(n_items)) {
       res_i <- results[[i]]
+      out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
+      # Native renderer first (decodes the file directly when the item is a path, so the
+      # image is not re-imported into R); falls back to the graphics device below.
+      native_src <- if (is.character(items[[i]])) {
+        items[[i]]
+      } else if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else {
+        items[[i]]
+      }
+      saved_native <- tryCatch(.save_detections_native(native_src, res_i, out_file, dots_args, show_point),
+                               error = function(e) FALSE)
+      rm(native_src)
+      if (isTRUE(saved_native)) next
       im_obj <- if (inherits(res_i, c("Image", "image"))) {
         res_i
       } else if (!is.null(attr(res_i, "image"))) {
