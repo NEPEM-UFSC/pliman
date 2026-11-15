@@ -2972,6 +2972,21 @@ video_detect_dl <- function(video = 0,
     last_frame_t <- Sys.time()
     stats_smoother <- .make_stats_smoother(smoot_stat)
 
+    # Per-stage wall-clock accumulators, in seconds. Reported in `$timings` so that a
+    # slow run can be attributed to a stage instead of guessed at: the frame rate alone
+    # cannot distinguish a heavy model from heavy rendering or a slow disk.
+    acc <- c(decode = 0, infer = 0, track = 0, rdata = 0, draw = 0, encode = 0,
+             display = 0)
+    acc_n <- c(decode = 0L, infer = 0L, track = 0L, rdata = 0L, draw = 0L,
+               encode = 0L, display = 0L)
+    .tic <- function() Sys.time()
+    .toc <- function(stage, t0) {
+      el <- as.numeric(Sys.time() - t0, units = "secs")
+      acc[[stage]] <<- acc[[stage]] + el
+      acc_n[[stage]] <<- acc_n[[stage]] + 1L
+      invisible(el)
+    }
+
     recorded_frames <- vector("list", num_frames)
     frames_processed <- 0L
     bm_stream <- if (use_native_stream) {
@@ -2982,6 +2997,7 @@ video_detect_dl <- function(video = 0,
 
     process_loop <- function() {
       for (i in seq_len(num_frames)) {
+        .t_dec <- .tic()
         if (use_native_stream) {
           has_frame <- read_native_video_frame_cpp(v_reader, bm_stream)
           if (!has_frame) break
@@ -2991,6 +3007,7 @@ video_detect_dl <- function(video = 0,
           f_path <- frame_paths[i]
           bm <- load_frame_bgr_cpp(f_path)
         }
+        .toc("decode", .t_dec)
         has_kpts <- FALSE
         has_masks <- FALSE
         kpt_mat_pass <- NULL
@@ -3027,6 +3044,7 @@ video_detect_dl <- function(video = 0,
           raw_res <- .run_video_yolo(bm_feed, feed_w, feed_h, need_masks_vid)
           t_inf_end <- Sys.time()
           t_inf_ms <<- as.numeric(t_inf_end - t_inf_start, units = "secs") * 1000
+          .toc("infer", t_inf_start)
 
           has_masks <- need_masks_vid && isTRUE(raw_res$is_seg) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && nrow(raw_res$boxes) > 0L
           num_boxes_orig <- nrow(raw_res$boxes)
@@ -3197,6 +3215,7 @@ video_detect_dl <- function(video = 0,
               }
               t_trk_end <- Sys.time()
               t_trk_ms <<- as.numeric(t_trk_end - t_trk_start, units = "secs") * 1000
+              .toc("track", t_trk_start)
               last_track_res <<- track_res
             }
 
@@ -3289,6 +3308,7 @@ video_detect_dl <- function(video = 0,
           )
         }
 
+        .t_rd <- .tic()
         palette_colors <- if (detect && nrow(df_b) > 0) {
           .get_class_palette(
             labels = df_b$label,
@@ -3325,6 +3345,7 @@ video_detect_dl <- function(video = 0,
             frame_keypoints[[i]] <<- do.call(rbind, kpts_list_frame)
           }
         }
+        .toc("rdata", .t_rd)
 
         if (need_color_adj && (isTRUE(show) || isTRUE(save_video))) {
           adjust_frame_color_cpp(bm, saturation = saturation_val, contrast = contrast_val)
@@ -3472,7 +3493,9 @@ video_detect_dl <- function(video = 0,
             point_radius = as.integer(point_radius),
             point_col = if (!is.null(point_col)) as.character(point_col) else ""
           )
+          .toc("draw", t_gui_start)
           if (save_video) {
+            .t_enc <- .tic()
             if (use_native_writer) {
               write_native_video_frame_cpp(v_writer, bm)
             } else if (use_native_stream) {
@@ -3482,7 +3505,9 @@ video_detect_dl <- function(video = 0,
             } else {
               save_frame_bgr_cpp(bm, f_path, quality = 90L)
             }
+            .toc("encode", .t_enc)
           }
+          .t_disp <- .tic()
           if (use_native_win_b && !is.null(win_b)) {
             show_native_frame_cpp(win_b, bm, preserve_aspect = TRUE)
             status <- poll_native_window_cpp(win_b)
@@ -3494,6 +3519,7 @@ video_detect_dl <- function(video = 0,
             }
             if (status == 1L) break
           }
+          .toc("display", .t_disp)
           t_gui_end <- Sys.time()
           last_gui_ms <<- max(1.0, as.numeric(t_gui_end - t_gui_start, units = "secs") * 1000)
         } else if (isTRUE(show) && !use_native_win_b) {
@@ -3687,6 +3713,18 @@ video_detect_dl <- function(video = 0,
     loop_time <- max(0.001, as.numeric(t_loop_end - t_start, units = "secs"))
     actual_n <- frames_processed
     avg_fps <- if (loop_time > 0 && actual_n > 0) (actual_n / loop_time) else src_fps
+
+    # Per-stage breakdown of the frame loop, in milliseconds per frame. `total` is wall
+    # clock for the whole loop, so the difference between it and the sum of the stages
+    # is the unattributed remainder (progress reporting, control flow, GC).
+    stage_timings <- data.frame(
+      stage = c(names(acc), "total"),
+      seconds = c(unname(acc), loop_time),
+      calls = c(unname(acc_n), actual_n),
+      stringsAsFactors = FALSE
+    )
+    stage_timings$ms_per_frame <- round(stage_timings$seconds / max(1L, actual_n) * 1000, 2)
+    stage_timings$pct <- round(stage_timings$seconds / loop_time * 100, 1)
 
     if (use_native_stream) {
       try(close_native_video_reader_cpp(v_reader), silent = TRUE)
@@ -4029,7 +4067,8 @@ video_detect_dl <- function(video = 0,
     diversity = diversity_metrics,
     detections = all_dets,
     unique_objects = unique_objects_df,
-    frame_dims = c(width = as.integer(frame_w_out), height = as.integer(frame_h_out))
+    frame_dims = c(width = as.integer(frame_w_out), height = as.integer(frame_h_out)),
+    timings = if (exists("stage_timings", inherits = FALSE)) stage_timings else NULL
   )
 
   if (!is.null(heatmap_accum)) {
