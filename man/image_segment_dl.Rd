@@ -47,6 +47,7 @@ image_segment_dl(
   plot_features = FALSE,
   threads = 0,
   engine = c("gpu", "cpu"),
+  sam_device = c("cpu", "gpu", "auto"),
   device_id = -1,
   fill_hull = TRUE,
   filter = 0,

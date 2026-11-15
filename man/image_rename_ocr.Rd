@@ -8,15 +8,15 @@ image_rename_ocr(
   dir = ".",
   pattern = NULL,
   recursive = FALSE,
-  text_pos = c("first", "top-left", "top-right", "bottom-left", "bottom-right", "top",
-    "bottom", "center", "largest", "confidence"),
+  text_pos = c("confidence", "first", "top-left", "top-right", "bottom-left",
+    "bottom-right", "top", "bottom", "center", "largest"),
   pattern_match = NULL,
   prefix = "",
   suffix = "",
   case = c("as_is", "upper", "lower"),
   sep = "_",
   min_chars = 1L,
-  min_score = 0.35,
+  min_score = 0.6,
   sanitize = TRUE,
   keep_extension = TRUE,
   copy = FALSE,
@@ -53,7 +53,8 @@ filter image files. If \code{NULL} (default), matches common image extensions:
 \item{text_pos}{Spatial or heuristic strategy used to select the target text
 when multiple text regions are detected in an image:
 \itemize{
-\item \code{"first"} (default): First detected text region in scan order.
+\item \code{"confidence"} (default): Text region with the highest recognition confidence score.
+\item \code{"first"}: First detected text region in scan order.
 \item \code{"top-left"}: Closest bounding box to the top-left canvas corner.
 \item \code{"top-right"}: Closest bounding box to the top-right canvas corner.
 \item \code{"bottom-left"}: Closest bounding box to the bottom-left canvas corner.
@@ -62,7 +63,6 @@ when multiple text regions are detected in an image:
 \item \code{"bottom"}: Text region positioned lowest vertically (maximum y).
 \item \code{"center"}: Closest text bounding box centroid to the image center.
 \item \code{"largest"}: Text region with the largest bounding box area.
-\item \code{"confidence"}: Text region with the highest recognition confidence score.
 }}
 
 \item{pattern_match}{Optional character string containing a regular expression.

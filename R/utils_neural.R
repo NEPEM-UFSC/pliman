@@ -422,15 +422,10 @@ NULL
 
     if (!is.null(ids) && length(ids) == length(chr_labels)) {
       id_num <- suppressWarnings(as.integer(ids))
-      cols <- vapply(seq_along(id_num), function(idx) {
-        val <- id_num[idx]
-        if (!is.na(val) && val > 0L) {
-          pool[((val - 1L) %% n_pool) + 1L]
-        } else {
-          pool[((idx - 1L) %% n_pool) + 1L]
-        }
-      }, character(1))
-      return(cols)
+      valid_id <- !is.na(id_num) & id_num > 0L
+      pos <- seq_along(id_num)
+      if (any(valid_id)) pos[valid_id] <- id_num[valid_id]
+      return(pool[((pos - 1L) %% n_pool) + 1L])
     }
 
     n_inst <- length(chr_labels)
