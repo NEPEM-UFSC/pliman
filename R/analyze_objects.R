@@ -983,46 +983,60 @@ analyze_objects <- function(img,
       } else {
         col_fg <- col_foreground
       }
-      img_max <- max(as.numeric(image_data(img)))
-      if (max(col_bg) > 1 && img_max <= 1) col_bg <- col_bg / 255
-      if (max(col_fg) > 1 && img_max <= 1) col_fg <- col_fg / 255
-
       ID <- which(nmask != 0)
       ID2 <- which(nmask == 0)
 
+      is_raw_img <- is.raw(image_data(img))
+      if (is_raw_img) {
+        col_bg_val <- as.raw(round(pmin(pmax(col_bg, 0), 255)))
+        col_fg_val <- as.raw(round(pmin(pmax(col_fg, 0), 255)))
+      } else {
+        col_bg_val <- if (max(col_bg) > 1) col_bg / 255 else col_bg
+        col_fg_val <- if (max(col_fg) > 1) col_fg / 255 else col_fg
+      }
+
       if (show_original == TRUE && show_segmentation == FALSE) {
-        im2 <- img[,,1:3]
+        im2 <- img[, , 1:3]
         if (backg) {
-          im3 <- image_color_labels(nmask)
-          im2[,,1][which(im3[,,1] == 0)] <- col_bg[1]
-          im2[,,2][which(im3[,,2] == 0)] <- col_bg[2]
-          im2[,,3][which(im3[,,3] == 0)] <- col_bg[3]
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         }
       } else if (show_original == TRUE && show_segmentation == TRUE) {
         im2 <- image_color_labels(nmask)
+        if (is_raw_img && !is.raw(image_data(im2))) {
+          im2 <- as_image(im2, storage = "raw")
+        } else if (!is_raw_img && !is.double(image_data(im2))) {
+          im2 <- as_image(im2, storage = "double")
+        }
         if (backg) {
-          im2[,,1][which(im2[,,1] == 0)] <- col_bg[1]
-          im2[,,2][which(im2[,,2] == 0)] <- col_bg[2]
-          im2[,,3][which(im2[,,3] == 0)] <- col_bg[3]
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         } else {
-          im2[,,1][which(im2[,,1] == 0)] <- as.numeric(img[,,1])[which(im2[,,1] == 0)]
-          im2[,,2][which(im2[,,2] == 0)] <- as.numeric(img[,,2])[which(im2[,,2] == 0)]
-          im2[,,3][which(im2[,,3] == 0)] <- as.numeric(img[,,3])[which(im2[,,3] == 0)]
+          im2[, , 1][ID2] <- img[, , 1][ID2]
+          im2[, , 2][ID2] <- img[, , 2][ID2]
+          im2[, , 3][ID2] <- img[, , 3][ID2]
         }
       } else {
         if (show_segmentation == TRUE) {
           im2 <- image_color_labels(nmask)
-          im2[,,1][which(im2[,,1] == 0)] <- col_bg[1]
-          im2[,,2][which(im2[,,2] == 0)] <- col_bg[2]
-          im2[,,3][which(im2[,,3] == 0)] <- col_bg[3]
+          if (is_raw_img && !is.raw(image_data(im2))) {
+            im2 <- as_image(im2, storage = "raw")
+          } else if (!is_raw_img && !is.double(image_data(im2))) {
+            im2 <- as_image(im2, storage = "double")
+          }
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         } else {
-          im2 <- img[,,1:3]
-          im2[,,1][ID] <- col_fg[1]
-          im2[,,2][ID] <- col_fg[2]
-          im2[,,3][ID] <- col_fg[3]
-          im2[,,1][ID2] <- col_bg[1]
-          im2[,,2][ID2] <- col_bg[2]
-          im2[,,3][ID2] <- col_bg[3]
+          im2 <- img[, , 1:3]
+          im2[, , 1][ID] <- col_fg_val[1]
+          im2[, , 2][ID] <- col_fg_val[2]
+          im2[, , 3][ID] <- col_fg_val[3]
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         }
       }
 
