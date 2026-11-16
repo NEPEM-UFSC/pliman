@@ -984,8 +984,8 @@ yolo_dataset_export <- function(img,
               prior_polygons = prev_pls
             )
             if (identical(rev$action, "resample")) {
-              accumulated_prototypes_list[[cl_idx]] <- NULL
-              cached_pts_list[[cl_idx]] <- NULL
+              accumulated_prototypes_list[cl_idx] <- list(NULL)
+              cached_pts_list[cl_idx] <- list(NULL)
               curr_pts <- NULL
               next
             } else if (identical(rev$action, "stop")) {
