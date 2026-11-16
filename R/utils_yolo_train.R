@@ -407,6 +407,7 @@ yolo_dataset_export <- function(img,
                                 labels = show_labels,
                                 badge = TRUE,
                                 engine = c("gpu", "cpu"),
+                                sam_device = c("auto", "gpu", "cpu"),
                                 device_id = -1,
                                 move = TRUE,
                                 overwrite = TRUE,
@@ -566,6 +567,7 @@ yolo_dataset_export <- function(img,
   if (split_ratio[3] > 0) splits <- c(splits, "test")
   task <- match.arg(task)
   engine <- match.arg(engine)
+  sam_device <- match.arg(sam_device)
   prompt_mode <- match.arg(prompt_mode)
   if (is.null(dir) || !nzchar(dir)) {
     dir <- if (is.character(img) && length(img) == 1L && dir.exists(img)) img else "yolo_dataset"
@@ -895,6 +897,7 @@ yolo_dataset_export <- function(img,
                 feat_res = feat_res,
                 superres_map = superres_map,
                 engine = engine,
+                sam_device = sam_device,
                 device_id = device_id,
                 verbose = FALSE,
                 mask = (task == "segment")
@@ -1037,6 +1040,7 @@ yolo_dataset_export <- function(img,
               feat_res = feat_res,
               superres_map = superres_map,
               engine = engine,
+              sam_device = sam_device,
               device_id = device_id,
               verbose = FALSE,
               mask = (task == "segment")
@@ -1054,6 +1058,7 @@ yolo_dataset_export <- function(img,
               feat_res = feat_res,
               superres_map = superres_map,
               engine = engine,
+              sam_device = sam_device,
               device_id = device_id,
               verbose = FALSE,
               mask = (task == "segment")
@@ -3003,6 +3008,7 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
             iou_threshold = iou_threshold,
             feat_res = 256L,
             engine = engine,
+            sam_device = if (identical(engine, "gpu")) "gpu" else "cpu",
             device_id = device_id,
             verbose = FALSE,
             mask = (task == "segment")
