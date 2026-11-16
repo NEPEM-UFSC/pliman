@@ -412,10 +412,38 @@
       cli::cli_alert_info("Click on missed objects to add them.")
       cli::cli_alert_info("Press <Esc> or right-click when finished.")
 
-      add_pts <- tryCatch(
-        graphics::locator(n = 64, type = "p", pch = 3, col = "#00FF66", cex = 1.4, lwd = 2.5),
-        error = function(e) NULL
-      )
+      def_w <- if (nrow(r_boxes) > 0L) stats::median(r_boxes$xmax - r_boxes$xmin) else min(cw, ch) * 0.05
+      def_h <- if (nrow(r_boxes) > 0L) stats::median(r_boxes$ymax - r_boxes$ymin) else min(cw, ch) * 0.05
+      if (is.na(def_w) || def_w <= 0) def_w <- min(cw, ch) * 0.05
+      if (is.na(def_h) || def_h <= 0) def_h <- min(cw, ch) * 0.05
+
+      add_pts_x <- numeric(0)
+      add_pts_y <- numeric(0)
+      n_added <- 0L
+
+      repeat {
+        pt <- tryCatch(
+          graphics::locator(n = 1),
+          error = function(e) NULL
+        )
+        if (is.null(pt) || length(pt$x) == 0L) break
+        px <- pt$x[1]
+        py <- pt$y[1]
+        add_pts_x <- c(add_pts_x, px)
+        add_pts_y <- c(add_pts_y, py)
+        n_added <- n_added + 1L
+
+        # Draw green center cross and bounding box immediately on canvas
+        bx1 <- max(0, px - def_w / 2)
+        by1 <- max(0, py - def_h / 2)
+        bx2 <- min(cw, px + def_w / 2)
+        by2 <- min(ch, py + def_h / 2)
+        graphics::points(px, py, pch = 3, col = "#00FF66", cex = 1.3, lwd = 2.5)
+        graphics::rect(bx1, by1, bx2, by2, border = "#00FF66", lwd = 2.5, lty = 1)
+        cli::cli_alert_info("Added box #{n_added} at ({round(px)}, {round(py)}). Click more objects or press <Esc> to finish.")
+      }
+
+      add_pts <- if (length(add_pts_x) > 0L) list(x = add_pts_x, y = add_pts_y) else NULL
 
       if (!is.null(add_pts) && length(add_pts$x) > 0L) {
         new_coords <- cbind(x = add_pts$x, y = add_pts$y)

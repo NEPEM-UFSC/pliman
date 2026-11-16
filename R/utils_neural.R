@@ -6435,7 +6435,7 @@ image_segment_dl <- function(img,
                              col_background = "white",
                              col_highlight = "salmon",
                              mask_color = NULL,
-                             alpha = 0.5,
+                             alpha = 0.7,
                              border = NA,
                              lwd = 1,
                              bbox = FALSE,
@@ -7547,7 +7547,7 @@ pliman_clear_sessions <- function() {
 #' @rdname image_remove_bg_dl
 #' @export
 image_remove_bg <- function(img,
-                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
+                            model = c("rmbg-1.4", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam" , "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                             threshold = 0.5,
                             fill_hull = TRUE,
                             filter = 0,

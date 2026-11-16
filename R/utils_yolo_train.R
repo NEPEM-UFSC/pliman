@@ -1011,6 +1011,9 @@ yolo_dataset_export <- function(img,
                 }
               }
             }
+              if (!is.null(rev$conf) && is.numeric(rev$conf) && rev$conf > 0) {
+                sim_threshold <- rev$conf
+              }
           } # while (!accepted)
           if (isTRUE(stop_early)) break
         } else {
