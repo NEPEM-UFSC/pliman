@@ -175,6 +175,7 @@
 #' segmentation (`task = "segment"`). Annotations can be produced automatically
 #' via deep learning foundation models:
 #' \itemize{
+#'   \item \strong{Manual interactive annotation} with \code{model = "manual"} (draw bounding boxes directly with 2 clicks per box: zero AI models or GPU required).
 #'   \item \strong{One-shot visual exemplar auto-labeling} with \code{model = "persam"} (Roboflow-style 1-click annotation).
 #'   \item \strong{Zero-shot text prompt detection} with \code{model = "grounded-sam"} (e.g. \code{prompt = "people"}).
 #'   \item \strong{Assisted labeling / pseudo-labeling} with pre-trained or fine-tuned YOLO models (\code{model = "custom.onnx"}).
@@ -217,7 +218,8 @@
 #'
 #' @param img An `image` object, a list of `image` objects, a file path, or a directory path
 #'   containing images to annotate.
-#' @param model Deep learning model to use for automated or semi-automated labeling:
+#' @param model Model to use for dataset annotation:
+#'   * `"manual"` (or `"box"`, `"boxes"`, `"draw"`): Pure manual bounding box labeling. Click 2 opposite corners per box with zero AI models, zero downloads, and instant response.
 #'   * `"persam"`: One-shot visual exemplar segmentation and detection (Roboflow-style 1-click auto-labeling).
 #'   * `"grounded-sam"`: Zero-shot text-prompted instance segmentation & detection.
 #'   * Path to a trained YOLO `.onnx` model (e.g. `"capsulas_det.onnx"`): Assisted labeling / pseudo-labeling.
@@ -437,6 +439,10 @@ yolo_dataset_export <- function(img,
           identical(tolower(evaluated_args$model[1]), "persam")) {
         cli::cli_abort("Interactive prompt selection ({.code interactive = TRUE}) cannot be run as an RStudio background job. Please provide {.arg prompt} coordinates or run with {.code as_job = FALSE}.")
       }
+      if (!is.null(evaluated_args$model) && is.character(evaluated_args$model) &&
+          tolower(evaluated_args$model[1]) %in% c("manual", "box", "boxes", "draw")) {
+        cli::cli_abort("Manual annotation ({.code model = 'manual'}) requires an interactive graphical window and cannot be run as an RStudio background job. Please run with {.code as_job = FALSE}.")
+      }
       evaluated_args$interactive <- FALSE
 
       job_dir <- file.path(tempdir(), "yolo_jobs")
@@ -597,12 +603,13 @@ yolo_dataset_export <- function(img,
     class_id <- c(class_id, seq(from = max(class_id) + 1L, length.out = length(class_names) - length(class_id)))
   }
   m_lower <- if (!is.null(model) && is.character(model)) tolower(model[1]) else ""
-  is_persam <- m_lower %in% c("persam", "per-sam", "sam-exemplar")
-  is_grounded_sam <- m_lower %in% c("grounded-sam", "grounded_sam")
-  is_yolo <- !is_persam && !is_grounded_sam && nzchar(m_lower) && (
+  is_manual <- m_lower %in% c("manual", "box", "boxes", "draw", "none") || identical(tolower(as.character(annotations)[1]), "manual")
+  is_persam <- !is_manual && m_lower %in% c("persam", "per-sam", "sam-exemplar")
+  is_grounded_sam <- !is_manual && m_lower %in% c("grounded-sam", "grounded_sam")
+  is_yolo <- !is_manual && !is_persam && !is_grounded_sam && nzchar(m_lower) && (
     grepl("yolo", m_lower) || grepl("\\.(onnx|pt)$", model[1]) || file.exists(model[1])
   )
-  is_salient <- m_lower %in% c("ben2", "u2netp", "u2net", "birefnet-lite", "rmbg-1.4", "rmbg-2.0", "withoutbg", "silueta")
+  is_salient <- !is_manual && m_lower %in% c("ben2", "u2netp", "u2net", "birefnet-lite", "rmbg-1.4", "rmbg-2.0", "withoutbg", "silueta")
   # Prepare directory structure
   train_img_dir <- file.path(dir, "images", "train")
   val_img_dir   <- file.path(dir, "images", "val")
@@ -699,7 +706,9 @@ yolo_dataset_export <- function(img,
   val_images_saved   <- character()
   test_images_saved  <- character()
   if (isTRUE(verbose)) {
-    mode_str <- if (is_persam) {
+    mode_str <- if (is_manual) {
+      "Manual Bounding Box Annotation (Interactive 2-click)"
+    } else if (is_persam) {
       if (isTRUE(interactive)) "PerSAM (Interactive 1-click Exemplar)" else "PerSAM (One-shot Exemplar Batch)"
     } else if (is_grounded_sam) {
       paste0("Grounded-SAM (Text Prompt: '", if (is.character(prompt)) paste(prompt, collapse = ", ") else class_names[1], "')")
@@ -747,7 +756,7 @@ yolo_dataset_export <- function(img,
     }
   }
   stop_early <- FALSE
-  show_pb <- isTRUE(verbose) && !(is_persam && isTRUE(interactive))
+  show_pb <- isTRUE(verbose) && !is_manual && !(is_persam && isTRUE(interactive))
   pb <- if (show_pb) {
     cli::cli_progress_bar(
       format = "{cli::pb_spin} Annotating images [{cli::pb_current}/{cli::pb_total}] {cli::pb_bar} {cli::pb_percent} | ETA: {cli::pb_eta}",
@@ -770,9 +779,29 @@ yolo_dataset_export <- function(img,
     bx_df <- NULL
     conts_list <- list()
     # --------------------------------------------------------------------------
+    # MODEL 0: Manual Bounding Box Annotation (2 clicks per box)
+    # --------------------------------------------------------------------------
+    if (is_manual) {
+      man_res <- .yolo_interactive_manual_label(
+        img = curr_img,
+        class_names = class_names,
+        class_id = class_id,
+        task = task,
+        img_name = base_name,
+        img_idx = i,
+        total_imgs = num_imgs,
+        rainbow = rainbow,
+        verbose = verbose
+      )
+      if (isTRUE(man_res$stop_early)) {
+        stop_early <- TRUE
+      }
+      bx_df <- man_res$boxes
+      conts_list <- man_res$polygons
+    # --------------------------------------------------------------------------
     # MODEL 1: PerSAM (One-shot Visual Exemplar)
     # --------------------------------------------------------------------------
-    if (is_persam) {
+    } else if (is_persam) {
       img_boxes_list <- list()
       img_polys_list <- list()
       for (cl_idx in seq_along(class_names)) {
@@ -1826,6 +1855,7 @@ yolo_dataset_export <- function(img,
     if (is.character(curr_item)) {
       rm(curr_img)
     }
+    if (isTRUE(stop_early)) break
   }
   if (!is.null(pb)) {
     cli::cli_progress_done(id = pb)
