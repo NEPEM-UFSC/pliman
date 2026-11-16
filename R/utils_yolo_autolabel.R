@@ -247,7 +247,7 @@
     cli::cli_bullets(c(
       "*" = paste0(cli::col_green("[Enter] / c"), ": Accept detections and proceed to {next_prompt}"),
       "*" = paste0(cli::col_green("r"), ": Remove false positives (click on masks/boxes to delete, <Esc> when done)"),
-      "*" = paste0(cli::col_green("a"), ": Add missed objects (click on objects, <Esc> when done)"),
+      "*" = paste0(cli::col_green("a"), ": Add missed boxes (click 2 opposite corners per box, <Esc> when done)"),
       "*" = paste0(cli::col_green("t <val>"), ": Adjust confidence threshold (e.g. {.code t 0.70} or {.code t 0.50})"),
       "*" = paste0(cli::col_green("s"), ": Sample again (clear exemplars and re-click points for this class)"),
       "*" = paste0(cli::col_green("skip"), ": Skip / discard detections for this class and proceed to {next_prompt}"),
@@ -409,38 +409,70 @@
     }
 
     if (ans %in% c("a", "add")) {
-      cli::cli_alert_info("Click on missed objects to add them.")
+      cli::cli_alert_info("Add missed boxes: Click 2 opposite corners for each box (e.g., top-left then bottom-right).")
       cli::cli_alert_info("Press <Esc> or right-click when finished.")
 
-      def_w <- if (nrow(r_boxes) > 0L) stats::median(r_boxes$xmax - r_boxes$xmin) else min(cw, ch) * 0.05
-      def_h <- if (nrow(r_boxes) > 0L) stats::median(r_boxes$ymax - r_boxes$ymin) else min(cw, ch) * 0.05
-      if (is.na(def_w) || def_w <= 0) def_w <- min(cw, ch) * 0.05
-      if (is.na(def_h) || def_h <= 0) def_h <- min(cw, ch) * 0.05
-
+      manual_boxes_list <- list()
+      manual_polys_list <- list()
       add_pts_x <- numeric(0)
       add_pts_y <- numeric(0)
       n_added <- 0L
 
       repeat {
-        pt <- tryCatch(
+        pt1 <- tryCatch(
           graphics::locator(n = 1),
           error = function(e) NULL
         )
-        if (is.null(pt) || length(pt$x) == 0L) break
-        px <- pt$x[1]
-        py <- pt$y[1]
-        add_pts_x <- c(add_pts_x, px)
-        add_pts_y <- c(add_pts_y, py)
-        n_added <- n_added + 1L
+        if (is.null(pt1) || length(pt1$x) == 0L) break
+        x1 <- pt1$x[1]; y1 <- pt1$y[1]
+        graphics::points(x1, y1, pch = 3, col = "#FFFF00", cex = 1.3, lwd = 2.5)
+        cli::cli_alert_info("Box #{n_added + 1L}: Corner 1 at ({round(x1)}, {round(y1)}). Click opposite corner (<Esc> to cancel this box)...")
 
-        # Draw green center cross and bounding box immediately on canvas
-        bx1 <- max(0, px - def_w / 2)
-        by1 <- max(0, py - def_h / 2)
-        bx2 <- min(cw, px + def_w / 2)
-        by2 <- min(ch, py + def_h / 2)
-        graphics::points(px, py, pch = 3, col = "#00FF66", cex = 1.3, lwd = 2.5)
-        graphics::rect(bx1, by1, bx2, by2, border = "#00FF66", lwd = 2.5, lty = 1)
-        cli::cli_alert_info("Added box #{n_added} at ({round(px)}, {round(py)}). Click more objects or press <Esc> to finish.")
+        pt2 <- tryCatch(
+          graphics::locator(n = 1),
+          error = function(e) NULL
+        )
+        if (is.null(pt2) || length(pt2$x) == 0L) {
+          cli::cli_alert_warning("Incomplete box #{n_added + 1L} cancelled.")
+          break
+        }
+        x2 <- pt2$x[1]; y2 <- pt2$y[1]
+        bx_min <- max(0, min(x1, x2))
+        by_min <- max(0, min(y1, y2))
+        bx_max <- min(cw, max(x1, x2))
+        by_max <- min(ch, max(y1, y2))
+
+        # Discard degenerate clicks (< 3 px)
+        if ((bx_max - bx_min) < 3 || (by_max - by_min) < 3) {
+          cli::cli_alert_warning("Box too small (< 3px), ignored.")
+          next
+        }
+
+        n_added <- n_added + 1L
+        cx <- (bx_min + bx_max) / 2
+        cy <- (by_min + by_max) / 2
+
+        # Draw green bounding box and center point immediately on canvas
+        graphics::rect(bx_min, by_min, bx_max, by_max, border = "#00FF66", lwd = 2.5)
+        graphics::points(cx, cy, pch = 3, col = "#00FF66", cex = 1.3, lwd = 2)
+
+        manual_boxes_list[[length(manual_boxes_list) + 1L]] <- data.frame(
+          xmin = bx_min, ymin = by_min, xmax = bx_max, ymax = by_max,
+          conf = 1.0, class_id = as.integer(class_id), class_name = label, label = label,
+          stringsAsFactors = FALSE
+        )
+        if (identical(task, "segment")) {
+          th <- seq(0, 2 * pi, length.out = 24)[-24]
+          rx <- (bx_max - bx_min) / 2
+          ry <- (by_max - by_min) / 2
+          circ_x <- (cx + rx * cos(th)) / cw
+          circ_y <- (cy + ry * sin(th)) / ch
+          manual_polys_list[[length(manual_polys_list) + 1L]] <- as.vector(rbind(circ_x, circ_y))
+        }
+
+        add_pts_x <- c(add_pts_x, cx)
+        add_pts_y <- c(add_pts_y, cy)
+        cli::cli_alert_success("Box #{n_added} registered: [{round(bx_min)}, {round(by_min)}, {round(bx_max)}, {round(by_max)}]. Click next box or <Esc> to finish.")
       }
 
       add_pts <- if (length(add_pts_x) > 0L) list(x = add_pts_x, y = add_pts_y) else NULL
@@ -448,6 +480,7 @@
       if (!is.null(add_pts) && length(add_pts$x) > 0L) {
         new_coords <- cbind(x = add_pts$x, y = add_pts$y)
         curr_points <- if (!is.null(curr_points)) rbind(curr_points, new_coords) else new_coords
+        manual_df <- if (length(manual_boxes_list) > 0L) do.call(rbind, manual_boxes_list) else data.frame()
 
         cli::cli_progress_step(
           msg = "Re-evaluating SAM 2.1 with {nrow(new_coords)} added exemplar(s) [{toupper(engine)}]... ",
@@ -463,9 +496,11 @@
             max_objects = max_objects,
             feat_res = 256L,
             engine = engine,
+            sam_device = if (identical(engine, "gpu")) "gpu" else "cpu",
             device_id = device_id,
             fill_hull = TRUE,
-            verbose = FALSE
+            verbose = FALSE,
+            mask = (identical(task, "segment"))
           )
         }, error = function(e) NULL)
 
@@ -530,34 +565,23 @@
           }
         }
 
-        # Fallback guarantee: ensure EVERY clicked point has a box on screen!
-        def_w <- if (nrow(nbx) > 0L) stats::median(nbx$xmax - nbx$xmin) else min(cw, ch) * 0.04
-        def_h <- if (nrow(nbx) > 0L) stats::median(nbx$ymax - nbx$ymin) else min(cw, ch) * 0.04
-        if (is.na(def_w) || def_w <= 0) def_w <- min(cw, ch) * 0.04
-        if (is.na(def_h) || def_h <= 0) def_h <- min(cw, ch) * 0.04
-
-        for (pi in seq_len(nrow(new_coords))) {
-          px <- new_coords[pi, 1]; py <- new_coords[pi, 2]
-          has_box <- any(px >= nbx$xmin & px <= nbx$xmax & py >= nbx$ymin & py <= nbx$ymax)
-          if (!has_box) {
-            fallback_row <- data.frame(
-              xmin = max(0, px - def_w / 2),
-              ymin = max(0, py - def_h / 2),
-              xmax = min(cw, px + def_w / 2),
-              ymax = min(ch, py + def_h / 2),
-              conf = 1.0,
-              class_id = as.integer(class_id),
-              class_name = label,
-              label = label,
-              stringsAsFactors = FALSE
-            )
-            nbx <- rbind(nbx, fallback_row)
-            if (identical(task, "segment")) {
-              th <- seq(0, 2 * pi, length.out = 16)
-              circ_x <- (px + (def_w / 2) * cos(th)) / cw
-              circ_y <- (py + (def_h / 2) * sin(th)) / ch
-              npl[[length(npl) + 1L]] <- as.vector(rbind(circ_x, circ_y))
+        # The user's manually drawn 2-point boxes take absolute priority!
+        if (nrow(manual_df) > 0L) {
+          keep_auto <- rep(TRUE, nrow(nbx))
+          for (ai in seq_len(nrow(nbx))) {
+            acx <- (nbx$xmin[ai] + nbx$xmax[ai]) / 2
+            acy <- (nbx$ymin[ai] + nbx$ymax[ai]) / 2
+            for (mi in seq_len(nrow(manual_df))) {
+              mb <- manual_df[mi, ]
+              if (acx >= mb$xmin && acx <= mb$xmax && acy >= mb$ymin && acy <= mb$ymax) {
+                keep_auto[ai] <- FALSE
+                break
+              }
             }
+          }
+          nbx <- rbind(nbx[keep_auto, , drop = FALSE], manual_df)
+          if (length(manual_polys_list) > 0L) {
+            npl <- c(npl[keep_auto[seq_along(npl)]], manual_polys_list)
           }
         }
 
@@ -632,9 +656,11 @@
             max_objects = max_objects,
             feat_res = 256L,
             engine = engine,
+            sam_device = if (identical(engine, "gpu")) "gpu" else "cpu",
             device_id = device_id,
             fill_hull = TRUE,
-            verbose = FALSE
+            verbose = FALSE,
+            mask = (identical(task, "segment"))
           )
         }, error = function(e) NULL)
 
@@ -1244,9 +1270,11 @@ yolo_fewshot_fit <- function(img,
               max_objects = max_objects,
               feat_res = 256L,
               engine = engine,
+              sam_device = if (identical(engine, "gpu")) "gpu" else "cpu",
               device_id = device_id,
               fill_hull = TRUE,
-              verbose = FALSE
+              verbose = FALSE,
+              mask = (identical(task, "segment"))
             )
           }, error = function(e) {
             if (isTRUE(verbose)) {
@@ -1581,9 +1609,11 @@ yolo_fewshot_fit <- function(img,
         max_objects = max_objects,
         feat_res = 256L,
         engine = engine,
+        sam_device = if (identical(engine, "gpu")) "gpu" else "cpu",
         device_id = device_id,
         fill_hull = TRUE,
-        verbose = verbose
+        verbose = verbose,
+        mask = (identical(task, "segment"))
       )
     }, error = function(e) {
       if (isTRUE(verbose)) {
@@ -2178,9 +2208,11 @@ yolo_fewshot_predict <- function(model,
         max_objects = if (!is.null(max_objects)) max_objects else model$max_objects,
         feat_res = 256L,
         engine = if (!is.null(engine)) engine else if (!is.null(model$engine)) model$engine else "cpu",
+        sam_device = if (identical(engine, "gpu") || identical(model$engine, "gpu")) "gpu" else "cpu",
         device_id = if (!is.null(device_id) && device_id >= 0) device_id else if (!is.null(model$device_id)) model$device_id else -1L,
         fill_hull = TRUE,
-        verbose = FALSE
+        verbose = FALSE,
+        mask = (identical(task, "segment"))
       )
     }, error = function(e) NULL)
 

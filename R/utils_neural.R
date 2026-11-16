@@ -2869,7 +2869,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
                              exemplar = FALSE,
                              threads = 0,
                              engine = c("gpu", "cpu"),
-                             sam_device = c("cpu", "gpu", "auto"),
+                             sam_device = c("auto", "gpu", "cpu"),
                              device_id = -1,
                              verbose = TRUE,
                              dir = pliman_model_dir()) {
@@ -4688,7 +4688,7 @@ image_remove_bg_dl <- function(img,
                         superres_map = FALSE,
                         threads = 0,
                         engine = c("gpu", "cpu"),
-                        sam_device = c("cpu", "gpu", "auto"),
+                        sam_device = c("auto", "gpu", "cpu"),
                         device_id = -1,
                         fill_hull = TRUE,
                         filter = 0,
@@ -4725,15 +4725,9 @@ image_remove_bg_dl <- function(img,
   } else {
     feat_res <- 1024L
   }
-  # Device policy for the SAM 2.1 backbone.
-  #
-  # `sam_device = "cpu"` (the default) reproduces the previous behaviour exactly: the
-  # Hiera encoder has been reported to trigger DirectML driver faults
-  # (DXGI_ERROR_DEVICE_HUNG) on some driver/runtime combinations, and the failure mode
-  # is a hard session crash rather than a recoverable error, so CPU remains the safe
-  # default. `"gpu"` opts in where DirectML is known to be stable, which is typically
-  # an order of magnitude faster because the encoder dominates the cost.
-  # `"auto"` follows `engine`.
+  # Device policy for the SAM 2.1 backbone:
+  # "auto" (default) follows engine (uses GPU on DirectML when engine = "gpu").
+  # If DirectML fails, tryCatch safely retries on CPU.
   sam_device <- match.arg(sam_device)
   want_gpu <- switch(sam_device,
                      "cpu"  = FALSE,
@@ -4751,11 +4745,11 @@ image_remove_bg_dl <- function(img,
     use_gpu <- TRUE
     engine <- "gpu"
     if (isTRUE(verbose)) {
-      cli::cli_alert_info("SAM 2.1 running on GPU (DirectML) at your request ({.code sam_device = \"gpu\"}).")
+      cli::cli_alert_info("SAM 2.1 running on GPU (DirectML).")
     }
   } else {
     if (engine == "gpu" && isTRUE(verbose)) {
-      cli::cli_alert_info("SAM 2.1 Vision Transformer uses CPU execution by default; pass {.code sam_device = \"gpu\"} to run it on DirectML.")
+      cli::cli_alert_info("SAM 2.1 using CPU execution; pass {.code sam_device = \"gpu\"} to run on DirectML.")
     }
     use_gpu <- FALSE
     engine <- "cpu"
@@ -6470,7 +6464,7 @@ image_segment_dl <- function(img,
                              plot_features = FALSE,
                              threads = 0,
                              engine = c("gpu", "cpu"),
-                             sam_device = c("cpu", "gpu", "auto"),
+                             sam_device = c("auto", "gpu", "cpu"),
                              device_id = -1,
                              fill_hull = TRUE,
                              filter = 0,
