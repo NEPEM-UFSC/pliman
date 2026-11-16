@@ -417,9 +417,20 @@ plot_index <- function(img = NULL,
       }
 
       widths_vec <- rep(c(8, 1), times = ncol)
-      layout(mat_layout, widths = widths_vec)
+      tryCatch({
+        layout(mat_layout, widths = widths_vec)
+      }, error = function(e) {
+        if (grepl("gr[áa]fico inv[áa]lido|invalid graphics", e$message, ignore.case = TRUE)) {
+          if (grDevices::dev.cur() > 1L) {
+            try(grDevices::dev.off(), silent = TRUE)
+          }
+          layout(mat_layout, widths = widths_vec)
+        } else {
+          stop(e)
+        }
+      })
       old_par <- par(mar = c(1.5, 1.5, 2, 0.2))
-      on.exit({ par(old_par); layout(1) }, add = TRUE)
+      on.exit({ try(par(old_par), silent = TRUE); try(layout(1), silent = TRUE) }, add = TRUE)
 
       pal <- color_regions
       n_pal <- length(pal)

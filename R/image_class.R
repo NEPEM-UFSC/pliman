@@ -192,12 +192,16 @@ print.image <- function(x, ...) {
 
   if (!drop && !is.null(dim(res)) && length(dim(res)) >= 2) {
     class(res) <- c("image", "array")
-    attr(res, "colormode") <- cm
+    d_res <- dim(res)
+    is_single_chan <- (length(d_res) == 2 || (length(d_res) >= 3 && d_res[3] == 1))
+    attr(res, "colormode") <- if (is_single_chan) "Grayscale" else cm
     attr(res, "colspace") <- cs
     attr(res, "gamma") <- gm
   } else if (drop && !is.null(dim(res)) && length(dim(res)) >= 2) {
     class(res) <- c("image", "array")
-    attr(res, "colormode") <- if (length(dim(res)) == 2) "Grayscale" else cm
+    d_res <- dim(res)
+    is_single_chan <- (length(d_res) == 2 || (length(d_res) >= 3 && d_res[3] == 1))
+    attr(res, "colormode") <- if (is_single_chan) "Grayscale" else cm
     attr(res, "colspace") <- cs
     attr(res, "gamma") <- gm
   }
@@ -451,7 +455,7 @@ Ops.image <- function(e1, e2) {
     op_code <- switch(.Generic, "<" = 1L, "<=" = 2L, ">" = 3L, ">=" = 4L, "==" = 5L, "!=" = 6L)
     res <- cpp_binary_threshold(e1, as.double(e2), op_code, FALSE)
     if (!is.null(target_dim)) dim(res) <- target_dim
-    res <- as_image(res, colormode = cm, colspace = cs, gamma = gm, storage = "logical")
+    res <- as_image(res, colormode = "Grayscale", colspace = cs, gamma = gm, storage = "logical")
     return(res)
   }
 
@@ -469,7 +473,7 @@ Ops.image <- function(e1, e2) {
   if (!is.null(target_dim) && length(res) == prod(target_dim)) {
     dim(res) <- target_dim
     if (.Generic %in% c("<", "<=", ">", ">=", "==", "!=")) {
-      res <- as_image(res, colormode = cm, colspace = cs, gamma = gm, storage = "logical")
+      res <- as_image(res, colormode = "Grayscale", colspace = cs, gamma = gm, storage = "logical")
     } else {
       class(res) <- c("image", "array")
       attr(res, "colormode") <- cm
