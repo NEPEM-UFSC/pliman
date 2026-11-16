@@ -34,7 +34,7 @@ image_remove_bg_dl(
 
 image_remove_bg(
   img,
-  model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0",
+  model = c("rmbg-1.4", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-2.0",
     "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
   threshold = 0.5,
   fill_hull = TRUE,

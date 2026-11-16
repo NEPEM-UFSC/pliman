@@ -3642,3 +3642,294 @@ print.yolo_fewshot_model <- function(x, ...) {
   cli::cli_text("Engine           : {.val {x$engine}}")
   invisible(x)
 }
+
+
+
+# ==============================================================================
+# Interactive Manual Bounding Box Labeling (.yolo_interactive_manual_label)
+# ==============================================================================
+
+#' Interactive Manual Bounding Box Labeling for YOLO Dataset Export
+#'
+#' Allows users to directly annotate images by clicking two opposite corners
+#' for each bounding box (top-left & bottom-right, or any two opposite corners)
+#' with zero deep-learning model downloads, zero GPU requirements, and instant
+#' visual feedback.
+#'
+#' @param img An `Image` or `image` object.
+#' @param class_names Character vector of class names to annotate.
+#' @param class_id Integer vector of class IDs matching `class_names`.
+#' @param task Target task: `"detect"` (bounding boxes) or `"segment"` (polygons).
+#' @param img_name Image identifier or filename for console titles.
+#' @param img_idx Current image index in batch.
+#' @param total_imgs Total number of images in batch.
+#' @param rainbow Logical. Whether to use rainbow colors for distinct classes.
+#' @param verbose Logical. Whether to print console instructions and status.
+#'
+#' @return A list with elements:
+#' \itemize{
+#'   \item `boxes`: `data.frame` with columns `xmin`, `ymin`, `xmax`, `ymax`, `conf`, `class_id`, `class_name`, `label`.
+#'   \item `polygons`: list of rectangular polygon coordinate vectors (if `task = "segment"`).
+#'   \item `stop_early`: Logical indicating if the user chose to quit the dataset export.
+#' }
+#' @noRd
+.yolo_interactive_manual_label <- function(img,
+                                           class_names = "object",
+                                           class_id = NULL,
+                                           task = "detect",
+                                           img_name = "",
+                                           img_idx = 1L,
+                                           total_imgs = 1L,
+                                           rainbow = TRUE,
+                                           verbose = TRUE) {
+  if (!base::interactive()) {
+    cli::cli_abort("Manual bounding box labeling ({.code model = 'manual'}) requires an interactive graphical session.")
+  }
+
+  if (is.null(class_id) || length(class_id) == 0L) {
+    class_id <- seq_along(class_names) - 1L
+  } else if (length(class_id) < length(class_names)) {
+    class_id <- c(class_id, seq(from = max(class_id) + 1L, length.out = length(class_names) - length(class_id)))
+  }
+
+  dims <- dim(img)
+  cw <- dims[1]
+  ch <- dims[2]
+
+  stop_early <- FALSE
+  all_cls_boxes <- vector("list", length(class_names))
+
+  class_colors <- if (isTRUE(rainbow) && length(class_names) > 1L) {
+    grDevices::rainbow(length(class_names), s = 0.85, v = 0.95)
+  } else {
+    rep("#00FF66", length(class_names))
+  }
+  names(class_colors) <- class_names
+
+  for (cl_i in seq_along(class_names)) {
+    c_name <- class_names[cl_i]
+    c_id <- class_id[cl_i]
+    col_cur <- class_colors[cl_i]
+    cur_boxes <- list()
+
+    render_canvas <- function(temp_point = NULL) {
+      plot(img)
+
+      # 1. Draw completed boxes from previous classes
+      if (cl_i > 1L) {
+        prev_list <- all_cls_boxes[seq_len(cl_i - 1L)]
+        prev_list <- prev_list[!vapply(prev_list, is.null, logical(1))]
+        if (length(prev_list) > 0L) {
+          prev_dfs <- unlist(prev_list, recursive = FALSE)
+          if (length(prev_dfs) > 0L) {
+            p_df <- do.call(rbind, prev_dfs)
+            for (pi in seq_len(nrow(p_df))) {
+              pb <- p_df[pi, ]
+              p_col <- if (pb$class_name %in% names(class_colors)) class_colors[pb$class_name] else "#888888"
+              graphics::rect(pb$xmin, pb$ymin, pb$xmax, pb$ymax, border = p_col, lwd = 1.5, lty = 2)
+              graphics::text(pb$xmin, max(12, pb$ymin - 5), labels = pb$class_name, col = p_col, cex = 0.75, pos = 4)
+            }
+          }
+        }
+      }
+
+      # 2. Draw current class boxes
+      if (length(cur_boxes) > 0L) {
+        c_df <- do.call(rbind, cur_boxes)
+        for (ci in seq_len(nrow(c_df))) {
+          cb <- c_df[ci, ]
+          graphics::rect(cb$xmin, cb$ymin, cb$xmax, cb$ymax, border = col_cur, lwd = 2)
+          graphics::points((cb$xmin + cb$xmax) / 2, (cb$ymin + cb$ymax) / 2, pch = 3, col = col_cur, cex = 1.1, lwd = 2)
+          tag_txt <- paste0("#", ci, if (length(class_names) > 1L) paste0(" ", c_name) else "")
+          tw <- graphics::strwidth(tag_txt, cex = 0.75)
+          th <- graphics::strheight(tag_txt, cex = 0.75)
+          y_top <- max(th + 6, cb$ymin)
+          graphics::rect(cb$xmin, y_top - th - 5, cb$xmin + tw + 6, y_top, col = col_cur, border = NA)
+          graphics::text(cb$xmin + 3, y_top - 3, labels = tag_txt, col = "#FFFFFF", cex = 0.75, font = 2, adj = c(0, 1))
+        }
+      }
+
+      # 3. Draw temporary marker if 1st corner was registered
+      if (!is.null(temp_point)) {
+        graphics::points(temp_point[1], temp_point[2], pch = 3, col = "#FFFF00", cex = 1.4, lwd = 2.5)
+      }
+
+      # 4. Canvas title
+      t_title <- if (length(class_names) > 1L) {
+        sprintf("Manual Box Label [%d/%d] (%s) - Class [%d/%d]: '%s' (%d boxes)",
+                img_idx, total_imgs, img_name, cl_i, length(class_names), c_name, length(cur_boxes))
+      } else {
+        sprintf("Manual Box Label [%d/%d] (%s): %d box(es)",
+                img_idx, total_imgs, img_name, length(cur_boxes))
+      }
+      graphics::title(main = t_title, col.main = "#0066cc", font.main = 2, cex.main = 1.05)
+    }
+
+    collect_loop <- function() {
+      if (isTRUE(verbose)) {
+        cli::cli_alert_info("Drawing boxes for class {.val {c_name}}:")
+        cli::cli_alert_info("Click TWO opposite corners for each box (e.g. top-left then bottom-right).")
+        cli::cli_alert_info("Press <Esc> or right-click when finished with this class.")
+      }
+
+      repeat {
+        pt1 <- tryCatch(graphics::locator(n = 1), error = function(e) NULL)
+        if (is.null(pt1) || length(pt1$x) == 0L) break
+        x1 <- pt1$x[1]; y1 <- pt1$y[1]
+
+        # Draw temporary yellow cross for corner 1
+        graphics::points(x1, y1, pch = 3, col = "#FFFF00", cex = 1.4, lwd = 2.5)
+        cur_b_num <- length(cur_boxes) + 1L
+        if (isTRUE(verbose)) {
+          cli::cli_alert_info("Box #{cur_b_num}: Corner 1 at ({round(x1)}, {round(y1)}). Click opposite corner (<Esc> cancels)...")
+        }
+
+        pt2 <- tryCatch(graphics::locator(n = 1), error = function(e) NULL)
+        if (is.null(pt2) || length(pt2$x) == 0L) {
+          if (isTRUE(verbose)) cli::cli_alert_warning("Incomplete box #{cur_b_num} cancelled.")
+          render_canvas()
+          break
+        }
+        x2 <- pt2$x[1]; y2 <- pt2$y[1]
+        bx_min <- max(0, min(x1, x2))
+        by_min <- max(0, min(y1, y2))
+        bx_max <- min(cw, max(x1, x2))
+        by_max <- min(ch, max(y1, y2))
+
+        if ((bx_max - bx_min) < 3 || (by_max - by_min) < 3) {
+          if (isTRUE(verbose)) cli::cli_alert_warning("Box too small (< 3px), ignored.")
+          render_canvas()
+          next
+        }
+
+        new_box <- data.frame(
+          xmin = bx_min, ymin = by_min, xmax = bx_max, ymax = by_max,
+          conf = 1.0, class_id = c_id, class_name = c_name, label = c_name,
+          stringsAsFactors = FALSE
+        )
+        cur_boxes[[length(cur_boxes) + 1L]] <<- new_box
+
+        # Render new box immediately
+        graphics::rect(bx_min, by_min, bx_max, by_max, border = col_cur, lwd = 2)
+        graphics::points((bx_min + bx_max) / 2, (by_min + by_max) / 2, pch = 3, col = col_cur, cex = 1.1, lwd = 2)
+        tag_txt <- paste0("#", length(cur_boxes), if (length(class_names) > 1L) paste0(" ", c_name) else "")
+        tw <- graphics::strwidth(tag_txt, cex = 0.75)
+        th <- graphics::strheight(tag_txt, cex = 0.75)
+        y_top <- max(th + 6, by_min)
+        graphics::rect(bx_min, y_top - th - 5, bx_min + tw + 6, y_top, col = col_cur, border = NA)
+        graphics::text(bx_min + 3, y_top - 3, labels = tag_txt, col = "#FFFFFF", cex = 0.75, font = 2, adj = c(0, 1))
+
+        if (isTRUE(verbose)) {
+          cli::cli_alert_success("Box #{length(cur_boxes)} added: [{round(bx_min)}, {round(by_min)}, {round(bx_max)}, {round(by_max)}]")
+        }
+      }
+    }
+
+    render_canvas()
+    collect_loop()
+
+    repeat {
+      n_b <- length(cur_boxes)
+      rule_title <- if (length(class_names) > 1L) {
+        sprintf("Manual Box Annotation [%s | Class %d/%d: '%s' | %d box(es)]", img_name, cl_i, length(class_names), c_name, n_b)
+      } else {
+        sprintf("Manual Box Annotation [%s | %d box(es)]", img_name, n_b)
+      }
+      cli::cli_rule(left = rule_title)
+      next_label <- if (cl_i < length(class_names)) paste0("next class ('", class_names[cl_i + 1L], "')") else "next image"
+      cli::cli_bullets(c(
+        "*" = paste0(cli::col_green("[Enter] / c"), ": Accept and proceed to ", next_label),
+        "*" = paste0(cli::col_green("a"), ": Add more boxes (click 2 opposite corners per box, <Esc> when done)"),
+        "*" = paste0(cli::col_green("r"), ": Remove false boxes (click inside box to delete, <Esc> when done)"),
+        "*" = paste0(cli::col_green("s"), ": Clear all boxes and re-draw for this class"),
+        "*" = paste0(cli::col_green("skip"), ": Skip this class (0 boxes) and proceed to ", next_label),
+        "*" = paste0(cli::col_green("q"), ": Quit / finish dataset export now")
+      ))
+
+      ans <- tryCatch(
+        tolower(trimws(readline(sprintf("Select action [Enter to proceed to %s]: ", next_label)))),
+        interrupt = function(e) "c"
+      )
+
+      if (ans == "" || ans %in% c("c", "continue", "y", "yes", "ok", "esc")) {
+        break
+      }
+      if (ans %in% c("q", "quit", "stop", "abort")) {
+        stop_early <- TRUE
+        break
+      }
+      if (ans %in% c("skip", "none", "0")) {
+        cur_boxes <- list()
+        render_canvas()
+        break
+      }
+      if (ans %in% c("s", "restart", "clear")) {
+        cur_boxes <- list()
+        render_canvas()
+        collect_loop()
+        next
+      }
+      if (ans %in% c("a", "add")) {
+        collect_loop()
+        render_canvas()
+        next
+      }
+      if (ans %in% c("r", "remove", "delete", "d")) {
+        cli::cli_alert_info("Click inside any box to remove it. Press <Esc> when done.")
+        del_pts <- tryCatch(graphics::locator(n = 100, type = "p", pch = 4, col = "#FF0033", cex = 1.6, lwd = 2.5), error = function(e) NULL)
+        if (!is.null(del_pts) && length(del_pts$x) > 0L && length(cur_boxes) > 0L) {
+          cb_df <- do.call(rbind, cur_boxes)
+          del_indices <- integer(0)
+          for (di in seq_along(del_pts$x)) {
+            dx <- del_pts$x[di]; dy <- del_pts$y[di]
+            inside <- which(dx >= cb_df$xmin & dx <= cb_df$xmax & dy >= cb_df$ymin & dy <= cb_df$ymax)
+            if (length(inside) > 0L) {
+              cx <- (cb_df$xmin[inside] + cb_df$xmax[inside]) / 2
+              cy <- (cb_df$ymin[inside] + cb_df$ymax[inside]) / 2
+              dist2 <- (cx - dx)^2 + (cy - dy)^2
+              del_indices <- c(del_indices, inside[which.min(dist2)])
+            }
+          }
+          del_indices <- unique(del_indices)
+          if (length(del_indices) > 0L) {
+            keep_idx <- setdiff(seq_len(nrow(cb_df)), del_indices)
+            cur_boxes <- if (length(keep_idx) > 0L) {
+              lapply(keep_idx, function(k) cb_df[k, , drop = FALSE])
+            } else {
+              list()
+            }
+            cli::cli_alert_success("Removed {length(del_indices)} box(es). {length(cur_boxes)} remaining.")
+          }
+        }
+        render_canvas()
+        next
+      }
+    }
+
+    all_cls_boxes[[cl_i]] <- cur_boxes
+    if (isTRUE(stop_early)) break
+  }
+
+  # Assemble final boxes dataframe
+  final_boxes <- if (length(all_cls_boxes) > 0L) {
+    flat_boxes <- unlist(all_cls_boxes, recursive = FALSE)
+    if (length(flat_boxes) > 0L) do.call(rbind, flat_boxes) else data.frame()
+  } else {
+    data.frame()
+  }
+
+  # Build polygons if task == "segment"
+  final_polys <- list()
+  if (identical(task, "segment") && nrow(final_boxes) > 0L) {
+    for (bi in seq_len(nrow(final_boxes))) {
+      b <- final_boxes[bi, ]
+      final_polys[[bi]] <- c(b$xmin, b$ymin, b$xmax, b$ymin, b$xmax, b$ymax, b$xmin, b$ymax)
+    }
+  }
+
+  list(
+    boxes = final_boxes,
+    polygons = final_polys,
+    stop_early = stop_early
+  )
+}

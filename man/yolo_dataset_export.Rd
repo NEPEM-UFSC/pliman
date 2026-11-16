@@ -59,6 +59,7 @@ yolo_dataset_export(
   labels = show_labels,
   badge = TRUE,
   engine = c("gpu", "cpu"),
+  sam_device = c("auto", "gpu", "cpu"),
   device_id = -1,
   move = TRUE,
   overwrite = TRUE,
@@ -71,8 +72,9 @@ yolo_dataset_export(
 \item{img}{An \code{image} object, a list of \code{image} objects, a file path, or a directory path
 containing images to annotate.}
 
-\item{model}{Deep learning model to use for automated or semi-automated labeling:
+\item{model}{Model to use for dataset annotation:
 \itemize{
+\item \code{"manual"} (or \code{"box"}, \code{"boxes"}, \code{"draw"}): Pure manual bounding box labeling. Click 2 opposite corners per box with zero AI models, zero downloads, and instant response.
 \item \code{"persam"}: One-shot visual exemplar segmentation and detection (Roboflow-style 1-click auto-labeling).
 \item \code{"grounded-sam"}: Zero-shot text-prompted instance segmentation & detection.
 \item Path to a trained YOLO \code{.onnx} model (e.g. \code{"capsulas_det.onnx"}): Assisted labeling / pseudo-labeling.
@@ -246,6 +248,7 @@ and \code{data.yaml}) for object detection (\code{task = "detect"}) or instance
 segmentation (\code{task = "segment"}). Annotations can be produced automatically
 via deep learning foundation models:
 \itemize{
+\item \strong{Manual interactive annotation} with \code{model = "manual"} (draw bounding boxes directly with 2 clicks per box: zero AI models or GPU required).
 \item \strong{One-shot visual exemplar auto-labeling} with \code{model = "persam"} (Roboflow-style 1-click annotation).
 \item \strong{Zero-shot text prompt detection} with \code{model = "grounded-sam"} (e.g. \code{prompt = "people"}).
 \item \strong{Assisted labeling / pseudo-labeling} with pre-trained or fine-tuned YOLO models (\code{model = "custom.onnx"}).
