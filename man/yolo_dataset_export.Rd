@@ -217,6 +217,8 @@ to limit the number of review images generated.}
 
 \item{engine}{Computing device engine: \code{"cpu"} (default) or \code{"gpu"}.}
 
+\item{sam_device}{Execution device for SAM 2.1 inference: \code{"auto"} (default), \code{"gpu"}, or \code{"cpu"}.}
+
 \item{device_id}{GPU device ID (default \code{-1}).}
 
 \item{move}{Logical. If \code{TRUE} (default), moves the source images directly into the dataset's \verb{images/} split directories instead of copying them.}

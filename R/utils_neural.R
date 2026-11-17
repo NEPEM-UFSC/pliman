@@ -5202,7 +5202,7 @@ image_remove_bg_dl <- function(img,
     if (!any(m_cls)) next
 
     if (filter > 1 || erode > 0 || dilate > 0 || opening > 0 || closing > 0) {
-      m_img <- EBImage::Image(m_cls)
+      m_img <- as_image(m_cls, colormode = "Grayscale")
       if (filter > 1) m_img <- image_filter(m_img, size = filter, plot = FALSE)
       if (erode > 0) m_img <- image_erode(m_img, size = erode, plot = FALSE)
       if (dilate > 0) m_img <- image_dilate(m_img, size = dilate, plot = FALSE)
@@ -6336,6 +6336,7 @@ plot_yolo_heatmap <- function(img,
 #'   Options are `"clip-vit-b32"` (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
 #'   `"dinov2"` (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).
 #' @param plot_features Logical. If `TRUE` and `return_features = TRUE`, visualizes the dense spatial PCA feature map. Defaults to `FALSE`.
+#' @param sam_device Execution device for SAM 2.1 inference: `"auto"` (default), `"gpu"`, or `"cpu"`.
 #' @param filter_nested Logical. If `TRUE` (the default), removes larger container bounding boxes
 #'   that enclose smaller boxes of the same class (e.g. discarding an encompassing box around an entire branch of leaves).
 #' @param show_mask Deprecated. If `TRUE`, equivalent to `type = "mask"`.

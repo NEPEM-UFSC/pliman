@@ -154,8 +154,14 @@ print(n_wrapped)
 pliman_build_model_variant <- function(variant = c("sam2.1-encoder-int8", "sam2.1-encoder-fp16", "groundingdino-fp16"),
                                        dir = pliman_model_dir(),
                                        overwrite = FALSE,
-                                       dino_fp16_url = "https://huggingface.co/onnx-community/grounding-dino-tiny-ONNX/resolve/main/onnx/model_fp16.onnx",
+                                       dino_fp16_url = NULL,
                                        verbose = TRUE) {
+  if (is.null(dino_fp16_url)) {
+    dino_fp16_url <- paste0(
+      "https://huggingface.co/onnx-community/",
+      "grounding-dino-tiny-ONNX/resolve/main/onnx/model_fp16.onnx"
+    )
+  }
   variant <- match.arg(variant, several.ok = TRUE)
   dir <- pliman_model_dir(dir)
   rows <- list()

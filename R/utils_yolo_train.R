@@ -293,6 +293,7 @@
 #' @param bbox,polygon,points,labels Backward-compatible aliases for `show_bbox`, `show_polygon`, `show_points`, and `show_labels`.
 #' @param badge Logical. Whether to draw a filled background badge behind labels during interactive review. Defaults to `TRUE`.
 #' @param engine Computing device engine: `"cpu"` (default) or `"gpu"`.
+#' @param sam_device Execution device for SAM 2.1 inference: `"auto"` (default), `"gpu"`, or `"cpu"`.
 #' @param device_id GPU device ID (default `-1`).
 #' @param lower_size Optional numeric value to filter out small detected objects.
 #'   When `size_mode = "relative"` (default), objects with a bounding box area
