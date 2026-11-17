@@ -14,11 +14,20 @@ Description: An all-in-one computer vision and machine learning ecosystem for
     (Claude, 2008 <doi:10.1007/978-0-387-77789-4>). Supports field-scale
     phenotyping from UAV and satellite RGB, multispectral, and hyperspectral
     orthomosaics with automated plot-grid shapefile layout design. Integrates
-    state-of-the-art deep learning architectures (YOLO, Segment Anything,
-    Grounded-SAM, PerSAM, StarDist, CLIP) for zero-shot and custom object
-    detection, instance segmentation, SAHI high-resolution tiling, automated
-    labeling, dataset curation, model training, and asynchronous parallel 
-    batch inference.
+    state-of-the-art deep learning architectures including YOLO (Jocher et al.,
+    2023 <doi:10.5281/zenodo.7398419>), Segment Anything (Kirillov et al., 2023
+    <doi:10.1109/ICCV51070.2023.00371>; Ravi et al., 2024
+    <arXiv:2408.00714>), Grounding DINO (Liu et al., 2023 <arXiv:2303.05499>),
+    PerSAM (Zhang et al., 2023 <doi:10.1109/CVPR52729.2023.01899>), StarDist
+    (Schmidt et al., 2018 <doi:10.1007/978-3-030-00934-2_30>), CLIP (Radford
+    et al., 2021 <arXiv:2103.00020>), SAHI (Akyon et al., 2022
+    <doi:10.1109/ICIP46590.2022.9897365>), DBNet/PaddleOCR (Liao et al., 2020
+    <doi:10.1609/aaai.v34i07.6812>), Zero-DCE (Guo et al., 2020
+    <doi:10.1109/CVPR42600.2020.00185>), and NAFNet (Chen et al., 2022
+    <doi:10.1007/978-3-031-19772-7_2>) for zero-shot, few-shot, and custom
+    object detection, instance segmentation, keypoint pose estimation, scene
+    text recognition, image restoration, automated dataset curation, model
+    training, and asynchronous parallel batch inference.
 License: GPL (>= 3)
 URL: https://nepem-ufsc.github.io/pliman/, https://github.com/nepem-ufsc/pliman
 BugReports: https://github.com/nepem-ufsc/pliman/issues
