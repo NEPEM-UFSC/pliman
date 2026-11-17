@@ -1,5 +1,47 @@
 # pliman 4.0.0
 
+## Major Release: Next-Generation Computer Vision & Deep Learning Ecosystem
+`pliman 4.0.0` represents a transformative milestone, establishing an end-to-end, zero-Python deep learning and computer vision framework directly in R. Key innovations include:
+
+### Deep Learning Architecture & Foundation Models
+* **Segment Anything 2.1 (SAM 2.1)**: Full ONNX Runtime C++ execution for sub-pixel instance segmentation masks, zero-shot polygon extraction, and interactive exemplar prompting.
+* **PerSAM (Personalized Segment Anything)**: One-shot visual exemplar segmentation and high-density counting via multi-prototype max-pooling, dense stride-1 convolutional ZNCC matching, and ViT semantic guidance.
+* **Grounded-SAM & Open-Vocabulary Detection**: Zero-shot text-prompted instance segmentation and bounding box proposals combining Grounding DINO with SAM 2.1.
+* **Optical Character Recognition (OCR)**: High-throughput scene text detection and recognition via `image_ocr_dl()` powered by DBNet and PaddleOCRv4/v5 (Latin, English, multilingual), plus Microsoft TrOCR transformer decoders.
+* **Automated Batch OCR Renaming**: `image_rename_ocr()` with regex-based tag extraction, automatic folder restructuring, and collision-free `image_rename_undo()` rollback logs.
+* **Low-Light Image Restoration & Enhancement**: `image_restore_dl()` featuring Zero-DCE (Zero-Reference Deep Curve Estimation) and NAFNet for noise removal and deblurring.
+* **Deep Feature Embeddings & Visual Discovery**: High-dimensional semantic feature representations via OpenAI CLIP ViT-B/32 (512-D) and Meta DINOv2-S (384-D), with spatial PCA false-color mapping.
+* **Real-ESRGAN Super-Resolution**: Neural upscaling (`2x` and `4x`) via `image_superres_dl()` for enhancing low-resolution plant imagery and similarity heatmaps.
+* **Zero-Shot World Detection**: `image_detect_world()` enabling open-vocabulary object localization across arbitrary text prompts.
+* **Keypoint Pose Estimation**: `image_pose_dl()` and `yolo_dataset_label_pose()` for joint detection, skeleton analysis, and custom pose dataset annotation.
+
+### YOLO Dataset Curation, Annotation & Training Pipeline
+* **Interactive Manual Bounding Box Labeling**: `yolo_dataset_export(model = "manual")` (or `"box"`, `"boxes"`) allows instant, lightweight 2-click bounding box drawing (zero AI downloads or GPU required) with live interactive review, undo, and multi-class support.
+* **Automated Dataset Export & Active Learning**: `yolo_dataset_export()` supports PerSAM one-shot exemplars, Grounded-SAM text prompts, pre-trained YOLO pseudo-labeling, classical contour extraction, and pure manual labeling with automatic `train`/`val`/`test` splitting and `data.yaml` generation.
+* **Few-Shot Fitting & Rapid Propagation**: `yolo_fewshot_fit()` and `yolo_fewshot_predict()` for fitting compact visual prototype memories from 1-5 sample images and propagating labels across thousands of images in seconds.
+* **Interactive Dataset Review & Correction**: `yolo_dataset_review()` (and `yolo_dataset_edit()`) provides visual auditing, one-click false positive deletion (`r`), 2-point box addition (`a`), threshold tuning (`t`), and live annotation synchronization.
+* **Dataset Auditing, Hygiene & Manipulation**: Comprehensive suite for dataset lifecycle management:
+  - `yolo_dataset_audit()`: Validates label syntax, detects out-of-bounds coordinates, empty annotations, and missing image pairs.
+  - `yolo_dataset_dedup()`: Identifies duplicate or near-duplicate frames via perceptual and feature hashing.
+  - `yolo_dataset_merge()` & `yolo_dataset_split()`: Merges multiple datasets with automated class ID remapping and splits datasets into balanced partitions.
+  - `yolo_dataset_augment()`: Rich offline data augmentation (photometric jitter, perspective shifts, cutouts, rotations, noise).
+  - `yolo_dataset_copypaste()`: Automated foreground object copy-paste augmentation for expanding rare object classes.
+  - `yolo_dataset_tiling()`: Ultra-resolution image slicing for small object detection.
+  - `yolo_dataset_balance()`: Balances class distributions via selective oversampling or undersampling.
+  - `yolo_dataset_anonymize()`: Automated blurring/pixelation of sensitive objects (faces, license plates, badges).
+  - `yolo_dataset_convert()` & `yolo_dataset_to_segment()`: Converts between detection bounding boxes and instance segmentation polygons.
+  - `yolo_dataset_zip()` & `yolo_dataset_unzip()`: Lossless compression and sharing of YOLO datasets.
+
+### Model Training, Testing & Diagnostics
+* **Integrated YOLO Training Workflow**: `yolo_train()` and `yolo_train_workflow()` provide complete training management with automated dependency setup, tensorboard tracking, checkpoint recovery, and hyperparameter tuning.
+* **Model Evaluation & Error Analysis**: `yolo_model_test()` and `yolo_error_analysis()` generate detailed confusion matrices, precision-recall breakdowns, and diagnostic error classifications (background confusion, localization errors, false positives).
+* **Quantization & Edge Optimization**: `model_to_int8()`, `model_to_fp16()`, `onnx_quantize()`, and `yolo_export_engine()` for deploying lightweight INT8/FP16 models and TensorRT engines.
+
+### 3D Reconstruction & Video Analytics
+* **Gaussian Splatting & 3D Phenotyping**: `gs_create()`, `gs_render()`, `gs_measure()`, and `gs_segment_sam()` for 3D point cloud generation, volumetric plant reconstruction, and novel view synthesis.
+* **High-Throughput Video Analytics**: `video_detect_dl()` with multi-object tracking (ByteTrack/SORT), C++ state management, and real-time bounding box and mask rendering.
+* **Image Stitching & Focus Stacking**: `image_stitch()` for seamless panoramic mosaic construction and `focus_stack()` for extended depth-of-field macro photography.
+
 # pliman 3.2.0
 ## New Functions
 * New `yolo_benchmark()` to measure YOLO inference speed (raw C++ inference, the full `image_detect_dl()` pipeline and, optionally, SAHI) with warm-up iterations excluded from the timings.
