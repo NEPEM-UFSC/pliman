@@ -1,3 +1,5 @@
+# pliman 4.0.0
+
 # pliman 3.2.0
 ## New Functions
 * New `yolo_benchmark()` to measure YOLO inference speed (raw C++ inference, the full `image_detect_dl()` pipeline and, optionally, SAHI) with warm-up iterations excluded from the timings.
