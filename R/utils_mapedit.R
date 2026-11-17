@@ -420,7 +420,7 @@ plot_index <- function(img = NULL,
       tryCatch({
         layout(mat_layout, widths = widths_vec)
       }, error = function(e) {
-        if (grepl("gr[áa]fico inv[áa]lido|invalid graphics", e$message, ignore.case = TRUE)) {
+        if (grepl("gr[\u00e1a]fico inv[\u00e1a]lido|invalid graphics", e$message, ignore.case = TRUE)) {
           if (grDevices::dev.cur() > 1L) {
             try(grDevices::dev.off(), silent = TRUE)
           }
@@ -444,7 +444,7 @@ plot_index <- function(img = NULL,
         u_vec  <- as.vector(obj)
         # Keep raw as integer 0-255 so colorbar shows true uint8 scale
         u <- if (is.raw(u_vec)) as.integer(u_vec) else as.double(u_vec)
-        dim(u) <- c(nr_obj, nc_obj)  # [width, height] — correct for image(x, y, z)
+        dim(u) <- c(nr_obj, nc_obj)  # [width, height] -- correct for image(x, y, z)
 
         # No transpose: u[x, y] already matches image(x=width, y=height, z=u)
         # Flip y with ylim so row 1 (top of image) appears at top of plot

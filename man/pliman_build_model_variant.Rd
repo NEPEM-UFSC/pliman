@@ -8,8 +8,7 @@ pliman_build_model_variant(
   variant = c("sam2.1-encoder-int8", "sam2.1-encoder-fp16", "groundingdino-fp16"),
   dir = pliman_model_dir(),
   overwrite = FALSE,
-  dino_fp16_url =
-    "https://huggingface.co/onnx-community/grounding-dino-tiny-ONNX/resolve/main/onnx/model_fp16.onnx",
+  dino_fp16_url = NULL,
   verbose = TRUE
 )
 }

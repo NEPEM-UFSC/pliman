@@ -231,6 +231,8 @@ stay loaded (about 4x faster than the CPU alone and much faster than reloading t
 on a 4 GB card); force the SAM device with \code{options(pliman.gsam_sam_device = "gpu")} or \code{"cpu"}.
 Speed-ups depend on the GPU and driver.}
 
+\item{sam_device}{Execution device for SAM 2.1 inference: \code{"auto"} (default), \code{"gpu"}, or \code{"cpu"}.}
+
 \item{device_id}{Integer GPU device adapter index. Default is \code{-1}, which automatically selects the high-performance
 discrete GPU adapter with the maximum dedicated video memory (VRAM).}
 

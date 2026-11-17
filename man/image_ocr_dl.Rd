@@ -183,7 +183,7 @@ printed and handwritten Chinese, English, and Latin-script text.
 \item \code{"ppocrv5_rec_server"}: PP-OCRv5 Server recognition (~85 MB). Best accuracy on
 handwriting; slower.
 \item \code{"ppocrv5_rec_latin"}: PP-OCRv5 Latin Mobile recognition (~8 MB). Covers Latin-script
-languages with diacritics (e.g., Portuguese \code{"ç"}, \code{"ã"}, \code{"é"}).
+languages with diacritics (e.g., Portuguese \code{"\u00e7"}, \code{"\u00e3"}, \code{"\u00e9"}).
 \item \code{"ppocr_rec"}: PP-OCRv4 SVTR/LCNet model (~12 MB, legacy). Optimized for
 printed typography and alphanumeric entry codes.
 \item \code{"trocr_small"}: Microsoft TrOCR Small (encoder + autoregressive
