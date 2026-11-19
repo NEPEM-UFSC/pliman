@@ -113,6 +113,10 @@ compute_single_index_cpp <- function(img_sexp, ind, r = 1L, g = 2L, b = 3L, re =
     .Call(`_pliman_compute_single_index_cpp`, img_sexp, ind, r, g, b, re, nir, swir, storage)
 }
 
+object_index_means_cpp <- function(img_sexp, labels_sexp, formulas, valid_ids, bare_band) {
+    .Call(`_pliman_object_index_means_cpp`, img_sexp, labels_sexp, formulas, valid_ids, bare_band)
+}
+
 help_area <- function(coord) {
     .Call(`_pliman_help_area`, coord)
 }

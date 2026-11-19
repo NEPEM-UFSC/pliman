@@ -212,32 +212,41 @@ double help_otsu(SEXP img_sexp) {
     valid_pixels = npix;
   } else if (TYPEOF(img_sexp) == REALSXP) {
     const double* ptr = REAL(img_sexp);
-    bool first = true;
+    // Passo 1: min/max e contagem de válidos (redução paralela)
+    double mn = R_PosInf, mx = R_NegInf;
+    int nvalid = 0;
+    #pragma omp parallel for reduction(min:mn) reduction(max:mx) reduction(+:nvalid) schedule(static) if(npix > 100000)
     for (int i = 0; i < npix; i++) {
       double v = ptr[i];
       if (!std::isnan(v)) {
-        if (first) {
-          x_min = v;
-          x_max = v;
-          first = false;
-        } else {
-          if (v < x_min) x_min = v;
-          if (v > x_max) x_max = v;
-        }
-        valid_pixels++;
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+        nvalid++;
       }
     }
+    valid_pixels = nvalid;
     if (valid_pixels == 0) return 0.0;
+    x_min = mn; x_max = mx;
     double range = x_max - x_min;
     if (range <= 0.0) return x_min;
 
-    for (int i = 0; i < npix; i++) {
-      double v = ptr[i];
-      if (!std::isnan(v)) {
-        int idx = (int)std::round(((v - x_min) / range) * 255.0);
-        if (idx < 0) idx = 0;
-        if (idx > 255) idx = 255;
-        histogram[idx]++;
+    // Passo 2: histograma com acumuladores locais por thread
+    #pragma omp parallel if(npix > 100000)
+    {
+      int lhist[256] = {0};
+      #pragma omp for schedule(static)
+      for (int i = 0; i < npix; i++) {
+        double v = ptr[i];
+        if (!std::isnan(v)) {
+          int idx = (int)std::round(((v - x_min) / range) * 255.0);
+          if (idx < 0) idx = 0;
+          if (idx > 255) idx = 255;
+          lhist[idx]++;
+        }
+      }
+      #pragma omp critical
+      {
+        for (int k = 0; k < 256; k++) histogram[k] += lhist[k];
       }
     }
   } else {
