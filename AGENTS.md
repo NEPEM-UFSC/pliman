@@ -1,10 +1,5 @@
 # Diretrizes do Repositório `pliman`
 
-## 1. Limite Crítico de Tamanho por Arquivo (512 KB)
-- **REGRA ESTRITA**: Nenhum arquivo `.R` em `R/` pode atingir ou ultrapassar (700 KiB).
-- Se um arquivo ultrapassar **modularize novas funções** em arquivos temáticos dedicados em vez de inflar o arquivo existente.
-- Após qualquer edição em arquivos grandes em `R/`, verifique o tamanho em bytes e valide o parsing em R.
-
 ## 2. Convenções de Imagens, Matrizes e Coordenadas
 - Objetos `Image` do `pliman` seguem o padrão `EBImage`: `dim(img)[1]` representa **largura** (eixo X / horizontal) e `dim(img)[2]` representa **altura** (eixo Y / vertical).
 - Ao integrar R com C++ (`src/*.cpp`), OpenCV ou tensores ONNX/NCNN (geralmente `linha × coluna` / `H × W`), verifique sempre a transposição e os índices de largura vs. altura antes de finalizar.

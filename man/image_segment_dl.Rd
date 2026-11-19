@@ -149,7 +149,8 @@ and \code{bbox = FALSE}. Defaults to \code{FALSE}.}
 If \code{FALSE}, only the text is drawn directly.}
 
 \item{rainbow}{Logical. If \code{TRUE}, assigns a distinct, unique color to each segmented object.
-If \code{FALSE} (the default), objects of the same class share the exact same color. Defaults to \code{FALSE}.}
+If \code{FALSE}, objects of the same class share the exact same color (using \code{col_highlight} / \code{mask_color}).
+Defaults to \code{TRUE} unless \code{col_highlight} or \code{mask_color} is explicitly provided.}
 
 \item{model}{Model architecture or path to a custom ONNX file. Built-in choices:
 \itemize{
