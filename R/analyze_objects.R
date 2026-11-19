@@ -896,28 +896,42 @@ analyze_objects <- function(img,
       object_index_used <- object_index[1]
       ind_df <- get_cached_indexes_df()
       ind_formula <- ifelse(object_index %in% ind_df$Index, ind_df[match(object_index, ind_df$Index), 2], object_index)
-      R_ch <- img[,,1]; G_ch <- img[,,2]; B_ch <- img[,,3]
-      hsb_arrays <- rgb_to_hsb_cpp(R_ch, G_ch, B_ch)
-      eval_env <- list(
-        R = R_ch, G = G_ch, B = B_ch,
-        h = hsb_arrays$H, s = hsb_arrays$S, b = hsb_arrays$B,
-        H = hsb_arrays$H, S = hsb_arrays$S
-      )
       parsed <- lapply(ind_formula, function(f) parse(text = f)[[1]])
-      idx_mat <- do.call(cbind, lapply(parsed, function(expr) {
-        as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
-      }))
       valid_ids <- as.integer(shape$id)
-      means_mat <- compute_index_means_cpp(idx_mat, as.vector(nmask), valid_ids)
+
+      # Fast path: fórmulas apenas em R, G, B são avaliadas em C++ somente nos
+      # pixels rotulados (sem materializar a imagem inteira em R nem HSB).
+      means_mat <- NULL
+      if (!isTRUE(pixel_level_index) && all(vapply(parsed, is_rgb_only_formula, logical(1)))) {
+        means_mat <- object_index_means_cpp(
+          image_data(img), nmask, vapply(parsed, rgb_formula_to_infix, character(1)), valid_ids,
+          vapply(parsed, is_bare_band_formula, logical(1))
+        )
+      }
+
+      if (is.null(means_mat)) {
+        R_ch <- img[,,1]; G_ch <- img[,,2]; B_ch <- img[,,3]
+        eval_env <- list(R = R_ch, G = G_ch, B = B_ch)
+        # HSB só é calculado quando alguma fórmula o utiliza
+        if (any(c("h", "s", "b", "H", "S") %in% unlist(lapply(parsed, all.vars)))) {
+          hsb_arrays <- rgb_to_hsb_cpp(R_ch, G_ch, B_ch)
+          eval_env <- c(eval_env, list(
+            h = hsb_arrays$H, s = hsb_arrays$S, b = hsb_arrays$B,
+            H = hsb_arrays$H, S = hsb_arrays$S
+          ))
+        }
+        idx_mat <- do.call(cbind, lapply(parsed, function(expr) {
+          as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
+        }))
+        means_mat <- compute_index_means_cpp(idx_mat, as.vector(nmask), valid_ids)
+      }
       colnames(means_mat) <- object_index
       indexes <- data.frame(id = valid_ids, means_mat, check.names = FALSE)
       if (isTRUE(pixel_level_index)) {
         obj_rgb <- object_rgb(img, nmask)
         obj_rgb <- subset(obj_rgb, id %in% shape$id)
         obj_rgb <- cbind(obj_rgb, rgb_to_hsb(obj_rgb[, 2:4]))
-        pixel_idx <- do.call(cbind, lapply(parsed, function(expr) {
-          as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
-        }))
+        pixel_idx <- idx_mat
         mask_flat <- as.vector(nmask)
         pixel_keep <- mask_flat %in% valid_ids
         obj_rgb <- cbind(obj_rgb, as.data.frame(pixel_idx[pixel_keep, , drop = FALSE], col.names = object_index))
@@ -1691,4 +1705,50 @@ analyze_objects_iter <- function(pattern,
     }
     do.call(rbind, lapply(measures, function(x){x}))
   }
+}
+
+# Helpers do fast path de `object_index` em analyze_objects()
+# TRUE quando a expressão usa apenas R, G, B, constantes e operadores/funções
+# suportados pelo avaliador RPN em C++ (object_index_means_cpp()).
+is_rgb_only_formula <- function(expr) {
+  allowed <- c("R", "G", "B", "+", "-", "*", "/", "^", "(",
+               "abs", "sqrt", "exp", "log", "sin", "cos", "tan")
+  ok_names <- all(all.names(expr) %in% allowed)
+  if (!ok_names) return(FALSE)
+  # funções devem ter exatamente um argumento (ex.: log(x, base) não é suportado)
+  check_calls <- function(e) {
+    if (is.call(e)) {
+      fn <- as.character(e[[1]])
+      if (fn %in% c("abs", "sqrt", "exp", "log", "sin", "cos", "tan", "(") && length(e) != 2) return(FALSE)
+      for (a in as.list(e)[-1]) if (!check_calls(a)) return(FALSE)
+    } else if (!is.name(e) && !(is.numeric(e) && is.double(e) && length(e) == 1 && is.finite(e))) {
+      return(FALSE)
+    }
+    TRUE
+  }
+  check_calls(expr)
+}
+
+# TRUE quando a expressão é apenas uma banda (ex.: `R` ou `(G)`); nesse caso o
+# caminho em R retorna a banda raw na escala 0-255, comportamento preservado.
+is_bare_band_formula <- function(expr) {
+  while (is.call(expr) && identical(expr[[1]], as.name("("))) expr <- expr[[2]]
+  is.name(expr) && as.character(expr) %in% c("R", "G", "B")
+}
+
+# Reescreve a expressão (já interpretada pelo parser do R) em notação infixa
+# totalmente parentizada, para que o parser RPN em C++ não dependa de regras de
+# precedência/associatividade (ex.: `-G^2` é `-(G^2)` no R).
+rgb_formula_to_infix <- function(expr) {
+  if (is.name(expr)) return(as.character(expr))
+  if (is.numeric(expr)) return(sprintf("%.17g", expr))
+  fn <- as.character(expr[[1]])
+  if (fn == "(") return(rgb_formula_to_infix(expr[[2]]))
+  if (length(expr) == 2) {
+    inner <- rgb_formula_to_infix(expr[[2]])
+    if (fn == "+") return(paste0("(", inner, ")"))
+    if (fn == "-") return(paste0("(-(", inner, "))"))
+    return(paste0(fn, "(", inner, ")"))
+  }
+  paste0("(", rgb_formula_to_infix(expr[[2]]), fn, rgb_formula_to_infix(expr[[3]]), ")")
 }

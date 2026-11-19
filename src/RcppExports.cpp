@@ -391,6 +391,21 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// object_index_means_cpp
+SEXP object_index_means_cpp(SEXP img_sexp, SEXP labels_sexp, CharacterVector formulas, IntegerVector valid_ids, LogicalVector bare_band);
+RcppExport SEXP _pliman_object_index_means_cpp(SEXP img_sexpSEXP, SEXP labels_sexpSEXP, SEXP formulasSEXP, SEXP valid_idsSEXP, SEXP bare_bandSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< SEXP >::type img_sexp(img_sexpSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type labels_sexp(labels_sexpSEXP);
+    Rcpp::traits::input_parameter< CharacterVector >::type formulas(formulasSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type valid_ids(valid_idsSEXP);
+    Rcpp::traits::input_parameter< LogicalVector >::type bare_band(bare_bandSEXP);
+    rcpp_result_gen = Rcpp::wrap(object_index_means_cpp(img_sexp, labels_sexp, formulas, valid_ids, bare_band));
+    return rcpp_result_gen;
+END_RCPP
+}
 // help_area
 Rcpp::RObject help_area(Rcpp::RObject coord);
 RcppExport SEXP _pliman_help_area(SEXP coordSEXP) {
@@ -3413,6 +3428,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_rgb_to_hsb_help", (DL_FUNC) &_pliman_rgb_to_hsb_help, 3},
     {"_pliman_rgb_to_srgb_help", (DL_FUNC) &_pliman_rgb_to_srgb_help, 1},
     {"_pliman_compute_single_index_cpp", (DL_FUNC) &_pliman_compute_single_index_cpp, 9},
+    {"_pliman_object_index_means_cpp", (DL_FUNC) &_pliman_object_index_means_cpp, 5},
     {"_pliman_help_area", (DL_FUNC) &_pliman_help_area, 1},
     {"_pliman_help_slide", (DL_FUNC) &_pliman_help_slide, 2},
     {"_pliman_help_distpts", (DL_FUNC) &_pliman_help_distpts, 1},
