@@ -2720,12 +2720,68 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
 }
 
 # Fast polygon decimation for screen display (preserves full resolution in returned contours)
-.decimate_poly <- function(p, max_pts = 2500L) {
+.decimate_poly <- function(p, max_pts = 800L) {
   n <- nrow(p)
   if (n <= max_pts) return(p)
   step <- ceiling(n / max_pts)
   idx <- c(seq(1L, n, by = step), 1L)
   p[idx, , drop = FALSE]
+}
+
+# Batched polygon highlight rendering grouped by color for fast graphics output
+.plot_highlight_polygons <- function(conts, pal, alpha = 0.7, border = NA, lwd = 1,
+                                     bbox = FALSE, max_pts = 800L) {
+  n_c <- length(conts)
+  if (n_c == 0L) return(invisible(NULL))
+
+  is_mat <- vapply(conts, function(p) is.matrix(p) && nrow(p) >= 3L, logical(1))
+  if (any(is_mat)) {
+    valid_idx <- which(is_mat)
+    pal_v <- pal[valid_idx]
+    u_cols <- unique(pal_v)
+    rgb_mat <- tryCatch(grDevices::col2rgb(u_cols) / 255.0, error = function(e) NULL)
+    if (is.null(rgb_mat)) {
+      poly_cols <- rep(grDevices::rgb(0, 1, 0, alpha = alpha), length(u_cols))
+    } else {
+      poly_cols <- grDevices::rgb(rgb_mat[1L, ], rgb_mat[2L, ], rgb_mat[3L, ], alpha = alpha)
+    }
+    names(poly_cols) <- u_cols
+
+    groups <- split(valid_idx, pal_v)
+    for (g_col in names(groups)) {
+      g_idx <- groups[[g_col]]
+      cur_border <- if (is.na(border)) NA else g_col
+      if (length(g_idx) == 1L) {
+        p_plot <- .decimate_poly(conts[[g_idx]], max_pts = max_pts)
+        graphics::polygon(p_plot[, 1], p_plot[, 2], col = poly_cols[[g_col]], border = cur_border, lwd = lwd)
+      } else {
+        px_list <- vector("list", length(g_idx))
+        py_list <- vector("list", length(g_idx))
+        for (j in seq_along(g_idx)) {
+          p_plot <- .decimate_poly(conts[[g_idx[j]]], max_pts = max_pts)
+          px_list[[j]] <- c(p_plot[, 1], NA_real_)
+          py_list[[j]] <- c(p_plot[, 2], NA_real_)
+        }
+        graphics::polygon(unlist(px_list, use.names = FALSE),
+                          unlist(py_list, use.names = FALSE),
+                          col = poly_cols[[g_col]], border = cur_border, lwd = lwd)
+      }
+    }
+  }
+
+  if (isTRUE(bbox)) {
+    box_idx <- which(vapply(conts, function(p) is.matrix(p) && nrow(p) >= 1L, logical(1)))
+    if (length(box_idx) > 0L) {
+      b_mat <- vapply(box_idx, function(ci) {
+        p <- conts[[ci]]
+        c(min(p[, 1]), min(p[, 2]), max(p[, 1]), max(p[, 2]))
+      }, numeric(4))
+      graphics::rect(xleft = b_mat[1L, ], ybottom = b_mat[2L, ],
+                     xright = b_mat[3L, ], ytop = b_mat[4L, ],
+                     border = pal[box_idx], lwd = lwd)
+    }
+  }
+  invisible(NULL)
 }
 
 .preprocess_nchw <- function(mat,
@@ -3716,6 +3772,7 @@ image_remove_bg_dl <- function(img,
 
     if ("cx" %in% names(boxes)) boxes$cx <- round((boxes$xmin + boxes$xmax) / 2, 1)
     if ("cy" %in% names(boxes)) boxes$cy <- round((boxes$ymin + boxes$ymax) / 2, 1)
+    if ("area" %in% names(boxes)) boxes$area <- round((boxes$xmax - boxes$xmin) * (boxes$ymax - boxes$ymin), 1)
   }
 
   if (is_obb) {
@@ -3738,9 +3795,48 @@ image_remove_bg_dl <- function(img,
         }
       }
     }
+    if ("area" %in% names(boxes)) {
+      boxes <- .add_box_geometry(boxes, update_cx = FALSE)
+    }
   }
 
   attr(boxes, "padded") <- TRUE
+  boxes
+}
+
+# Compute bounding box centroids (cx, cy) and area in R (handles AABB and OBB)
+.add_box_geometry <- function(boxes, update_cx = TRUE) {
+  if (!is.data.frame(boxes)) return(boxes)
+  if (nrow(boxes) == 0L) {
+    if (isTRUE(update_cx)) {
+      if (!"cx" %in% names(boxes)) boxes$cx <- numeric(0)
+      if (!"cy" %in% names(boxes)) boxes$cy <- numeric(0)
+    }
+    if (!"area" %in% names(boxes)) boxes$area <- numeric(0)
+    return(boxes)
+  }
+  if (all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(boxes))) {
+    if (isTRUE(update_cx)) {
+      boxes$cx <- round((boxes$x1 + boxes$x2 + boxes$x3 + boxes$x4) / 4, 1)
+      boxes$cy <- round((boxes$y1 + boxes$y2 + boxes$y3 + boxes$y4) / 4, 1)
+    }
+    # Shoelace formula for oriented quadrilateral area
+    boxes$area <- round(
+      0.5 * abs(
+        (boxes$x1 * boxes$y2 - boxes$y1 * boxes$x2) +
+        (boxes$x2 * boxes$y3 - boxes$y2 * boxes$x3) +
+        (boxes$x3 * boxes$y4 - boxes$y3 * boxes$x4) +
+        (boxes$x4 * boxes$y1 - boxes$y4 * boxes$x1)
+      ),
+      1
+    )
+  } else if (all(c("xmin", "xmax", "ymin", "ymax") %in% names(boxes))) {
+    if (isTRUE(update_cx)) {
+      boxes$cx <- round((boxes$xmin + boxes$xmax) / 2, 1)
+      boxes$cy <- round((boxes$ymin + boxes$ymax) / 2, 1)
+    }
+    boxes$area <- round(pmax(0, boxes$xmax - boxes$xmin) * pmax(0, boxes$ymax - boxes$ymin), 1)
+  }
   boxes
 }
 
@@ -6299,7 +6395,8 @@ plot_yolo_heatmap <- function(img,
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
 #' @param rainbow Logical. If `TRUE`, assigns a distinct, unique color to each segmented object.
-#'   If `FALSE` (the default), objects of the same class share the exact same color. Defaults to `FALSE`.
+#'   If `FALSE`, objects of the same class share the exact same color (using `col_highlight` / `mask_color`).
+#'   Defaults to `TRUE` unless `col_highlight` or `mask_color` is explicitly provided.
 #' @param exemplar Logical. If `TRUE` (or if `model = "persam"`), activates one-shot visual exemplar segmentation (PerSAM)
 #'   using SAM 2.1 embeddings. The user can click on 1 or more representative exemplar objects in the plot window
 #'   (or pass coordinates via `prompt`), and the model will automatically compute visual feature embeddings,
@@ -6492,6 +6589,10 @@ image_segment_dl <- function(img,
     mask <- FALSE
   }
   dots <- list(...)
+  col_highlight_specified <- !missing(col_highlight)
+  if (missing(rainbow) && (col_highlight_specified || !is.null(mask_color) || !is.null(dots$col))) {
+    rainbow <- FALSE
+  }
   if (is.null(imgsz)) {
     if ("imgz" %in% names(dots)) imgsz <- dots$imgz
     if ("img_size" %in% names(dots)) imgsz <- dots$img_size
@@ -6937,10 +7038,12 @@ image_segment_dl <- function(img,
     # Resolve user highlight/mask colors (mask_color takes priority)
     user_hl <- if (!is.null(mask_color)) {
       mask_color
-    } else if (!missing(col_highlight)) {
+    } else if (col_highlight_specified) {
       col_highlight
-    } else if (!is.null(list(...)$col)) {
-      list(...)$col
+    } else if (!is.null(dots$col)) {
+      dots$col
+    } else if (!isTRUE(rainbow)) {
+      col_highlight
     } else {
       NULL
     }
@@ -7206,6 +7309,7 @@ image_segment_dl <- function(img,
       if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
         gs_res$boxes$cx <- round(cx, 1)
         gs_res$boxes$cy <- round(cy, 1)
+        gs_res$boxes <- .add_box_geometry(gs_res$boxes, update_cx = FALSE)
       }
 
       if (isTRUE(plot)) {
@@ -7228,22 +7332,17 @@ image_segment_dl <- function(img,
           )
 
           if (isTRUE(mask) && !is.null(gs_res$labels)) {
+            flat_conts <- list()
+            flat_pal <- character()
             for (k in seq_len(num_inst)) {
               conts <- conts_all[[k]]
               if (is.null(conts) || length(conts) == 0) next
-
               k_col <- palette_colors[((k - 1) %% length(palette_colors)) + 1]
-              c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
-              poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha)
-              cur_border <- if (is.na(border)) NA else k_col
-
-              for (p in (if (is.matrix(conts)) list(conts) else conts)) {
-                if (is.matrix(p) && nrow(p) >= 3) {
-                  p_plot <- .decimate_poly(p)
-                  graphics::polygon(p_plot[, 1], p_plot[, 2], col = poly_col, border = cur_border, lwd = lwd)
-                }
-              }
+              p_list <- if (is.matrix(conts)) list(conts) else conts
+              flat_conts <- c(flat_conts, p_list)
+              flat_pal <- c(flat_pal, rep(k_col, length(p_list)))
             }
+            .plot_highlight_polygons(flat_conts, flat_pal, alpha = alpha, border = border, lwd = lwd, bbox = FALSE)
           }
 
           if (isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask)) {
@@ -7490,25 +7589,10 @@ image_segment_dl <- function(img,
         )
         pal <- if (length(conts) <= length(palette_pool)) palette_pool[seq_along(conts)] else grDevices::rainbow(length(conts), s = 0.85, v = 0.95)
       } else {
-        cur_hl <- if (!is.null(mask_color)) mask_color else col_highlight
+        cur_hl <- if (!is.null(mask_color)) mask_color else if (col_highlight_specified) col_highlight else if (!is.null(dots$col)) dots$col else col_highlight
         pal <- rep_len(cur_hl, length(conts))
       }
-      for (ci in seq_along(conts)) {
-        p <- conts[[ci]]
-        k_col <- pal[ci]
-        c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
-        poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha)
-        cur_border <- if (is.na(border)) NA else k_col
-        if (is.matrix(p) && nrow(p) >= 3) {
-          p_plot <- .decimate_poly(p)
-          graphics::polygon(p_plot[, 1], p_plot[, 2], col = poly_col, border = cur_border, lwd = lwd)
-        }
-        if (isTRUE(bbox) && is.matrix(p) && nrow(p) >= 1) {
-          graphics::rect(xleft = min(p[, 1]), ybottom = min(p[, 2]),
-                         xright = max(p[, 1]), ytop = max(p[, 2]),
-                         border = k_col, lwd = lwd)
-        }
-      }
+      .plot_highlight_polygons(conts, pal, alpha = alpha, border = border, lwd = lwd, bbox = bbox)
       if (isTRUE(verbose)) {
         cli::cli_progress_done()
       }
@@ -8187,14 +8271,8 @@ image_detect_dl <- function(img,
       res$summary <- .format_detection_summary(df_boxes$label)
     }
   }
-  if (is.data.frame(df_boxes) && nrow(df_boxes) > 0) {
-    if (all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(df_boxes))) {
-      df_boxes$cx <- round((df_boxes$x1 + df_boxes$x2 + df_boxes$x3 + df_boxes$x4) / 4, 1)
-      df_boxes$cy <- round((df_boxes$y1 + df_boxes$y2 + df_boxes$y3 + df_boxes$y4) / 4, 1)
-    } else if (all(c("xmin", "xmax", "ymin", "ymax") %in% names(df_boxes))) {
-      df_boxes$cx <- round((df_boxes$xmin + df_boxes$xmax) / 2, 1)
-      df_boxes$cy <- round((df_boxes$ymin + df_boxes$ymax) / 2, 1)
-    }
+  if (is.data.frame(df_boxes)) {
+    df_boxes <- .add_box_geometry(df_boxes, update_cx = TRUE)
   }
 
   if (!is.null(pad) && any(pad != 0) && is.data.frame(df_boxes) && nrow(df_boxes) > 0L) {
@@ -8935,7 +9013,13 @@ image_stardist_dl <- function(img,
     } else {
       plot(as_image(mat), ...)
       if (num_inst > 0) {
-        palette_colors <- if (num_inst == 1) col_highlight else grDevices::rainbow(num_inst, s = 0.85, v = 0.95)
+        palette_colors <- if (!missing(col_highlight)) {
+          rep_len(col_highlight, num_inst)
+        } else if (num_inst == 1) {
+          col_highlight
+        } else {
+          grDevices::rainbow(num_inst, s = 0.85, v = 0.95)
+        }
         for (i in seq_len(num_inst)) {
           px <- res$polygons_x[[i]]
           py <- res$polygons_y[[i]]
