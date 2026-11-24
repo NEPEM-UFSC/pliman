@@ -1833,7 +1833,7 @@ image_segment_dl_batch <- function(data,
 
   if (nrow(predictions) > 0) {
     features <- dplyr::bind_rows(lapply(results, function(x) x[["features"]]), .id = "img")
-    predictions <- predictions |> dplyr::left_join(features, by = intersect(names(predictions), names(features))) |> dplyr::select(-dplyr::any_of(c("x", "y")))
+    predictions <- predictions |> dplyr::left_join(features, by = intersect(names(predictions), names(features))) |> dplyr::select(-dplyr::any_of(c("x", "y", "pcv")))
   }
   elapsed_sec <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
 

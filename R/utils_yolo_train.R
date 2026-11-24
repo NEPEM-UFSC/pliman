@@ -3095,18 +3095,19 @@ yolo_dataset_review <- function(dir = "yolo_dataset",
           engine = engine,
           device_id = device_id
         )
-        if (!is.null(gs_res$boxes) && nrow(gs_res$boxes) > 0L) {
+        gs_bx <- if (!is.null(gs_res$results)) gs_res$results else gs_res$boxes
+        if (!is.null(gs_bx) && nrow(gs_bx) > 0L) {
           pred_boxes <- data.frame(
-            index = seq_len(nrow(gs_res$boxes)),
-            xmin = as.numeric(gs_res$boxes$xmin),
-            ymin = as.numeric(gs_res$boxes$ymin),
-            xmax = as.numeric(gs_res$boxes$xmax),
-            ymax = as.numeric(gs_res$boxes$ymax),
-            cx = (as.numeric(gs_res$boxes$xmin) + as.numeric(gs_res$boxes$xmax)) / 2,
-            cy = (as.numeric(gs_res$boxes$ymin) + as.numeric(gs_res$boxes$ymax)) / 2,
+            index = seq_len(nrow(gs_bx)),
+            xmin = as.numeric(gs_bx$xmin),
+            ymin = as.numeric(gs_bx$ymin),
+            xmax = as.numeric(gs_bx$xmax),
+            ymax = as.numeric(gs_bx$ymax),
+            cx = (as.numeric(gs_bx$xmin) + as.numeric(gs_bx$xmax)) / 2,
+            cy = (as.numeric(gs_bx$ymin) + as.numeric(gs_bx$ymax)) / 2,
             class_id = class_id[1],
             class_name = class_names[1],
-            conf = round(as.numeric(gs_res$boxes$score), 3),
+            conf = round(as.numeric(gs_bx$score), 3),
             stringsAsFactors = FALSE
           )
           pred_polys <- if (!is.null(gs_res$contours)) gs_res$contours else list()

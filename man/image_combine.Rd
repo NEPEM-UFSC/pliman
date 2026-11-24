@@ -17,7 +17,13 @@ image_combine(
   font = 2,
   verbose = TRUE,
   mar = c(0.2, 0.2, 0.2, 0.2),
-  oma = c(0, 0, 0, 0)
+  oma = c(0, 0, 0, 0),
+  row_labels = NULL,
+  col_labels = NULL,
+  strip_col = NULL,
+  strip_bg = NULL,
+  strip_cex = 0.95,
+  strip_size = NULL
 )
 }
 \arguments{
@@ -50,6 +56,22 @@ text.}
 Defaults to \code{mar = c(0.2, 0.2, 0.2, 0.2)} and \code{oma = c(0, 0, 0, 0)}. Set
 \code{mar = 0} or \code{mar = c(0, 0, 0, 0)} to eliminate margins and maximize the
 plotting area.}
+
+\item{row_labels, col_labels}{Optional character vectors of labels to display as
+full-height left strips (\code{row_labels}, length \code{nrow}) and full-width top
+strips (\code{col_labels}, length \code{ncol}). Useful for publication comparison grids.}
+
+\item{strip_col, strip_bg}{Text color and background fill color for \code{row_labels}
+and \code{col_labels} strips. When \code{NULL} (default), \code{strip_col} inherits \code{col}
+and \code{strip_bg} inherits \code{col_bg}.}
+
+\item{strip_cex}{Character expansion factor for strip labels. Defaults to \code{0.95}.}
+
+\item{strip_size}{Relative width/height of the row and column label strips
+compared to an image panel (\code{1}). Defaults to \code{NULL}, which automatically
+computes strip dimensions from the current graphics device aspect ratio so
+panels align edge-to-edge without gaps. Can also be set explicitly as a
+scalar or length-2 vector \code{c(row_width, col_height)}.}
 }
 \value{
 A grid with the images in \code{...}
