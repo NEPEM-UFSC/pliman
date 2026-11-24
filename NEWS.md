@@ -35,6 +35,11 @@
 ### Model Training, Testing & Diagnostics
 * **Integrated YOLO Training Workflow**: `yolo_train()` and `yolo_train_workflow()` provide complete training management with automated dependency setup, tensorboard tracking, checkpoint recovery, and hyperparameter tuning.
 * **Model Evaluation & Error Analysis**: `yolo_model_test()` and `yolo_error_analysis()` generate detailed confusion matrices, precision-recall breakdowns, and diagnostic error classifications (background confusion, localization errors, false positives).
+* **Model & Pipeline Comparison**: `image_compare_dl()` (with `plot.image_compare_dl()`) compares two detection or segmentation outputs (`image_detect_dl()` or `image_segment_dl()`) via IoU instance matching, supporting intersection (`mode = "intersection"`), symmetric or one-sided difference (`mode = "difference"`, `"only_x"`, `"only_y"`), and union (`mode = "all"`), with automatic status color-coding, legend, and Jaccard/Dice metrics.
+* **Dedicated Plot Methods & Enriched Geometry**:
+  - Added S3 methods `plot.image_segment_dl()` and `plot.image_detect_dl()` for re-rendering segmentation and detection overlays with customizable visual parameters and seamless `image_combine()` integration.
+  - `image_detect_dl()` and `image_segment_dl()` now report bounding-box geometry (`width`, `height`, `box_area`) alongside polygon mask `area` and `box_fill` (`area / box_area` mask-to-box fill ratio), and consistently attach `attr(x, "labels")` and `attr(x, "semantic_map")` (including `-sem` semantic segmentation models).
+* **Publication-Ready Grid Headers in `image_combine()`**: Added `row_labels`, `col_labels`, `strip_bg`, `strip_col`, `strip_cex`, and automatic device-aspect-ratio-fitted `strip_size` for multi-row and multi-column image panels.
 * **Quantization & Edge Optimization**: `model_to_int8()`, `model_to_fp16()`, `onnx_quantize()`, and `yolo_export_engine()` for deploying lightweight INT8/FP16 models and TensorRT engines.
 
 ### 3D Reconstruction & Video Analytics

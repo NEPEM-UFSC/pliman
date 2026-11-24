@@ -311,7 +311,7 @@ If \code{NULL} (default), inferred automatically from the model or defaults to \
 \item If \code{type = "mask"}: A single multi-label or binary \code{image} object (\code{colormode = "Grayscale"}).
 \item If \code{type = "highlight"}: Invisibly returns a list with:
 \itemize{
-\item \code{"boxes"}: Data frame of detected bounding boxes and scores.
+\item \code{"results"}: Data frame of detected bounding boxes, scores, and morphometric traits.
 \item \code{"labels"}: Single multi-label integer mask \code{image} where each pixel value corresponds to instance \code{id}.
 \item \code{"summary"}: Text summary of detected objects and counts.
 \item \code{"counts"}: Data frame of instance counts per class label.

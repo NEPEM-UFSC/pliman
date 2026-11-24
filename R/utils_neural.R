@@ -4191,6 +4191,8 @@ image_remove_bg_dl <- function(img,
                               filter_nested = TRUE,
                               threads = 0,
                               engine = c("gpu", "cpu"),
+                              sam_device = c("auto", "gpu", "cpu"),
+                              engine_specified = FALSE,
                               device_id = -1,
                               fill_hull = TRUE,
                               filter = 0,
@@ -4204,6 +4206,7 @@ image_remove_bg_dl <- function(img,
                               verbose = TRUE,
                               dir = pliman_model_dir()) {
   engine <- match.arg(engine)
+  sam_device <- match.arg(sam_device)
   use_gpu <- (engine == "gpu")
   dir <- pliman_model_dir(dir)
   lib_file <- pliman_onnx_lib_path(engine = engine)
@@ -4403,7 +4406,13 @@ image_remove_bg_dl <- function(img,
   #   all CPU                       25.9, 22.5, 12.3, 14.2, 11.6, 13.1 s
   sam_use_gpu <- use_gpu
   if (use_gpu) {
-    sam_dev <- tolower(as.character(getOption("pliman.gsam_sam_device", "auto"))[1])
+    sam_dev <- if (sam_device != "auto") {
+      sam_device
+    } else if (isTRUE(engine_specified)) {
+      "gpu"
+    } else {
+      tolower(as.character(getOption("pliman.gsam_sam_device", "auto"))[1])
+    }
     if (identical(sam_dev, "cpu")) {
       sam_use_gpu <- FALSE
     } else if (!identical(sam_dev, "gpu")) {
@@ -6446,7 +6455,7 @@ plot_yolo_heatmap <- function(img,
 #'   * If `type = "segment"`: An `image` object containing the segmented image.
 #'   * If `type = "mask"`: A single multi-label or binary `image` object (`colormode = "Grayscale"`).
 #'   * If `type = "highlight"`: Invisibly returns a list with:
-#'     - `"boxes"`: Data frame of detected bounding boxes and scores.
+#'     - `"results"`: Data frame of detected bounding boxes, scores, and morphometric traits.
 #'     - `"labels"`: Single multi-label integer mask `image` where each pixel value corresponds to instance `id`.
 #'     - `"summary"`: Text summary of detected objects and counts.
 #'     - `"counts"`: Data frame of instance counts per class label.
@@ -6915,6 +6924,8 @@ image_segment_dl <- function(img,
         filter_nested = filter_nested,
         threads = threads,
         engine = engine,
+        sam_device = sam_device,
+        engine_specified = engine_specified,
         device_id = device_id,
         fill_hull = fill_hull,
         filter = filter,
@@ -7232,6 +7243,7 @@ image_segment_dl <- function(img,
       attr(out, "labels") <- gs_res$labels
       attr(out, "summary") <- gs_res$summary
       attr(out, "counts") <- gs_res$counts
+      if (!is.null(gs_res$semantic_map)) attr(out, "semantic_map") <- gs_res$semantic_map
       attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
       if (isTRUE(attach_im)) {
         attr(out, "image") <- as_image(mat)
@@ -7290,6 +7302,9 @@ image_segment_dl <- function(img,
         tryCatch(poly_measures(instance_conts), error = function(e) data.frame())
       } else {
         data.frame()
+      }
+      if (is.data.frame(feats) && "pcv" %in% names(feats)) {
+        feats$pcv <- NULL
       }
 
       cx <- numeric(num_inst)
@@ -7379,9 +7394,20 @@ image_segment_dl <- function(img,
       res_df <- if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) > 0) {
         bx <- gs_res$boxes
         if (!is.null(feats) && is.data.frame(feats) && nrow(feats) > 0 && "id" %in% names(feats)) {
+          if ("area" %in% names(bx) && "area" %in% names(feats)) {
+            names(bx)[names(bx) == "area"] <- "box_area"
+          }
           feat_cols_to_add <- setdiff(names(feats), c("id", "x", "y"))
           m_idx <- match(bx$id, feats$id)
-          cbind(bx, feats[m_idx, feat_cols_to_add, drop = FALSE])
+          merged <- cbind(bx, feats[m_idx, feat_cols_to_add, drop = FALSE])
+          if (all(c("area", "box_area") %in% names(merged))) {
+            merged$box_fill <- ifelse(
+              is.finite(merged$box_area) & merged$box_area > 0,
+              round(pmin(1, merged$area / merged$box_area), 4),
+              NA_real_
+            )
+          }
+          merged
         } else {
           bx
         }
@@ -7394,15 +7420,38 @@ image_segment_dl <- function(img,
       attr(gs_res, "summary") <- gs_res$summary
       attr(gs_res, "counts") <- gs_res$counts
       attr(gs_res, "results") <- res_df
-      attr(gs_res, "boxes") <- res_df
-      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
+      if (!is.null(gs_res$labels)) attr(gs_res, "labels") <- gs_res$labels
+      if (!is.null(gs_res$semantic_map)) attr(gs_res, "semantic_map") <- gs_res$semantic_map
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
       if (isTRUE(attach_im)) {
         attr(gs_res, "image") <- as_image(mat)
       }
+      attr(gs_res, "plot_params") <- list(
+        col = user_hl,
+        target_classes = target_classes,
+        rainbow = rainbow,
+        alpha = alpha,
+        border = border,
+        lwd = lwd,
+        cex = cex,
+        bbox = bbox,
+        mask = mask,
+        badge = badge,
+        badge_pad = badge_pad,
+        show_text = show_text,
+        show_conf = show_conf,
+        show_class = show_class,
+        show_id = show_id,
+        show_box = show_box,
+        show_point = show_point,
+        point_size = point_size,
+        point_pch = point_pch,
+        point_col = point_col
+      )
       if (!is.null(gs_res$similarity_map)) attr(gs_res, "similarity_map") <- gs_res$similarity_map
       gs_res$contours <- instance_conts
       gs_res$results <- res_df
-      gs_res$boxes <- res_df
+      gs_res$boxes <- NULL
       gs_res$features <- feats
       class(gs_res) <- c("image_segment_dl", "list")
       gs_res <- .attach_features(gs_res, mat = mat, boxes = res_df, conts = instance_conts,
@@ -8358,17 +8407,860 @@ image_detect_dl <- function(img,
   } else {
     NULL
   }
-  attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
+  attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
   if (isTRUE(attach_im)) {
     attr(df_boxes, "image") <- as_image(mat)
   }
+  attr(df_boxes, "plot_params") <- list(
+    col = col,
+    rainbow = rainbow,
+    alpha = if (!is.null(dots$alpha)) dots$alpha else 0.4,
+    border = if (!is.null(dots$border)) dots$border else NA,
+    lwd = lwd,
+    cex = cex,
+    bbox = isTRUE(show_box),
+    mask = isTRUE(need_masks),
+    badge = badge,
+    badge_pad = badge_pad,
+    show_text = show_text,
+    show_conf = show_conf,
+    show_class = show_class,
+    show_id = show_id,
+    show_box = show_box,
+    show_point = show_point,
+    point_size = point_size,
+    point_pch = point_pch,
+    point_col = point_col
+  )
   if (isTRUE(return_features)) {
     attr(df_boxes, "heatmap") <- res$heatmap
     attr(df_boxes, "feature_energy") <- res$feature_energy
     attr(df_boxes, "feature_map") <- res$feature_map
     attr(df_boxes, "embeddings") <- res$embeddings
   }
+  class(df_boxes) <- c("image_detect_dl", "data.frame")
   invisible(df_boxes)
+}
+
+# Internal helper shared by plot.image_segment_dl() and plot.image_detect_dl()
+.render_dl_overlay <- function(img = NULL,
+                               boxes = NULL,
+                               contours = NULL,
+                               col = NULL,
+                               target_classes = NULL,
+                               rainbow = TRUE,
+                               alpha = 0.5,
+                               border = "black",
+                               lwd = 1,
+                               cex = 0.9,
+                               bbox = FALSE,
+                               mask = TRUE,
+                               badge = TRUE,
+                               badge_pad = 4,
+                               show_text = TRUE,
+                               show_conf = TRUE,
+                               show_class = TRUE,
+                               show_id = FALSE,
+                               show_box = NULL,
+                               show_point = FALSE,
+                               point_size = 1,
+                               point_pch = 16,
+                               point_col = NULL,
+                               dots = list()) {
+  if (!is.null(img)) {
+    p_dots <- .filter_plot_dots(dots)
+    do.call(graphics::plot, c(list(as_image(img)), p_dots))
+  } else {
+    xr <- if (!is.null(boxes) && nrow(boxes) > 0) c(0, max(boxes$xmax, na.rm = TRUE) * 1.05) else c(0, 100)
+    yr <- if (!is.null(boxes) && nrow(boxes) > 0) c(max(boxes$ymax, na.rm = TRUE) * 1.05, 0) else c(100, 0)
+    graphics::plot(NA, xlim = xr, ylim = yr, asp = 1, xlab = "", ylab = "", axes = FALSE)
+  }
+
+  num_inst <- if (!is.null(boxes) && is.data.frame(boxes)) nrow(boxes) else 0L
+  if (num_inst == 0L) {
+    return(invisible(NULL))
+  }
+
+  palette_colors <- .get_class_palette(
+    labels = boxes$label,
+    n = num_inst,
+    user_col = col,
+    default_col = if (!is.null(col)) col[1] else "#00CC66",
+    rainbow = rainbow,
+    target_classes = target_classes
+  )
+
+  if (isTRUE(mask) && !is.null(contours) && length(contours) > 0L) {
+    flat_conts <- list()
+    flat_pal <- character()
+    for (k in seq_len(min(num_inst, length(contours)))) {
+      ck <- contours[[k]]
+      if (is.null(ck) || length(ck) == 0L) next
+      k_col <- palette_colors[((k - 1L) %% length(palette_colors)) + 1L]
+      p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+      flat_conts <- c(flat_conts, p_list)
+      flat_pal <- c(flat_pal, rep(k_col, length(p_list)))
+    }
+    if (length(flat_conts) > 0L) {
+      .plot_highlight_polygons(flat_conts, flat_pal, alpha = alpha, border = border, lwd = lwd, bbox = FALSE)
+    }
+  }
+
+  draw_boxes <- isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask) || (!is.null(show_box) && isTRUE(show_box))
+  if (draw_boxes) {
+    .plot_yolo_bboxes(
+      boxes = boxes,
+      palette_colors = palette_colors,
+      lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+      cex = cex,
+      pad = 0,
+      badge_pad = badge_pad,
+      show_text = show_text,
+      show_conf = show_conf,
+      show_class = show_class,
+      show_id = show_id,
+      show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+      show_point = show_point,
+      point_size = point_size,
+      point_pch = point_pch,
+      point_col = point_col,
+      badge = badge
+    )
+  } else if (isTRUE(show_id) && all(c("cx", "cy") %in% names(boxes))) {
+    graphics::points(boxes$cx, boxes$cy, pch = 21, bg = "black", col = "white", cex = 2.2)
+    graphics::text(boxes$cx, boxes$cy, labels = as.character(seq_len(num_inst)), col = "white", font = 2, cex = 0.9)
+  }
+  invisible(NULL)
+}
+
+#' Plot method for \code{image_segment_dl} objects
+#'
+#' Re-renders the segmentation overlay (masks, bounding boxes, and labels)
+#' returned by [image_segment_dl()]. Any visual parameter not explicitly
+#' supplied defaults to the value used during the original call.
+#'
+#' @param x An object of class \code{image_segment_dl} returned by
+#'   [image_segment_dl()].
+#' @param img Optional \code{Image} object to use as background. Defaults to
+#'   \code{attr(x, "image")} when available.
+#' @param col_highlight,alpha,border,lwd,cex,bbox,mask,rainbow,badge,badge_pad,show_text,show_conf,show_class,show_id,show_box,show_point,point_size,point_pch,point_col
+#'   Visual parameters overriding the original [image_segment_dl()] settings.
+#' @param ... Additional graphical arguments passed to [graphics::plot()].
+#'
+#' @return Invisibly returns \code{x}.
+#' @export
+plot.image_segment_dl <- function(x,
+                                  img = NULL,
+                                  col_highlight = NULL,
+                                  alpha = NULL,
+                                  border = NULL,
+                                  lwd = NULL,
+                                  cex = NULL,
+                                  bbox = NULL,
+                                  mask = NULL,
+                                  rainbow = NULL,
+                                  badge = NULL,
+                                  badge_pad = NULL,
+                                  show_text = NULL,
+                                  show_conf = NULL,
+                                  show_class = NULL,
+                                  show_id = NULL,
+                                  show_box = NULL,
+                                  show_point = NULL,
+                                  point_size = NULL,
+                                  point_pch = NULL,
+                                  point_col = NULL,
+                                  ...) {
+  pp <- attr(x, "plot_params")
+  if (is.null(pp)) pp <- list()
+  pick <- function(val, key, default) {
+    if (!is.null(val)) val else if (!is.null(pp[[key]])) pp[[key]] else default
+  }
+  bg_img <- if (!is.null(img)) img else attr(x, "image")
+  boxes <- if (!is.null(x$results) && is.data.frame(x$results)) x$results else attr(x, "results")
+  conts <- if (!is.null(x$contours)) x$contours else attr(x, "contours")
+
+  .render_dl_overlay(
+    img = bg_img,
+    boxes = boxes,
+    contours = conts,
+    col = if (!is.null(col_highlight)) col_highlight else pp$col,
+    target_classes = pp$target_classes,
+    rainbow = pick(rainbow, "rainbow", TRUE),
+    alpha = pick(alpha, "alpha", 0.5),
+    border = if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else "black",
+    lwd = pick(lwd, "lwd", 1),
+    cex = pick(cex, "cex", 0.9),
+    bbox = pick(bbox, "bbox", FALSE),
+    mask = pick(mask, "mask", TRUE),
+    badge = pick(badge, "badge", TRUE),
+    badge_pad = pick(badge_pad, "badge_pad", 4),
+    show_text = pick(show_text, "show_text", TRUE),
+    show_conf = pick(show_conf, "show_conf", TRUE),
+    show_class = pick(show_class, "show_class", TRUE),
+    show_id = pick(show_id, "show_id", FALSE),
+    show_box = if (!is.null(show_box)) show_box else pp$show_box,
+    show_point = pick(show_point, "show_point", FALSE),
+    point_size = pick(point_size, "point_size", 1),
+    point_pch = pick(point_pch, "point_pch", 16),
+    point_col = if (!is.null(point_col)) point_col else pp$point_col,
+    dots = list(...)
+  )
+  invisible(x)
+}
+
+#' Plot method for \code{image_detect_dl} objects
+#'
+#' Re-renders the detection overlay (bounding boxes, optional instance masks,
+#' and labels) returned by [image_detect_dl()]. Any visual parameter not
+#' explicitly supplied defaults to the value used during the original call.
+#'
+#' @param x An object of class \code{image_detect_dl} returned by
+#'   [image_detect_dl()].
+#' @param img Optional \code{Image} object to use as background. Defaults to
+#'   \code{attr(x, "image")} when available.
+#' @param col,alpha,border,lwd,cex,bbox,mask,rainbow,badge,badge_pad,show_text,show_conf,show_class,show_id,show_box,show_point,point_size,point_pch,point_col
+#'   Visual parameters overriding the original [image_detect_dl()] settings.
+#' @param ... Additional graphical arguments passed to [graphics::plot()].
+#'
+#' @return Invisibly returns \code{x}.
+#' @export
+plot.image_detect_dl <- function(x,
+                                 img = NULL,
+                                 col = NULL,
+                                 alpha = NULL,
+                                 border = NULL,
+                                 lwd = NULL,
+                                 cex = NULL,
+                                 bbox = NULL,
+                                 mask = NULL,
+                                 rainbow = NULL,
+                                 badge = NULL,
+                                 badge_pad = NULL,
+                                 show_text = NULL,
+                                 show_conf = NULL,
+                                 show_class = NULL,
+                                 show_id = NULL,
+                                 show_box = NULL,
+                                 show_point = NULL,
+                                 point_size = NULL,
+                                 point_pch = NULL,
+                                 point_col = NULL,
+                                 ...) {
+  pp <- attr(x, "plot_params")
+  if (is.null(pp)) pp <- list()
+  pick <- function(val, key, default) {
+    if (!is.null(val)) val else if (!is.null(pp[[key]])) pp[[key]] else default
+  }
+  bg_img <- if (!is.null(img)) img else attr(x, "image")
+  conts <- attr(x, "contours")
+
+  .render_dl_overlay(
+    img = bg_img,
+    boxes = x,
+    contours = conts,
+    col = if (!is.null(col)) col else pp$col,
+    rainbow = pick(rainbow, "rainbow", TRUE),
+    alpha = pick(alpha, "alpha", 0.4),
+    border = if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else NA,
+    lwd = pick(lwd, "lwd", 2),
+    cex = pick(cex, "cex", 0.9),
+    bbox = pick(bbox, "bbox", TRUE),
+    mask = pick(mask, "mask", !is.null(conts)),
+    badge = pick(badge, "badge", TRUE),
+    badge_pad = pick(badge_pad, "badge_pad", 4),
+    show_text = pick(show_text, "show_text", TRUE),
+    show_conf = pick(show_conf, "show_conf", TRUE),
+    show_class = pick(show_class, "show_class", TRUE),
+    show_id = pick(show_id, "show_id", FALSE),
+    show_box = if (!is.null(show_box)) show_box else pp$show_box,
+    show_point = pick(show_point, "show_point", FALSE),
+    point_size = pick(point_size, "point_size", 1),
+    point_pch = pick(point_pch, "point_pch", 16),
+    point_col = if (!is.null(point_col)) point_col else pp$point_col,
+    dots = list(...)
+  )
+  invisible(x)
+}
+
+# Internal helper to extract boxes, contours, labels, and image from detection/segmentation outputs
+.extract_dl_components <- function(obj) {
+  if (inherits(obj, "image_segment_dl") || (is.list(obj) && !is.data.frame(obj))) {
+    boxes <- if (!is.null(obj$results) && is.data.frame(obj$results)) {
+      obj$results
+    } else if (!is.null(obj$boxes) && is.data.frame(obj$boxes)) {
+      obj$boxes
+    } else if (!is.null(attr(obj, "results")) && is.data.frame(attr(obj, "results"))) {
+      attr(obj, "results")
+    } else {
+      data.frame()
+    }
+    contours <- if (!is.null(obj$contours)) obj$contours else attr(obj, "contours")
+    labels_img <- if (!is.null(obj$labels)) obj$labels else attr(obj, "labels")
+    bg_img <- if (!is.null(attr(obj, "image"))) attr(obj, "image") else obj$image
+    has_mask <- !is.null(contours) && length(contours) > 0L
+  } else if (is.data.frame(obj)) {
+    boxes <- as.data.frame(obj)
+    contours <- attr(obj, "contours")
+    labels_img <- attr(obj, "labels")
+    bg_img <- attr(obj, "image")
+    has_mask <- !is.null(contours) && length(contours) > 0L
+  } else if (inherits(obj, c("Image", "image"))) {
+    boxes <- if (!is.null(attr(obj, "results"))) attr(obj, "results") else if (!is.null(attr(obj, "boxes"))) attr(obj, "boxes") else data.frame()
+    contours <- attr(obj, "contours")
+    labels_img <- attr(obj, "labels")
+    bg_img <- if (!is.null(attr(obj, "image"))) attr(obj, "image") else obj
+    has_mask <- !is.null(contours) && length(contours) > 0L
+  } else {
+    cli::cli_abort("Unsupported object type in {.fn image_compare_dl}. Expected output from {.fn image_detect_dl} or {.fn image_segment_dl}.")
+  }
+  list(
+    boxes = boxes,
+    contours = contours,
+    labels = labels_img,
+    image = bg_img,
+    has_mask = has_mask
+  )
+}
+
+#' Compare Two Deep-Learning Detection or Segmentation Results
+#'
+#' Compares two outputs from [image_detect_dl()] or [image_segment_dl()] by
+#' matching instances via bounding-box Intersection-over-Union (IoU) and
+#' classifying each detection/segment into `"common"` (intersection: matched in
+#' both `x` and `y`), `"only_x"` (present only in `x`), or `"only_y"` (present
+#' only in `y`).
+#'
+#' @param x,y Objects returned by [image_detect_dl()] or [image_segment_dl()].
+#' @param mode Character string specifying which subset of instances to retain
+#'   and plot:
+#'   * `"all"` or `"union"` (default): all instances (`"common"`, `"only_x"`,
+#'     and `"only_y"`).
+#'   * `"intersection"`: only consensus instances matched in both `x` and `y`
+#'     (`"common"`).
+#'   * `"difference"`: symmetric difference — instances exclusive to either `x`
+#'     or `y` (`"only_x"` and `"only_y"`).
+#'   * `"only_x"`: instances present in `x` but absent in `y` (\eqn{x \setminus y}).
+#'   * `"only_y"`: instances present in `y` but absent in `x` (\eqn{y \setminus x}).
+#' @param iou_threshold Numeric IoU threshold in \eqn{(0, 1]} required to pair
+#'   an instance from `x` with an instance from `y`. Defaults to `0.5`.
+#' @param match_class Logical. If `TRUE` (default), only instances with matching
+#'   class labels can be paired.
+#' @param names Optional character vector of length 2 giving human-readable
+#'   labels for `x` and `y` in summaries, badges, and the plot legend. Defaults
+#'   to the deparsed argument expressions.
+#' @param img Optional `Image` object to use as background when plotting.
+#'   Defaults to the image attached to `x` or `y`.
+#' @param col Named or length-3 character vector of colors for `"common"`,
+#'   `"only_x"`, and `"only_y"`. Defaults to
+#'   `c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF")`.
+#' @param alpha,border,lwd,cex,bbox,mask,badge,badge_pad,show_text,show_conf,show_class,show_id
+#'   Visual overlay parameters forwarded to the plot renderer.
+#' @param show_status Logical. If `TRUE` (default), prefixes the class label of
+#'   exclusive detections with `[-name_x]` or `[+name_y]` in the plotted badge.
+#' @param show_legend Logical. If `TRUE` (default), draws a status legend on the
+#'   plot indicating counts for common and exclusive detections.
+#' @param legend_pos Position of the legend (e.g. `"topright"`, `"topleft"`,
+#'   `"bottomright"`, `"bottomleft"`). Defaults to `"topright"`.
+#' @param plot Logical. If `TRUE` (default), renders the comparison overlay.
+#' @param verbose Logical. If `TRUE` (default), prints a comparison summary to
+#'   the console.
+#' @param ... Additional graphical parameters passed to [graphics::plot()].
+#'
+#' @return Invisibly returns an object of class `c("image_compare_dl", "list")`
+#'   with elements:
+#'   * `results`: `data.frame` of instances matching `mode`, including columns
+#'     `status` (`"common"`, `"only_x"`, `"only_y"`), `source`, `id_x`, `id_y`,
+#'     `score_x`, `score_y`, and `iou`.
+#'   * `all_results`: `data.frame` containing all instances across all three
+#'     statuses regardless of `mode`.
+#'   * `counts`: `data.frame` summarizing instance counts per status.
+#'   * `metrics`: list with `n_x`, `n_y`, `n_common`, `n_only_x`, `n_only_y`,
+#'     `jaccard_instances`, `mean_box_iou`, and (when pixel masks are present)
+#'     `mask_iou` and `mask_dice`.
+#'   * `contours`: list of polygon contours aligned with `results`.
+#'   * `summary`: formatted summary string.
+#' @export
+image_compare_dl <- function(x,
+                             y,
+                             mode = c("all", "intersection", "difference", "union", "only_x", "only_y"),
+                             iou_threshold = 0.5,
+                             match_class = TRUE,
+                             names = NULL,
+                             img = NULL,
+                             col = c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF"),
+                             alpha = 0.45,
+                             border = "black",
+                             lwd = 2,
+                             cex = 0.9,
+                             bbox = NULL,
+                             mask = NULL,
+                             badge = TRUE,
+                             badge_pad = 4,
+                             show_text = TRUE,
+                             show_conf = TRUE,
+                             show_class = TRUE,
+                             show_id = FALSE,
+                             show_status = TRUE,
+                             show_legend = TRUE,
+                             legend_pos = "topright",
+                             plot = TRUE,
+                             verbose = TRUE,
+                             ...) {
+  mode <- match.arg(mode)
+  if (mode == "union") mode <- "all"
+
+  if (is.null(names) || length(names) < 2L) {
+    nm_x <- tryCatch(deparse(substitute(x))[1L], error = function(e) "x")
+    nm_y <- tryCatch(deparse(substitute(y))[1L], error = function(e) "y")
+    names <- c(nm_x, nm_y)
+  } else {
+    names <- as.character(names[1:2])
+  }
+
+  cx_obj <- .extract_dl_components(x)
+  cy_obj <- .extract_dl_components(y)
+
+  bx_x <- cx_obj$boxes
+  bx_y <- cy_obj$boxes
+  cont_x <- cx_obj$contours
+  cont_y <- cy_obj$contours
+
+  req_cols <- c("xmin", "ymin", "xmax", "ymax")
+  n_x <- if (is.data.frame(bx_x) && all(req_cols %in% names(bx_x))) nrow(bx_x) else 0L
+  n_y <- if (is.data.frame(bx_y) && all(req_cols %in% names(bx_y))) nrow(bx_y) else 0L
+
+  if (n_x > 0L && !("id" %in% names(bx_x))) bx_x$id <- seq_len(n_x)
+  if (n_y > 0L && !("id" %in% names(bx_y))) bx_y$id <- seq_len(n_y)
+  if (n_x > 0L && !("label" %in% names(bx_x))) bx_x$label <- "object"
+  if (n_y > 0L && !("label" %in% names(bx_y))) bx_y$label <- "object"
+  if (n_x > 0L && !("score" %in% names(bx_x))) bx_x$score <- NA_real_
+  if (n_y > 0L && !("score" %in% names(bx_y))) bx_y$score <- NA_real_
+
+  # Pairwise IoU matrix (n_x x n_y)
+  iou_mat <- matrix(0, nrow = n_x, ncol = n_y)
+  if (n_x > 0L && n_y > 0L) {
+    for (i in seq_len(n_x)) {
+      xx1 <- pmax(bx_x$xmin[i], bx_y$xmin)
+      yy1 <- pmax(bx_x$ymin[i], bx_y$ymin)
+      xx2 <- pmin(bx_x$xmax[i], bx_y$xmax)
+      yy2 <- pmin(bx_x$ymax[i], bx_y$ymax)
+      inter <- pmax(0, xx2 - xx1) * pmax(0, yy2 - yy1)
+      area_i <- pmax(0, bx_x$xmax[i] - bx_x$xmin[i]) * pmax(0, bx_x$ymax[i] - bx_x$ymin[i])
+      area_y <- pmax(0, bx_y$xmax - bx_y$xmin) * pmax(0, bx_y$ymax - bx_y$ymin)
+      union_a <- area_i + area_y - inter
+      iou_mat[i, ] <- ifelse(union_a > 0, inter / union_a, 0)
+    }
+  }
+
+  # Greedy matching subject to iou_threshold and optional class agreement
+  work_iou <- iou_mat
+  if (isTRUE(match_class) && n_x > 0L && n_y > 0L) {
+    lx <- tolower(trimws(as.character(bx_x$label)))
+    ly <- tolower(trimws(as.character(bx_y$label)))
+    same_cls <- outer(lx, ly, "==")
+    work_iou[!same_cls] <- -1
+  }
+
+  matched_x <- integer(0)
+  matched_y <- integer(0)
+  matched_ious <- numeric(0)
+
+  if (n_x > 0L && n_y > 0L) {
+    while (TRUE) {
+      max_val <- max(work_iou, na.rm = TRUE)
+      if (!is.finite(max_val) || max_val < iou_threshold) break
+      pos <- which(work_iou == max_val, arr.ind = TRUE)[1L, ]
+      i_idx <- pos[1L]
+      j_idx <- pos[2L]
+      matched_x <- c(matched_x, i_idx)
+      matched_y <- c(matched_y, j_idx)
+      matched_ious <- c(matched_ious, max_val)
+      work_iou[i_idx, ] <- -1
+      work_iou[, j_idx] <- -1
+    }
+  }
+
+  unmatched_x <- setdiff(seq_len(n_x), matched_x)
+  unmatched_y <- setdiff(seq_len(n_y), matched_y)
+
+  # Harmonize shared geometry/feature columns
+  base_cols <- c("id", "xmin", "ymin", "xmax", "ymax", "label", "score")
+  if (n_x > 0L) bx_x <- .add_box_geometry(bx_x, update_cx = !("cx" %in% names(bx_x)))
+  if (n_y > 0L) bx_y <- .add_box_geometry(bx_y, update_cx = !("cx" %in% names(bx_y)))
+  geom_cols <- intersect(c("id", "xmin", "ymin", "xmax", "ymax", "label", "score", "cx", "cy", "width", "height", "box_area", "area", "box_fill"),
+                         union(names(bx_x), names(bx_y)))
+
+  take_row <- function(df, r, cols) {
+    out <- data.frame(row.names = 1L)
+    for (cn in cols) {
+      out[[cn]] <- if (cn %in% names(df)) df[[cn]][r] else NA
+    }
+    out
+  }
+
+  rows_list <- list()
+  conts_all <- list()
+  idx_out <- 0L
+
+  # 1. Common (intersection)
+  for (k in seq_along(matched_x)) {
+    i <- matched_x[k]
+    j <- matched_y[k]
+    idx_out <- idx_out + 1L
+    r_df <- take_row(bx_x, i, geom_cols)
+    r_df$id <- idx_out
+    r_df$status <- "common"
+    r_df$source <- paste0(names[1L], " & ", names[2L])
+    r_df$id_x <- bx_x$id[i]
+    r_df$id_y <- bx_y$id[j]
+    r_df$score_x <- bx_x$score[i]
+    r_df$score_y <- bx_y$score[j]
+    r_df$iou <- round(matched_ious[k], 4)
+    rows_list[[idx_out]] <- r_df
+    conts_all[[idx_out]] <- if (!is.null(cont_x) && length(cont_x) >= i) cont_x[[i]] else if (!is.null(cont_y) && length(cont_y) >= j) cont_y[[j]] else NULL
+  }
+
+  # 2. Only in x (x \ y)
+  for (i in unmatched_x) {
+    idx_out <- idx_out + 1L
+    r_df <- take_row(bx_x, i, geom_cols)
+    r_df$id <- idx_out
+    r_df$status <- "only_x"
+    r_df$source <- paste0("only ", names[1L])
+    r_df$id_x <- bx_x$id[i]
+    r_df$id_y <- NA_integer_
+    r_df$score_x <- bx_x$score[i]
+    r_df$score_y <- NA_real_
+    r_df$iou <- if (n_y > 0L) round(max(iou_mat[i, ], na.rm = TRUE), 4) else 0
+    rows_list[[idx_out]] <- r_df
+    conts_all[[idx_out]] <- if (!is.null(cont_x) && length(cont_x) >= i) cont_x[[i]] else NULL
+  }
+
+  # 3. Only in y (y \ x)
+  for (j in unmatched_y) {
+    idx_out <- idx_out + 1L
+    r_df <- take_row(bx_y, j, geom_cols)
+    r_df$id <- idx_out
+    r_df$status <- "only_y"
+    r_df$source <- paste0("only ", names[2L])
+    r_df$id_x <- NA_integer_
+    r_df$id_y <- bx_y$id[j]
+    r_df$score_x <- NA_real_
+    r_df$score_y <- bx_y$score[j]
+    r_df$iou <- if (n_x > 0L) round(max(iou_mat[, j], na.rm = TRUE), 4) else 0
+    rows_list[[idx_out]] <- r_df
+    conts_all[[idx_out]] <- if (!is.null(cont_y) && length(cont_y) >= j) cont_y[[j]] else NULL
+  }
+
+  all_df <- if (length(rows_list) > 0L) {
+    df_tmp <- do.call(rbind, rows_list)
+    rownames(df_tmp) <- NULL
+    df_tmp
+  } else {
+    data.frame(
+      id = integer(0), xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
+      label = character(0), score = numeric(0), status = character(0), source = character(0),
+      id_x = integer(0), id_y = integer(0), score_x = numeric(0), score_y = numeric(0), iou = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  keep_statuses <- switch(
+    mode,
+    all = c("common", "only_x", "only_y"),
+    intersection = "common",
+    difference = c("only_x", "only_y"),
+    only_x = "only_x",
+    only_y = "only_y"
+  )
+
+  keep_idx <- which(all_df$status %in% keep_statuses)
+  res_df <- all_df[keep_idx, , drop = FALSE]
+  if (nrow(res_df) > 0L) {
+    res_df$id <- seq_len(nrow(res_df))
+    rownames(res_df) <- NULL
+  }
+  res_conts <- if (length(conts_all) > 0L && length(keep_idx) > 0L) conts_all[keep_idx] else list()
+
+  # Optional pixel-level mask IoU & Dice when both have labels matrices
+  mask_iou <- NA_real_
+  mask_dice <- NA_real_
+  if (!is.null(cx_obj$labels) && !is.null(cy_obj$labels)) {
+    m1 <- image_data(cx_obj$labels) > 0
+    m2 <- image_data(cy_obj$labels) > 0
+    if (identical(dim(m1), dim(m2))) {
+      inter_px <- sum(m1 & m2, na.rm = TRUE)
+      union_px <- sum(m1 | m2, na.rm = TRUE)
+      sum_px <- sum(m1, na.rm = TRUE) + sum(m2, na.rm = TRUE)
+      mask_iou <- if (union_px > 0) round(inter_px / union_px, 4) else 1
+      mask_dice <- if (sum_px > 0) round(2 * inter_px / sum_px, 4) else 1
+    }
+  }
+
+  n_common <- length(matched_x)
+  n_only_x <- length(unmatched_x)
+  n_only_y <- length(unmatched_y)
+  n_union <- n_common + n_only_x + n_only_y
+  jacc_inst <- if (n_union > 0L) round(n_common / n_union, 4) else 1
+  mean_iou <- if (n_common > 0L) round(mean(matched_ious), 4) else NA_real_
+
+  counts_df <- data.frame(
+    status = c("common", "only_x", "only_y"),
+    source = c(paste0(names[1L], " & ", names[2L]), paste0("only ", names[1L]), paste0("only ", names[2L])),
+    count = c(n_common, n_only_x, n_only_y),
+    stringsAsFactors = FALSE
+  )
+
+  summary_str <- sprintf(
+    "%s (%d) vs %s (%d) [IoU >= %.2f]: %d common, %d only in %s, %d only in %s (Jaccard = %.2f%s)",
+    names[1L], n_x, names[2L], n_y, iou_threshold,
+    n_common, n_only_x, names[1L], n_only_y, names[2L], jacc_inst,
+    if (!is.na(mean_iou)) sprintf(", mean IoU = %.3f", mean_iou) else ""
+  )
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_info("{summary_str}")
+  }
+
+  bg_img <- if (!is.null(img)) img else if (!is.null(cx_obj$image)) cx_obj$image else cy_obj$image
+  has_any_mask <- isTRUE(cx_obj$has_mask) || isTRUE(cy_obj$has_mask)
+  use_mask <- if (!is.null(mask)) isTRUE(mask) else has_any_mask
+  use_bbox <- if (!is.null(bbox)) isTRUE(bbox) else !has_any_mask || isTRUE(mode == "difference")
+
+  out_obj <- list(
+    results = res_df,
+    all_results = all_df,
+    counts = counts_df,
+    metrics = list(
+      n_x = n_x,
+      n_y = n_y,
+      n_common = n_common,
+      n_only_x = n_only_x,
+      n_only_y = n_only_y,
+      jaccard_instances = jacc_inst,
+      mean_box_iou = mean_iou,
+      mask_iou = mask_iou,
+      mask_dice = mask_dice
+    ),
+    contours = res_conts,
+    all_contours = conts_all,
+    names = names,
+    mode = mode,
+    iou_threshold = iou_threshold,
+    summary = summary_str
+  )
+  attr(out_obj, "image") <- bg_img
+  attr(out_obj, "results") <- res_df
+  attr(out_obj, "counts") <- counts_df
+  attr(out_obj, "summary") <- summary_str
+  attr(out_obj, "plot_params") <- list(
+    col = col,
+    alpha = alpha,
+    border = border,
+    lwd = lwd,
+    cex = cex,
+    bbox = use_bbox,
+    mask = use_mask,
+    badge = badge,
+    badge_pad = badge_pad,
+    show_text = show_text,
+    show_conf = show_conf,
+    show_class = show_class,
+    show_id = show_id,
+    show_status = show_status,
+    show_legend = show_legend,
+    legend_pos = legend_pos
+  )
+  class(out_obj) <- c("image_compare_dl", "list")
+
+  if (isTRUE(plot)) {
+    plot.image_compare_dl(out_obj, ...)
+  }
+
+  invisible(out_obj)
+}
+
+#' Plot method for \code{image_compare_dl} objects
+#'
+#' Renders the comparison overlay between two deep-learning detection or
+#' segmentation outputs, color-coding instances by status (`"common"`,
+#' `"only_x"`, `"only_y"`).
+#'
+#' @param x An object of class \code{image_compare_dl} returned by
+#'   [image_compare_dl()].
+#' @param img Optional `Image` object to use as background.
+#' @param mode Optional override for `mode` (`"all"`, `"intersection"`,
+#'   `"difference"`, `"only_x"`, `"only_y"`).
+#' @param col,alpha,border,lwd,cex,bbox,mask,badge,badge_pad,show_text,show_conf,show_class,show_id,show_status,show_legend,legend_pos
+#'   Visual parameters overriding the original [image_compare_dl()] settings.
+#' @param ... Additional graphical arguments passed to [graphics::plot()].
+#'
+#' @return Invisibly returns `x`.
+#' @export
+plot.image_compare_dl <- function(x,
+                                  img = NULL,
+                                  mode = NULL,
+                                  col = NULL,
+                                  alpha = NULL,
+                                  border = NULL,
+                                  lwd = NULL,
+                                  cex = NULL,
+                                  bbox = NULL,
+                                  mask = NULL,
+                                  badge = NULL,
+                                  badge_pad = NULL,
+                                  show_text = NULL,
+                                  show_conf = NULL,
+                                  show_class = NULL,
+                                  show_id = NULL,
+                                  show_status = NULL,
+                                  show_legend = NULL,
+                                  legend_pos = NULL,
+                                  ...) {
+  pp <- attr(x, "plot_params")
+  if (is.null(pp)) pp <- list()
+  pick <- function(val, key, default) {
+    if (!is.null(val)) val else if (!is.null(pp[[key]])) pp[[key]] else default
+  }
+
+  cur_mode <- if (!is.null(mode)) {
+    m <- match.arg(mode, c("all", "intersection", "difference", "union", "only_x", "only_y"))
+    if (m == "union") "all" else m
+  } else if (!is.null(x$mode)) {
+    x$mode
+  } else {
+    "all"
+  }
+
+  all_df <- if (!is.null(x$all_results)) x$all_results else x$results
+  all_conts <- if (!is.null(x$all_contours)) x$all_contours else x$contours
+  keep_statuses <- switch(
+    cur_mode,
+    all = c("common", "only_x", "only_y"),
+    intersection = "common",
+    difference = c("only_x", "only_y"),
+    only_x = "only_x",
+    only_y = "only_y"
+  )
+  keep_idx <- which(all_df$status %in% keep_statuses)
+  boxes <- all_df[keep_idx, , drop = FALSE]
+  conts <- if (!is.null(all_conts) && length(all_conts) > 0L && length(keep_idx) > 0L) all_conts[keep_idx] else list()
+
+  col_vec <- if (!is.null(col)) col else if (!is.null(pp$col)) pp$col else c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF")
+  if (is.null(names(col_vec))) {
+    col_vec <- stats::setNames(rep_len(col_vec, 3L), c("common", "only_x", "only_y"))
+  } else {
+    def_cols <- c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF")
+    for (st in names(def_cols)) {
+      if (is.na(col_vec[st]) || is.null(col_vec[st])) col_vec[st] <- def_cols[st]
+    }
+  }
+
+  nm <- if (!is.null(x$names) && length(x$names) >= 2L) x$names else c("x", "y")
+  use_status_lbl <- pick(show_status, "show_status", TRUE)
+  if (nrow(boxes) > 0L && isTRUE(use_status_lbl)) {
+    prefix <- ifelse(
+      boxes$status == "only_x", paste0("[-", nm[1L], "] "),
+      ifelse(boxes$status == "only_y", paste0("[+", nm[2L], "] "), "")
+    )
+    boxes$label <- paste0(prefix, boxes$label)
+  }
+
+  bg_img <- if (!is.null(img)) img else attr(x, "image")
+  dots <- list(...)
+  if (!is.null(bg_img)) {
+    p_dots <- .filter_plot_dots(dots)
+    do.call(graphics::plot, c(list(as_image(bg_img)), p_dots))
+  } else {
+    xr <- if (nrow(boxes) > 0L) c(0, max(boxes$xmax, na.rm = TRUE) * 1.05) else c(0, 100)
+    yr <- if (nrow(boxes) > 0L) c(max(boxes$ymax, na.rm = TRUE) * 1.05, 0) else c(100, 0)
+    graphics::plot(NA, xlim = xr, ylim = yr, asp = 1, xlab = "", ylab = "", axes = FALSE)
+  }
+
+  num_inst <- nrow(boxes)
+  if (num_inst > 0L) {
+    inst_colors <- unname(col_vec[boxes$status])
+    inst_colors[is.na(inst_colors)] <- "#00CC66"
+
+    use_mask <- pick(mask, "mask", length(conts) > 0L)
+    use_bbox <- pick(bbox, "bbox", TRUE)
+    alpha_val <- pick(alpha, "alpha", 0.45)
+    border_val <- if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else "black"
+    lwd_val <- pick(lwd, "lwd", 2)
+
+    if (isTRUE(use_mask) && length(conts) > 0L) {
+      flat_conts <- list()
+      flat_pal <- character()
+      for (k in seq_len(min(num_inst, length(conts)))) {
+        ck <- conts[[k]]
+        if (is.null(ck) || length(ck) == 0L) next
+        p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+        flat_conts <- c(flat_conts, p_list)
+        flat_pal <- c(flat_pal, rep(inst_colors[k], length(p_list)))
+      }
+      if (length(flat_conts) > 0L) {
+        .plot_highlight_polygons(flat_conts, flat_pal, alpha = alpha_val, border = border_val, lwd = lwd_val, bbox = FALSE)
+      }
+    }
+
+    if (isTRUE(use_bbox) || !isTRUE(use_mask)) {
+      .plot_yolo_bboxes(
+        boxes = boxes,
+        palette_colors = inst_colors,
+        lwd = if (is.null(lwd_val) || is.na(lwd_val) || lwd_val <= 1) 2 else lwd_val,
+        cex = pick(cex, "cex", 0.9),
+        pad = 0,
+        badge_pad = pick(badge_pad, "badge_pad", 4),
+        show_text = pick(show_text, "show_text", TRUE),
+        show_conf = pick(show_conf, "show_conf", TRUE),
+        show_class = pick(show_class, "show_class", TRUE),
+        show_id = pick(show_id, "show_id", FALSE),
+        show_box = TRUE,
+        show_point = FALSE,
+        point_size = 1,
+        point_pch = 16,
+        point_col = NULL,
+        badge = pick(badge, "badge", TRUE)
+      )
+    }
+  }
+
+  if (isTRUE(pick(show_legend, "show_legend", TRUE))) {
+    cnts <- x$counts
+    leg_entries <- c(
+      sprintf("Common (%d)", cnts$count[cnts$status == "common"]),
+      sprintf("Only %s (%d)", nm[1L], cnts$count[cnts$status == "only_x"]),
+      sprintf("Only %s (%d)", nm[2L], cnts$count[cnts$status == "only_y"])
+    )
+    leg_cols <- unname(col_vec[c("common", "only_x", "only_y")])
+    keep_leg <- which(c("common", "only_x", "only_y") %in% keep_statuses)
+    graphics::legend(
+      pick(legend_pos, "legend_pos", "topright"),
+      legend = leg_entries[keep_leg],
+      fill = leg_cols[keep_leg],
+      border = "white",
+      bg = grDevices::rgb(0, 0, 0, 0.65),
+      text.col = "white",
+      cex = 0.85,
+      box.lwd = 0,
+      inset = 0.015
+    )
+  }
+
+  invisible(x)
+}
+
+#' @export
+print.image_compare_dl <- function(x, ...) {
+  cli::cli_h3("Deep-Learning Detection / Segmentation Comparison")
+  if (!is.null(x$summary)) {
+    cli::cli_alert_info("{x$summary}")
+  }
+  if (!is.null(x$counts) && is.data.frame(x$counts)) {
+    print(x$counts, row.names = FALSE)
+  }
+  invisible(x)
 }
 
 #' List Connected Video Cameras

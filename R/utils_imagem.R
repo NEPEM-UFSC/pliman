@@ -20,6 +20,18 @@
 #'   Defaults to `mar = c(0.2, 0.2, 0.2, 0.2)` and `oma = c(0, 0, 0, 0)`. Set
 #'   `mar = 0` or `mar = c(0, 0, 0, 0)` to eliminate margins and maximize the
 #'   plotting area.
+#' @param row_labels,col_labels Optional character vectors of labels to display as
+#'   full-height left strips (`row_labels`, length `nrow`) and full-width top
+#'   strips (`col_labels`, length `ncol`). Useful for publication comparison grids.
+#' @param strip_col,strip_bg Text color and background fill color for `row_labels`
+#'   and `col_labels` strips. When `NULL` (default), `strip_col` inherits `col`
+#'   and `strip_bg` inherits `col_bg`.
+#' @param strip_cex Character expansion factor for strip labels. Defaults to `0.95`.
+#' @param strip_size Relative width/height of the row and column label strips
+#'   compared to an image panel (`1`). Defaults to `NULL`, which automatically
+#'   computes strip dimensions from the current graphics device aspect ratio so
+#'   panels align edge-to-edge without gaps. Can also be set explicitly as a
+#'   scalar or length-2 vector `c(row_width, col_height)`.
 #' @importFrom stats reshape IQR quantile
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
@@ -44,7 +56,13 @@ image_combine <- function(...,
                           font = 2,
                           verbose = TRUE,
                           mar = c(0.2, 0.2, 0.2, 0.2),
-                          oma = c(0, 0, 0, 0)) {
+                          oma = c(0, 0, 0, 0),
+                          row_labels = NULL,
+                          col_labels = NULL,
+                          strip_col = NULL,
+                          strip_bg = NULL,
+                          strip_cex = 0.95,
+                          strip_size = NULL) {
   if (missing(col)) {
     col <- if (isTRUE(badge)) "white" else "black"
   }
@@ -106,14 +124,126 @@ image_combine <- function(...,
     oma <- rep(oma, 4L)
   }
 
-  op <- par(mfrow = c(nrow, ncol), mar = mar, oma = oma)
-  on.exit(par(op), add = TRUE)
+  has_row_lbl <- !is.null(row_labels) && length(row_labels) > 0L
+  has_col_lbl <- !is.null(col_labels) && length(col_labels) > 0L
+
+  if (has_row_lbl || has_col_lbl) {
+    s_col <- if (is.null(strip_col)) if (isTRUE(badge)) col else "white" else strip_col
+    s_bg  <- if (is.null(strip_bg)) col_bg else strip_bg
+
+    n_grid_r <- nrow + if (has_col_lbl) 1L else 0L
+    n_grid_c <- ncol + if (has_row_lbl) 1L else 0L
+    l_mat <- matrix(0L, nrow = n_grid_r, ncol = n_grid_c)
+    next_id <- 1L
+
+    r_off <- if (has_col_lbl) 1L else 0L
+    c_off <- if (has_row_lbl) 1L else 0L
+
+    if (has_col_lbl) {
+      col_labels <- rep_len(as.character(col_labels), ncol)
+      for (cc in seq_len(ncol)) {
+        l_mat[1L, c_off + cc] <- next_id
+        next_id <- next_id + 1L
+      }
+    }
+    if (has_row_lbl) {
+      row_labels <- rep_len(as.character(row_labels), nrow)
+      for (rr in seq_len(nrow)) {
+        l_mat[r_off + rr, 1L] <- next_id
+        next_id <- next_id + 1L
+      }
+    }
+    for (rr in seq_len(nrow)) {
+      for (cc in seq_len(ncol)) {
+        idx_p <- (rr - 1L) * ncol + cc
+        if (idx_p <= num_plots) {
+          l_mat[r_off + rr, c_off + cc] <- next_id
+          next_id <- next_id + 1L
+        }
+      }
+    }
+
+    col_asps <- rep(1, ncol)
+    for (cc in seq_len(ncol)) {
+      col_idx <- ((seq_len(nrow) - 1L) * ncol) + cc
+      col_idx <- col_idx[col_idx <= num_plots]
+      if (length(col_idx) > 0L) {
+        asps <- vapply(col_idx, function(k) {
+          pk <- plots[[k]]
+          d <- if (!is.null(attr(pk, "image"))) dim(attr(pk, "image")) else dim(pk)
+          if (!is.null(d) && length(d) >= 2L && d[2L] > 0) d[1L] / d[2L] else 1
+        }, numeric(1))
+        col_asps[cc] <- max(asps, na.rm = TRUE)
+      }
+    }
+    mean_asp <- mean(col_asps)
+    col_widths <- col_asps / mean_asp
+    row_h_unit <- 1 / mean_asp
+
+    if (is.null(strip_size)) {
+      dev_din <- tryCatch(grDevices::dev.size("in"), error = function(e) c(7, 5))
+      r_dev <- if (length(dev_din) >= 2L && dev_din[2L] > 0) dev_din[1L] / dev_din[2L] else (ncol / nrow)
+      w_imgs <- sum(col_widths)
+      h_imgs <- nrow * row_h_unit
+      s_w <- if (has_row_lbl) 0.14 else 0
+      s_h <- if (has_col_lbl) 0.14 else 0
+
+      if (has_row_lbl && has_col_lbl) {
+        r_nat <- (s_w + w_imgs) / (s_h + h_imgs)
+        if (r_dev >= r_nat) {
+          s_w <- min(0.8, max(0.06, r_dev * (s_h + h_imgs) - w_imgs))
+        } else {
+          s_h <- min(0.8, max(0.06, (s_w + w_imgs) / r_dev - h_imgs))
+        }
+      } else if (has_col_lbl) {
+        s_h <- min(0.8, max(0.06, w_imgs / r_dev - h_imgs))
+      } else if (has_row_lbl) {
+        s_w <- min(0.8, max(0.06, r_dev * h_imgs - w_imgs))
+      }
+    } else {
+      s_w <- if (length(strip_size) >= 1L) strip_size[1L] else 0.14
+      s_h <- if (length(strip_size) >= 2L) strip_size[2L] else s_w
+    }
+
+    w_vec <- if (has_row_lbl) c(s_w, col_widths) else col_widths
+    h_vec <- if (has_col_lbl) c(s_h, rep(row_h_unit, nrow)) else rep(row_h_unit, nrow)
+
+    op <- par(oma = oma)
+    on.exit({
+      try(par(op), silent = TRUE)
+      try(graphics::layout(1), silent = TRUE)
+    }, add = TRUE)
+    graphics::layout(l_mat, widths = w_vec, heights = h_vec)
+
+    draw_strip <- function(txt, s_mar, srt = 0) {
+      par(mar = s_mar)
+      graphics::plot.new()
+      graphics::plot.window(xlim = c(0, 1), ylim = c(0, 1), xaxs = "i", yaxs = "i")
+      graphics::rect(0, 0, 1, 1, col = s_bg, border = border)
+      graphics::text(0.5, 0.5, labels = txt, col = s_col, cex = strip_cex, font = font, srt = srt)
+    }
+
+    if (has_col_lbl) {
+      for (cc in seq_len(ncol)) {
+        draw_strip(col_labels[cc], c(mar[1L], mar[2L], mar[3L], mar[4L]), srt = 0)
+      }
+    }
+    if (has_row_lbl) {
+      for (rr in seq_len(nrow)) {
+        draw_strip(row_labels[rr], c(mar[1L], mar[2L], mar[3L], mar[4L]), srt = 90)
+      }
+    }
+    par(mar = mar)
+  } else {
+    op <- par(mfrow = c(nrow, ncol), mar = mar, oma = oma)
+    on.exit(par(op), add = TRUE)
+  }
 
   idx_names <- if (is.null(names(plots))) as.character(seq_len(num_plots)) else names(plots)
 
   for (i in seq_len(num_plots)) {
     img <- plots[[i]]
-    plot(img)
+    plot(img, mar = mar)
     if (isTRUE(verbose)) {
       lbl <- idx_names[i]
       if (nzchar(lbl)) {
