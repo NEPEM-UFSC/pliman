@@ -57,8 +57,9 @@ jobs:
               sudo apt-get install -y --no-install-recommends pandoc libpng-dev libfftw3-dev
               ;;
             macOS)
-              brew tap r-lib/rig
-              brew install --cask rig
+              # official installer (Homebrew refuses casks from third-party taps)
+              curl -Ls -o /tmp/rig.pkg https://github.com/r-lib/rig/releases/download/latest/rig-latest-universal.pkg
+              sudo installer -pkg /tmp/rig.pkg -target /
               sudo rig add ${{ matrix.config.r }}
               brew install fftw libpng pandoc
               BREW=$(brew --prefix)
