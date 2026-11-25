@@ -30,3 +30,6 @@ vignettes
 ^\.agents$
 ^OPTIMIZATION_PLAN\.md$
 __pycache__
+^src/.*\.o$
+^src/.*\.dll$
+^src/.*\.so$
