@@ -35,19 +35,22 @@ sf_to_polygon <- function(shps) {
   return(shps)
 }
 
-find_aggrfact <- function(mosaic, max_pixels = 1000000){
-  compute_downsample <- function(nr, nc, n) {
-    if (n == 0) {
-      invisible(nr * nc)
-    } else if (n == 1) {
-      invisible(ceiling(nr/2) * ceiling(nc/2))
-    } else if (n > 1) {
-      invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
-    } else {
-      cli::cli_abort("{.arg n} must be a non-negative integer.")
-
-    }
+# Number of pixels kept when a raster of nr x nc pixels is downsampled by a
+# factor n (0 = no downsampling, n >= 1 keeps every (n + 1)-th pixel). Used to
+# choose the downsampling factor that approximates `max_pixels` in the viewers.
+compute_downsample <- function(nr, nc, n) {
+  if (n == 0) {
+    invisible(nr * nc)
+  } else if (n == 1) {
+    invisible(ceiling(nr / 2) * ceiling(nc / 2))
+  } else if (n > 1) {
+    invisible(ceiling(nr / (n + 1)) * ceiling(nc / (n + 1)))
+  } else {
+    cli::cli_abort("{.arg n} must be a non-negative integer.")
   }
+}
+
+find_aggrfact <- function(mosaic, max_pixels = 1000000){
   nr <- nrow(mosaic)
   nc <- ncol(mosaic)
   npixel <- nr * nc
@@ -1874,7 +1877,7 @@ mosaic_view <- function(mosaic,
   vieweropt <- vieweropt[pmatch(viewer[[1]], vieweropt)]
 
   if(inherits(mosaic, "image") || inherits(mosaic, "Image")){
-    mosaic <- terra::rast(image_data(image_transpose(mosaic)))
+    mosaic <- terra::rast(image_data(image_transpose(mosaic), type = "normalized"))
   }
   if(viewopt == "rgb" & vieweropt == "base" & terra::nlyr(mosaic) > 1){
     cli::cli_warn("{.arg viewer = 'base'} can only be used with {.arg show = 'index'}. Defaulting to {.arg viewer = 'mapview'}")

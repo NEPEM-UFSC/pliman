@@ -8,6 +8,10 @@
 * Bundled third-party code is now credited in `inst/COPYRIGHTS` and as copyright holders (`cph`) in `DESCRIPTION`.
 * Removed the unused `BiocManager` suggestion and the empty `biocViews` field.
 
+### Bug fixes
+* `plot_index_shp(viewer = "mapview")` failed with `could not find function "compute_downsample"` when the image had more pixels than `max_pixels` (#7). `compute_downsample()` is now a single internal helper instead of local copies inside other functions.
+* `plot_index_shp(viewer = "mapview")` and `mosaic_view()` with an `image` object failed with `[setValues] values must be numeric...`, because 8-bit images are stored as raw bytes since 4.0.0; they are now converted to the 0-1 scale before building the raster.
+
 ### Deep Learning Architecture & Foundation Models
 * **Segment Anything 2.1 (SAM 2.1)**: Full ONNX Runtime C++ execution for sub-pixel instance segmentation masks, zero-shot polygon extraction, and interactive exemplar prompting.
 * **PerSAM (Personalized Segment Anything)**: One-shot visual exemplar segmentation and high-density counting via multi-prototype max-pooling, dense stride-1 convolutional ZNCC matching, and ViT semantic guidance.
