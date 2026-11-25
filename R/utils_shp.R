@@ -1217,7 +1217,7 @@ plot_index_shp <- function(object,
                          alpha.regions = alpha,
                          layer.name = attribute)
       )
-    rgb <- terra::rast(image_data(image_transpose(object$final_image))[,,1:3])
+    rgb <- terra::rast(image_data(image_transpose(object$final_image), type = "normalized")[,,1:3])
 
 
     dimsto <- dim(rgb)

@@ -55,17 +55,6 @@ image_view <- function(img,
   check_mapview()
   viewopt <- c("rgb", "index")
   viewopt <- viewopt[pmatch(show[[1]], viewopt)]
-  compute_downsample <- function(nr, nc, n) {
-    if (n == 0) {
-      invisible(nr * nc)
-    } else if (n == 1) {
-      invisible(ceiling(nr/2) * ceiling(nc/2))
-    } else if (n > 1) {
-      invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
-    } else {
-      cli::cli_abort("Invalid downsampling factor. n must be a non-negative integer.")
-    }
-  }
 
   arr <- if (inherits(img, "image")) {
     image_data(img, type = "numeric")
@@ -304,17 +293,6 @@ plot_index <- function(img = NULL,
                        nrow = NULL,
                        aspect_ratio = NA){
   check_mapview()
-  compute_downsample <- function(nr, nc, n) {
-    if (n == 0) {
-      invisible(nr * nc)
-    } else if (n == 1) {
-      invisible(ceiling(nr/2) * ceiling(nc/2))
-    } else if (n > 1) {
-      invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
-    } else {
-      cli::cli_abort("Invalid downsampling factor. n must be a non-negative integer.")
-    }
-  }
   vieweropt <- c("base", "mapview")
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
 
