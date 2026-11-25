@@ -10,16 +10,21 @@ gs_filter_outliers(
   std_ratio = 1,
   radius = 0,
   min_neighbors = 0,
-  verbose = TRUE
+  verbose = TRUE,
+  method = c("density", "sor", "both"),
+  density = "medium",
+  cell_size = NULL
 )
 }
 \arguments{
 \item{splat}{A \code{gaussian_splat}, \code{colmap_sfm}, or numeric matrix of 3D coordinates.}
 
-\item{k}{Integer. Number of nearest neighbors to evaluate (e.g. 16 to 30). Defaults to \code{20}.}
+\item{k}{Integer. Number of nearest neighbors to evaluate (e.g. 16 to 30). Defaults to \code{20}.
+Used by \code{method = "sor"} / \code{"both"}.}
 
 \item{std_ratio}{Numeric. Standard deviation multiplier threshold. Smaller values (e.g. 0.8 to 1.2)
-filter more aggressively, removing scattered floating points around the subject. Defaults to \code{1.0}.}
+filter more aggressively, removing scattered floating points around the subject. Defaults to \code{1.0}.
+Used by \code{method = "sor"} / \code{"both"}.}
 
 \item{radius}{Numeric. Optional sphere radius for density filtering. If > 0, points with fewer than
 \code{min_neighbors} within \code{radius} are additionally filtered out. Defaults to \code{0.0} (disabled).}
@@ -27,21 +32,56 @@ filter more aggressively, removing scattered floating points around the subject.
 \item{min_neighbors}{Integer. Minimum neighbors required within \code{radius}. Defaults to \code{0} (disabled).}
 
 \item{verbose}{Logical. Show progress and statistics. Defaults to \code{TRUE}.}
+
+\item{method}{Character. \code{"density"} (default, same filter as \code{\link[=gs_viewer]{gs_viewer()}}),
+\code{"sor"} or \code{"both"}. See Description.}
+
+\item{density}{Filter strength for \code{method = "density"}: a percentile between
+0 and 100 (points below it are removed) or one of the viewer presets
+\code{"light"} (15), \code{"medium"} (35, default) or \code{"strong"} (65).}
+
+\item{cell_size}{Numeric. Voxel edge length (scene units) for
+\code{method = "density"}. \code{NULL} (default) uses the same automatic rule as
+\code{\link[=gs_viewer]{gs_viewer()}}.}
 }
 \value{
 An updated and cleaned \code{gaussian_splat}, \code{colmap_sfm}, or point matrix.
+The attribute \code{"densities"} holds the voxel density of the kept points
+(density filter) and \code{"density_dists"} the mean k-NN distance (SOR filter).
 }
 \description{
 Filters out noisy, floating tie-points and airborne outliers from point clouds
 or Gaussian Splats based on local neighborhood density using a high-performance native
 C++ 3D Kd-Tree (OpenMP accelerated, zero external package dependencies).
+
+Two filters are available (\code{method}):
+\itemize{
+\item \code{"density"} (default): the same voxel-grid density filter used by the
+\emph{Online Noise Filter} panel of \code{\link[=gs_viewer]{gs_viewer()}}. Space is divided into cubic
+voxels (\code{cell_size}, by default 1.2\% of the robust subject size, clamped to
+0.008-0.035 scene units), the density of each point is the number of points
+in the 3 x 3 x 3 voxel block around it, and the points whose density falls
+below the \code{density} percentile are removed. Because the cut-off is a
+percentile, it is not affected by a few extremely distant points, which is
+what makes the classical SOR filter too permissive on SfM clouds. The
+presets \code{"light"}, \code{"medium"} and \code{"strong"} correspond to the viewer
+buttons (15, 35 and 65\%).
+\item \code{"sor"}: Statistical Outlier Removal (mean distance to the \code{k} nearest
+neighbours, cut-off \code{mean + std_ratio * sd}), optionally combined with the
+radius filter (\code{radius}, \code{min_neighbors}).
+\item \code{"both"}: a point must pass both filters.
+}
 }
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
-# Clean floating noise from a COLMAP reconstruction
-sfm_clean <- gs_filter_outliers(sfm_completo, k = 20, std_ratio = 1.0)
+# Clean floating noise from a COLMAP reconstruction (same as the viewer's
+# "Medium" noise filter)
+sfm_clean <- gs_filter_outliers(sfm_completo, density = "medium")
+
+# Classical statistical outlier removal
+sfm_sor <- gs_filter_outliers(sfm_completo, k = 20, std_ratio = 1.0, method = "sor")
 plot(sfm_clean)
 \dontshow{\}) # examplesIf}
 }

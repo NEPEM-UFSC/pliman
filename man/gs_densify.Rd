@@ -11,7 +11,8 @@ gs_densify(
   scale_threshold = 0.01,
   min_opacity = 0.05,
   max_scale = 0.5,
-  max_gaussians = 2e+05
+  max_gaussians = 2e+05,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -29,6 +30,8 @@ If \code{NULL}, defaults to uniform values below the threshold.}
 \item{max_scale}{Double. Maximum world scale above which splats are pruned. Defaults to \code{0.5}.}
 
 \item{max_gaussians}{Integer. Maximum allowable 3D Gaussians to prevent unbounded memory growth. Defaults to \code{200000}.}
+
+\item{verbose}{Logical. If \code{TRUE} (default), reports the change in the number of Gaussians.}
 }
 \value{
 An updated \code{gaussian_splat} object with densified and pruned points.

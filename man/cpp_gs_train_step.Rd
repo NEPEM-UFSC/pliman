@@ -14,7 +14,11 @@ cpp_gs_train_step(
   lr_pos = 0.00016,
   lr_scale = 0.005,
   lr_opac = 0.05,
-  lr_sh = 0.0025
+  lr_sh = 0.0025,
+  lr_rot = 0.001,
+  bg_r = 0,
+  bg_g = 0,
+  bg_b = 0
 )
 }
 \arguments{
@@ -22,11 +26,11 @@ cpp_gs_train_step(
 
 \item{gaussians}{List of current 3D Gaussian parameters.}
 
-\item{target_img}{NumericVector representing the W x H x 3 target image.}
+\item{target_img}{NumericVector representing the W x H x 3 target image (x fastest).}
 
-\item{adam_m}{List of first Adam momentum moments (pos, scale, opac, sh).}
+\item{adam_m}{List of first Adam moments (pos, scale, opac, sh and optionally rot).}
 
-\item{adam_v}{List of second Adam momentum moments (pos, scale, opac, sh).}
+\item{adam_v}{List of second Adam moments (pos, scale, opac, sh and optionally rot).}
 
 \item{iter}{Integer. Current iteration number.}
 
@@ -37,11 +41,19 @@ cpp_gs_train_step(
 \item{lr_opac}{Double. Learning rate for opacity logit. Defaults to 0.05.}
 
 \item{lr_sh}{Double. Learning rate for colors / spherical harmonics. Defaults to 0.0025.}
+
+\item{lr_rot}{Double. Learning rate for rotation quaternions. Defaults to 0.001.}
+
+\item{bg_r, bg_g, bg_b}{Background color used for compositing. Defaults to black.}
 }
 \value{
-A List with updated gaussians, adam_m, adam_v, loss, and grad_2d_norm.
+A List with updated gaussians, adam_m, adam_v, loss, grad_2d_norm
+(screen-space NDC gradient norm per Gaussian) and visible (logical).
 }
 \description{
-Executes forward rasterization, photometric loss calculation (L1),
-analytical gradient backpropagation, and Adam parameter updates.
+Executes forward tile rasterization, photometric L1 loss, the exact analytical
+backward pass of Kerbl et al. (2023) (alpha compositing -> 2D conic/mean ->
+EWA projection -> 3D covariance -> scales and rotation quaternions) and Adam
+parameter updates for positions, log-scales, quaternions, opacity logits and
+base colors (SH band 0).
 }

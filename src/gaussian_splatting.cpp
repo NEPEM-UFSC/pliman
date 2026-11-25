@@ -96,7 +96,7 @@ List cpp_gs_render(List camera,
     arma::vec3 p_cam = cam.R * p_world + cam.t;
 
     double tz = p_cam(2);
-    if (tz <= 0.1) continue; // Near plane culling
+    if (tz <= 0.01) continue; // Near plane culling
 
     double tx = p_cam(0);
     double ty = p_cam(1);
@@ -105,16 +105,22 @@ List cpp_gs_render(List camera,
     double u = cam.fx * (tx / tz) + cam.cx;
     double v = cam.fy * (ty / tz) + cam.cy;
 
-    // Jacobian of perspective projection J
+    // Jacobian of perspective projection J, evaluated at a point clamped to an
+    // enlarged frustum (1.3x the field of view) to avoid exploding covariances
+    // for Gaussians close to the image plane but far off-axis (as in 3DGS).
     double tz2 = tz * tz;
+    double lim_x = 1.3 * (0.5 * cam.width / cam.fx);
+    double lim_y = 1.3 * (0.5 * cam.height / cam.fy);
+    double txc = std::max(-lim_x, std::min(lim_x, tx / tz)) * tz;
+    double tyc = std::max(-lim_y, std::min(lim_y, ty / tz)) * tz;
     arma::mat J(2, 3, arma::fill::zeros);
     J(0, 0) = cam.fx / tz;
     J(0, 1) = 0.0;
-    J(0, 2) = -(cam.fx * tx) / tz2;
+    J(0, 2) = -(cam.fx * txc) / tz2;
 
     J(1, 0) = 0.0;
     J(1, 1) = cam.fy / tz;
-    J(1, 2) = -(cam.fy * ty) / tz2;
+    J(1, 2) = -(cam.fy * tyc) / tz2;
 
     // 3D Covariance in world coordinates
     double sx = std::exp(scale_log(i, 0));
@@ -144,8 +150,7 @@ List cpp_gs_render(List camera,
 
     // 3-sigma bounding radius in pixels
     double mid = 0.5 * (cov2d(0, 0) + cov2d(1, 1));
-    double term = 0.25 * (cov2d(0, 0) - cov2d(1, 1)) * (cov2d(0, 0) - cov2d(1, 1)) + cov2d(0, 1) * cov2d(0, 1);
-    double lambda_max = mid + std::sqrt(std::max(0.01, term));
+    double lambda_max = mid + std::sqrt(std::max(0.1, mid * mid - det));
     int radius = std::max(1, (int)std::ceil(3.0 * std::sqrt(lambda_max)));
 
     // Frustum culling in 2D viewport
@@ -262,8 +267,9 @@ List cpp_gs_render(List camera,
           int s_idx = sort_items[k].splat_idx;
           const Splat2D& splat = visible_splats[s_idx];
 
-          double dx = (double)px - splat.u;
-          double dy = (double)py - splat.v;
+          // Pixel centres at (px + 0.5, py + 0.5), the COLMAP / OpenCV convention
+          double dx = (double)px + 0.5 - splat.u;
+          double dy = (double)py + 0.5 - splat.v;
 
           double power = -0.5 * (dx * dx * splat.inv_cov_xx +
                                  2.0 * dx * dy * splat.inv_cov_xy +
@@ -274,6 +280,9 @@ List cpp_gs_render(List camera,
           double alpha = std::min(0.99, splat.opacity * std::exp(power));
           if (alpha < 1.0 / 255.0) continue;
 
+          double test_T = T * (1.0 - alpha);
+          if (test_T < 0.0001) break; // Early ray termination
+
           double weight = alpha * T;
           acc_r += splat.r * weight;
           acc_g += splat.g * weight;
@@ -282,8 +291,7 @@ List cpp_gs_render(List camera,
 
           if (first_depth == 0.0) first_depth = splat.depth;
 
-          T *= (1.0 - alpha);
-          if (T < 0.0001) break; // Early ray termination
+          T = test_T;
         }
 
         int pix_idx = px + py * w;
@@ -388,14 +396,13 @@ List cpp_gs_segment_sam(List camera,
     double u = cam.fx * (p_cam(0) / tz) + cam.cx;
     double v = cam.fy * (p_cam(1) / tz) + cam.cy;
 
-    int iu = (int)std::round(u);
-    int iv = (int)std::round(v);
+    // Pixel (i, j) covers [i, i + 1) x [j, j + 1) (pixel centres at +0.5)
+    int iu = (int)std::floor(u);
+    int iv = (int)std::floor(v);
 
     bool inside = false;
     if (iu >= 0 && iu < mask_w && iv >= 0 && iv < mask_h) {
       inside = (mask(iu, iv) > 0);
-    } else if (iv >= 0 && iv < mask_w && iu >= 0 && iu < mask_h) {
-      inside = (mask(iv, iu) > 0);
     }
 
     if (inside) {
@@ -469,15 +476,20 @@ List cpp_gs_measure(NumericMatrix positions,
     min_y = std::min(min_y, y); max_y = std::max(max_y, y);
     min_z = std::min(min_z, z); max_z = std::max(max_z, z);
 
-    double sx = std::exp(scales_log(i, 0));
-    double sy = std::exp(scales_log(i, 1));
+    double sc[3] = {std::exp(scales_log(i, 0)), std::exp(scales_log(i, 1)), std::exp(scales_log(i, 2))};
 
-    // Splat cross-sectional ellipse area = pi * sx * sy
-    total_area += M_PI * sx * sy;
+    // Optimized splats flatten into surfels along an arbitrary local axis: the
+    // surface normal is the axis with the smallest scale and the 1-sigma
+    // cross-sectional ellipse is spanned by the two largest ones.
+    int k_min = 2;                      // ties (isotropic splats) keep the local z axis
+    if (sc[0] < sc[k_min]) k_min = 0;
+    if (sc[1] < sc[k_min]) k_min = 1;
+    double s_a = sc[(k_min + 1) % 3];
+    double s_b = sc[(k_min + 2) % 3];
+    total_area += M_PI * s_a * s_b;
 
-    // Normal vector from quaternion (z-axis of rotated ellipsoid)
     arma::mat33 R = quat_to_rot(quaternions(i, 0), quaternions(i, 1), quaternions(i, 2), quaternions(i, 3));
-    arma::vec3 normal = R.col(2); // Local z-axis
+    arma::vec3 normal = R.col(k_min);
 
     // Angle relative to vertical (upward z: [0, 0, 1]) in degrees
     double dot_up = std::abs(normal(2));
@@ -568,14 +580,17 @@ List cpp_gs_densify(List gaussians,
         double new_sy = std::log(sy / 1.6);
         double new_sz = std::log(sz / 1.6);
 
-        // Perturb position along major axis
-        arma::mat33 R = quat_to_rot(quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3));
-        arma::vec3 offset = R.col(0) * (sx * 0.3);
+        // New centres sampled from the parent Gaussian N(mu, Sigma) (Kerbl et al., 2023)
+        arma::mat33 Rg = quat_to_rot(quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3));
+        arma::vec3 z1 = {::R::norm_rand() * sx, ::R::norm_rand() * sy, ::R::norm_rand() * sz};
+        arma::vec3 z2 = {::R::norm_rand() * sx, ::R::norm_rand() * sy, ::R::norm_rand() * sz};
+        arma::vec3 o1 = Rg * z1;
+        arma::vec3 o2 = Rg * z2;
 
-        Gaussian g1 = {pos(i, 0) + offset(0), pos(i, 1) + offset(1), pos(i, 2) + offset(2),
+        Gaussian g1 = {pos(i, 0) + o1(0), pos(i, 1) + o1(1), pos(i, 2) + o1(2),
                        new_sx, new_sy, new_sz, quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3),
                        opac_logit[i], sh_vec, s_id, s_score};
-        Gaussian g2 = {pos(i, 0) - offset(0), pos(i, 1) - offset(1), pos(i, 2) - offset(2),
+        Gaussian g2 = {pos(i, 0) + o2(0), pos(i, 1) + o2(1), pos(i, 2) + o2(2),
                        new_sx, new_sy, new_sz, quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3),
                        opac_logit[i], sh_vec, s_id, s_score};
         kept_gaussians.push_back(g1);
@@ -586,7 +601,7 @@ List cpp_gs_densify(List gaussians,
                          scale_log(i, 0), scale_log(i, 1), scale_log(i, 2),
                          quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3),
                          opac_logit[i], sh_vec, s_id, s_score};
-        Gaussian clone_g = {pos(i, 0) + 0.001 * (sx), pos(i, 1) + 0.001 * (sy), pos(i, 2) + 0.001 * (sz),
+        Gaussian clone_g = {pos(i, 0), pos(i, 1), pos(i, 2),
                             scale_log(i, 0), scale_log(i, 1), scale_log(i, 2),
                             quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3),
                             opac_logit[i], sh_vec, s_id, s_score};
@@ -913,19 +928,25 @@ List cpp_gs_read_ply(std::string file_path) {
 //' @title Differentiable 3D Gaussian Splatting Training Step
 //' @name cpp_gs_train_step
 //' @description
-//' Executes forward rasterization, photometric loss calculation (L1),
-//' analytical gradient backpropagation, and Adam parameter updates.
+//' Executes forward tile rasterization, photometric L1 loss, the exact analytical
+//' backward pass of Kerbl et al. (2023) (alpha compositing -> 2D conic/mean ->
+//' EWA projection -> 3D covariance -> scales and rotation quaternions) and Adam
+//' parameter updates for positions, log-scales, quaternions, opacity logits and
+//' base colors (SH band 0).
 //' @param camera List of camera parameters.
 //' @param gaussians List of current 3D Gaussian parameters.
-//' @param target_img NumericVector representing the W x H x 3 target image.
-//' @param adam_m List of first Adam momentum moments (pos, scale, opac, sh).
-//' @param adam_v List of second Adam momentum moments (pos, scale, opac, sh).
+//' @param target_img NumericVector representing the W x H x 3 target image (x fastest).
+//' @param adam_m List of first Adam moments (pos, scale, opac, sh and optionally rot).
+//' @param adam_v List of second Adam moments (pos, scale, opac, sh and optionally rot).
 //' @param iter Integer. Current iteration number.
 //' @param lr_pos Double. Learning rate for 3D positions. Defaults to 0.00016.
 //' @param lr_scale Double. Learning rate for log-scales. Defaults to 0.005.
 //' @param lr_opac Double. Learning rate for opacity logit. Defaults to 0.05.
 //' @param lr_sh Double. Learning rate for colors / spherical harmonics. Defaults to 0.0025.
-//' @return A List with updated gaussians, adam_m, adam_v, loss, and grad_2d_norm.
+//' @param lr_rot Double. Learning rate for rotation quaternions. Defaults to 0.001.
+//' @param bg_r,bg_g,bg_b Background color used for compositing. Defaults to black.
+//' @return A List with updated gaussians, adam_m, adam_v, loss, grad_2d_norm
+//'   (screen-space NDC gradient norm per Gaussian) and visible (logical).
 //' @export
 // [[Rcpp::export]]
 List cpp_gs_train_step(List camera,
@@ -937,7 +958,11 @@ List cpp_gs_train_step(List camera,
                        double lr_pos = 0.00016,
                        double lr_scale = 0.005,
                        double lr_opac = 0.05,
-                       double lr_sh = 0.0025) {
+                       double lr_sh = 0.0025,
+                       double lr_rot = 0.001,
+                       double bg_r = 0.0,
+                       double bg_g = 0.0,
+                       double bg_b = 0.0) {
   Camera cam = unpack_camera(camera);
 
   NumericMatrix pos = clone(as<NumericMatrix>(gaussians["positions"]));
@@ -946,409 +971,416 @@ List cpp_gs_train_step(List camera,
   NumericVector opac_logit = clone(as<NumericVector>(gaussians["opacities_logit"]));
   NumericMatrix sh_mat = clone(as<NumericMatrix>(gaussians["sh_coeffs"]));
 
-  NumericMatrix m_pos = as<NumericMatrix>(adam_m["pos"]);
-  NumericMatrix v_pos = as<NumericMatrix>(adam_v["pos"]);
-  NumericMatrix m_scale = as<NumericMatrix>(adam_m["scale"]);
-  NumericMatrix v_scale = as<NumericMatrix>(adam_v["scale"]);
-  NumericVector m_opac = as<NumericVector>(adam_m["opac"]);
-  NumericVector v_opac = as<NumericVector>(adam_v["opac"]);
-  NumericMatrix m_sh = as<NumericMatrix>(adam_m["sh"]);
-  NumericMatrix v_sh = as<NumericMatrix>(adam_v["sh"]);
+  NumericMatrix m_pos = clone(as<NumericMatrix>(adam_m["pos"]));
+  NumericMatrix v_pos = clone(as<NumericMatrix>(adam_v["pos"]));
+  NumericMatrix m_scale = clone(as<NumericMatrix>(adam_m["scale"]));
+  NumericMatrix v_scale = clone(as<NumericMatrix>(adam_v["scale"]));
+  NumericVector m_opac = clone(as<NumericVector>(adam_m["opac"]));
+  NumericVector v_opac = clone(as<NumericVector>(adam_v["opac"]));
+  NumericMatrix m_sh = clone(as<NumericMatrix>(adam_m["sh"]));
+  NumericMatrix v_sh = clone(as<NumericMatrix>(adam_v["sh"]));
 
   int num_gauss = pos.nrow();
-  int w = cam.width;
-  int h = cam.height;
+  NumericMatrix m_rot = adam_m.containsElementNamed("rot") ? clone(as<NumericMatrix>(adam_m["rot"])) : NumericMatrix(num_gauss, 4);
+  NumericMatrix v_rot = adam_v.containsElementNamed("rot") ? clone(as<NumericMatrix>(adam_v["rot"])) : NumericMatrix(num_gauss, 4);
 
-  // 1. EWA Projection
+  const int w = cam.width;
+  const int h = cam.height;
+  const double bg[3] = {bg_r, bg_g, bg_b};
+
+  // ---------------------------------------------------------------------------
+  // 1. EWA projection (store intermediates for the backward pass)
+  // ---------------------------------------------------------------------------
+  struct ProjCache {
+    int g;
+    arma::vec3 p_cam;
+    arma::mat33 Rq;
+    arma::vec3 s;
+    arma::mat33 cov3d;
+    arma::mat T;        // 2 x 3 = J * W
+    arma::mat J;        // 2 x 3
+    double a, b, c;     // cov2d (with low-pass filter)
+    double txz, tyz;    // clamped Jacobian evaluation point (x, y)
+    bool clamp_x, clamp_y;
+  };
+
   std::vector<Splat2D> visible_splats;
-  std::vector<arma::vec3> p_cams;
-  visible_splats.reserve(num_gauss / 2);
-  p_cams.reserve(num_gauss / 2);
+  std::vector<ProjCache> caches;
+  visible_splats.reserve(num_gauss);
+  caches.reserve(num_gauss);
+
+  const double lim_x = 1.3 * (0.5 * w / cam.fx);
+  const double lim_y = 1.3 * (0.5 * h / cam.fy);
 
   for (int i = 0; i < num_gauss; ++i) {
     arma::vec3 p_world = {pos(i, 0), pos(i, 1), pos(i, 2)};
     arma::vec3 p_cam = cam.R * p_world + cam.t;
     double tz = p_cam(2);
-    if (tz <= 0.1) continue;
+    if (tz <= 0.01) continue;
+    double tx = p_cam(0), ty = p_cam(1);
 
-    double tx = p_cam(0);
-    double ty = p_cam(1);
+    double rx = tx / tz, ry = ty / tz;
+    bool cx_ = false, cy_ = false;
+    if (rx < -lim_x) { rx = -lim_x; cx_ = true; } else if (rx > lim_x) { rx = lim_x; cx_ = true; }
+    if (ry < -lim_y) { ry = -lim_y; cy_ = true; } else if (ry > lim_y) { ry = lim_y; cy_ = true; }
+    double txz = rx * tz, tyz = ry * tz;
 
-    double u = cam.fx * (tx / tz) + cam.cx;
-    double v = cam.fy * (ty / tz) + cam.cy;
-
-    double tz2 = tz * tz;
     arma::mat J(2, 3, arma::fill::zeros);
     J(0, 0) = cam.fx / tz;
-    J(0, 2) = -(cam.fx * tx) / tz2;
+    J(0, 2) = -cam.fx * txz / (tz * tz);
     J(1, 1) = cam.fy / tz;
-    J(1, 2) = -(cam.fy * ty) / tz2;
+    J(1, 2) = -cam.fy * tyz / (tz * tz);
 
-    double sx = std::exp(scale_log(i, 0));
-    double sy = std::exp(scale_log(i, 1));
-    double sz = std::exp(scale_log(i, 2));
+    arma::vec3 s = {std::exp(scale_log(i, 0)), std::exp(scale_log(i, 1)), std::exp(scale_log(i, 2))};
+    arma::mat33 Rq = quat_to_rot(quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3));
+    arma::mat33 cov3d = compute_cov3d(s(0), s(1), s(2), Rq);
+    arma::mat T = J * cam.R;
+    arma::mat cov2d = T * cov3d * T.t();
+    double a = cov2d(0, 0) + 0.3;
+    double b = cov2d(0, 1);
+    double c = cov2d(1, 1) + 0.3;
+    double det = a * c - b * b;
+    if (det <= 1e-12) continue;
 
-    arma::mat33 R_q = quat_to_rot(quat(i, 0), quat(i, 1), quat(i, 2), quat(i, 3));
-    arma::mat33 cov3d_world = compute_cov3d(sx, sy, sz, R_q);
-    arma::mat33 cov3d_cam = cam.R * cov3d_world * cam.R.t();
-    arma::mat cov2d = J * cov3d_cam * J.t();
+    double u = cam.fx * tx / tz + cam.cx;
+    double v = cam.fy * ty / tz + cam.cy;
 
-    cov2d(0, 0) += 0.3;
-    cov2d(1, 1) += 0.3;
-
-    double det = cov2d(0, 0) * cov2d(1, 1) - cov2d(0, 1) * cov2d(1, 0);
-    if (det < 1e-7) continue;
-
-    double inv_det = 1.0 / det;
-    double inv_cov_xx = cov2d(1, 1) * inv_det;
-    double inv_cov_xy = -cov2d(0, 1) * inv_det;
-    double inv_cov_yy = cov2d(0, 0) * inv_det;
-
-    double mid = 0.5 * (cov2d(0, 0) + cov2d(1, 1));
-    double term = 0.25 * (cov2d(0, 0) - cov2d(1, 1)) * (cov2d(0, 0) - cov2d(1, 1)) + cov2d(0, 1) * cov2d(0, 1);
-    double lambda_max = mid + std::sqrt(std::max(0.01, term));
-    int radius = std::max(1, (int)std::ceil(3.0 * std::sqrt(lambda_max)));
-
+    double mid = 0.5 * (a + c);
+    double lambda_max = mid + std::sqrt(std::max(0.1, mid * mid - det));
+    int radius = (int)std::ceil(3.0 * std::sqrt(lambda_max));
     if (u + radius < 0 || u - radius >= w || v + radius < 0 || v - radius >= h) continue;
 
     double opac = sigmoid(opac_logit[i]);
-    if (opac < 0.005) continue;
 
-    double cr = 0.5 + SH_C0 * sh_mat(i, 0);
-    double cg = 0.5 + SH_C0 * sh_mat(i, 1);
-    double cb = 0.5 + SH_C0 * sh_mat(i, 2);
+    Splat2D sp;
+    sp.gaussian_idx = i;
+    sp.u = u; sp.v = v;
+    sp.depth = tz;
+    sp.inv_cov_xx = c / det;
+    sp.inv_cov_xy = -b / det;
+    sp.inv_cov_yy = a / det;
+    sp.radius = radius;
+    sp.opacity = opac;
+    sp.r = std::max(0.0, 0.5 + SH_C0 * sh_mat(i, 0));
+    sp.g = std::max(0.0, 0.5 + SH_C0 * sh_mat(i, 1));
+    sp.b = std::max(0.0, 0.5 + SH_C0 * sh_mat(i, 2));
+    sp.semantic_id = 0;
+    sp.semantic_score = 0.0;
+    visible_splats.push_back(sp);
 
-    Splat2D splat;
-    splat.gaussian_idx = i;
-    splat.u = u; splat.v = v;
-    splat.depth = tz;
-    splat.inv_cov_xx = inv_cov_xx;
-    splat.inv_cov_xy = inv_cov_xy;
-    splat.inv_cov_yy = inv_cov_yy;
-    splat.radius = radius;
-    splat.opacity = opac;
-    splat.r = clamp(cr, 0.0, 1.0);
-    splat.g = clamp(cg, 0.0, 1.0);
-    splat.b = clamp(cb, 0.0, 1.0);
-
-    visible_splats.push_back(splat);
-    p_cams.push_back(p_cam);
+    ProjCache pc;
+    pc.g = i; pc.p_cam = p_cam; pc.Rq = Rq; pc.s = s; pc.cov3d = cov3d;
+    pc.T = T; pc.J = J; pc.a = a; pc.b = b; pc.c = c;
+    pc.txz = txz; pc.tyz = tyz; pc.clamp_x = cx_; pc.clamp_y = cy_;
+    caches.push_back(pc);
   }
 
   int num_vis = (int)visible_splats.size();
+  LogicalVector visible(num_gauss, false);
+  NumericVector grad_2d_norm(num_gauss, 0.0);
+
   if (num_vis == 0) {
     return List::create(
       Named("gaussians") = gaussians,
       Named("adam_m") = adam_m,
       Named("adam_v") = adam_v,
       Named("loss") = 0.0,
-      Named("grad_2d_norm") = NumericVector(num_gauss, 0.0)
+      Named("grad_2d_norm") = grad_2d_norm,
+      Named("visible") = visible
     );
   }
 
-  // 2. Tile binning & sorting
+  // ---------------------------------------------------------------------------
+  // 2. Tile binning & depth sorting
+  // ---------------------------------------------------------------------------
   const int TILE_SIZE = 16;
   int tiles_x = (w + TILE_SIZE - 1) / TILE_SIZE;
   int tiles_y = (h + TILE_SIZE - 1) / TILE_SIZE;
   int total_tiles = tiles_x * tiles_y;
 
   std::vector<SortItem> sort_items;
-  sort_items.reserve(num_vis * 4);
-
+  sort_items.reserve((size_t)num_vis * 4);
   for (int s_idx = 0; s_idx < num_vis; ++s_idx) {
     const Splat2D& s = visible_splats[s_idx];
     int min_tx = std::max(0, (int)std::floor((s.u - s.radius) / TILE_SIZE));
     int max_tx = std::min(tiles_x - 1, (int)std::floor((s.u + s.radius) / TILE_SIZE));
     int min_ty = std::max(0, (int)std::floor((s.v - s.radius) / TILE_SIZE));
     int max_ty = std::min(tiles_y - 1, (int)std::floor((s.v + s.radius) / TILE_SIZE));
-
-    for (int ty = min_ty; ty <= max_ty; ++ty) {
-      for (int tx = min_tx; tx <= max_tx; ++tx) {
-        uint32_t t_id = (uint32_t)(ty * tiles_x + tx);
-        sort_items.push_back({t_id, (float)s.depth, s_idx});
-      }
-    }
+    for (int ty = min_ty; ty <= max_ty; ++ty)
+      for (int tx = min_tx; tx <= max_tx; ++tx)
+        sort_items.push_back({(uint32_t)(ty * tiles_x + tx), (float)s.depth, s_idx});
   }
-
   std::sort(sort_items.begin(), sort_items.end());
 
-  std::vector<int> tile_ranges(total_tiles + 1, (int)sort_items.size());
-  uint32_t curr_tile = 0;
-  tile_ranges[0] = 0;
+  std::vector<int> tile_start(total_tiles, 0), tile_end(total_tiles, 0);
   for (size_t k = 0; k < sort_items.size(); ++k) {
     uint32_t t_id = sort_items[k].tile_id;
-    while (curr_tile < t_id) {
-      curr_tile++;
-      tile_ranges[curr_tile] = (int)k;
-    }
+    if (k == 0 || sort_items[k - 1].tile_id != t_id) tile_start[t_id] = (int)k;
+    tile_end[t_id] = (int)k + 1;
   }
 
-  // Gradient accumulators
-  std::vector<double> grad_pos_x(num_gauss, 0.0);
-  std::vector<double> grad_pos_y(num_gauss, 0.0);
-  std::vector<double> grad_pos_z(num_gauss, 0.0);
-  std::vector<double> grad_scale_x(num_gauss, 0.0);
-  std::vector<double> grad_scale_y(num_gauss, 0.0);
-  std::vector<double> grad_scale_z(num_gauss, 0.0);
-  std::vector<double> grad_opac(num_gauss, 0.0);
-  std::vector<double> grad_sh0(num_gauss, 0.0);
-  std::vector<double> grad_sh1(num_gauss, 0.0);
-  std::vector<double> grad_sh2(num_gauss, 0.0);
-  NumericVector grad_2d_norm(num_gauss, 0.0);
+  // Per visible-splat gradient accumulators (2D quantities)
+  std::vector<double> g_u(num_vis, 0.0), g_v(num_vis, 0.0);
+  std::vector<double> g_ca(num_vis, 0.0), g_cb(num_vis, 0.0), g_cc(num_vis, 0.0);
+  std::vector<double> g_op(num_vis, 0.0);
+  std::vector<double> g_r(num_vis, 0.0), g_g(num_vis, 0.0), g_b(num_vis, 0.0);
 
   double total_loss = 0.0;
-  double inv_pixel_count = 1.0 / (double)(w * h);
+  const double inv_n = 1.0 / (3.0 * (double)w * (double)h);
+  const size_t img_len = (size_t)w * h;
 
-  // 3. Tile Rasterization + Photometric Gradient Backpropagation (OpenMP)
+  // ---------------------------------------------------------------------------
+  // 3. Forward + exact backward per tile
+  // ---------------------------------------------------------------------------
 #pragma omp parallel for schedule(dynamic, 4) reduction(+:total_loss)
   for (int t_idx = 0; t_idx < total_tiles; ++t_idx) {
-    int start_item = tile_ranges[t_idx];
-    int end_item = (t_idx + 1 < (int)tile_ranges.size()) ? tile_ranges[t_idx + 1] : (int)sort_items.size();
+    int start_item = tile_start[t_idx];
+    int end_item = tile_end[t_idx];
     if (start_item >= end_item) continue;
 
     int tx = t_idx % tiles_x;
     int ty = t_idx / tiles_x;
+    int px_start = tx * TILE_SIZE, px_end = std::min(w, px_start + TILE_SIZE);
+    int py_start = ty * TILE_SIZE, py_end = std::min(h, py_start + TILE_SIZE);
 
-    int px_start = tx * TILE_SIZE;
-    int px_end = std::min(w, px_start + TILE_SIZE);
-    int py_start = ty * TILE_SIZE;
-    int py_end = std::min(h, py_start + TILE_SIZE);
+    int n_items = end_item - start_item;
+    std::vector<double> lu(n_items, 0.0), lv(n_items, 0.0), la(n_items, 0.0), lb(n_items, 0.0),
+                        lc(n_items, 0.0), lo(n_items, 0.0), lr(n_items, 0.0), lg(n_items, 0.0), lbb(n_items, 0.0);
 
-    int num_tile_items = end_item - start_item;
-    struct TileGrad {
-      float dP_x = 0.0f;
-      float dP_y = 0.0f;
-      float dP_z = 0.0f;
-      float d_sh_r = 0.0f;
-      float d_sh_g = 0.0f;
-      float d_sh_b = 0.0f;
-      float d_opac = 0.0f;
-      float d_scale = 0.0f;
-    };
-    std::vector<TileGrad> tile_grads(num_tile_items);
+    struct Contrib { int k; double alpha, G, dx, dy; };
+    std::vector<Contrib> contribs;
+    contribs.reserve(64);
 
     for (int py = py_start; py < py_end; ++py) {
       for (int px = px_start; px < px_end; ++px) {
-        // Forward pass per pixel
+        double pfx = px + 0.5, pfy = py + 0.5;
         double T = 1.0;
-        double acc_r = 0.0, acc_g = 0.0, acc_b = 0.0;
-
-        // Stack-allocated cache for contributing splats at this pixel (zero heap malloc)
-        struct SplatContrib {
-          int local_idx;
-          float alpha;
-          float weight;
-          float dx;
-          float dy;
-        };
-        const int MAX_CONTRIBS = 64;
-        SplatContrib contribs[MAX_CONTRIBS];
-        int num_contribs = 0;
+        double C[3] = {0.0, 0.0, 0.0};
+        contribs.clear();
 
         for (int k = start_item; k < end_item; ++k) {
-          int s_idx = sort_items[k].splat_idx;
-          const Splat2D& splat = visible_splats[s_idx];
-
-          double dx = (double)px - splat.u;
-          double dy = (double)py - splat.v;
-
-          double power = -0.5 * (dx * dx * splat.inv_cov_xx +
-                                 2.0 * dx * dy * splat.inv_cov_xy +
-                                 dy * dy * splat.inv_cov_yy);
-
+          const Splat2D& sp = visible_splats[sort_items[k].splat_idx];
+          double dx = sp.u - pfx, dy = sp.v - pfy;
+          double power = -0.5 * (sp.inv_cov_xx * dx * dx + sp.inv_cov_yy * dy * dy) - sp.inv_cov_xy * dx * dy;
           if (power > 0.0) continue;
-
-          double alpha = std::min(0.99, splat.opacity * std::exp(power));
+          double G = std::exp(power);
+          double alpha = std::min(0.99, sp.opacity * G);
           if (alpha < 1.0 / 255.0) continue;
+          double test_T = T * (1.0 - alpha);
+          if (test_T < 0.0001) break;
+          double wgt = alpha * T;
+          C[0] += sp.r * wgt; C[1] += sp.g * wgt; C[2] += sp.b * wgt;
+          contribs.push_back({k - start_item, alpha, G, dx, dy});
+          T = test_T;
+        }
 
-          double weight = alpha * T;
-          acc_r += splat.r * weight;
-          acc_g += splat.g * weight;
-          acc_b += splat.b * weight;
+        size_t pix = (size_t)px + (size_t)py * w;
+        double out[3], dLd[3];
+        for (int ch = 0; ch < 3; ++ch) {
+          out[ch] = C[ch] + T * bg[ch];
+          size_t ti = pix + ch * img_len;
+          double gt = (ti < (size_t)target_img.size()) ? target_img[ti] : 0.0;
+          double err = out[ch] - gt;
+          total_loss += std::abs(err) * inv_n;
+          dLd[ch] = (err > 0 ? 1.0 : (err < 0 ? -1.0 : 0.0)) * inv_n;
+        }
 
-          if (num_contribs < MAX_CONTRIBS) {
-            contribs[num_contribs].local_idx = k - start_item;
-            contribs[num_contribs].alpha = (float)alpha;
-            contribs[num_contribs].weight = (float)weight;
-            contribs[num_contribs].dx = (float)dx;
-            contribs[num_contribs].dy = (float)dy;
-            num_contribs++;
+        // Backward: traverse contributors back to front
+        const double T_final = T;
+        const double bg_dot = bg[0] * dLd[0] + bg[1] * dLd[1] + bg[2] * dLd[2];
+        double acc[3] = {0.0, 0.0, 0.0};
+        double last_alpha = 0.0;
+        double last_col[3] = {0.0, 0.0, 0.0};
+        double Tb = T_final;
+        for (int ci = (int)contribs.size() - 1; ci >= 0; --ci) {
+          const Contrib& ct = contribs[ci];
+          const Splat2D& sp = visible_splats[sort_items[start_item + ct.k].splat_idx];
+          Tb = Tb / (1.0 - ct.alpha);
+          double dch = ct.alpha * Tb;
+          double col[3] = {sp.r, sp.g, sp.b};
+          double dL_dalpha = 0.0;
+          for (int ch = 0; ch < 3; ++ch) {
+            acc[ch] = last_alpha * last_col[ch] + (1.0 - last_alpha) * acc[ch];
+            last_col[ch] = col[ch];
+            dL_dalpha += (col[ch] - acc[ch]) * dLd[ch];
           }
+          lr[ct.k] += dch * dLd[0];
+          lg[ct.k] += dch * dLd[1];
+          lbb[ct.k] += dch * dLd[2];
+          dL_dalpha *= Tb;
+          last_alpha = ct.alpha;
+          dL_dalpha += (-T_final / (1.0 - ct.alpha)) * bg_dot;
 
-          T *= (1.0 - alpha);
-          if (T < 0.001) break;
-        }
-
-        // Ground-truth target pixel: target_img layout (w * h * 3) or (h * w * 3)
-        int pix_idx = px + py * w;
-        double gt_r = (pix_idx < target_img.size()) ? target_img[pix_idx] : 0.0;
-        double gt_g = (pix_idx + w * h < target_img.size()) ? target_img[pix_idx + w * h] : 0.0;
-        double gt_b = (pix_idx + 2 * w * h < target_img.size()) ? target_img[pix_idx + 2 * w * h] : 0.0;
-        if (gt_r > 1.0 || gt_g > 1.0 || gt_b > 1.0) {
-          gt_r /= 255.0;
-          gt_g /= 255.0;
-          gt_b /= 255.0;
-        }
-
-        double err_r = acc_r - gt_r;
-        double err_g = acc_g - gt_g;
-        double err_b = acc_b - gt_b;
-
-        total_loss += (std::abs(err_r) + std::abs(err_g) + std::abs(err_b)) * inv_pixel_count;
-
-        // Smooth photometric gradient dL/dI (Huber / Smooth-L1 derivative)
-        double dL_r = clamp(err_r, -1.0, 1.0) * inv_pixel_count;
-        double dL_g = clamp(err_g, -1.0, 1.0) * inv_pixel_count;
-        double dL_b = clamp(err_b, -1.0, 1.0) * inv_pixel_count;
-
-        // Backward pass through contributing splats into fast tile-local buffer
-        double accum_color_grad = 0.0;
-        for (int c_idx = num_contribs - 1; c_idx >= 0; --c_idx) {
-          const auto& c = contribs[c_idx];
-          int l_idx = c.local_idx;
-          int s_idx = sort_items[start_item + l_idx].splat_idx;
-          const Splat2D& splat = visible_splats[s_idx];
-
-          // dL / dColor
-          double d_sh_r = dL_r * c.weight * SH_C0;
-          double d_sh_g = dL_g * c.weight * SH_C0;
-          double d_sh_b = dL_b * c.weight * SH_C0;
-
-          // dL / dAlpha
-          double splat_dot_grad = (splat.r * dL_r + splat.g * dL_g + splat.b * dL_b);
-          double d_alpha = (c.weight / std::max(1e-5f, c.alpha)) * splat_dot_grad - accum_color_grad;
-          accum_color_grad += c.weight * splat_dot_grad;
-
-          // dAlpha / d(Position 2D)
-          double d_u = d_alpha * c.alpha * (c.dx * splat.inv_cov_xx + c.dy * splat.inv_cov_xy);
-          double d_v = d_alpha * c.alpha * (c.dx * splat.inv_cov_xy + c.dy * splat.inv_cov_yy);
-
-          // Backpropagate to 3D position using camera projection Jacobian
-          const arma::vec3& p_cam = p_cams[s_idx];
-          double tz = p_cam(2);
-          double tz2 = tz * tz;
-          double dt_x = d_u * (cam.fx / tz);
-          double dt_y = d_v * (cam.fy / tz);
-          double dt_z = d_u * (-(cam.fx * p_cam(0)) / tz2) + d_v * (-(cam.fy * p_cam(1)) / tz2);
-
-          // World 3D position gradient = R^T * dt
-          arma::vec3 dt_cam = {dt_x, dt_y, dt_z};
-          arma::vec3 dP_world = cam.R.t() * dt_cam;
-
-          // dAlpha / d(Opacity logit): sigma'(o) = sigma(o) * (1 - sigma(o))
-          double d_opac = d_alpha * (1.0 - splat.opacity);
-
-          tile_grads[l_idx].dP_x += (float)dP_world(0);
-          tile_grads[l_idx].dP_y += (float)dP_world(1);
-          tile_grads[l_idx].dP_z += (float)dP_world(2);
-          tile_grads[l_idx].d_sh_r += (float)d_sh_r;
-          tile_grads[l_idx].d_sh_g += (float)d_sh_g;
-          tile_grads[l_idx].d_sh_b += (float)d_sh_b;
-          tile_grads[l_idx].d_opac += (float)d_opac;
-          tile_grads[l_idx].d_scale += (float)(d_alpha * 0.001);
+          double dL_dG = sp.opacity * dL_dalpha;
+          double gdx = ct.G * ct.dx, gdy = ct.G * ct.dy;
+          lu[ct.k] += dL_dG * (-gdx * sp.inv_cov_xx - gdy * sp.inv_cov_xy);
+          lv[ct.k] += dL_dG * (-gdy * sp.inv_cov_yy - gdx * sp.inv_cov_xy);
+          la[ct.k] += -0.5 * gdx * ct.dx * dL_dG;
+          lb[ct.k] += -gdx * ct.dy * dL_dG;
+          lc[ct.k] += -0.5 * gdy * ct.dy * dL_dG;
+          lo[ct.k] += ct.G * dL_dalpha;
         }
       }
     }
 
-    // High-efficiency atomic accumulation once per tile (replaces millions of per-pixel atomic locks)
-    for (int l_idx = 0; l_idx < num_tile_items; ++l_idx) {
-      const auto& tg = tile_grads[l_idx];
-      if (tg.dP_x == 0.0f && tg.dP_y == 0.0f && tg.dP_z == 0.0f && tg.d_opac == 0.0f) continue;
-      int s_idx = sort_items[start_item + l_idx].splat_idx;
-      int g_idx = visible_splats[s_idx].gaussian_idx;
-
+    for (int k = 0; k < n_items; ++k) {
+      if (lu[k] == 0.0 && lv[k] == 0.0 && lo[k] == 0.0 && lr[k] == 0.0 && lg[k] == 0.0 && lbb[k] == 0.0) continue;
+      int s_idx = sort_items[start_item + k].splat_idx;
 #pragma omp atomic
-      grad_pos_x[g_idx] += tg.dP_x;
+      g_u[s_idx] += lu[k];
 #pragma omp atomic
-      grad_pos_y[g_idx] += tg.dP_y;
+      g_v[s_idx] += lv[k];
 #pragma omp atomic
-      grad_pos_z[g_idx] += tg.dP_z;
+      g_ca[s_idx] += la[k];
 #pragma omp atomic
-      grad_sh0[g_idx] += tg.d_sh_r;
+      g_cb[s_idx] += lb[k];
 #pragma omp atomic
-      grad_sh1[g_idx] += tg.d_sh_g;
+      g_cc[s_idx] += lc[k];
 #pragma omp atomic
-      grad_sh2[g_idx] += tg.d_sh_b;
+      g_op[s_idx] += lo[k];
 #pragma omp atomic
-      grad_opac[g_idx] += tg.d_opac;
+      g_r[s_idx] += lr[k];
 #pragma omp atomic
-      grad_scale_x[g_idx] += tg.d_scale;
+      g_g[s_idx] += lg[k];
 #pragma omp atomic
-      grad_scale_y[g_idx] += tg.d_scale;
-#pragma omp atomic
-      grad_scale_z[g_idx] += tg.d_scale;
+      g_b[s_idx] += lbb[k];
     }
   }
 
-  // 4. Adam Optimizer Parameter Updates
-  const double beta1 = 0.9;
-  const double beta2 = 0.999;
-  const double eps = 1e-8;
-  double beta1_t = std::pow(beta1, (double)iter);
-  double beta2_t = std::pow(beta2, (double)iter);
-  double corr1 = 1.0 - beta1_t;
+  // ---------------------------------------------------------------------------
+  // 4. Chain rule to 3D parameters
+  // ---------------------------------------------------------------------------
+  NumericMatrix gpos(num_gauss, 3), gscale(num_gauss, 3), grot(num_gauss, 4), gsh(num_gauss, 3);
+  NumericVector gopac(num_gauss, 0.0);
+
+#pragma omp parallel for schedule(static, 256)
+  for (int s_idx = 0; s_idx < num_vis; ++s_idx) {
+    const ProjCache& pc = caches[s_idx];
+    const Splat2D& sp = visible_splats[s_idx];
+    const int i = pc.g;
+    visible[i] = true;
+
+    // screen-space gradient (NDC units) for densification
+    double gx = g_u[s_idx] * 0.5 * w, gy = g_v[s_idx] * 0.5 * h;
+    grad_2d_norm[i] = std::sqrt(gx * gx + gy * gy);
+
+    // colors: c = max(0, 0.5 + C0 * sh0)
+    gsh(i, 0) = (sp.r > 0.0 ? 1.0 : 0.0) * SH_C0 * g_r[s_idx];
+    gsh(i, 1) = (sp.g > 0.0 ? 1.0 : 0.0) * SH_C0 * g_g[s_idx];
+    gsh(i, 2) = (sp.b > 0.0 ? 1.0 : 0.0) * SH_C0 * g_b[s_idx];
+
+    // opacity logit
+    gopac[i] = g_op[s_idx] * sp.opacity * (1.0 - sp.opacity);
+
+    // conic -> cov2d: dL/dSigma2 = -Con * Gc * Con  (Gc symmetric with b split in two)
+    double det = pc.a * pc.c - pc.b * pc.b;
+    arma::mat22 Con;
+    Con(0, 0) = pc.c / det; Con(0, 1) = -pc.b / det; Con(1, 0) = -pc.b / det; Con(1, 1) = pc.a / det;
+    arma::mat22 Gc;
+    Gc(0, 0) = g_ca[s_idx]; Gc(0, 1) = 0.5 * g_cb[s_idx]; Gc(1, 0) = 0.5 * g_cb[s_idx]; Gc(1, 1) = g_cc[s_idx];
+    arma::mat22 dS2 = -Con * Gc * Con;
+
+    // cov2d = T cov3d T^T  ->  dL/dcov3d = T^T dS2 T ; dL/dT = 2 dS2 T cov3d
+    arma::mat dcov3d = pc.T.t() * dS2 * pc.T;
+    arma::mat dT = 2.0 * dS2 * pc.T * pc.cov3d;
+    arma::mat dJ = dT * cam.R.t();     // T = J W
+
+    double tz = pc.p_cam(2), tx = pc.p_cam(0), ty = pc.p_cam(1);
+    double tz2 = tz * tz, tz3 = tz2 * tz;
+
+    // mean2d -> p_cam
+    double dpx = g_u[s_idx] * cam.fx / tz;
+    double dpy = g_v[s_idx] * cam.fy / tz;
+    double dpz = -g_u[s_idx] * cam.fx * tx / tz2 - g_v[s_idx] * cam.fy * ty / tz2;
+
+    // J -> p_cam (J02 = -fx txz / tz^2 with txz = clamp(tx/tz) * tz)
+    double dJ02_dtx = pc.clamp_x ? 0.0 : -cam.fx / tz2;
+    double dJ12_dty = pc.clamp_y ? 0.0 : -cam.fy / tz2;
+    double dJ02_dtz = pc.clamp_x ? (cam.fx * pc.txz / tz3) : (2.0 * cam.fx * tx / tz3);
+    double dJ12_dtz = pc.clamp_y ? (cam.fy * pc.tyz / tz3) : (2.0 * cam.fy * ty / tz3);
+    dpx += dJ(0, 2) * dJ02_dtx;
+    dpy += dJ(1, 2) * dJ12_dty;
+    dpz += dJ(0, 0) * (-cam.fx / tz2) + dJ(1, 1) * (-cam.fy / tz2) + dJ(0, 2) * dJ02_dtz + dJ(1, 2) * dJ12_dtz;
+
+    arma::vec3 dpc = {dpx, dpy, dpz};
+    arma::vec3 dpw = cam.R.t() * dpc;
+    gpos(i, 0) = dpw(0); gpos(i, 1) = dpw(1); gpos(i, 2) = dpw(2);
+
+    // cov3d = M M^T, M = Rq diag(s)
+    arma::mat33 M = pc.Rq;
+    for (int j = 0; j < 3; ++j) M.col(j) *= pc.s(j);
+    arma::mat33 dcov3s = 0.5 * (dcov3d + dcov3d.t());
+    arma::mat33 dM = 2.0 * dcov3s * M;
+    for (int j = 0; j < 3; ++j) {
+      double ds = arma::dot(dM.col(j), pc.Rq.col(j));
+      gscale(i, j) = ds * pc.s(j);     // d / d log(s)
+    }
+    arma::mat33 dR = dM;
+    for (int j = 0; j < 3; ++j) dR.col(j) *= pc.s(j);
+
+    double qn = std::sqrt(quat(i, 0) * quat(i, 0) + quat(i, 1) * quat(i, 1) + quat(i, 2) * quat(i, 2) + quat(i, 3) * quat(i, 3));
+    if (qn < 1e-12) qn = 1.0;
+    double qw = quat(i, 0) / qn, qx = quat(i, 1) / qn, qy = quat(i, 2) / qn, qz = quat(i, 3) / qn;
+    double dw = 2.0 * (-qz * dR(0, 1) + qy * dR(0, 2) + qz * dR(1, 0) - qx * dR(1, 2) - qy * dR(2, 0) + qx * dR(2, 1));
+    double dx = 2.0 * (qy * dR(0, 1) + qz * dR(0, 2) + qy * dR(1, 0) - 2.0 * qx * dR(1, 1) - qw * dR(1, 2) +
+                       qz * dR(2, 0) + qw * dR(2, 1) - 2.0 * qx * dR(2, 2));
+    double dy = 2.0 * (-2.0 * qy * dR(0, 0) + qx * dR(0, 1) + qw * dR(0, 2) + qx * dR(1, 0) + qz * dR(1, 2) -
+                       qw * dR(2, 0) + qz * dR(2, 1) - 2.0 * qy * dR(2, 2));
+    double dz = 2.0 * (-2.0 * qz * dR(0, 0) - qw * dR(0, 1) + qx * dR(0, 2) + qw * dR(1, 0) - 2.0 * qz * dR(1, 1) +
+                       qy * dR(1, 2) + qx * dR(2, 0) + qy * dR(2, 1));
+    double dot_q = dw * qw + dx * qx + dy * qy + dz * qz;
+    grot(i, 0) = (dw - qw * dot_q) / qn;
+    grot(i, 1) = (dx - qx * dot_q) / qn;
+    grot(i, 2) = (dy - qy * dot_q) / qn;
+    grot(i, 3) = (dz - qz * dot_q) / qn;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. Adam updates (only Gaussians seen in this view)
+  // ---------------------------------------------------------------------------
+  const double beta1 = 0.9, beta2 = 0.999, eps = 1e-15;
+  const double corr1 = 1.0 - std::pow(beta1, (double)iter);
+  const double corr2 = 1.0 - std::pow(beta2, (double)iter);
+
+  auto adam = [&](double& param, double& m, double& v, double g, double lr) {
+    m = beta1 * m + (1.0 - beta1) * g;
+    v = beta2 * v + (1.0 - beta2) * g * g;
+    param -= lr * (m / corr1) / (std::sqrt(v / corr2) + eps);
+  };
 
 #pragma omp parallel for schedule(static, 1024)
   for (int i = 0; i < num_gauss; ++i) {
-    // 2D view-space gradient norm for adaptive densification
-    double gx = grad_pos_x[i], gy = grad_pos_y[i], gz = grad_pos_z[i];
-    grad_2d_norm[i] = std::sqrt(gx * gx + gy * gy + gz * gz);
-
-    // Update 3D Positions
-    double g_p[3] = {gx, gy, gz};
+    if (!visible[i]) continue;
     for (int d = 0; d < 3; ++d) {
-      m_pos(i, d) = beta1 * m_pos(i, d) + (1.0 - beta1) * g_p[d];
-      v_pos(i, d) = beta2 * v_pos(i, d) + (1.0 - beta2) * g_p[d] * g_p[d];
-      double m_hat = m_pos(i, d) / corr1;
-      double v_hat = v_pos(i, d) / (1.0 - beta2_t);
-      pos(i, d) -= lr_pos * (m_hat / (std::sqrt(v_hat) + eps));
+      adam(pos(i, d), m_pos(i, d), v_pos(i, d), gpos(i, d), lr_pos);
+      adam(scale_log(i, d), m_scale(i, d), v_scale(i, d), gscale(i, d), lr_scale);
+      adam(sh_mat(i, d), m_sh(i, d), v_sh(i, d), gsh(i, d), lr_sh);
     }
-
-    // Update Scales
-    double g_s[3] = {grad_scale_x[i], grad_scale_y[i], grad_scale_z[i]};
-    for (int d = 0; d < 3; ++d) {
-      m_scale(i, d) = beta1 * m_scale(i, d) + (1.0 - beta1) * g_s[d];
-      v_scale(i, d) = beta2 * v_scale(i, d) + (1.0 - beta2) * g_s[d] * g_s[d];
-      double m_hat = m_scale(i, d) / corr1;
-      double v_hat = v_scale(i, d) / (1.0 - beta2_t);
-      scale_log(i, d) -= lr_scale * (m_hat / (std::sqrt(v_hat) + eps));
-      // Clamp scale within sane botanical bounds [-8.0, 1.0]
-      scale_log(i, d) = clamp(scale_log(i, d), -8.0, 0.5);
+    for (int d = 0; d < 4; ++d) {
+      adam(quat(i, d), m_rot(i, d), v_rot(i, d), grot(i, d), lr_rot);
     }
-
-    // Update Opacity Logit
-    double g_o = grad_opac[i];
-    m_opac[i] = beta1 * m_opac[i] + (1.0 - beta1) * g_o;
-    v_opac[i] = beta2 * v_opac[i] + (1.0 - beta2) * g_o * g_o;
-    double m_hat_o = m_opac[i] / corr1;
-    double v_hat_o = v_opac[i] / (1.0 - beta2_t);
-    opac_logit[i] -= lr_opac * (m_hat_o / (std::sqrt(v_hat_o) + eps));
-    opac_logit[i] = clamp(opac_logit[i], -5.0, 5.0);
-
-    // Update Colors (SH0)
-    double g_sh[3] = {grad_sh0[i], grad_sh1[i], grad_sh2[i]};
-    for (int d = 0; d < 3; ++d) {
-      m_sh(i, d) = beta1 * m_sh(i, d) + (1.0 - beta1) * g_sh[d];
-      v_sh(i, d) = beta2 * v_sh(i, d) + (1.0 - beta2) * g_sh[d] * g_sh[d];
-      double m_hat = m_sh(i, d) / corr1;
-      double v_hat = v_sh(i, d) / (1.0 - beta2_t);
-      sh_mat(i, d) -= lr_sh * (m_hat / (std::sqrt(v_hat) + eps));
-    }
+    adam(opac_logit[i], m_opac[i], v_opac[i], gopac[i], lr_opac);
   }
 
-  // Update gaussians list
-  gaussians["positions"] = pos;
-  gaussians["scales_log"] = scale_log;
-  gaussians["quaternions"] = quat;
-  gaussians["opacities_logit"] = opac_logit;
-  gaussians["sh_coeffs"] = sh_mat;
+  List out_g = clone(gaussians);
+  out_g["positions"] = pos;
+  out_g["scales_log"] = scale_log;
+  out_g["quaternions"] = quat;
+  out_g["opacities_logit"] = opac_logit;
+  out_g["sh_coeffs"] = sh_mat;
+
+  List new_m = List::create(Named("pos") = m_pos, Named("scale") = m_scale, Named("opac") = m_opac,
+                            Named("sh") = m_sh, Named("rot") = m_rot);
+  List new_v = List::create(Named("pos") = v_pos, Named("scale") = v_scale, Named("opac") = v_opac,
+                            Named("sh") = v_sh, Named("rot") = v_rot);
 
   return List::create(
-    Named("gaussians") = gaussians,
-    Named("adam_m") = adam_m,
-    Named("adam_v") = adam_v,
+    Named("gaussians") = out_g,
+    Named("adam_m") = new_m,
+    Named("adam_v") = new_v,
     Named("loss") = total_loss,
-    Named("grad_2d_norm") = grad_2d_norm
+    Named("grad_2d_norm") = grad_2d_norm,
+    Named("visible") = visible
   );
 }
 

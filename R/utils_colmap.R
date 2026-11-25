@@ -1366,7 +1366,8 @@ gs_import_cameras_colmap <- function(images_file, cameras_file = NULL) {
       cy <- if (length(params) >= 3) params[3] else (h / 2.0)
     }
 
-    sensor_map[[cam_id]] <- list(width = w, height = h, fx = fx, fy = fy, cx = cx, cy = cy, model = model)
+    sensor_map[[cam_id]] <- list(width = w, height = h, fx = fx, fy = fy, cx = cx, cy = cy,
+                                 model = model, params = params)
   }
 
   # --------------------------------------------------------------------------
@@ -1427,7 +1428,10 @@ gs_import_cameras_colmap <- function(images_file, cameras_file = NULL) {
         width = sens$width,
         height = sens$height,
         position = pos_world,
-        label = name
+        label = name,
+        model = sens$model,
+        params = sens$params,
+        camera_id = cam_id
       )
 
       cameras_list[[name]] <- cam_spec
@@ -1551,13 +1555,15 @@ gs_import_colmap <- function(colmap_dir, initial_scale = NULL, initial_opacity =
 #' @param overwrite Logical. If `TRUE`, cleans previous workspace reconstructions to start fresh. Defaults to `FALSE`.
 #' @param sequential_overlap Integer. Overlap window when `matching = "sequential"`. Defaults to `15`.
 #' @param max_num_features Maximum number of visual features per image. Defaults to `8192`.
-#' @param iterations Total number of 3D Gaussian Splatting optimization steps. Defaults to `1000`.
+#' @param iterations Total number of 3D Gaussian Splatting optimization steps. Defaults to `7000`.
 #' @param downsample Image downsample factor for training acceleration (e.g. `2`, `4`, or `8`). Defaults to `4`.
 #' @param densify_interval Iteration frequency for adaptive densification (split/clone/prune). Defaults to `100`.
 #' @param lr_pos Learning rate for 3D Gaussian positions. Defaults to `0.00016`.
 #' @param lr_scale Learning rate for 3D Gaussian scales. Defaults to `0.005`.
 #' @param lr_opac Learning rate for Gaussian opacities. Defaults to `0.05`.
 #' @param viewer Logical. If `TRUE` (default), automatically opens the interactive WebGL 3D viewer upon completion.
+#' @param filter_outliers Logical. If `TRUE` (default), floating tie points are removed with
+#'   [gs_filter_outliers()] (`method = "sor"`, `k = 5`, `std_ratio = 2`) before optimization.
 #' @param show_colmap_output Logical. If `TRUE`, streams raw COLMAP terminal output in real time to the R console. Defaults to `FALSE`.
 #' @param verbose Logical. If `TRUE` (default), prints detailed step-by-step progress.
 #' @param ... Additional arguments passed to [colmap_sfm()], [gs_fit()], or [gs_viewer()].
@@ -1578,7 +1584,7 @@ gs_from_photos <- function(images,
                            overwrite = FALSE,
                            sequential_overlap = 15,
                            max_num_features = 8192,
-                           iterations = 1000,
+                           iterations = 7000,
                            downsample = 4,
                            densify_interval = 100,
                            lr_pos = 0.00016,
@@ -1587,6 +1593,7 @@ gs_from_photos <- function(images,
                            viewer = TRUE,
                            show_colmap_output = FALSE,
                            verbose = TRUE,
+                           filter_outliers = TRUE,
                            ...) {
   matching <- match.arg(matching)
 
@@ -1619,18 +1626,21 @@ gs_from_photos <- function(images,
   )
   sfm_res <- do.call(colmap_sfm, sfm_args)
 
-  # 2. Import calibrated cameras and sparse points
+  # 2. Import calibrated cameras and sparse points (optionally cleaned)
   colmap_data <- gs_import_colmap(sfm_res$recon_dir)
+  fit_input <- sfm_res
+  if (isTRUE(filter_outliers)) {
+    fit_input <- gs_filter_outliers(sfm_res, k = 5, std_ratio = 2.0, method = "sor", verbose = verbose)
+  }
 
-  # 3. Train 3D Gaussian Splats
+  # 3. Train 3D Gaussian Splats (gs_fit() undistorts the photos when needed)
   fit_formal_names <- names(formals(gs_fit))
   fit_extra <- dots[names(dots) %in% fit_formal_names]
+  fit_extra <- fit_extra[setdiff(names(fit_extra), c("images", "cameras", "splat"))]
 
   fit_args <- c(
     list(
-      images = images,
-      cameras = colmap_data$cameras,
-      splat = colmap_data$splat,
+      images = fit_input,
       iterations = iterations,
       downsample = downsample,
       densify_interval = densify_interval,
@@ -1645,21 +1655,13 @@ gs_from_photos <- function(images,
 
   attr(splat_trained, "colmap_data") <- colmap_data
   attr(splat_trained, "sfm") <- sfm_res
-  attr(splat_trained, "cameras") <- colmap_data$cameras
-  attr(splat_trained, "images") <- if (is.character(images) && length(images) == 1 && dir.exists(images)) {
-    normalizePath(images, winslash = "/")
-  } else {
-    images
-  }
-  splat_trained$cameras <- colmap_data$cameras
-  splat_trained$images <- attr(splat_trained, "images")
 
   # 4. Open interactive WebGL viewer if requested
   if (isTRUE(viewer)) {
     if (isTRUE(verbose)) {
       cli::cli_alert_info("Launching interactive WebGL 3D viewer in browser...")
     }
-    gs_viewer(splat_trained, cameras = colmap_data$cameras, images = images)
+    gs_viewer(splat_trained)
   }
 
   return(invisible(splat_trained))
