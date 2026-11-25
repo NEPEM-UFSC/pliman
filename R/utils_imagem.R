@@ -6464,41 +6464,27 @@ image_label <- function(img, max_gap = 0){
 
 
 
-#' Smooth Contour Line Detection
+#' Smooth Contour Line Detection (defunct)
 #'
+#' @description
+#' `image_contour_line()` is defunct since pliman 4.0.0. It relied on the
+#' sub-pixel contour detector of Grompone von Gioi (2016), distributed under the
+#' GNU Affero General Public License, which was removed from pliman to keep the
+#' package under GPL (>= 3). Use [image_canny_edge()] to detect edges, or
+#' [object_contour()] to extract object contours.
 #'
 #' @param img An `image` object.
 #' @param index A character string with the index to be used. Defaults to `"GRAY"`.
 #' @param Q numeric value with the pixel quantization step
-#' @return A list with the contour lines.
-#' @importFrom utils tail
+#' @return Nothing; the function throws an error.
+#' @seealso [image_canny_edge()], [object_contour()]
 #' @export
-#' @examplesIf interactive()
-#' library(pliman)
-#' img <- image_pliman("sev_leaf.jpg")
-#' conts <- image_contour_line(img, index = "B")
-#' plot(img)
-#' plot_contour(conts, col = "black")
-#'
 image_contour_line <- function(img, index = "GRAY", Q = 2.0){
-  ind <- image_index(img, index, plot = FALSE)[[1]]
-  mat <- as.numeric(image_data(ind)) * 255
-  contourlines <- utils_contours(mat,
-                                 X = nrow(mat),
-                                 Y = ncol(mat),
-                                 Q = Q)
-  names(contourlines) <- c("x", "y", "curvelimits", "curves", "contourpoints")
-  contourlines$curvelimits <- contourlines$curvelimits+1L
-  from <- contourlines$curvelimits
-  to <- c(tail(contourlines$curvelimits, contourlines$curves-1L)-1L, contourlines$contourpoints)
-  curve <- unlist(mapply(seq_along(from), from, to, FUN=function(contourid, from, to) rep(contourid, to-from+1L), SIMPLIFY = FALSE))
-  contourlines$data <- data.frame(x = contourlines$x, y = contourlines$y, curve = curve)
-  res <- split(contourlines$data, contourlines$data$curve)
-  res <-
-    lapply(res, function(x){
-      as.matrix(x[, 1:2])
-    })
-  return(res)
+  cli::cli_abort(c(
+    "{.fn image_contour_line} is defunct since pliman 4.0.0.",
+    "i" = "The AGPL-licensed sub-pixel contour detector it used was removed so that pliman stays under GPL (>= 3).",
+    "i" = "Use {.fn image_canny_edge} for edges or {.fn object_contour} for object contours."
+  ), class = "pliman_defunct")
 }
 
 
@@ -6532,11 +6518,13 @@ image_canny_edge <- function(img,
   return(res[1:2])
 }
 
-#' @title Line Segment Detection in an Image
-#' @description Detects line segments in a digital image using the Line Segment
-#'   Detector (LSD), a linear-time method that controls false detections and
-#'   requires no parameter tuning. Based on Burns, Hanson, and Riseman's method
-#'   with an a-contrario validation approach.
+#' @title Line Segment Detection in an Image (defunct)
+#' @description
+#' `image_line_segment()` is defunct since pliman 4.0.0. It wrapped the Line
+#' Segment Detector (LSD) of Grompone von Gioi et al. (2010), whose reference
+#' implementation is distributed under the GNU Affero General Public License;
+#' the code was removed so that pliman stays under GPL (>= 3). Use
+#' [image_canny_edge()] to detect edges instead.
 #'
 #' @param img An `image` object.
 #' @param index A character string with the index to be used. Defaults to `"GRAY"`.
@@ -6556,21 +6544,14 @@ image_canny_edge <- function(img,
 #' @param union_use_NFA Logical. If TRUE, uses NFA in merging. Default is FALSE.
 #' @param union_log_eps Numeric. Detection threshold for merging. Default is 0.0.
 #'
-#' @return A list of class `lsd` containing:
-#' \itemize{
-#'   \item `n` - Number of detected line segments.
-#'   \item `lines` - A matrix with detected segments (columns: x1, y1, x2, y2, width, p, -log_nfa).
-#'   \item `pixels` - A matrix assigning each pixel to a detected segment (0 = unused pixels).
-#' }
-#'
+#' @return Nothing; the function throws an error.
+#' @seealso [image_canny_edge()]
 #' @references
 #' Grompone von Gioi, R., Jakubowicz, J., Morel, J.-M., & Randall, G. (2010).
 #' LSD: A Fast Line Segment Detector with a False Detection Control.
 #' IEEE Transactions on Pattern Analysis and Machine Intelligence, 32(4), 722-732.\doi{10.5201/ipol.2012.gjmr-lsd}
 #'
 #' @export
-#' @examples
-#' library(pliman)
 image_line_segment <- function(img,
                                index = "GRAY",
                                scale = 0.8,
@@ -6586,41 +6567,29 @@ image_line_segment <- function(img,
                                union_ang_th = 7,
                                union_use_NFA = FALSE,
                                union_log_eps = 0.0) {
-  ind <- image_index(image_hreflect(image_transpose(img)), index, plot = FALSE)[[1]]
-  x <- as.numeric(image_data(ind)) * 255
-  lines <- detect_line_segments(as.numeric(x),
-                                X = nrow(x),
-                                Y = ncol(x),
-                                scale = as.numeric(scale),
-                                sigma_scale = as.numeric(sigma_scale),
-                                quant = as.numeric(quant),
-                                ang_th = as.numeric(ang_th),
-                                log_eps = as.numeric(log_eps),
-                                need_to_union = as.logical(union),
-                                union_use_NFA = as.logical(union_use_NFA),
-                                union_ang_th = as.numeric(union_ang_th),
-                                union_log_eps = as.numeric(union_log_eps),
-                                length_threshold = as.numeric(union_min_length),
-                                dist_threshold = as.numeric(union_max_distance))
-
-  names(lines) <- c("lines", "pixels")
-  colnames(lines$lines) <- c("x1", "y1", "x2", "y2", "width", "p", "-log_nfa")
-  lines$n <- nrow(lines$lines)
-
-  return(lines)
+  cli::cli_abort(c(
+    "{.fn image_line_segment} is defunct since pliman 4.0.0.",
+    "i" = "The Line Segment Detector (LSD) code is AGPL-licensed and was removed so that pliman stays under GPL (>= 3).",
+    "i" = "Use {.fn image_canny_edge} to detect edges."
+  ), class = "pliman_defunct")
 }
 
 #' @title Plot Detected Line Segments
-#' @description Plots the detected line segments from the output of [image_line_segment()].
-#' Each segment is drawn as a red line on the existing plot.
+#' @description Plots line segments on the existing plot. Each segment is
+#'   drawn as a line between `(x1, y1)` and `(x2, y2)`.
 #'
-#' @param x A list returned by [image_line_segment()], containing detected line segments.
+#' @param x A list with elements `n` (number of segments) and `lines` (a matrix
+#'   with columns `x1`, `y1`, `x2`, `y2`), e.g. created by the user from another
+#'   line detector. ([image_line_segment()] is defunct since pliman 4.0.0.)
 #' @param col The color of lines
 #' @param lwd The width of lines. Defaults to 1
 #' @return No return value. The function adds line segments to an existing plot.
 #'
 #' @examples
 #' library(pliman)
+#' seg <- list(n = 2, lines = cbind(x1 = c(0, 0), y1 = c(0, 1), x2 = c(1, 1), y2 = c(1, 0)))
+#' plot(0:1, 0:1, type = "n")
+#' plot_line_segment(seg)
 #'
 #' @export
 plot_line_segment <- function(x, col = "red", lwd = 1){

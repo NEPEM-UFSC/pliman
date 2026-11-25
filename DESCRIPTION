@@ -2,8 +2,16 @@ Package: pliman
 Title: Tools for Plant Image Analysis
 Version: 4.0.0
 Authors@R: 
-    person("Tiago", "Olivoto", , "tiagoolivoto@gmail.com", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0002-0241-9636"))
+  c(person("Tiago", "Olivoto", , "tiagoolivoto@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-0241-9636")),
+    person("Sean", "Barrett", role = "cph",
+           comment = "stb_image and stb_image_write (src/stb_image*.h)"),
+    person(, "Microsoft Corporation", role = "cph",
+           comment = "ONNX Runtime C API header (src/onnxruntime_c_api.h)"),
+    person(, "IPOL Image Processing On Line", role = "cph",
+           comment = "Canny edge detector (src/tools.c, src/canny.h)"),
+    person("Daniel", "Hepper", role = "cph",
+           comment = "Bitmap fonts (src/font8x8_basic.h, src/font8x16.h)"))
 Description: An all-in-one computer vision and machine learning ecosystem for
     plant phenomics, digital agriculture, and phytopathometry (Olivoto, 2022
     <doi:10.1111/2041-210X.13803>; Olivoto et al., 2022
@@ -29,6 +37,7 @@ Description: An all-in-one computer vision and machine learning ecosystem for
     text recognition, image restoration, automated dataset curation, model
     training, and asynchronous parallel batch inference.
 License: GPL (>= 3)
+Copyright: See file inst/COPYRIGHTS for bundled third-party code.
 URL: https://nepem-ufsc.github.io/pliman/, https://github.com/nepem-ufsc/pliman
 BugReports: https://github.com/nepem-ufsc/pliman/issues
 Depends: 
@@ -48,7 +57,6 @@ Imports:
 Suggests: 
     av,
     bench,
-    BiocManager,
     curl,
     fields,
     ggplot2,
@@ -76,7 +84,6 @@ SystemRequirements: libpng, FFTW3 (libfftw3)
 LinkingTo: 
     Rcpp,
     RcppArmadillo
-biocViews:
 Encoding: UTF-8
 Language: en-US
 LazyData: true

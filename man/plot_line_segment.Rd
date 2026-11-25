@@ -7,7 +7,9 @@
 plot_line_segment(x, col = "red", lwd = 1)
 }
 \arguments{
-\item{x}{A list returned by \code{\link[=image_line_segment]{image_line_segment()}}, containing detected line segments.}
+\item{x}{A list with elements \code{n} (number of segments) and \code{lines} (a matrix
+with columns \code{x1}, \code{y1}, \code{x2}, \code{y2}), e.g. created by the user from another
+line detector. (\code{\link[=image_line_segment]{image_line_segment()}} is defunct since pliman 4.0.0.)}
 
 \item{col}{The color of lines}
 
@@ -17,10 +19,13 @@ plot_line_segment(x, col = "red", lwd = 1)
 No return value. The function adds line segments to an existing plot.
 }
 \description{
-Plots the detected line segments from the output of \code{\link[=image_line_segment]{image_line_segment()}}.
-Each segment is drawn as a red line on the existing plot.
+Plots line segments on the existing plot. Each segment is
+drawn as a line between \verb{(x1, y1)} and \verb{(x2, y2)}.
 }
 \examples{
 library(pliman)
+seg <- list(n = 2, lines = cbind(x1 = c(0, 0), y1 = c(0, 1), x2 = c(1, 1), y2 = c(1, 0)))
+plot(0:1, 0:1, type = "n")
+plot_line_segment(seg)
 
 }

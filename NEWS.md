@@ -3,6 +3,11 @@
 ## Major Release: Next-Generation Computer Vision & Deep Learning Ecosystem
 `pliman 4.0.0` represents a transformative milestone, establishing an end-to-end, zero-Python deep learning and computer vision framework directly in R. Key innovations include:
 
+### Breaking changes and licensing
+* `image_line_segment()` and `image_contour_line()` are now defunct (they throw an informative error). They relied on the Line Segment Detector and the sub-pixel contour detector by R. Grompone von Gioi, distributed under the GNU Affero General Public License; that code (`src/lsd.c`, `src/smooth_contours.c`) was removed so that pliman stays under GPL (>= 3). Use `image_canny_edge()` instead. `plot_line_segment()` is kept and works with any list of segments.
+* Bundled third-party code is now credited in `inst/COPYRIGHTS` and as copyright holders (`cph`) in `DESCRIPTION`.
+* Removed the unused `BiocManager` suggestion and the empty `biocViews` field.
+
 ### Deep Learning Architecture & Foundation Models
 * **Segment Anything 2.1 (SAM 2.1)**: Full ONNX Runtime C++ execution for sub-pixel instance segmentation masks, zero-shot polygon extraction, and interactive exemplar prompting.
 * **PerSAM (Personalized Segment Anything)**: One-shot visual exemplar segmentation and high-density counting via multi-prototype max-pooling, dense stride-1 convolutional ZNCC matching, and ViT semantic guidance.

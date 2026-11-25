@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils_imagem.R
 \name{image_contour_line}
 \alias{image_contour_line}
-\title{Smooth Contour Line Detection}
+\title{Smooth Contour Line Detection (defunct)}
 \usage{
 image_contour_line(img, index = "GRAY", Q = 2)
 }
@@ -14,17 +14,15 @@ image_contour_line(img, index = "GRAY", Q = 2)
 \item{Q}{numeric value with the pixel quantization step}
 }
 \value{
-A list with the contour lines.
+Nothing; the function throws an error.
 }
 \description{
-Smooth Contour Line Detection
+\code{image_contour_line()} is defunct since pliman 4.0.0. It relied on the
+sub-pixel contour detector of Grompone von Gioi (2016), distributed under the
+GNU Affero General Public License, which was removed from pliman to keep the
+package under GPL (>= 3). Use \code{\link[=image_canny_edge]{image_canny_edge()}} to detect edges, or
+\code{\link[=object_contour]{object_contour()}} to extract object contours.
 }
-\examples{
-\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
-library(pliman)
-img <- image_pliman("sev_leaf.jpg")
-conts <- image_contour_line(img, index = "B")
-plot(img)
-plot_contour(conts, col = "black")
-\dontshow{\}) # examplesIf}
+\seealso{
+\code{\link[=image_canny_edge]{image_canny_edge()}}, \code{\link[=object_contour]{object_contour()}}
 }
