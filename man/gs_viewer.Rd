@@ -23,7 +23,11 @@ gs_viewer(
   sphere_opacity = 0.04,
   rotation = c(0, 0, 0),
   bg = c("dark", "light"),
-  title = "3D Point Cloud & Gaussian Splat Viewer [pliman]"
+  title = "3D Point Cloud & Gaussian Splat Viewer [pliman]",
+  unit_scale = NULL,
+  tools = TRUE,
+  focus_subject = TRUE,
+  min_opacity = 0.2
 )
 }
 \arguments{
@@ -68,6 +72,33 @@ clicking on any 3D camera frustum will display that photo in a floating viewer m
 \item{bg}{Character string. Background theme: \code{"dark"} (default, slate dark) or \code{"light"} (Metashape light).}
 
 \item{title}{Character string. Viewer window title.}
+
+\item{unit_scale}{Optional numeric. Factor converting model units into
+meters, used by the ruler and the measurement tools (e.g. \code{0.01} if one
+model unit is 1 cm). \code{NULL} (default) assumes meters for metric
+reconstructions (e.g. Metashape) and \emph{unknown} scale for COLMAP-based
+reconstructions, whose scale is arbitrary; in that case lengths are shown
+in model units (\code{u}) until the scale is calibrated in the viewer
+(\emph{GS Studio > Measure > Calibrate scale}, two points of known distance).}
+
+\item{tools}{Logical. If \code{TRUE} (default), adds the \emph{GS Studio} panel with
+Gaussian-splatting tools: view-dependent color (spherical harmonics),
+floater filter, image adjustments and background color; rectangle, lasso
+and brush selection with delete/isolate/undo and export of the edited
+model as a full 3DGS PLY; section (clipping) plane; scale calibration,
+polyline, angle, area and volume measurements; turntable / fly-through
+video recording (WebM), high-resolution and transparent snapshots, and
+comparison of the render with the original photos.}
+
+\item{focus_subject}{Logical. If \code{TRUE} (default), the viewer opens with the
+\emph{Focus on Subject} bounding region (35\%), hiding distant background splats;
+use \emph{Full Scene} in the viewer (or \code{FALSE}) to show everything.}
+
+\item{min_opacity}{Numeric between 0 and 1. Initial minimum opacity of the
+GS Studio floater filter (default \code{0.2}): more translucent splats are hidden
+(non-destructively). It is ignored, with a message in the viewer, when it
+would hide more than 90\% of the splats (e.g. clouds that were not optimized).
+Use \code{0} to disable.}
 }
 \value{
 Invisible character string containing the path to the generated HTML file.
