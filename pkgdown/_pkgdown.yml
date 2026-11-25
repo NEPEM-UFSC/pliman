@@ -22,7 +22,7 @@ authors:
     href: https://olivoto.netlify.app/
 
 navbar:
-  title: "sparklyr"
+  title: "pliman"
   type: inverse
   left:
     - icon: fa-home
