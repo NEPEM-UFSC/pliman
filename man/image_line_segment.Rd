@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils_imagem.R
 \name{image_line_segment}
 \alias{image_line_segment}
-\title{Line Segment Detection in an Image}
+\title{Line Segment Detection in an Image (defunct)}
 \usage{
 image_line_segment(
   img,
@@ -56,24 +56,20 @@ If scale <1, sigma = sigma_scale / scale; otherwise, sigma = sigma_scale. Defaul
 \item{union_log_eps}{Numeric. Detection threshold for merging. Default is 0.0.}
 }
 \value{
-A list of class \code{lsd} containing:
-\itemize{
-\item \code{n} - Number of detected line segments.
-\item \code{lines} - A matrix with detected segments (columns: x1, y1, x2, y2, width, p, -log_nfa).
-\item \code{pixels} - A matrix assigning each pixel to a detected segment (0 = unused pixels).
-}
+Nothing; the function throws an error.
 }
 \description{
-Detects line segments in a digital image using the Line Segment
-Detector (LSD), a linear-time method that controls false detections and
-requires no parameter tuning. Based on Burns, Hanson, and Riseman's method
-with an a-contrario validation approach.
-}
-\examples{
-library(pliman)
+\code{image_line_segment()} is defunct since pliman 4.0.0. It wrapped the Line
+Segment Detector (LSD) of Grompone von Gioi et al. (2010), whose reference
+implementation is distributed under the GNU Affero General Public License;
+the code was removed so that pliman stays under GPL (>= 3). Use
+\code{\link[=image_canny_edge]{image_canny_edge()}} to detect edges instead.
 }
 \references{
 Grompone von Gioi, R., Jakubowicz, J., Morel, J.-M., & Randall, G. (2010).
 LSD: A Fast Line Segment Detector with a False Detection Control.
 IEEE Transactions on Pattern Analysis and Machine Intelligence, 32(4), 722-732.\doi{10.5201/ipol.2012.gjmr-lsd}
+}
+\seealso{
+\code{\link[=image_canny_edge]{image_canny_edge()}}
 }

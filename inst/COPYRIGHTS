@@ -1,0 +1,34 @@
+pliman is distributed under the GNU General Public License (>= 3).
+It bundles the following third-party code, all under licenses compatible
+with GPL (>= 3):
+
+src/stb_image.h, src/stb_image_write.h
+  stb single-file libraries, Copyright (c) 2017 Sean Barrett.
+  Dual licensed: public domain (Unlicense) or MIT License.
+  https://github.com/nothings/stb
+
+src/onnxruntime_c_api.h
+  ONNX Runtime C API header, Copyright (c) Microsoft Corporation.
+  MIT License. https://github.com/microsoft/onnxruntime
+  (Only the header is bundled; the ONNX Runtime library itself is downloaded
+  at run time by onnx_install() and is not distributed with pliman.)
+
+src/tools.c, src/adsf.c, src/adsf.h, src/canny.h, src/rcpp_canny.cpp
+  Canny edge detector from IPOL (Image Processing On Line,
+  http://www.ipol.im/), Copyright 2011 IPOL, adapted through the
+  image.CannyEdges R package (BNOSAC, https://github.com/bnosac/image).
+  GNU General Public License (>= 3).
+
+src/code_threshold.cpp (parts)
+  Adapted from the imagerExtra R package (Shota Ochi).
+  GNU General Public License (>= 3).
+
+src/font8x8_basic.h, src/font8x16.h
+  8x8 / 8x16 bitmap fonts by Daniel Hepper, based on work by Marcel Sondaar
+  and the IBM public domain VGA fonts. Public domain.
+
+Removed in pliman 4.0.0
+  The Line Segment Detector (LSD, src/lsd.c) and the sub-pixel contour
+  detector (src/smooth_contours.c) by Rafael Grompone von Gioi, both
+  distributed under the GNU Affero General Public License, were removed.
+  image_line_segment() and image_contour_line() are defunct.

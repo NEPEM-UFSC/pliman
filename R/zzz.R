@@ -83,7 +83,7 @@ if (getRversion() >= "2.15.1") {
       "re", "nir", "coverage_fraction", "sigma", "summarize_quantiles", "prop", "plot_id_seq",
       "B1", "B2", "B3", "cluster", "h", "s", "column", "data", "plot_area", "unique_id",
       "diam_max", "uuids", ".progress", ".data", "show", "caliper", "width",
-      "utils_contours", "coverage", "lp", "mask_disease", "mask_leaf",
+      "coverage", "lp", "mask_disease", "mask_leaf",
       "mind_temp", "p_dir", "progress_bar", "shp"))
 }
 
