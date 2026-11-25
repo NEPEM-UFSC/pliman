@@ -420,6 +420,57 @@ yolo_dataset_export <- function(img,
   dots <- list(...)
   if ("as_job" %in% names(dots)) as_job <- isTRUE(dots$as_job)
 
+  is_fewshot_obj <- function(x) {
+    inherits(x, "yolo_fewshot_model") ||
+      (is.list(x) && !inherits(x, c("Image", "image")) && length(x) > 0L &&
+       all(vapply(x, function(m) inherits(m, "yolo_fewshot_model"), logical(1))))
+  }
+  if (is_fewshot_obj(model) || is_fewshot_obj(img)) {
+    if (is_fewshot_obj(img) && !is_fewshot_obj(model)) {
+      tmp_m <- img
+      img <- model
+      model <- tmp_m
+    }
+    if (!missing(bbox)) show_bbox <- bbox
+    if (!missing(polygon)) show_polygon <- polygon
+    if (!missing(points)) show_points <- points
+    if (!missing(labels)) show_labels <- labels
+    cls_pass <- if (!missing(class_names) && !identical(class_names, "object")) class_names else NULL
+    task_pass <- if (!missing(task)) match.arg(task) else if (!is.null(model$task)) model$task else "segment"
+    eng_pass <- if (!missing(engine)) match.arg(engine) else if (!is.null(model$engine)) model$engine else "gpu"
+    conf_pass <- if ("conf_threshold" %in% names(dots)) dots$conf_threshold else if (!missing(sim_threshold)) sim_threshold else NULL
+    extra_autolabel <- dots[setdiff(names(dots), "conf_threshold")]
+    return(do.call(yolo_dataset_autolabel, c(list(
+      input_dir = img,
+      model = model,
+      output_dir = dir,
+      task = task_pass,
+      classes = cls_pass,
+      conf_threshold = conf_pass,
+      max_objects = max_objects,
+      split_ratio = split_ratio,
+      crop_to_objects = crop_to_objects,
+      crop_margin = crop_margin,
+      sahi = sahi,
+      engine = eng_pass,
+      device_id = device_id,
+      lower_size = lower_size,
+      upper_size = upper_size,
+      size_mode = size_mode,
+      move = move,
+      as_job = as_job,
+      review = review,
+      rainbow = rainbow,
+      show_bbox = show_bbox,
+      show_polygon = show_polygon,
+      show_points = show_points,
+      show_labels = show_labels,
+      show_conf = show_conf,
+      badge = badge,
+      verbose = verbose
+    ), extra_autolabel)))
+  }
+
   # 0. Support for RStudio Background Jobs (as_job = TRUE)
   if (isTRUE(as_job)) {
     if (!requireNamespace("rstudioapi", quietly = TRUE) || !rstudioapi::isAvailable()) {

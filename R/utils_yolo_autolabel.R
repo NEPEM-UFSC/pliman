@@ -968,6 +968,7 @@ yolo_fewshot_fit <- function(img,
 
     all_prototypes_sem <- list()
     all_prototypes_hr0 <- list()
+    all_prototypes_dense <- list()
     all_areas <- numeric()
     all_min_areas <- numeric()
     all_max_areas <- numeric()
@@ -1018,6 +1019,7 @@ yolo_fewshot_fit <- function(img,
 
       img_proto_sem <- list()
       img_proto_hr0 <- list()
+      img_proto_dense <- list()
       img_areas <- numeric()
       img_min_areas <- numeric()
       img_max_areas <- numeric()
@@ -1103,6 +1105,7 @@ yolo_fewshot_fit <- function(img,
           list(
             semantic = all_prototypes_sem,
             hr0 = all_prototypes_hr0,
+            dense = all_prototypes_dense,
             avg_area = if (length(all_areas) > 0) mean(all_areas) else 100.0,
             min_area = if (length(all_min_areas) > 0) min(all_min_areas) else 10.0,
             max_area = if (length(all_max_areas) > 0) max(all_max_areas) else 500.0
@@ -1290,6 +1293,7 @@ yolo_fewshot_fit <- function(img,
           if (!is.null(p_res) && !is.null(p_res$prototypes)) {
             img_proto_sem <- p_res$prototypes$semantic
             img_proto_hr0 <- p_res$prototypes$hr0
+            img_proto_dense <- p_res$prototypes$dense
             if (!is.null(p_res$prototypes$avg_area)) {
               img_areas <- as.numeric(p_res$prototypes$avg_area)
             }
@@ -1364,6 +1368,14 @@ yolo_fewshot_fit <- function(img,
           r_polys <- rev$polygons
           curr_points <- rev$points
           if (!is.null(rev$conf)) conf_threshold <- rev$conf
+          if (!is.null(rev$prototypes) && !is.null(rev$prototypes$semantic)) {
+            img_proto_sem <- rev$prototypes$semantic
+            img_proto_hr0 <- rev$prototypes$hr0
+            img_proto_dense <- rev$prototypes$dense
+            if (!is.null(rev$prototypes$avg_area)) img_areas <- as.numeric(rev$prototypes$avg_area)
+            if (!is.null(rev$prototypes$min_area)) img_min_areas <- as.numeric(rev$prototypes$min_area)
+            if (!is.null(rev$prototypes$max_area)) img_max_areas <- as.numeric(rev$prototypes$max_area)
+          }
 
           if (identical(rev$action, "stop")) {
             stop_early <- TRUE
@@ -1376,19 +1388,28 @@ yolo_fewshot_fit <- function(img,
         break
       }
 
-      # Commit learned prototypes from this image
+      # Commit and accumulate learned prototypes across images (instead of overwriting)
       if (length(img_proto_sem) > 0L) {
-        if (!is.null(p_res) && !is.null(p_res$prototypes)) {
-          c_p <- .compact_prototypes(p_res$prototypes, max_protos = 8L)
-          all_prototypes_sem <- c_p$semantic
-          all_prototypes_hr0 <- c_p$hr0
-          if (!is.null(c_p$avg_area)) all_areas <- c_p$avg_area
-          if (!is.null(c_p$min_area)) all_min_areas <- c_p$min_area
-          if (!is.null(c_p$max_area)) all_max_areas <- c_p$max_area
-        } else {
-          all_prototypes_sem <- img_proto_sem
-          all_prototypes_hr0 <- img_proto_hr0
-        }
+        comb_sem <- if (!is.null(pre_proto)) img_proto_sem else c(all_prototypes_sem, img_proto_sem)
+        comb_hr0 <- if (!is.null(pre_proto)) img_proto_hr0 else c(all_prototypes_hr0, img_proto_hr0)
+        comb_dense <- if (!is.null(pre_proto)) img_proto_dense else c(all_prototypes_dense, img_proto_dense)
+        all_areas <- c(all_areas, img_areas)
+        all_min_areas <- c(all_min_areas, img_min_areas)
+        all_max_areas <- c(all_max_areas, img_max_areas)
+        c_p <- .compact_prototypes(
+          list(
+            semantic = comb_sem,
+            hr0 = comb_hr0,
+            dense = comb_dense,
+            avg_area = if (length(all_areas) > 0) mean(all_areas, na.rm = TRUE) else 100.0,
+            min_area = if (length(all_min_areas) > 0) min(all_min_areas, na.rm = TRUE) else 10.0,
+            max_area = if (length(all_max_areas) > 0) max(all_max_areas, na.rm = TRUE) else 500.0
+          ),
+          max_protos = 8L
+        )
+        all_prototypes_sem <- c_p$semantic
+        all_prototypes_hr0 <- c_p$hr0
+        all_prototypes_dense <- c_p$dense
       }
 
       all_ref_boxes[[canon_id]] <- r_boxes
@@ -1419,6 +1440,7 @@ yolo_fewshot_fit <- function(img,
     merged_prototypes <- list(
       semantic = all_prototypes_sem,
       hr0 = all_prototypes_hr0,
+      dense = all_prototypes_dense,
       avg_area = if (length(all_areas) > 0) mean(all_areas) else 100.0,
       min_area = if (length(all_min_areas) > 0) min(all_min_areas) else 10.0,
       max_area = if (length(all_max_areas) > 0) max(all_max_areas) else 500.0
@@ -1945,6 +1967,93 @@ c.yolo_fewshot_model <- function(...) {
   )
 }
 
+# Internal helper: if a multi-image yolo_fewshot_model was created with incomplete
+# merged prototypes (e.g. missing dense ZNCC kernels or only holding the last
+# reference image's prototypes), rebuild the merged prototype pool from
+# reference_images + exemplar_points_map.
+.ensure_multi_image_prototypes <- function(model, engine = NULL, device_id = -1) {
+  if (inherits(model, "yolo_fewshot_multimodel") && !is.null(model$models)) {
+    model$models <- lapply(model$models, .ensure_multi_image_prototypes, engine = engine, device_id = device_id)
+    return(model)
+  }
+  if (!inherits(model, "yolo_fewshot_model") || !identical(model$method, "sam")) {
+    return(model)
+  }
+  ref_imgs <- model$reference_images
+  pts_map <- model$exemplar_points_map
+  if (is.null(ref_imgs) || length(ref_imgs) == 0L || is.null(pts_map) || length(pts_map) == 0L) {
+    return(model)
+  }
+  ref_keys <- if (!is.null(model$reference_image_paths) && length(model$reference_image_paths) > 0L) {
+    intersect(model$reference_image_paths, names(ref_imgs))
+  } else {
+    names(ref_imgs)
+  }
+  if (length(ref_keys) == 0L) ref_keys <- names(ref_imgs)
+  expected_pts <- sum(vapply(ref_keys, function(k) {
+    p <- pts_map[[k]]
+    if (is.matrix(p) || is.data.frame(p)) nrow(p) else 0L
+  }, integer(1)))
+  cur_sem_n <- if (!is.null(model$prototypes) && !is.null(model$prototypes$semantic)) length(model$prototypes$semantic) else 0L
+  has_dense <- !is.null(model$prototypes) && !is.null(model$prototypes$dense) && length(model$prototypes$dense) > 0L
+  if (has_dense && cur_sem_n >= min(8L, expected_pts)) {
+    return(model)
+  }
+
+  used_eng <- if (!is.null(engine)) engine else if (!is.null(model$engine)) model$engine else "gpu"
+  all_sem <- list()
+  all_hr0 <- list()
+  all_dense <- list()
+  all_areas <- numeric()
+  all_min_a <- numeric()
+  all_max_a <- numeric()
+
+  for (rk in ref_keys) {
+    im_k <- ref_imgs[[rk]]
+    pts_k <- pts_map[[rk]]
+    if (is.null(im_k) || is.null(pts_k) || nrow(pts_k) == 0L) next
+    p_res <- tryCatch({
+      .run_persam(
+        mat = image_data(im_k),
+        exemplar_points = pts_k,
+        precomputed_prototypes = NULL,
+        sim_threshold = if (!is.null(model$conf_threshold)) model$conf_threshold else 0.5,
+        min_dist = 12,
+        feat_res = 256L,
+        engine = used_eng,
+        sam_device = if (identical(used_eng, "gpu")) "gpu" else "cpu",
+        device_id = device_id,
+        fill_hull = TRUE,
+        verbose = FALSE,
+        mask = FALSE
+      )
+    }, error = function(e) NULL)
+    if (!is.null(p_res) && !is.null(p_res$prototypes)) {
+      all_sem <- c(all_sem, p_res$prototypes$semantic)
+      all_hr0 <- c(all_hr0, p_res$prototypes$hr0)
+      all_dense <- c(all_dense, p_res$prototypes$dense)
+      if (!is.null(p_res$prototypes$avg_area)) all_areas <- c(all_areas, as.numeric(p_res$prototypes$avg_area))
+      if (!is.null(p_res$prototypes$min_area)) all_min_a <- c(all_min_a, as.numeric(p_res$prototypes$min_area))
+      if (!is.null(p_res$prototypes$max_area)) all_max_a <- c(all_max_a, as.numeric(p_res$prototypes$max_area))
+    }
+  }
+
+  if (length(all_sem) > 0L) {
+    model$prototypes <- .compact_prototypes(
+      list(
+        semantic = all_sem,
+        hr0 = all_hr0,
+        dense = all_dense,
+        avg_area = if (length(all_areas) > 0) mean(all_areas, na.rm = TRUE) else 100.0,
+        min_area = if (length(all_min_a) > 0) min(all_min_a, na.rm = TRUE) else 10.0,
+        max_area = if (length(all_max_a) > 0) max(all_max_a, na.rm = TRUE) else 500.0
+      ),
+      max_protos = 8L
+    )
+  }
+  model
+}
+
 #' @title Predict Few-Shot Instances on a New Image
 #' @name yolo_fewshot_predict
 #' @description
@@ -2000,6 +2109,7 @@ yolo_fewshot_predict <- function(model,
       model <- do.call(c, model)
     }
   }
+  model <- .ensure_multi_image_prototypes(model, engine = engine, device_id = device_id)
 
   if (!inherits(model, "yolo_fewshot_model")) {
     cli::cli_abort("{.arg model} must be a {.cls yolo_fewshot_model} from {.fn yolo_fewshot_fit}.")
@@ -2947,6 +3057,10 @@ yolo_dataset_autolabel <- function(input_dir,
   existing_hist[[length(existing_hist) + 1L]] <- initial_history_entry
   saveRDS(existing_hist, hist_file)
 
+  if (!is_yolo_model) {
+    model <- .ensure_multi_image_prototypes(model, engine = used_eng, device_id = device_id)
+  }
+
   for (i in seq_along(shuffled)) {
     im_path <- shuffled[i]
     sp <- split_assign[i]
@@ -3029,7 +3143,7 @@ yolo_dataset_autolabel <- function(input_dir,
           if (isTRUE(verbose) && !is.null(cli_pb)) cli::cli_progress_update(id = cli_pb)
           next
         }
-        df_b <- if (is.data.frame(seg)) seg else if (!is.null(seg$boxes)) as.data.frame(seg$boxes) else if (!is.null(attr(seg, "boxes"))) as.data.frame(attr(seg, "boxes")) else data.frame()
+        df_b <- if (is.data.frame(seg)) seg else if (!is.null(seg$results)) as.data.frame(seg$results) else if (!is.null(seg$boxes)) as.data.frame(seg$boxes) else if (!is.null(attr(seg, "results"))) as.data.frame(attr(seg, "results")) else if (!is.null(attr(seg, "boxes"))) as.data.frame(attr(seg, "boxes")) else data.frame()
         polys <- list()
         cnts <- if (!is.null(seg$contours)) seg$contours else attr(seg, "contours")
         if (!is.null(cnts)) {
@@ -3133,6 +3247,18 @@ yolo_dataset_autolabel <- function(input_dir,
     stem_dest <- unique_stems[[im_path]]
     dest_img <- file.path(output_dir, "images", sp, fn_dest)
     dest_lbl <- file.path(output_dir, "labels", sp, paste0(stem_dest, ".txt"))
+
+    # If re-running on an already-split dataset folder, remove stale copies in other splits
+    for (other_sp in setdiff(c("train", "val", "test"), sp)) {
+      stale_img <- file.path(output_dir, "images", other_sp, fn_dest)
+      stale_lbl <- file.path(output_dir, "labels", other_sp, paste0(stem_dest, ".txt"))
+      if (file.exists(stale_img) && normalizePath(stale_img, winslash = "/", mustWork = FALSE) != normalizePath(im_path, winslash = "/", mustWork = FALSE)) {
+        unlink(stale_img, force = TRUE)
+      }
+      if (file.exists(stale_lbl)) {
+        unlink(stale_lbl, force = TRUE)
+      }
+    }
 
     logged_orig_paths <- c(logged_orig_paths, im_path)
     logged_dest_imgs <- c(logged_dest_imgs, dest_img)
