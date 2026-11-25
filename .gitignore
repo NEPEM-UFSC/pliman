@@ -1,0 +1,16 @@
+# Build artifacts
+src/*.o
+src/*.obj
+src/*.so
+src/*.dll
+src/*.dylib
+src/*.a
+
+# R session files
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+*.Rcheck/
+*.tar.gz

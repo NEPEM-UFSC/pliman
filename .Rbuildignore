@@ -25,3 +25,6 @@ vignettes
 ^scratch$
 ^weights$
 .*\.pt$
+^src/.*\.o$
+^src/.*\.dll$
+^src/.*\.so$
