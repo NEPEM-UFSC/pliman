@@ -72,6 +72,7 @@ Suggests:
     tiff,
     webp,
     zip
+SystemRequirements: libpng, FFTW3 (libfftw3)
 LinkingTo: 
     Rcpp,
     RcppArmadillo

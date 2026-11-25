@@ -1,0 +1,28 @@
+# Build artifacts
+src/*.o
+src/*.obj
+src/*.so
+src/*.dll
+src/*.dylib
+src/*.a
+
+# R session files
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+*.Rcheck/
+*.tar.gz
+
+# Local / development files
+logo_pliman.ai
+package_release.R
+check.R
+inst/doc
+/doc/
+/Meta/
+
+# Python bytecode (inst/python)
+__pycache__/
+*.pyc
