@@ -19,11 +19,12 @@ gs_create(
 Defaults to uniform green \code{c(0.2, 0.75, 0.25)} for plant points.}
 
 \item{initial_scale}{Optional numeric scalar. If \code{NULL} (default), scales are automatically
-computed as the mean distance to the 3 nearest neighbors.}
+computed per point as the root-mean-square distance to its 3 nearest neighbors
+(the initialization of Kerbl et al., 2023).}
 
 \item{initial_opacity}{Numeric scalar between 0 and 1. Initial Gaussian opacity. Defaults to \code{0.15}.}
 
-\item{sh_degree}{Integer. Maximum Spherical Harmonics degree (0, 1, or 2). Defaults to \code{0}.}
+\item{sh_degree}{Integer. Maximum Spherical Harmonics degree (0, 1, 2, or 3). Defaults to \code{0}.}
 }
 \value{
 An S3 object of class \code{gaussian_splat}.

@@ -1195,8 +1195,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // cpp_gs_train_step
-List cpp_gs_train_step(List camera, List gaussians, NumericVector target_img, List adam_m, List adam_v, int iter, double lr_pos, double lr_scale, double lr_opac, double lr_sh);
-RcppExport SEXP _pliman_cpp_gs_train_step(SEXP cameraSEXP, SEXP gaussiansSEXP, SEXP target_imgSEXP, SEXP adam_mSEXP, SEXP adam_vSEXP, SEXP iterSEXP, SEXP lr_posSEXP, SEXP lr_scaleSEXP, SEXP lr_opacSEXP, SEXP lr_shSEXP) {
+List cpp_gs_train_step(List camera, List gaussians, NumericVector target_img, List adam_m, List adam_v, int iter, double lr_pos, double lr_scale, double lr_opac, double lr_sh, double lr_rot, double bg_r, double bg_g, double bg_b);
+RcppExport SEXP _pliman_cpp_gs_train_step(SEXP cameraSEXP, SEXP gaussiansSEXP, SEXP target_imgSEXP, SEXP adam_mSEXP, SEXP adam_vSEXP, SEXP iterSEXP, SEXP lr_posSEXP, SEXP lr_scaleSEXP, SEXP lr_opacSEXP, SEXP lr_shSEXP, SEXP lr_rotSEXP, SEXP bg_rSEXP, SEXP bg_gSEXP, SEXP bg_bSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -1210,7 +1210,11 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type lr_scale(lr_scaleSEXP);
     Rcpp::traits::input_parameter< double >::type lr_opac(lr_opacSEXP);
     Rcpp::traits::input_parameter< double >::type lr_sh(lr_shSEXP);
-    rcpp_result_gen = Rcpp::wrap(cpp_gs_train_step(camera, gaussians, target_img, adam_m, adam_v, iter, lr_pos, lr_scale, lr_opac, lr_sh));
+    Rcpp::traits::input_parameter< double >::type lr_rot(lr_rotSEXP);
+    Rcpp::traits::input_parameter< double >::type bg_r(bg_rSEXP);
+    Rcpp::traits::input_parameter< double >::type bg_g(bg_gSEXP);
+    Rcpp::traits::input_parameter< double >::type bg_b(bg_bSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_gs_train_step(camera, gaussians, target_img, adam_m, adam_v, iter, lr_pos, lr_scale, lr_opac, lr_sh, lr_rot, bg_r, bg_g, bg_b));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -3491,7 +3495,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_cpp_gs_measure", (DL_FUNC) &_pliman_cpp_gs_measure, 5},
     {"_pliman_cpp_gs_densify", (DL_FUNC) &_pliman_cpp_gs_densify, 7},
     {"_pliman_cpp_gs_read_ply", (DL_FUNC) &_pliman_cpp_gs_read_ply, 1},
-    {"_pliman_cpp_gs_train_step", (DL_FUNC) &_pliman_cpp_gs_train_step, 10},
+    {"_pliman_cpp_gs_train_step", (DL_FUNC) &_pliman_cpp_gs_train_step, 14},
     {"_pliman_cpp_gs_filter_outliers", (DL_FUNC) &_pliman_cpp_gs_filter_outliers, 5},
     {"_pliman_cpp_gs_knn", (DL_FUNC) &_pliman_cpp_gs_knn, 3},
     {"_pliman_haralick_features_cpp", (DL_FUNC) &_pliman_haralick_features_cpp, 3},

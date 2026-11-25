@@ -29,3 +29,4 @@ vignettes
 ^AGENTS\.md$
 ^\.agents$
 ^OPTIMIZATION_PLAN\.md$
+__pycache__

@@ -28,6 +28,13 @@ constexpr double SH_C2_1 = -1.0925484305920792;
 constexpr double SH_C2_2 = 0.31539156525252005;
 constexpr double SH_C2_3 = -1.0925484305920792;
 constexpr double SH_C2_4 = 0.5462742152960396;
+constexpr double SH_C3_0 = -0.5900435899266435;
+constexpr double SH_C3_1 = 2.890611442640554;
+constexpr double SH_C3_2 = -0.4570457994644658;
+constexpr double SH_C3_3 = 0.3731763325901154;
+constexpr double SH_C3_4 = -0.4570457994644658;
+constexpr double SH_C3_5 = 1.445305721320277;
+constexpr double SH_C3_6 = -0.5900435899266435;
 
 inline double sigmoid(double x) {
   return 1.0 / (1.0 + std::exp(-x));
@@ -153,6 +160,22 @@ inline void eval_sh(int degree, const std::vector<double>& sh, double dir_x, dou
     r += y4 * sh[12] + y5 * sh[15] + y6 * sh[18] + y7 * sh[21] + y8 * sh[24];
     g += y4 * sh[13] + y5 * sh[16] + y6 * sh[19] + y7 * sh[22] + y8 * sh[25];
     b += y4 * sh[14] + y5 * sh[17] + y6 * sh[20] + y7 * sh[23] + y8 * sh[26];
+
+    if (degree >= 3 && sh.size() >= 48) {
+      double y9  = SH_C3_0 * dir_y * (3.0 * xx - yy);
+      double y10 = SH_C3_1 * xy * dir_z;
+      double y11 = SH_C3_2 * dir_y * (4.0 * zz - xx - yy);
+      double y12 = SH_C3_3 * dir_z * (2.0 * zz - 3.0 * xx - 3.0 * yy);
+      double y13 = SH_C3_4 * dir_x * (4.0 * zz - xx - yy);
+      double y14 = SH_C3_5 * dir_z * (xx - yy);
+      double y15 = SH_C3_6 * dir_x * (xx - 3.0 * yy);
+      const double ys[7] = {y9, y10, y11, y12, y13, y14, y15};
+      for (int k = 0; k < 7; ++k) {
+        r += ys[k] * sh[27 + 3 * k];
+        g += ys[k] * sh[28 + 3 * k];
+        b += ys[k] * sh[29 + 3 * k];
+      }
+    }
   }
 
   r = clamp(r, 0.0, 1.0);

@@ -44,6 +44,11 @@
 
 ### 3D Reconstruction & Video Analytics
 * **Gaussian Splatting & 3D Phenotyping**: `gs_create()`, `gs_render()`, `gs_measure()`, and `gs_segment_sam()` for 3D point cloud generation, volumetric plant reconstruction, and novel view synthesis.
+  - `gs_fit()` now follows Kerbl et al. (2023): anisotropic Gaussians (scales + rotations), SH up to degree 3, L1 + D-SSIM loss, extent-relative densification, opacity reset and exact analytical gradients. The GPU back end (PyTorch + CuPy runtime-compiled CUDA kernels) bins splats into tiles correctly (previously each tile received an arbitrary slice of Gaussians).
+  - COLMAP reconstructions with lens distortion (e.g. `"OPENCV"`) are undistorted with `image_undistorter` before training; point clouds are initialized with opacity 0.1 and k-NN scales.
+  - `gs_viewer()` renders true anisotropic, depth-sorted splats (WebGL2) and opens trained splats in `"splats"` mode; fixed a duplicated `let` declaration that prevented the viewer script from running, plus crop/export errors.
+  - `gs_export_ply()` writes the full 3DGS PLY layout (`f_rest_*`), and `gs_import_metashape()` reads trained 3DGS PLY files back.
+  - `gs_filter_outliers()` gains `method = "density"` (now the default), the same voxel-grid density filter as the *Online Noise Filter* of `gs_viewer()` (`density = "light"`, `"medium"`, `"strong"` or a percentile; `cell_size`). The SOR cut-off (`mean + std_ratio * sd`) is inflated by a few very distant tie points and left most floating noise in SfM clouds; it remains available with `method = "sor"` (or `"both"`). The viewer now uses the same voxel grid as R, so both filters agree.
 * **High-Throughput Video Analytics**: `video_detect_dl()` with multi-object tracking (ByteTrack/SORT), C++ state management, and real-time bounding box and mask rendering.
 * **Image Stitching & Focus Stacking**: `image_stitch()` for seamless panoramic mosaic construction and `focus_stack()` for extended depth-of-field macro photography.
 

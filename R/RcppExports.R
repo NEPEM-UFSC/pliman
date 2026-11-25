@@ -476,22 +476,28 @@ cpp_gs_read_ply <- function(file_path) {
 #' @title Differentiable 3D Gaussian Splatting Training Step
 #' @name cpp_gs_train_step
 #' @description
-#' Executes forward rasterization, photometric loss calculation (L1),
-#' analytical gradient backpropagation, and Adam parameter updates.
+#' Executes forward tile rasterization, photometric L1 loss, the exact analytical
+#' backward pass of Kerbl et al. (2023) (alpha compositing -> 2D conic/mean ->
+#' EWA projection -> 3D covariance -> scales and rotation quaternions) and Adam
+#' parameter updates for positions, log-scales, quaternions, opacity logits and
+#' base colors (SH band 0).
 #' @param camera List of camera parameters.
 #' @param gaussians List of current 3D Gaussian parameters.
-#' @param target_img NumericVector representing the W x H x 3 target image.
-#' @param adam_m List of first Adam momentum moments (pos, scale, opac, sh).
-#' @param adam_v List of second Adam momentum moments (pos, scale, opac, sh).
+#' @param target_img NumericVector representing the W x H x 3 target image (x fastest).
+#' @param adam_m List of first Adam moments (pos, scale, opac, sh and optionally rot).
+#' @param adam_v List of second Adam moments (pos, scale, opac, sh and optionally rot).
 #' @param iter Integer. Current iteration number.
 #' @param lr_pos Double. Learning rate for 3D positions. Defaults to 0.00016.
 #' @param lr_scale Double. Learning rate for log-scales. Defaults to 0.005.
 #' @param lr_opac Double. Learning rate for opacity logit. Defaults to 0.05.
 #' @param lr_sh Double. Learning rate for colors / spherical harmonics. Defaults to 0.0025.
-#' @return A List with updated gaussians, adam_m, adam_v, loss, and grad_2d_norm.
+#' @param lr_rot Double. Learning rate for rotation quaternions. Defaults to 0.001.
+#' @param bg_r,bg_g,bg_b Background color used for compositing. Defaults to black.
+#' @return A List with updated gaussians, adam_m, adam_v, loss, grad_2d_norm
+#'   (screen-space NDC gradient norm per Gaussian) and visible (logical).
 #' @export
-cpp_gs_train_step <- function(camera, gaussians, target_img, adam_m, adam_v, iter = 1L, lr_pos = 0.00016, lr_scale = 0.005, lr_opac = 0.05, lr_sh = 0.0025) {
-    .Call(`_pliman_cpp_gs_train_step`, camera, gaussians, target_img, adam_m, adam_v, iter, lr_pos, lr_scale, lr_opac, lr_sh)
+cpp_gs_train_step <- function(camera, gaussians, target_img, adam_m, adam_v, iter = 1L, lr_pos = 0.00016, lr_scale = 0.005, lr_opac = 0.05, lr_sh = 0.0025, lr_rot = 0.001, bg_r = 0.0, bg_g = 0.0, bg_b = 0.0) {
+    .Call(`_pliman_cpp_gs_train_step`, camera, gaussians, target_img, adam_m, adam_v, iter, lr_pos, lr_scale, lr_opac, lr_sh, lr_rot, bg_r, bg_g, bg_b)
 }
 
 #' @title Statistical and Radius Outlier Removal (SOR / ROR) for 3D Point Clouds

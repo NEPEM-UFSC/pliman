@@ -15,7 +15,7 @@ gs_from_photos(
   overwrite = FALSE,
   sequential_overlap = 15,
   max_num_features = 8192,
-  iterations = 1000,
+  iterations = 7000,
   downsample = 4,
   densify_interval = 100,
   lr_pos = 0.00016,
@@ -24,6 +24,7 @@ gs_from_photos(
   viewer = TRUE,
   show_colmap_output = FALSE,
   verbose = TRUE,
+  filter_outliers = TRUE,
   ...
 )
 }
@@ -48,7 +49,7 @@ gs_from_photos(
 
 \item{max_num_features}{Maximum number of visual features per image. Defaults to \code{8192}.}
 
-\item{iterations}{Total number of 3D Gaussian Splatting optimization steps. Defaults to \code{1000}.}
+\item{iterations}{Total number of 3D Gaussian Splatting optimization steps. Defaults to \code{7000}.}
 
 \item{downsample}{Image downsample factor for training acceleration (e.g. \code{2}, \code{4}, or \code{8}). Defaults to \code{4}.}
 
@@ -65,6 +66,9 @@ gs_from_photos(
 \item{show_colmap_output}{Logical. If \code{TRUE}, streams raw COLMAP terminal output in real time to the R console. Defaults to \code{FALSE}.}
 
 \item{verbose}{Logical. If \code{TRUE} (default), prints detailed step-by-step progress.}
+
+\item{filter_outliers}{Logical. If \code{TRUE} (default), floating tie points are removed with
+\code{\link[=gs_filter_outliers]{gs_filter_outliers()}} (\code{method = "sor"}, \code{k = 5}, \code{std_ratio = 2}) before optimization.}
 
 \item{...}{Additional arguments passed to \code{\link[=colmap_sfm]{colmap_sfm()}}, \code{\link[=gs_fit]{gs_fit()}}, or \code{\link[=gs_viewer]{gs_viewer()}}.}
 }

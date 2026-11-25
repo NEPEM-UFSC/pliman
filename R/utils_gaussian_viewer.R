@@ -89,6 +89,8 @@ gs_viewer <- function(splat = NULL,
                       title = "3D Point Cloud & Gaussian Splat Viewer [pliman]") {
   mode_user_specified <- !missing(mode)
   color_by_user_specified <- !missing(color_by)
+  rotation_user_specified <- !missing(rotation)
+  auto_rotation <- NULL
 
   # Normalize thumbnails argument
   if (isTRUE(thumbnails)) {
@@ -162,6 +164,21 @@ gs_viewer <- function(splat = NULL,
     # Frame camera tightly onto the central subject rather than distant room walls:
     target_dim <- min(global_dim, max(0.2, q70_dist * 2.2))
 
+    # Optimized splats also contain large background Gaussians, so the point
+    # distribution is a poor guide: frame the subject the photos converge on
+    # instead (and level the model using the camera rig) when poses are known.
+    rig_cams <- splat$cameras %||% attr(splat, "cameras")
+    if (isTRUE(splat$trained) && is.list(rig_cams) && length(rig_cams) >= 3) {
+      rig <- tryCatch(.gs_viewer_rig_framing(rig_cams), error = function(e) NULL)
+      if (!is.null(rig)) {
+        center_x <- rig$center[1]
+        center_y <- rig$center[2]
+        center_z <- rig$center[3]
+        target_dim <- rig$target_dim
+        auto_rotation <- rig$rotation
+      }
+    }
+
     pos_centered <- cbind(
       pos[, 1] - center_x,
       pos[, 2] - center_y,
@@ -184,6 +201,15 @@ gs_viewer <- function(splat = NULL,
     semantics <- as.integer(splat$semantic_ids)
     unique_sems <- sort(unique(semantics))
 
+    # Full anisotropic 3D covariance (upper triangle) for true splat rendering
+    gs_cov_b64 <- .gs_viewer_cov_b64(splat)
+
+    # Voxel grid of the online noise filter: same parameters as
+    # gs_filter_outliers(method = "density"), so both give identical results.
+    dens_gp <- .gs_density_grid_params(pos)
+    dens_cell <- dens_gp$cell_size
+    dens_origin <- dens_gp$origin - c(center_x, center_y, center_z)
+
     pos_str <- paste(round(as.vector(t(pos_centered)), 5), collapse = ",")
     rgb_str <- paste(round(as.vector(t(cbind(r_col, g_col, b_col))), 4), collapse = ",")
     opac_str <- paste(round(opacs, 4), collapse = ",")
@@ -198,16 +224,19 @@ gs_viewer <- function(splat = NULL,
     center_x <- 0; center_y <- 0; center_z <- 0
     rob_dx <- 0; rob_dy <- 0; rob_dz <- 0
     target_dim <- 1.0
+    dens_cell <- 0
+    dens_origin <- c(0, 0, 0)
     pos_str <- ""
     rgb_str <- ""
     opac_str <- ""
     scale_str <- ""
     sem_str <- ""
+    gs_cov_b64 <- ""
     unique_sems <- 0
   }
 
   if (!mode_user_specified) {
-    mode <- if (has_faces) "mesh" else "points"
+    mode <- if (has_faces) "mesh" else if (has_initial_model && isTRUE(splat$trained)) "splats" else "points"
   } else {
     mode <- match.arg(mode, c("points", "splats", "mesh"))
   }
@@ -252,6 +281,7 @@ gs_viewer <- function(splat = NULL,
   }
 
   # Initial rotation
+  if (!rotation_user_specified && !is.null(auto_rotation)) rotation <- auto_rotation
   init_rot_x <- if (length(rotation) >= 1) as.numeric(rotation[1]) else 0
   init_rot_y <- if (length(rotation) >= 2) as.numeric(rotation[2]) else 0
   init_rot_z <- if (length(rotation) >= 3) as.numeric(rotation[3]) else 0
@@ -2031,6 +2061,10 @@ gs_viewer <- function(splat = NULL,
     let rawCameras = ', cameras_json, ';
     let targetDim = ', target_dim, ';
     let centerOrigin = [', center_x, ', ', center_y, ', ', center_z, '];
+    const gsCov3DBase64 = "', gs_cov_b64, '";
+    // Density-filter voxel grid shared with gs_filter_outliers(method = "density")
+    let densityCellSize = ', sprintf("%.10g", dens_cell), ';
+    let densityGridOrigin = [', paste(sprintf("%.10g", dens_origin), collapse = ", "), '];
 
     // Palettes for Semantic Classes
     const semanticColorsPalette = {
@@ -2499,7 +2533,287 @@ gs_viewer <- function(splat = NULL,
       pointsMesh = new THREE.Points(geometry, material);
       modelContainer.add(pointsMesh);
       updateSplatBuffers();
+      buildGaussianSplatMesh();
+      if (gsMesh && currentRenderMode === "splats") pointsMesh.visible = false;
     }
+
+    // -------------------------------------------------------------------------
+    // True 3D Gaussian Splatting renderer (Kerbl et al., 2023)
+    // Anisotropic 3D covariances are projected per frame with the EWA Jacobian in
+    // the vertex shader, splats are depth-sorted back-to-front (16-bit counting
+    // sort) and composited with premultiplied alpha. Requires WebGL2.
+    // -------------------------------------------------------------------------
+    function gsDecodeF32(b64) {
+      if (!b64 || b64.length === 0) return null;
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Float32Array(bytes.buffer);
+    }
+
+    let rawCov3D = gsDecodeF32(gsCov3DBase64);
+    let gsMesh = null, gsMaterial = null, gsGeometry = null, gsTex = null, gsIndexAttr = null;
+    let gsVisibleIdx = new Uint32Array(0);
+    let gsNumVisible = 0;
+    let gsSortDirty = true;
+    let gsLastSortTime = 0;
+    let gsLastView = new Float32Array(4);
+    let gsZ = new Float32Array(0);
+    let gsKeys = new Uint32Array(0);
+    const gsCounts = new Uint32Array(65536);
+    const gsDrawSize = new THREE.Vector2();
+    const gsTmpMat = new THREE.Matrix4();
+    const gsDefaultSize = pointSizeValue > 0 ? pointSizeValue : 3.5;
+
+    function gsAvailable() {
+      return !!(rawCov3D && rawCov3D.length === numGaussians * 6 && numGaussians > 0 &&
+                renderer && renderer.capabilities && renderer.capabilities.isWebGL2);
+    }
+
+    function gsMakeTex(data, w, h) {
+      const t = new THREE.DataTexture(data, w, h, THREE.RGBAFormat, THREE.FloatType);
+      t.minFilter = THREE.NearestFilter;
+      t.magFilter = THREE.NearestFilter;
+      t.generateMipmaps = false;
+      t.flipY = false;
+      t.needsUpdate = true;
+      return t;
+    }
+
+    function disposeGaussianSplatMesh() {
+      if (gsMesh && gsMesh.parent) gsMesh.parent.remove(gsMesh);
+      if (gsGeometry) gsGeometry.dispose();
+      if (gsMaterial) gsMaterial.dispose();
+      if (gsTex) ["centers", "covA", "covB", "colors"].forEach(k => { if (gsTex[k]) gsTex[k].dispose(); });
+      gsMesh = null; gsGeometry = null; gsMaterial = null; gsTex = null; gsIndexAttr = null;
+      gsNumVisible = 0;
+    }
+
+    const gsVertexShader = `
+      precision highp float;
+      precision highp int;
+      precision highp sampler2D;
+      uniform sampler2D uCenters;
+      uniform sampler2D uCovA;
+      uniform sampler2D uCovB;
+      uniform sampler2D uColors;
+      uniform int uTexW;
+      uniform vec2 uViewport;
+      uniform float uScaleMod;
+      uniform float uOrtho;
+      in float splatIndex;
+      out vec4 vColor;
+      out vec2 vPos;
+      void main() {
+        int idx = int(splatIndex + 0.5);
+        ivec2 tc = ivec2(idx % uTexW, idx / uTexW);
+        vec4 col = texelFetch(uColors, tc, 0);
+        vec3 center = texelFetch(uCenters, tc, 0).xyz;
+        vec4 cam = modelViewMatrix * vec4(center, 1.0);
+        vec4 clipPos = projectionMatrix * cam;
+        float lim = 1.2 * clipPos.w;
+        if (col.a <= 0.0 || (uOrtho < 0.5 && cam.z > -1e-5) ||
+            clipPos.x < -lim || clipPos.x > lim || clipPos.y < -lim || clipPos.y > lim) {
+          gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+          return;
+        }
+        vec4 cA = texelFetch(uCovA, tc, 0);
+        vec4 cB = texelFetch(uCovB, tc, 0);
+        mat3 Vrk = mat3(cA.x, cA.y, cA.z,
+                        cA.y, cA.w, cB.x,
+                        cA.z, cB.x, cB.y) * (uScaleMod * uScaleMod);
+        mat3 Wm = mat3(modelViewMatrix);
+        mat3 Vc = Wm * Vrk * transpose(Wm);
+        float fx = projectionMatrix[0][0] * uViewport.x * 0.5;
+        float fy = projectionMatrix[1][1] * uViewport.y * 0.5;
+        vec3 j1;
+        vec3 j2;
+        if (uOrtho > 0.5) {
+          j1 = vec3(fx, 0.0, 0.0);
+          j2 = vec3(0.0, fy, 0.0);
+        } else {
+          float z = cam.z;
+          j1 = vec3(fx / -z, 0.0, fx * cam.x / (z * z));
+          j2 = vec3(0.0, fy / -z, fy * cam.y / (z * z));
+        }
+        float a = dot(j1, Vc * j1) + 0.3;
+        float b = dot(j1, Vc * j2);
+        float c = dot(j2, Vc * j2) + 0.3;
+        float mid = 0.5 * (a + c);
+        float rad = length(vec2(0.5 * (a - c), b));
+        float l1 = mid + rad;
+        float l2 = max(mid - rad, 0.1);
+        vec2 d1 = (abs(b) < 1e-12) ? ((a >= c) ? vec2(1.0, 0.0) : vec2(0.0, 1.0)) : normalize(vec2(b, l1 - a));
+        vec2 major = min(sqrt(2.0 * l1), 2048.0) * d1;
+        vec2 minor = min(sqrt(2.0 * l2), 2048.0) * vec2(-d1.y, d1.x);   // CCW: keeps the quad front-facing
+        vec2 ndc = clipPos.xy / clipPos.w;
+        vec2 offPx = position.x * major + position.y * minor;
+        vColor = col;
+        vPos = position.xy;
+        gl_Position = vec4(ndc + offPx * 2.0 / uViewport, clipPos.z / clipPos.w, 1.0);
+      }
+    `;
+
+    const gsFragmentShader = `
+      precision highp float;
+      in vec4 vColor;
+      in vec2 vPos;
+      layout(location = 0) out highp vec4 gsFragColor;
+      void main() {
+        float A = -dot(vPos, vPos);
+        if (A < -4.0) discard;
+        float B = exp(A) * vColor.a;
+        if (B < 1.0 / 255.0) discard;
+        gsFragColor = vec4(vColor.rgb * B, B);
+      }
+    `;
+
+    function buildGaussianSplatMesh() {
+      disposeGaussianSplatMesh();
+      if (!gsAvailable()) return;
+      const n = numGaussians;
+      const w = 2048;
+      const h = Math.max(1, Math.ceil(n / w));
+      const centers = new Float32Array(w * h * 4);
+      const covA = new Float32Array(w * h * 4);
+      const covB = new Float32Array(w * h * 4);
+      const colors = new Float32Array(w * h * 4);
+      for (let i = 0; i < n; i++) {
+        centers[4 * i] = rawPositions[3 * i];
+        centers[4 * i + 1] = rawPositions[3 * i + 1];
+        centers[4 * i + 2] = rawPositions[3 * i + 2];
+        covA[4 * i] = rawCov3D[6 * i];
+        covA[4 * i + 1] = rawCov3D[6 * i + 1];
+        covA[4 * i + 2] = rawCov3D[6 * i + 2];
+        covA[4 * i + 3] = rawCov3D[6 * i + 3];
+        covB[4 * i] = rawCov3D[6 * i + 4];
+        covB[4 * i + 1] = rawCov3D[6 * i + 5];
+      }
+      gsTex = {
+        centers: gsMakeTex(centers, w, h),
+        covA: gsMakeTex(covA, w, h),
+        covB: gsMakeTex(covB, w, h),
+        colors: gsMakeTex(colors, w, h),
+        colorData: colors, w: w, h: h
+      };
+
+      gsGeometry = new THREE.InstancedBufferGeometry();
+      gsGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-2, -2, 0, 2, -2, 0, 2, 2, 0, -2, 2, 0]), 3));
+      gsGeometry.setIndex([0, 1, 2, 0, 2, 3]);
+      gsIndexAttr = new THREE.InstancedBufferAttribute(new Float32Array(n), 1);
+      gsIndexAttr.setUsage(THREE.DynamicDrawUsage);
+      gsGeometry.setAttribute("splatIndex", gsIndexAttr);
+      gsGeometry.instanceCount = 0;
+
+      gsMaterial = new THREE.ShaderMaterial({
+        glslVersion: THREE.GLSL3,
+        vertexShader: gsVertexShader,
+        fragmentShader: gsFragmentShader,
+        uniforms: {
+          uCenters: { value: gsTex.centers },
+          uCovA: { value: gsTex.covA },
+          uCovB: { value: gsTex.covB },
+          uColors: { value: gsTex.colors },
+          uTexW: { value: w },
+          uViewport: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+          uScaleMod: { value: pointSizeValue / gsDefaultSize },
+          uOrtho: { value: 0.0 }
+        },
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthTest: true,
+        depthWrite: false,
+        blending: THREE.CustomBlending,
+        blendEquation: THREE.AddEquation,
+        blendSrc: THREE.OneFactor,
+        blendDst: THREE.OneMinusSrcAlphaFactor,
+        blendSrcAlpha: THREE.OneFactor,
+        blendDstAlpha: THREE.OneMinusSrcAlphaFactor
+      });
+
+      gsMesh = new THREE.Mesh(gsGeometry, gsMaterial);
+      gsMesh.frustumCulled = false;
+      gsMesh.renderOrder = 10;
+      gsMesh.visible = (currentRenderMode === "splats") && arePointsVisible;
+      modelContainer.add(gsMesh);
+      gsSyncFromBuffers();
+    }
+
+    // Mirror colors / visibility computed by updateSplatBuffers() (color modes,
+    // clipping box, noise filter, semantic classes, opacity) into the splat textures
+    function gsSyncFromBuffers() {
+      if (!gsMesh || !gsTex || !colorsAttr || !alphasAttr) return;
+      const col = colorsAttr.array;
+      const al = alphasAttr.array;
+      const cd = gsTex.colorData;
+      const n = numGaussians;
+      if (gsVisibleIdx.length !== n) gsVisibleIdx = new Uint32Array(n);
+      let k = 0;
+      for (let i = 0; i < n; i++) {
+        const a = al[i];
+        cd[4 * i] = col[3 * i];
+        cd[4 * i + 1] = col[3 * i + 1];
+        cd[4 * i + 2] = col[3 * i + 2];
+        cd[4 * i + 3] = a;
+        if (a > 0.0) gsVisibleIdx[k++] = i;
+      }
+      gsNumVisible = k;
+      gsTex.colors.needsUpdate = true;
+      gsSortDirty = true;
+    }
+
+    function gsSort(cam) {
+      if (!gsMesh || !gsIndexAttr) return;
+      const n = gsNumVisible;
+      if (n === 0) { gsGeometry.instanceCount = 0; return; }
+      gsMesh.updateMatrixWorld();
+      const e = gsTmpMat.multiplyMatrices(cam.matrixWorldInverse, gsMesh.matrixWorld).elements;
+      const m2 = e[2], m6 = e[6], m10 = e[10], m14 = e[14];
+      if (gsZ.length < n) { gsZ = new Float32Array(n); gsKeys = new Uint32Array(n); }
+      const P = rawPositions;
+      let zmin = Infinity, zmax = -Infinity;
+      for (let j = 0; j < n; j++) {
+        const i = gsVisibleIdx[j];
+        const z = m2 * P[3 * i] + m6 * P[3 * i + 1] + m10 * P[3 * i + 2] + m14;
+        gsZ[j] = z;
+        if (z < zmin) zmin = z;
+        if (z > zmax) zmax = z;
+      }
+      const sc = 65535 / Math.max(1e-12, zmax - zmin);
+      gsCounts.fill(0);
+      for (let j = 0; j < n; j++) {
+        const key = ((gsZ[j] - zmin) * sc) | 0;
+        gsKeys[j] = key;
+        gsCounts[key]++;
+      }
+      for (let b = 1; b < 65536; b++) gsCounts[b] += gsCounts[b - 1];
+      const out = gsIndexAttr.array;
+      // ascending view-space z = farthest first (camera looks down -z): back-to-front
+      for (let j = n - 1; j >= 0; j--) out[--gsCounts[gsKeys[j]]] = gsVisibleIdx[j];
+      gsIndexAttr.needsUpdate = true;
+      gsGeometry.instanceCount = n;
+      gsLastView[0] = m2; gsLastView[1] = m6; gsLastView[2] = m10; gsLastView[3] = m14;
+      gsSortDirty = false;
+      gsLastSortTime = performance.now();
+    }
+
+    // Called every frame before rendering
+    function gsUpdateFrame(cam) {
+      if (!gsMesh || !gsMesh.visible || !gsMaterial) return;
+      renderer.getDrawingBufferSize(gsDrawSize);
+      gsMaterial.uniforms.uViewport.value.set(gsDrawSize.x, gsDrawSize.y);
+      gsMaterial.uniforms.uOrtho.value = isOrtho ? 1.0 : 0.0;
+      cam.updateMatrixWorld();
+      gsMesh.updateMatrixWorld();
+      const e = gsTmpMat.multiplyMatrices(cam.matrixWorldInverse, gsMesh.matrixWorld).elements;
+      const dv = Math.abs(e[2] - gsLastView[0]) + Math.abs(e[6] - gsLastView[1]) + Math.abs(e[10] - gsLastView[2]);
+      const dz = Math.abs(e[14] - gsLastView[3]) / Math.max(1e-6, targetDim);
+      const now = performance.now();
+      if (gsSortDirty || ((dv > 1e-3 || dz > 1e-3) && now - gsLastSortTime > 40)) {
+        gsSort(cam);
+      }
+    }
+
 
     // -------------------------------------------------------------------------
     // RealityCapture Spatial Density Precomputation (3D Spatial Hash Grid)
@@ -2509,14 +2823,16 @@ gs_viewer <- function(splat = NULL,
       pointDensities = new Float32Array(numGaussians);
 
       // Fine-grained voxel cell size (3.5 cm) for sharp separation of floating outlier noise
-      const cellSize = Math.max(0.008, Math.min(0.035, targetDim * 0.012));
+      // (taken from R when available, so the result matches gs_filter_outliers())
+      const cellSize = (densityCellSize > 0) ? densityCellSize : Math.max(0.008, Math.min(0.035, targetDim * 0.012));
       const invCell = 1.0 / cellSize;
+      const ox = densityGridOrigin[0], oy = densityGridOrigin[1], oz = densityGridOrigin[2];
 
       const grid = new Map();
       for (let i = 0; i < numGaussians; i++) {
-        const gx = Math.floor(rawPositions[i * 3] * invCell);
-        const gy = Math.floor(rawPositions[i * 3 + 1] * invCell);
-        const gz = Math.floor(rawPositions[i * 3 + 2] * invCell);
+        const gx = Math.floor((rawPositions[i * 3] - ox) * invCell);
+        const gy = Math.floor((rawPositions[i * 3 + 1] - oy) * invCell);
+        const gz = Math.floor((rawPositions[i * 3 + 2] - oz) * invCell);
         const k = `${gx},${gy},${gz}`;
         grid.set(k, (grid.get(k) || 0) + 1);
       }
@@ -2543,9 +2859,9 @@ gs_viewer <- function(splat = NULL,
       maxDensityVal = 1;
       minDensityVal = 999999;
       for (let i = 0; i < numGaussians; i++) {
-        const gx = Math.floor(rawPositions[i * 3] * invCell);
-        const gy = Math.floor(rawPositions[i * 3 + 1] * invCell);
-        const gz = Math.floor(rawPositions[i * 3 + 2] * invCell);
+        const gx = Math.floor((rawPositions[i * 3] - ox) * invCell);
+        const gy = Math.floor((rawPositions[i * 3 + 1] - oy) * invCell);
+        const gz = Math.floor((rawPositions[i * 3 + 2] - oz) * invCell);
         const k = `${gx},${gy},${gz}`;
         const d = cellDensity.get(k) || 1;
         pointDensities[i] = d;
@@ -2811,10 +3127,12 @@ gs_viewer <- function(splat = NULL,
     }
 
     function rebuildCroppedGeometry() {
-      if (splatMesh) {
-        modelContainer.remove(splatMesh);
+      if (pointsMesh) {
+        modelContainer.remove(pointsMesh);
         if (geometry) geometry.dispose();
       }
+      computeSpatialDensities();
+      computeDistanceDistribution();
       buildSplatGeometry();
       updateSplatBuffers();
     }
@@ -2836,6 +3154,7 @@ gs_viewer <- function(splat = NULL,
           colors: new Float32Array(rawColorsRGB),
           opacities: new Float32Array(rawOpacities),
           scales: rawScales ? new Float32Array(rawScales) : null,
+          cov3d: rawCov3D ? new Float32Array(rawCov3D) : null,
           semantics: rawSemantics ? new Int32Array(rawSemantics) : null,
           densities: (pointDensities && pointDensities.length > 0) ? new Float32Array(pointDensities) : null,
           count: numGaussians
@@ -2867,6 +3186,7 @@ gs_viewer <- function(splat = NULL,
       const newCol = new Float32Array(newCount * 3);
       const newOpac = new Float32Array(newCount);
       const newScales = rawScales ? new Float32Array(newCount) : null;
+      const newCov = (rawCov3D && rawCov3D.length === numGaussians * 6) ? new Float32Array(newCount * 6) : null;
       const newSem = rawSemantics ? new Int32Array(newCount) : null;
       const newDensities = (pointDensities && pointDensities.length > 0) ? new Float32Array(newCount) : null;
 
@@ -2882,6 +3202,7 @@ gs_viewer <- function(splat = NULL,
 
         newOpac[j] = rawOpacities[origIdx];
         if (newScales) newScales[j] = rawScales[origIdx];
+        if (newCov) for (let q = 0; q < 6; q++) newCov[j * 6 + q] = rawCov3D[origIdx * 6 + q];
         if (newSem) newSem[j] = rawSemantics[origIdx];
         if (newDensities) newDensities[j] = pointDensities[origIdx];
       }
@@ -2890,6 +3211,7 @@ gs_viewer <- function(splat = NULL,
       rawColorsRGB = newCol;
       rawOpacities = newOpac;
       if (newScales) rawScales = newScales;
+      rawCov3D = newCov;
       if (newSem) rawSemantics = newSem;
       if (newDensities) pointDensities = newDensities;
       numGaussians = newCount;
@@ -2912,6 +3234,7 @@ gs_viewer <- function(splat = NULL,
       rawColorsRGB = new Float32Array(initialUncroppedState.colors);
       rawOpacities = new Float32Array(initialUncroppedState.opacities);
       if (initialUncroppedState.scales) rawScales = new Float32Array(initialUncroppedState.scales);
+      rawCov3D = initialUncroppedState.cov3d ? new Float32Array(initialUncroppedState.cov3d) : null;
       if (initialUncroppedState.semantics) rawSemantics = new Int32Array(initialUncroppedState.semantics);
       if (initialUncroppedState.densities) pointDensities = new Float32Array(initialUncroppedState.densities);
       numGaussians = initialUncroppedState.count;
@@ -2937,6 +3260,7 @@ gs_viewer <- function(splat = NULL,
 
       const cx = (centerOrigin && centerOrigin.length >= 3) ? centerOrigin[0] : 0;
       const cy = (centerOrigin && centerOrigin.length >= 3) ? centerOrigin[1] : 0;
+      const cz = (centerOrigin && centerOrigin.length >= 3) ? centerOrigin[2] : 0;
       const nl = String.fromCharCode(10);
       const header = [
         "ply",
@@ -3125,6 +3449,7 @@ gs_viewer <- function(splat = NULL,
       colorsAttr.needsUpdate = true;
       alphasAttr.needsUpdate = true;
       sizesAttr.needsUpdate = true;
+      gsSyncFromBuffers();
 
       const visElem = document.getElementById("lbl-visible-splats");
       if (visElem) visElem.textContent = visibleCount.toLocaleString();
@@ -3699,11 +4024,13 @@ gs_viewer <- function(splat = NULL,
         }
         if (meshGroup) meshGroup.visible = isMeshVisible;
         if (pointsMesh) pointsMesh.visible = false;
+        if (gsMesh) gsMesh.visible = false;
         if (grpMesh) grpMesh.style.display = "flex";
         if (grpPoints) grpPoints.style.display = "none";
         showToast("Mode: 3D Surface Mesh");
       } else if (mode === "points") {
         if (meshGroup) meshGroup.visible = false;
+        if (gsMesh) gsMesh.visible = false;
         if (pointsMesh) {
           pointsMesh.visible = arePointsVisible;
           if (material) {
@@ -3721,7 +4048,12 @@ gs_viewer <- function(splat = NULL,
         showToast("Mode: Points (Metashape)");
       } else if (mode === "splats") {
         if (meshGroup) meshGroup.visible = false;
-        if (pointsMesh) {
+        if (gsMesh) {
+          // True anisotropic Gaussian splats (EWA projection + depth sorting)
+          gsMesh.visible = arePointsVisible;
+          gsSortDirty = true;
+          if (pointsMesh) pointsMesh.visible = false;
+        } else if (pointsMesh) {
           pointsMesh.visible = arePointsVisible;
           if (material) {
             material.uniforms.uRenderMode.value = 1.0;
@@ -3735,7 +4067,7 @@ gs_viewer <- function(splat = NULL,
         if (grpShape) grpShape.style.display = "none";
         if (sl) updatePointSize(sl.value);
         updateSplatBuffers();
-        showToast("Mode: Gaussian Splats");
+        showToast(gsMesh ? "Mode: 3D Gaussian Splatting (anisotropic, sorted)" : "Mode: Gaussian Splats (isotropic sprites)");
       }
       updateLayersUI();
     }
@@ -4056,6 +4388,7 @@ gs_viewer <- function(splat = NULL,
       const unit = currentRenderMode === "points" ? " px" : "x (Fill)";
       document.getElementById("lbl-size").textContent = pointSizeValue.toFixed(1) + unit;
       material.uniforms.uPointSizePx.value = pointSizeValue;
+      if (gsMaterial) gsMaterial.uniforms.uScaleMod.value = pointSizeValue / gsDefaultSize;
     }
 
     function updateOpacityMultiplier(val) {
@@ -4251,6 +4584,7 @@ gs_viewer <- function(splat = NULL,
 
     function captureSnapshot() {
       const renderCam = (isOrtho && orthoCamera) ? orthoCamera : camera;
+      gsUpdateFrame(renderCam);
       renderer.render(scene, renderCam);
       const dataUrl = renderer.domElement.toDataURL("image/png");
       const a = document.createElement("a");
@@ -4727,6 +5061,7 @@ gs_viewer <- function(splat = NULL,
       }
 
       const renderCam = (isOrtho && orthoCamera) ? orthoCamera : camera;
+      gsUpdateFrame(renderCam);
       renderer.render(scene, renderCam);
 
       frameCount++;
@@ -4744,7 +5079,6 @@ gs_viewer <- function(splat = NULL,
     // -------------------------------------------------------------------------
 
     const localPhotoStore = {};
-    let arePointsVisible = true;
 
     function openWelcomeModal() {
       const modal = document.getElementById("dropzone-welcome");
@@ -4758,6 +5092,18 @@ gs_viewer <- function(splat = NULL,
     }
 
     function togglePointsVisibility() {
+      if (gsMesh && currentRenderMode === "splats") {
+        arePointsVisible = !arePointsVisible;
+        gsMesh.visible = arePointsVisible;
+        if (pointsMesh) pointsMesh.visible = false;
+        gsSortDirty = true;
+        const btnG = document.getElementById("btn-pts-toggle");
+        if (btnG) btnG.classList.toggle("active", arePointsVisible);
+        const tbG = document.getElementById("tb-mode");
+        if (tbG) tbG.classList.toggle("active", arePointsVisible);
+        showToast(arePointsVisible ? "3D Model visible" : "3D Model hidden");
+        return;
+      }
       if (pointsMesh) {
         pointsMesh.visible = !pointsMesh.visible;
         arePointsVisible = pointsMesh.visible;
@@ -5579,10 +5925,15 @@ gs_viewer <- function(splat = NULL,
       hasModelColors = parsed.hasColors !== false;
       targetDim = newTargetDim;
       centerOrigin = [cx, cy, cz];
+      // A dropped file has its own scale: let the viewer derive the voxel grid
+      densityCellSize = 0;
+      densityGridOrigin = [0, 0, 0];
 
       // Compute spatial densities and distance distributions for real-time online noise filtering
       computeSpatialDensities();
       computeDistanceDistribution();
+
+      rawCov3D = parsed.cov3d || null;
 
       // Remove old point cloud mesh
       if (pointsMesh) {
@@ -5747,4 +6098,90 @@ gs_viewer <- function(splat = NULL,
   }
 
   invisible(file)
+}
+
+
+# Pack the upper triangle of each Gaussian's 3D covariance (Sigma = R S S^T R^T)
+# as base64-encoded float32 (xx, xy, xz, yy, yz, zz) for the WebGL splat renderer.
+.gs_viewer_cov_b64 <- function(splat) {
+  n <- splat$num_gaussians
+  if (is.null(n) || n == 0 || is.null(splat$quaternions) || is.null(splat$scales_log)) return("")
+  q <- as.matrix(splat$quaternions)
+  qn <- sqrt(rowSums(q^2))
+  qn[!is.finite(qn) | qn < 1e-12] <- 1
+  q <- q / qn
+  w <- q[, 1]; x <- q[, 2]; y <- q[, 3]; z <- q[, 4]
+  r11 <- 1 - 2 * (y * y + z * z); r12 <- 2 * (x * y - w * z); r13 <- 2 * (x * z + w * y)
+  r21 <- 2 * (x * y + w * z); r22 <- 1 - 2 * (x * x + z * z); r23 <- 2 * (y * z - w * x)
+  r31 <- 2 * (x * z - w * y); r32 <- 2 * (y * z + w * x); r33 <- 1 - 2 * (x * x + y * y)
+  s2 <- exp(2 * as.matrix(splat$scales_log))
+  a <- s2[, 1]; b <- s2[, 2]; c <- s2[, 3]
+  cov <- cbind(
+    r11 * r11 * a + r12 * r12 * b + r13 * r13 * c,
+    r11 * r21 * a + r12 * r22 * b + r13 * r23 * c,
+    r11 * r31 * a + r12 * r32 * b + r13 * r33 * c,
+    r21 * r21 * a + r22 * r22 * b + r23 * r23 * c,
+    r21 * r31 * a + r22 * r32 * b + r23 * r33 * c,
+    r31 * r31 * a + r32 * r32 * b + r33 * r33 * c
+  )
+  cov[!is.finite(cov)] <- 0
+  base64_encode(writeBin(as.vector(t(cov)), raw(), size = 4, endian = "little"))
+}
+
+
+# Framing from a calibrated camera rig: the subject centre is the least-squares
+# intersection of the optical axes, the viewing distance follows the rig radius,
+# and the model is levelled so that the normal of the camera orbit points up
+# (+z in the viewer), with the mean viewing direction facing the default camera.
+.gs_viewer_rig_framing <- function(cameras) {
+  C <- do.call(rbind, lapply(cameras, function(cm) as.numeric(cm$position %||% (-t(cm$R) %*% cm$t))))
+  D <- do.call(rbind, lapply(cameras, function(cm) as.numeric(cm$R[3, ])))
+  D <- D / sqrt(rowSums(D^2))
+  A <- matrix(0, 3, 3)
+  b <- numeric(3)
+  for (i in seq_len(nrow(C))) {
+    P <- diag(3) - tcrossprod(D[i, ])
+    A <- A + P
+    b <- b + P %*% C[i, ]
+  }
+  ctr <- as.numeric(solve(A + diag(1e-9, 3), b))
+  dists <- sqrt(rowSums(sweep(C, 2, ctr)^2))
+  med_d <- stats::median(dists)
+  if (!is.finite(med_d) || med_d <= 0) return(NULL)
+
+  # Up direction: normal of the plane through the camera centres (orbit capture),
+  # falling back to the mean camera "up" (-y image axis) for degenerate rigs.
+  ev <- eigen(stats::cov(C), symmetric = TRUE)
+  up <- ev$vectors[, 3]
+  if (ev$values[3] > 0.5 * ev$values[2]) {
+    up <- -colMeans(do.call(rbind, lapply(cameras, function(cm) as.numeric(cm$R[2, ]))))
+  }
+  up <- up / sqrt(sum(up^2))
+  fwd <- colMeans(D)
+  # cameras usually look slightly down onto the subject
+  if (sum(fwd * up) > 0) up <- -up
+  f_h <- fwd - sum(fwd * up) * up
+  if (sqrt(sum(f_h^2)) < 1e-6) {
+    f_h <- if (abs(up[1]) < 0.9) c(1, 0, 0) - up[1] * up else c(0, 1, 0) - up[2] * up
+  }
+  r2 <- f_h / sqrt(sum(f_h^2))
+  r3 <- up
+  r1 <- c(r2[2] * r3[3] - r2[3] * r3[2], r2[3] * r3[1] - r2[1] * r3[3], r2[1] * r3[2] - r2[2] * r3[1])
+  M <- rbind(r1, r2, r3)
+
+  # Euler angles in three.js "XYZ" order (Matrix = Rx * Ry * Rz)
+  m13 <- max(-1, min(1, M[1, 3]))
+  ry <- asin(m13)
+  if (abs(m13) < 0.9999999) {
+    rx <- atan2(-M[2, 3], M[3, 3])
+    rz <- atan2(-M[1, 2], M[1, 1])
+  } else {
+    rx <- atan2(M[3, 2], M[2, 2])
+    rz <- 0
+  }
+  list(
+    center = ctr,
+    target_dim = med_d / 2.46,
+    rotation = round(c(rx, ry, rz) * 180 / pi)
+  )
 }
