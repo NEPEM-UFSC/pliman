@@ -4,8 +4,10 @@
 # organization does not allow third-party actions. R (and Rtools on Windows)
 # is installed with the rig command-line tool, package dependencies with pak.
 on:
+  # feature branches are checked through their pull request (a push trigger as
+  # well would run every job twice and compete for the scarce macOS runners)
   push:
-    branches: [master, machine_vision]
+    branches: [master]
   pull_request:
     branches: [master]
   workflow_dispatch:
