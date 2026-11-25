@@ -90,3 +90,4 @@ LazyData: true
 Roxygen: list(markdown = TRUE)
 Config/roxygen2/version: 8.1.0
 Config/testthat/edition: 3
+Config/Needs/website: dplyr, patchwork, shiny, bs4Dash
