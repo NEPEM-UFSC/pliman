@@ -80,11 +80,11 @@ if (getRversion() >= "2.15.1") {
       "perimeter", "radius_max", "radius_mean", "radius_min", "radius_sd", "X1",
       "X2", "i", "img", "plotn", "x", "leaf", "Band", "block", "mosaic",
       "geometry", "n", "area_sum", "individual", "plot_id",
-      "re", "nir", "coverage_fraction", "sigma", "summarize_quantiles", "prop", "plot_id_seq",
+      "re", "nir", "coverage_fraction", "sigma", "prop", "plot_id_seq",
       "B1", "B2", "B3", "cluster", "h", "s", "column", "data", "plot_area", "unique_id",
       "diam_max", "uuids", ".progress", ".data", "show", "caliper", "width",
       "coverage", "lp", "mask_disease", "mask_leaf",
-      "mind_temp", "p_dir", "progress_bar", "shp"))
+      "p_dir", "progress_bar"))
 }
 
 

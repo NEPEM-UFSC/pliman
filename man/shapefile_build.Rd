@@ -45,7 +45,8 @@ generated in the "EPSG:4326" coordinate reference system.}
 \item{basemap}{An optional \code{mapview} object.}
 
 \item{controlpoints}{An object created with \code{\link[=mosaic_view]{mosaic_view()}} using the
-argument \code{edit = TRUE}. This must contain the points that defines the
+argument \code{edit = TRUE}, or an \code{sf} object (e.g. read with
+\code{\link[=shapefile_input]{shapefile_input()}}). This must contain the points that defines the
 region of interest to be analyzed.}
 
 \item{r, g, b}{The layer for the Red, Green and Blue band, respectively.

@@ -848,12 +848,13 @@ vind <-
                re = 4,
                g = NA)
 
-results <- mosaic_extract(vind, shp)
+# median of each index within each plant, bound to the shapefile
+results <- mosaic_extract(vind, shp, fun = "median", return = "shapefile")
 
 # overlay the shapefile to the basemap
 bm + shapefile_view(
   results,
-  attribute = "median.NDVI"
+  attribute = "NDVI"
 )
 
 ```

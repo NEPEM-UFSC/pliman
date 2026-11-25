@@ -8,9 +8,21 @@
 * Bundled third-party code is now credited in `inst/COPYRIGHTS` and as copyright holders (`cph`) in `DESCRIPTION`.
 * Removed the unused `BiocManager` suggestion and the empty `biocViews` field.
 
+* `mosaic_extract()` was rewritten (native C++ engine): it now returns raw pixel values by default (`fun = NULL`) and a data frame (`return = "df"`). To get the pliman < 4.0 behaviour (median per polygon bound to the shapefile) use `mosaic_extract(mosaic, shp, fun = "median", return = "shapefile")`; with a single statistic the columns are named after the layers (e.g. `NDVI` instead of `median.NDVI`).
+
 ### Bug fixes
 * `plot_index_shp(viewer = "mapview")` failed with `could not find function "compute_downsample"` when the image had more pixels than `max_pixels` (#7). `compute_downsample()` is now a single internal helper instead of local copies inside other functions.
 * `plot_index_shp(viewer = "mapview")` and `mosaic_view()` with an `image` object failed with `[setValues] values must be numeric...`, because 8-bit images are stored as raw bytes since 4.0.0; they are now converted to the 0-1 scale before building the raster.
+* `contour()` (and therefore `object_contour()`) returns the list of contours named by object label again (`"1"`, `"2"`, ...), as in pliman < 4.0. Note that the contour matrices now have columns `x` and `y` (they were unnamed, i.e. `V1`/`V2` in a data frame), and that objects may be numbered differently from pliman < 4.0 because of the new labelling engine.
+* `image_to_mat()` returns 0-1 numeric values again for 8-bit images (raw bytes broke `image_palette()` and `image_segment_kmeans()`).
+* `image_palette()` and `image_expand()` used `image_combine(..., along =)`, which no longer concatenates images; they now use an internal helper.
+* `shapefile_build(controlpoints =)` accepts an `sf` object again (e.g. read with `shapefile_input()`), besides the result of `mosaic_view(edit = TRUE)`.
+* `mosaic_analyze(segment_plot = TRUE)` failed with `[mask] extents do not match` when the analysis was cropped to the shapefile extent, and passed `summarize_quantiles = NULL` to `mosaic_extract()`, which rejected it.
+* `plot_index()` gives the colour bars an absolute width, fixing "figure margins too large" with several indexes on small devices.
+* `mosaic_chm_extract()`, `mosaic_segment_pick()` and `mosaic_draw()` referenced variables that did not exist in the function (`shp`, `mind_temp`, `summarize_quantiles`) and always failed. These names were listed in `globalVariables()`, which hid the problem from `R CMD check`; they were removed from the list.
+* `mosaic_chm_extract()` names the height quantiles `min`, `q05`, `q50`, `q95` and `max` again (as documented and as in pliman < 4.0), instead of `q0`, `q0.05`, ...
+* `mosaic_aggregate()` (also used by `mosaic_view()`) falls back to `terra::resample()` when `gdal_translate` fails, e.g. on a mosaic read from a URL.
+* `poly_area()` and `plot_polygon()` report empty elements in a list of polygons (e.g. a name that does not exist) instead of failing in compiled code.
 
 ### Deep Learning Architecture & Foundation Models
 * **Segment Anything 2.1 (SAM 2.1)**: Full ONNX Runtime C++ execution for sub-pixel instance segmentation masks, zero-shot polygon extraction, and interactive exemplar prompting.

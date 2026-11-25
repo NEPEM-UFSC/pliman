@@ -185,6 +185,8 @@ mosaic_extract <- function(mosaic,
     }
   }
 
+  # callers such as mosaic_analyze() pass NULL when no quantile was requested
+  if (is.null(summarize_quantiles)) summarize_quantiles <- c(0.05, 0.975)
   if (!is.numeric(summarize_quantiles) || any(summarize_quantiles < 0 | summarize_quantiles > 1)) {
     cli::cli_abort("Argument {.arg summarize_quantiles} must be a numeric vector with values between 0 and 1.")
   }

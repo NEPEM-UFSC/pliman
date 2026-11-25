@@ -394,7 +394,17 @@ plot_index <- function(img = NULL,
         }
       }
 
-      widths_vec <- rep(c(8, 1), times = ncol)
+      # colorbar panels get an absolute width that always fits their margins
+      # (0.3 + 2.2 lines) plus the bar itself; images share the remaining width.
+      # Relative widths (8:1) made the bars narrower than their margins on
+      # small devices ("figure margins too large").
+      bar_in <- (0.3 + 2.2) * par("csi") + 0.18
+      dev_w <- tryCatch(par("din")[1], error = function(e) NA_real_)
+      widths_vec <- if (is.finite(dev_w) && dev_w > ncol * (bar_in + 0.6)) {
+        rep(c(1, lcm(bar_in * 2.54)), times = ncol)
+      } else {
+        rep(c(8, 1), times = ncol)
+      }
       tryCatch({
         layout(mat_layout, widths = widths_vec)
       }, error = function(e) {
