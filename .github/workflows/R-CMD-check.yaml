@@ -49,6 +49,9 @@ jobs:
       - name: Install rig and R
         shell: bash
         run: |
+          set -eo pipefail
+          # report the failing command as an annotation (visible in the run summary)
+          trap 'echo "::error title=Install rig and R failed::line $LINENO: $BASH_COMMAND"' ERR
           case "$RUNNER_OS" in
             Linux)
               curl -Ls https://github.com/r-lib/rig/releases/download/latest/rig-linux-$(arch)-latest.tar.gz | sudo tar xz -C /usr/local
@@ -57,9 +60,10 @@ jobs:
               sudo apt-get install -y --no-install-recommends pandoc libpng-dev libfftw3-dev
               ;;
             macOS)
-              # official installer (Homebrew refuses casks from third-party taps)
-              curl -Ls -o /tmp/rig.pkg https://github.com/r-lib/rig/releases/download/latest/rig-latest-universal.pkg
-              sudo installer -pkg /tmp/rig.pkg -target /
+              # Homebrew refuses casks from third-party taps unless they are trusted
+              brew tap r-lib/rig
+              brew trust r-lib/rig || true
+              brew install --cask rig
               sudo rig add ${{ matrix.config.r }}
               brew install fftw libpng pandoc
               BREW=$(brew --prefix)
