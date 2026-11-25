@@ -1,8 +1,8 @@
 # R CMD check on Linux, Windows and macOS.
 #
-# Uses r-lib/actions, the standard actions for R packages. The NEPEM-UFSC
-# organization must allow them: Settings > Actions > General > Policies >
-# "Allow specified actions" > add `r-lib/actions/*`.
+# Only GitHub-created actions (actions/*) are used, because the NEPEM-UFSC
+# organization does not allow third-party actions. R (and Rtools on Windows)
+# is installed with the rig command-line tool, package dependencies with pak.
 on:
   push:
     branches: [master, machine_vision]
@@ -22,14 +22,14 @@ jobs:
   R-CMD-check:
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.os }} (${{ matrix.config.r }})
-    timeout-minutes: 120
+    timeout-minutes: 150
 
     strategy:
       fail-fast: false
       matrix:
         config:
-          - {os: ubuntu-latest,  r: 'release'}
-          - {os: ubuntu-latest,  r: 'oldrel-1'}
+          - {os: ubuntu-24.04,   r: 'release'}
+          - {os: ubuntu-24.04,   r: 'oldrel/1'}
           - {os: windows-latest, r: 'release'}
           - {os: macos-latest,   r: 'release'}
 
@@ -38,41 +38,92 @@ jobs:
       R_KEEP_PKG_SOURCE: yes
       # Many optional (Suggests) packages are heavy; do not require all of them.
       _R_CHECK_FORCE_SUGGESTS_: false
+      _R_CHECK_CRAN_INCOMING_: false
+      # let pak install the system libraries needed by R packages (Linux)
+      PKG_SYSREQS: true
+      NOT_CRAN: true
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: r-lib/actions/setup-pandoc@v2
-
-      - uses: r-lib/actions/setup-r@v2
-        with:
-          r-version: ${{ matrix.config.r }}
-          http-user-agent: ${{ matrix.config.http-user-agent }}
-          use-public-rspm: true
-
-      # libpng and FFTW3 are linked by src/Makevars (see SystemRequirements).
-      # On Linux, setup-r-dependencies installs them from SystemRequirements;
-      # on Windows they ship with Rtools.
-      - name: Install system libraries (macOS)
-        if: runner.os == 'macOS'
+      - name: Install rig and R
+        shell: bash
         run: |
-          brew install fftw libpng
-          BREW=$(brew --prefix)
-          mkdir -p ~/.R
-          {
-            echo "CPPFLAGS += -I${BREW}/include"
-            echo "LDFLAGS += -L${BREW}/lib"
-          } >> ~/.R/Makevars
+          case "$RUNNER_OS" in
+            Linux)
+              curl -Ls https://github.com/r-lib/rig/releases/download/latest/rig-linux-$(arch)-latest.tar.gz | sudo tar xz -C /usr/local
+              sudo rig add ${{ matrix.config.r }}
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends pandoc libpng-dev libfftw3-dev
+              ;;
+            macOS)
+              brew tap r-lib/rig
+              brew install --cask rig
+              sudo rig add ${{ matrix.config.r }}
+              brew install fftw libpng pandoc
+              BREW=$(brew --prefix)
+              mkdir -p ~/.R
+              {
+                echo "CPPFLAGS += -I${BREW}/include"
+                echo "LDFLAGS += -L${BREW}/lib"
+              } >> ~/.R/Makevars
+              ;;
+            Windows)
+              choco install rig -y --no-progress
+              RIG="/c/Program Files/rig/rig.exe"
+              "$RIG" add ${{ matrix.config.r }}
+              "$RIG" list
+              RBIN=$(ls -d "/c/Program Files/R"/R-*/bin | sort -V | tail -1)
+              echo "Using $RBIN"
+              cygpath -w "$RBIN/x64" >> "$GITHUB_PATH"
+              cygpath -w "$RBIN" >> "$GITHUB_PATH"
+              choco install pandoc -y --no-progress
+              ;;
+          esac
 
-      - uses: r-lib/actions/setup-r-dependencies@v2
-        with:
-          dependencies: '"hard"'
-          extra-packages: any::rcmdcheck, any::testthat
-          needs: check
+      - name: Show R
+        shell: bash
+        run: |
+          which R || true
+          R --version
+          Rscript -e 'sessionInfo()'
 
-      - uses: r-lib/actions/check-r-package@v2
+      - name: Cache R packages
+        uses: actions/cache@v4
         with:
-          upload-snapshots: true
-          args: 'c("--no-manual", "--as-cran")'
-          build_args: 'c("--no-manual", "--no-build-vignettes")'
-          error-on: '"error"'
+          path: ${{ runner.temp }}/Library
+          key: rlib-${{ runner.os }}-${{ matrix.config.r }}-${{ hashFiles('DESCRIPTION') }}
+          restore-keys: rlib-${{ runner.os }}-${{ matrix.config.r }}-
+
+      - name: Install dependencies
+        shell: Rscript {0}
+        env:
+          R_LIBS_USER: ${{ runner.temp }}/Library
+        run: |
+          dir.create(Sys.getenv("R_LIBS_USER"), recursive = TRUE, showWarnings = FALSE)
+          .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
+          if (!requireNamespace("pak", quietly = TRUE)) {
+            install.packages("pak", repos = sprintf("https://r-lib.github.io/p/pak/stable/%s/%s/%s",
+                                                    .Platform$pkgType, R.Version()$os, R.Version()$arch))
+          }
+          pak::pkg_install(c("deps::.", "rcmdcheck", "testthat"), dependencies = TRUE, upgrade = FALSE)
+
+      - name: R CMD check
+        shell: Rscript {0}
+        env:
+          R_LIBS_USER: ${{ runner.temp }}/Library
+        run: |
+          .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
+          rcmdcheck::rcmdcheck(
+            args = c("--no-manual", "--as-cran", "--ignore-vignettes"),
+            build_args = c("--no-manual", "--no-build-vignettes"),
+            error_on = "error",
+            check_dir = "check"
+          )
+
+      - name: Upload check results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-${{ runner.os }}-${{ strategy.job-index }}
+          path: check
