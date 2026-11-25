@@ -29,6 +29,8 @@ jobs:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
       R_LIBS_USER: ${{ github.workspace }}/.r-lib
       _R_CHECK_FORCE_SUGGESTS_: false
+      # let pak install the system libraries of the R packages (magick, av, rgl, ...)
+      PKG_SYSREQS: true
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +72,8 @@ jobs:
       - name: Install package dependencies
         run: |
           install.packages("pak")
-          pak::pkg_install(c("pkgdown", "deps::."), dependencies = TRUE, upgrade = FALSE)
+          # Suggests + packages used only by the articles (Config/Needs/website)
+          pak::pkg_install(c("pkgdown", "deps::."), dependencies = c("all", "Config/Needs/website"), upgrade = FALSE)
           pak::local_install(dependencies = FALSE, upgrade = FALSE)
         shell: Rscript {0}
 
