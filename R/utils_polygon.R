@@ -356,7 +356,26 @@ conv_hull_unified <- function(x){
 # Compute the area of a polygon using shoelace formula
 # adapted from https://www.geeksforgeeks.org/area-of-a-polygon-with-given-n-ordered-vertices/
 poly_area <- function(x){
+  .check_poly_list(x)
   help_area(x)
+}
+
+# Lists of polygons must hold coordinate matrices only: an empty element (e.g.
+# from subsetting a contour list with a name that does not exist) would
+# otherwise reach the C++ helpers.
+.check_poly_list <- function(x, arg = "x") {
+  if (!is.list(x) || is.data.frame(x)) return(invisible(TRUE))
+  bad <- vapply(x, function(el) is.null(el) || !(is.matrix(el) || is.data.frame(el)), logical(1))
+  if (any(bad)) {
+    nm <- names(x)
+    ids <- if (!is.null(nm)) nm[bad] else which(bad)
+    ids[is.na(ids) | ids == ""] <- which(bad)[is.na(ids) | ids == ""]
+    cli::cli_abort(c(
+      "{.arg {arg}} has {sum(bad)} element{?s} that {?is not a/are not} coordinate matri{?x/ces}: {.val {ids}}.",
+      "i" = "Check that the selected names exist (e.g. {.code names(cont)})."
+    ))
+  }
+  invisible(TRUE)
 }
 
 
@@ -891,6 +910,7 @@ plot_polygon <- function(x,
                          xlim = NULL,
                          ylim = NULL,
                          ...){
+  if (inherits(x, "list") && length(x) > 0 && !inherits(x, "iefourier_lst") && !inherits(x[[1]], "list")) .check_poly_list(x)
   if (inherits(x, "list") | inherits(x, "iefourier_lst")) {
     if(isTRUE(merge)){
       if(inherits(x[[1]][[1]], "landmarks_regradi")){

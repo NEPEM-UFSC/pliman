@@ -1,3 +1,44 @@
+# Concatenate two images side by side (along = 1, x / width) or on top of each
+# other (along = 2, y / height), as EBImage::combine(..., along =) did. Used
+# internally; image_combine() only arranges images in a plot grid. Both images
+# are brought to the same storage (raw 0..255 if both are raw, else 0..1
+# double) and number of channels.
+.image_bind <- function(a, b, along = 1) {
+  as_arr <- function(x, raw) {
+    d <- if (raw) unclass(image_data(x, type = "raw")) else unclass(image_data(x, type = "normalized"))
+    if (length(dim(d)) == 2) dim(d) <- c(dim(d), 1L)
+    d
+  }
+  both_raw <- is.raw(unclass(image_data(a))) && is.raw(unclass(image_data(b)))
+  da <- as_arr(a, both_raw)
+  db <- as_arr(b, both_raw)
+  ch <- max(dim(da)[3], dim(db)[3])
+  widen <- function(d) {
+    if (dim(d)[3] == ch) return(d)
+    out <- d[, , rep(1, ch), drop = FALSE]
+    if (dim(d)[3] > 1) out[, , seq_len(dim(d)[3])] <- d
+    out
+  }
+  da <- widen(da)
+  db <- widen(db)
+  other <- if (along == 1) 2 else 1
+  if (dim(da)[other] != dim(db)[other]) {
+    cli::cli_abort("Images must have the same {ifelse(along == 1, 'height', 'width')} to be combined along dimension {along}.")
+  }
+  dims <- dim(da)
+  dims[along] <- dim(da)[along] + dim(db)[along]
+  out <- array(if (both_raw) as.raw(0) else 0, dim = dims)
+  if (along == 1) {
+    out[seq_len(dim(da)[1]), , ] <- da
+    out[dim(da)[1] + seq_len(dim(db)[1]), , ] <- db
+  } else {
+    out[, seq_len(dim(da)[2]), ] <- da
+    out[, dim(da)[2] + seq_len(dim(db)[2]), ] <- db
+  }
+  if (dim(out)[3] == 1) out <- out[, , 1]
+  as_image(out)
+}
+
 #'Combines images to a grid
 #'
 #'Combines several images to a grid
@@ -5196,6 +5237,13 @@ image_to_mat <- function(img,
     }
     return(structure(res, class = "img_mat_list"))
   } else{
+    # 8-bit images are stored as raw bytes since pliman 4.0.0: return the
+    # 0-1 numeric scale (as before), which is what k-means & co. expect
+    if (inherits(img, "image")) {
+      img <- image_data(img, type = "normalized")
+    } else if (is.raw(img)) {
+      img <- array(as.numeric(img) / 255, dim = dim(img))
+    }
     mat <- cbind(expand.grid(Row = 1:dim(img)[1], Col = 1:dim(img)[2]))
     if(length(dim(img)) == 3){
       for (i in 1:dim(img)[3]) {
@@ -5433,7 +5481,7 @@ image_palette <- function (img,
       im2[1:1, 1:ncol(im2), ] <- 0
       im2[1:nrow(im2), ncol(im2):(ncol(im2)-1), ] <- 0
       im2[nrow(im2):(nrow(im2)-1), 1:ncol(im2), ] <- 0
-      im2 <- image_combine(img, im2, along = 1)
+      im2 <- .image_bind(img, im2, along = 1)
       if (plot == TRUE) {
         plot(im2)
       }
@@ -5672,7 +5720,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       left_img <- image_filter(left_img, size = filter)
     }
-    img <- image_combine(left_img, img, along = 1)
+    img <- .image_bind(left_img, img, along = 1)
   }
   if(!is.null(top)){
     top_img <- as_image(img[,1:sample_top,])
@@ -5686,7 +5734,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       top_img <- image_filter(top_img, size = filter)
     }
-    img <- image_combine(top_img, img, along = 2)
+    img <- .image_bind(top_img, img, along = 2)
   }
   if(!is.null(right)){
     dimx <- dim(img)[1]
@@ -5701,7 +5749,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       right_img <- image_filter(right_img, size = filter)
     }
-    img <- image_combine(img, right_img, along = 1)
+    img <- .image_bind(img, right_img, along = 1)
   }
   if(!is.null(bottom)){
     dimy <- dim(img)[2]
@@ -5716,7 +5764,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       bot_img <- image_filter(bot_img, size = filter)
     }
-    img <- image_combine(img, bot_img, along = 2)
+    img <- .image_bind(img, bot_img, along = 2)
   }
   if(isTRUE(plot)){
     plot(img)

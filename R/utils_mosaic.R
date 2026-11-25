@@ -770,10 +770,13 @@ mosaic_analyze <- function(mosaic,
             mask <- mind_temp[[segment_index[j]]] < thresh
           }
         }
-        mind_temp <- terra::mask(mosaic[[1]], mask, maskvalues = TRUE)
-        # compute plot coverage
+        # mask the index layers (same extent as `mask`, which was derived from
+        # them); masking the full-extent mosaic failed with "extents do not
+        # match" whenever the analysis was cropped to the shapefile extent
+        mind_temp <- terra::mask(mind_temp, mask, maskvalues = TRUE)
+        # compute plot coverage (single layer)
 
-        covered_area <- mosaic_extract(mind_temp,
+        covered_area <- mosaic_extract(mind_temp[[1]],
                                        plot_grid,
                                        exact = TRUE,
                                        fun = "mean",
@@ -2321,15 +2324,35 @@ mosaic_aggregate <- function(mosaic,
     }
   }, add = TRUE)
 
-  sf::gdal_utils(
-    util = "translate",
-    source = in_raster,
-    destination = tmp_out,
-    options = strsplit(paste("-r", fun, "-outsize", outsize[1], outsize[2]), split = "\\s")[[1]]
-  )
+  ok <- tryCatch({
+    sf::gdal_utils(
+      util = "translate",
+      source = in_raster,
+      destination = tmp_out,
+      options = strsplit(paste("-r", fun, "-outsize", outsize[1], outsize[2]), split = "\\s")[[1]]
+    )
+    file.exists(tmp_out)
+  }, error = function(e) FALSE)
 
-  if(!file.exists(tmp_out)){
-    cli::cli_abort("Failed to generate aggregated raster.")
+  if(!ok){
+    # gdal_translate can fail on remote sources (e.g. a mosaic read from a URL)
+    # or unusual drivers: resample with terra to the same output size instead
+    pct2 <- rep(as.numeric(sub("%", "", outsize)), length.out = 2)
+    tmpl <- terra::rast(terra::ext(mosaic),
+                        ncols = max(1, round(terra::ncol(mosaic) * pct2[1] / 100)),
+                        nrows = max(1, round(terra::nrow(mosaic) * pct2[2] / 100)),
+                        crs = terra::crs(mosaic))
+    method <- switch(fun, nearest = "near", average = "average", rms = "rms", mode = "mode", fun)
+    agg <- tryCatch(terra::resample(mosaic, tmpl, method = method), error = function(e) NULL)
+    if(is.null(agg)){
+      cli::cli_abort("Failed to generate aggregated raster.")
+    }
+    names(agg) <- names(mosaic)
+    if(!is.null(target_file)){
+      terra::writeRaster(agg, target_file, overwrite = TRUE)
+      return(if(in_memory) terra::rast(target_file) |> terra::wrap() |> terra::unwrap() else terra::rast(target_file))
+    }
+    return(if(in_memory) agg else terra::writeRaster(agg, tmp_out, overwrite = TRUE))
   }
 
   if(!is.null(target_file)){
@@ -3153,12 +3176,6 @@ mosaic_segment_pick <- function(mosaic,
                            title = "Use the 'Draw Rectangle' tool to pick up background fractions",
                            editor = "leafpm")$finished
   soil <- soil |> sf::st_transform(sf::st_crs(mosaic))
-  vals <- mosaic_extract(mind_temp,
-                         shp,
-                         exact = TRUE,
-                         fun = "none",
-                         verbose = FALSE,
-                         coverage_area = FALSE)
   soil_sample <-
     mosaic_extract(mosaic,
                    soil,
@@ -3651,7 +3668,6 @@ mosaic_draw <- function(mosaic,
                            polygons,
                            exact = TRUE,
                            fun = summarize_fun,
-                           summarize_quantiles = summarize_quantiles,
                            verbose = FALSE,
                            coverage_area = FALSE)
     if(inherits(vals, "list")){
@@ -4108,7 +4124,13 @@ mosaic_chm_extract <- function(chm,
     }
     sumvalids <- sum(valids)
     result_df <- as.data.frame(as.list(quantile(valids, quantiles)))
-    colnames(result_df) <- paste0("q", quantiles)
+    # same names as pliman < 4.0: min, q05, q50, q95, max (0.975 -> q97.5)
+    colnames(result_df) <- vapply(quantiles, function(q) {
+      if (q == 0) return("min")
+      if (q == 1) return("max")
+      p <- q * 100
+      if (abs(p - round(p)) < 1e-8) sprintf("q%02d", as.integer(round(p))) else paste0("q", format(p))
+    }, character(1))
     mean_val <- sumvalids / length(valids)
     volume <- sumvalids * cell_area
     cv <- mean(valids) / sd(valids)
@@ -4135,7 +4157,7 @@ mosaic_chm_extract <- function(chm,
 
   height <-
     mosaic_extract(chm$chm[[2]],
-                   shp,
+                   shapefile,
                    exact = TRUE,
                    fun = custom_summary,
                    verbose = FALSE)

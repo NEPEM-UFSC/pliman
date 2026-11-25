@@ -248,7 +248,8 @@ plot_id <- function(shapefile = NULL,
 #'   `"radial"`, or `"landmark"`.
 #' @param basemap An optional `mapview` object.
 #' @param controlpoints An object created with [mosaic_view()] using the
-#'   argument `edit = TRUE`. This must contain the points that defines the
+#'   argument `edit = TRUE`, or an `sf` object (e.g. read with
+#'   [shapefile_input()]). This must contain the points that defines the
 #'   region of interest to be analyzed.
 #' @param buffer Numeric. A buffer distance (in map units) to be applied uniformly
 #'   to the final generated plots. If negative, the plots will be shrunk; if
@@ -378,8 +379,13 @@ shapefile_build <- function(mosaic,
         cli::cli_abort("Unsupported geometry type: {.val {geom_type}}.")
       }
     } else{
+      # accept an `sf` object (e.g. control points saved to / read from a file,
+      # as in pliman < 4.0) as well as the list returned by mosaic_view(edit = TRUE)
+      if (inherits(controlpoints, "sf")) {
+        controlpoints <- list(finished = controlpoints)
+      }
       if (!"finished" %in% names(controlpoints)) {
-        cli::cli_abort("Input {.arg controlpoints} must be from {.code mosaic_view(..., edit = TRUE)}.")
+        cli::cli_abort("Input {.arg controlpoints} must be an {.cls sf} object or the result of {.code mosaic_view(..., edit = TRUE)}.")
       }
       geom_type <- sf::st_geometry(controlpoints$finished) |> sf::st_geometry_type(by_geometry = FALSE)
       if (geom_type == "POINT") {
