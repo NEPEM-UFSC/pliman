@@ -53,8 +53,10 @@ struct ImgView {
 
   // Bilinear sample at continuous coordinate (fx, fy); pixel centres at integers.
   inline void sample(double fx, double fy, double* out) const {
-    if (fx < 0) fx = 0; if (fx > w - 1) fx = w - 1;
-    if (fy < 0) fy = 0; if (fy > h - 1) fy = h - 1;
+    if (fx < 0) fx = 0;
+    if (fx > w - 1) fx = w - 1;
+    if (fy < 0) fy = 0;
+    if (fy > h - 1) fy = h - 1;
     int x0 = (int)std::floor(fx), y0 = (int)std::floor(fy);
     int x1 = std::min(x0 + 1, w - 1), y1 = std::min(y0 + 1, h - 1);
     double ax = fx - x0, ay = fy - y0;
@@ -210,8 +212,10 @@ Rcpp::DataFrame ocr_components_cpp(Rcpp::IntegerMatrix labels,
       cnt[id] += 1; ssum[id] += sc; if (sc > smax[id]) smax[id] = sc;
       sx[id] += x; sy[id] += y;
       sxx[id] += (double)x * x; syy[id] += (double)y * y; sxy[id] += (double)x * y;
-      if (x < xmin[id]) xmin[id] = x; if (x > xmax[id]) xmax[id] = x;
-      if (y < ymin[id]) ymin[id] = y; if (y > ymax[id]) ymax[id] = y;
+      if (x < xmin[id]) xmin[id] = x;
+      if (x > xmax[id]) xmax[id] = x;
+      if (y < ymin[id]) ymin[id] = y;
+      if (y > ymax[id]) ymax[id] = y;
     }
   }
 
@@ -248,8 +252,10 @@ Rcpp::DataFrame ocr_components_cpp(Rcpp::IntegerMatrix labels,
       const double dx = x - cx[id], dy = y - cy[id];
       const double pu = dx * ux[id] + dy * uy[id];
       const double pv = -dx * uy[id] + dy * ux[id];
-      if (pu < umin[id]) umin[id] = pu; if (pu > umax[id]) umax[id] = pu;
-      if (pv < vmin[id]) vmin[id] = pv; if (pv > vmax[id]) vmax[id] = pv;
+      if (pu < umin[id]) umin[id] = pu;
+      if (pu > umax[id]) umax[id] = pu;
+      if (pv < vmin[id]) vmin[id] = pv;
+      if (pv > vmax[id]) vmax[id] = pv;
     }
   }
 

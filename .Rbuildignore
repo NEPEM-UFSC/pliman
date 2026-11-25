@@ -33,3 +33,4 @@ __pycache__
 ^src/.*\.o$
 ^src/.*\.dll$
 ^src/.*\.so$
+^texput\.log$
