@@ -119,12 +119,32 @@ jobs:
           R_LIBS_USER: ${{ runner.temp }}/Library
         run: |
           .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
-          rcmdcheck::rcmdcheck(
-            args = c("--no-manual", "--as-cran", "--ignore-vignettes"),
-            build_args = c("--no-manual", "--no-build-vignettes"),
-            error_on = "error",
-            check_dir = "check"
+          # workflow-command escaping, so multi-line messages become annotations
+          esc <- function(x) gsub("\n", "%0A", gsub("\r", "%0D", gsub("%", "%25", paste(x, collapse = "\n"), fixed = TRUE), fixed = TRUE), fixed = TRUE)
+          res <- tryCatch(
+            rcmdcheck::rcmdcheck(
+              args = c("--no-manual", "--as-cran", "--ignore-vignettes"),
+              build_args = c("--no-manual", "--no-build-vignettes"),
+              error_on = "never",
+              check_dir = "check"
+            ),
+            error = function(e) e
           )
+          if (inherits(res, "error")) {
+            cat("::error title=rcmdcheck failed::", esc(conditionMessage(res)), "\n", sep = "")
+            res <- list(errors = "rcmdcheck failed", warnings = character())
+          }
+          for (w in res$warnings) cat("::warning title=R CMD check WARNING::", esc(substr(w, 1, 4000)), "\n", sep = "")
+          for (e in res$errors) cat("::error title=R CMD check ERROR::", esc(substr(e, 1, 4000)), "\n", sep = "")
+          # compilation / installation failures: show the end of the install log
+          inst <- list.files("check", pattern = "^00install\\.out$", recursive = TRUE, full.names = TRUE)
+          if (length(res$errors) && length(inst)) {
+            log <- readLines(inst[1], warn = FALSE)
+            hits <- grep("error|Error|ERROR", log)
+            show <- if (length(hits)) log[unique(pmax(1, pmin(length(log), as.vector(outer(hits, -3:3, "+")))))] else tail(log, 60)
+            cat("::error title=00install.out::", esc(tail(show, 80)), "\n", sep = "")
+          }
+          if (length(res$errors)) quit(status = 1)
 
       - name: Upload check results
         if: failure()
