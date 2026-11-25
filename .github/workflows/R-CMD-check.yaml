@@ -65,6 +65,11 @@ jobs:
               brew trust r-lib/rig || true
               brew install --cask rig
               sudo rig add ${{ matrix.config.r }}
+              # CRAN's R for macOS links packages that use $(FLIBS)/LAPACK
+              # (e.g. RcppArmadillo) against the gfortran toolchain in /opt/gfortran
+              curl -fsSL -o /tmp/gfortran.pkg https://mac.r-project.org/tools/gfortran-14.2-universal.pkg
+              sudo installer -pkg /tmp/gfortran.pkg -target /
+              ls /opt/gfortran/lib | head
               brew install fftw libpng pandoc
               BREW=$(brew --prefix)
               mkdir -p ~/.R
