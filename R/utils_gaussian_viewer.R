@@ -57,6 +57,29 @@
 #' @param rotation Numeric vector of length 3 `c(x, y, z)`. Initial rotation in degrees. Defaults to `c(0, 0, 0)`.
 #' @param bg Character string. Background theme: `"dark"` (default, slate dark) or `"light"` (Metashape light).
 #' @param title Character string. Viewer window title.
+#' @param unit_scale Optional numeric. Factor converting model units into
+#'   meters, used by the ruler and the measurement tools (e.g. `0.01` if one
+#'   model unit is 1 cm). `NULL` (default) assumes meters for metric
+#'   reconstructions (e.g. Metashape) and *unknown* scale for COLMAP-based
+#'   reconstructions, whose scale is arbitrary; in that case lengths are shown
+#'   in model units (`u`) until the scale is calibrated in the viewer
+#'   (*GS Studio > Measure > Calibrate scale*, two points of known distance).
+#' @param tools Logical. If `TRUE` (default), adds the *GS Studio* panel with
+#'   Gaussian-splatting tools: view-dependent color (spherical harmonics),
+#'   floater filter, image adjustments and background color; rectangle, lasso
+#'   and brush selection with delete/isolate/undo and export of the edited
+#'   model as a full 3DGS PLY; section (clipping) plane; scale calibration,
+#'   polyline, angle, area and volume measurements; turntable / fly-through
+#'   video recording (WebM), high-resolution and transparent snapshots, and
+#'   comparison of the render with the original photos.
+#' @param focus_subject Logical. If `TRUE` (default), the viewer opens with the
+#'   *Focus on Subject* bounding region (35%), hiding distant background splats;
+#'   use *Full Scene* in the viewer (or `FALSE`) to show everything.
+#' @param min_opacity Numeric between 0 and 1. Initial minimum opacity of the
+#'   GS Studio floater filter (default `0.2`): more translucent splats are hidden
+#'   (non-destructively). It is ignored, with a message in the viewer, when it
+#'   would hide more than 90% of the splats (e.g. clouds that were not optimized).
+#'   Use `0` to disable.
 #' @return Invisible character string containing the path to the generated HTML file.
 #' @export
 #' @examplesIf interactive()
@@ -86,8 +109,16 @@ gs_viewer <- function(splat = NULL,
                       sphere_opacity = 0.04,
                       rotation = c(0, 0, 0),
                       bg = c("dark", "light"),
-                      title = "3D Point Cloud & Gaussian Splat Viewer [pliman]") {
+                      title = "3D Point Cloud & Gaussian Splat Viewer [pliman]",
+                      unit_scale = NULL,
+                      tools = TRUE,
+                      focus_subject = TRUE,
+                      min_opacity = 0.2) {
   mode_user_specified <- !missing(mode)
+  # COLMAP reconstructions have an arbitrary scale: lengths are shown in model
+  # units until the user calibrates them (GS Studio > Measure > Scale).
+  scale_is_arbitrary <- inherits(splat, "colmap_sfm") ||
+    (inherits(splat, "gaussian_splat") && (!is.null(splat$sfm) || !is.null(attr(splat, "sfm"))))
   color_by_user_specified <- !missing(color_by)
   rotation_user_specified <- !missing(rotation)
   auto_rotation <- NULL
@@ -203,6 +234,8 @@ gs_viewer <- function(splat = NULL,
 
     # Full anisotropic 3D covariance (upper triangle) for true splat rendering
     gs_cov_b64 <- .gs_viewer_cov_b64(splat)
+    # Higher-order spherical harmonics (view-dependent color), 8-bit quantized
+    gs_sh <- .gs_viewer_sh_pack(splat)
 
     # Voxel grid of the online noise filter: same parameters as
     # gs_filter_outliers(method = "density"), so both give identical results.
@@ -224,6 +257,7 @@ gs_viewer <- function(splat = NULL,
     center_x <- 0; center_y <- 0; center_z <- 0
     rob_dx <- 0; rob_dy <- 0; rob_dz <- 0
     target_dim <- 1.0
+    gs_sh <- list(b64 = "", degree = 0L, texels = 0L, scale = c(0, 0, 0))
     dens_cell <- 0
     dens_origin <- c(0, 0, 0)
     pos_str <- ""
@@ -472,6 +506,8 @@ gs_viewer <- function(splat = NULL,
         fy = round(if (!is.null(cam$fy)) cam$fy else 1000, 2),
         w = as.integer(if (!is.null(cam$width)) cam$width else 1920),
         h = as.integer(if (!is.null(cam$height)) cam$height else 1080),
+        cx = round(if (!is.null(cam$cx)) cam$cx else (if (!is.null(cam$width)) cam$width else 1920) / 2, 2),
+        cy = round(if (!is.null(cam$cy)) cam$cy else (if (!is.null(cam$height)) cam$height else 1080) / 2, 2),
         img = img_ref
       )
     }
@@ -490,6 +526,15 @@ gs_viewer <- function(splat = NULL,
   sem_map_js <- paste0("{", paste(sem_labels_json, collapse = ", "), "}")
 
   # HTML template with embedded CSS and modern Three.js WebGL application
+  unit_scale_js <- if (!is.null(unit_scale) && is.numeric(unit_scale) && is.finite(unit_scale[1]) && unit_scale[1] > 0) {
+    sprintf("%.10g", unit_scale[1])
+  } else if (isTRUE(scale_is_arbitrary)) "0" else "1"
+  tools_html <- if (isTRUE(tools)) .gs_viewer_tools_html() else ""
+  crop_init <- if (isTRUE(focus_subject)) 0.35 else 1.0
+  min_opacity <- suppressWarnings(as.numeric(min_opacity)[1])
+  if (!is.finite(min_opacity) || min_opacity < 0) min_opacity <- 0
+  min_opacity <- min(min_opacity, 0.95)
+
   html_content <- paste0(
 '<!DOCTYPE html>
 <html lang="en">
@@ -1916,13 +1961,13 @@ gs_viewer <- function(splat = NULL,
     <div class="control-group">
       <div class="control-label">
         <span>&#127919; Bounding Region (Noise Crop)</span>
-        <span id="lbl-crop-val" class="val">100%</span>
+        <span id="lbl-crop-val" class="val">', round(crop_init * 100), '%</span>
       </div>
       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 6px;">
         <button class="btn-action" onclick="setCropPreset(0.35)" title="Focus on central subject and crop surrounding environment walls">&#127793; Focus on Subject</button>
         <button class="btn-action" onclick="setCropPreset(1.0)" title="Display entire scene including surrounding environment">&#127760; Full Scene</button>
       </div>
-      <input type="range" id="slider-crop" min="0.05" max="1.0" step="0.02" value="1.0" oninput="updateCropRadius(this.value)">
+      <input type="range" id="slider-crop" min="0.05" max="1.0" step="0.02" value="', crop_init, '" oninput="updateCropRadius(this.value)">
       <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;">
         Isolate the central subject and eliminate distant background noise!
       </div>
@@ -2065,6 +2110,15 @@ gs_viewer <- function(splat = NULL,
     // Density-filter voxel grid shared with gs_filter_outliers(method = "density")
     let densityCellSize = ', sprintf("%.10g", dens_cell), ';
     let densityGridOrigin = [', paste(sprintf("%.10g", dens_origin), collapse = ", "), '];
+    // Higher-order spherical harmonics (bands 1-3), 8-bit quantized, for view-dependent color
+    const gsSHBase64 = "', gs_sh$b64, '";
+    const gsSHDegree = ', as.integer(gs_sh$degree), ';
+    const gsSHTexels = ', as.integer(gs_sh$texels), ';
+    const gsSHScale = [', paste(sprintf("%.8g", gs_sh$scale), collapse = ", "), '];
+    // Model units -> meters (0 = unknown scale, e.g. COLMAP: calibrate in GS Studio)
+    let gsUnitScale = ', unit_scale_js, ';
+    // Initial minimum opacity of the GS Studio floater filter
+    const gsMinOpacityDefault = ', sprintf("%.4g", min_opacity), ';
 
     // Palettes for Semantic Classes
     const semanticColorsPalette = {
@@ -2167,7 +2221,7 @@ gs_viewer <- function(splat = NULL,
 
       initOrthoCamera();
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, powerPreference: "high-performance" });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
       container.appendChild(renderer.domElement);
@@ -2552,6 +2606,20 @@ gs_viewer <- function(splat = NULL,
     }
 
     let rawCov3D = gsDecodeF32(gsCov3DBase64);
+    function gsDecodeU8(b64) {
+      if (!b64 || b64.length === 0) return null;
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+    let gsSHData = (gsSHDegree > 0) ? gsDecodeU8(gsSHBase64) : null;
+    let gsSHEnabled = gsSHDegree > 0;
+    // Per-splat visibility mask maintained by the GS Studio tools (1 = hidden):
+    // deleted splats, floater filter and section plane.
+    let gsToolMask = null;
+    // Image adjustments applied to the splat render (GS Studio > Render)
+    const gsAdjust = { exposure: 0.0, contrast: 1.0, saturation: 1.0, gamma: 1.0 };
     let gsMesh = null, gsMaterial = null, gsGeometry = null, gsTex = null, gsIndexAttr = null;
     let gsVisibleIdx = new Uint32Array(0);
     let gsNumVisible = 0;
@@ -2584,7 +2652,7 @@ gs_viewer <- function(splat = NULL,
       if (gsMesh && gsMesh.parent) gsMesh.parent.remove(gsMesh);
       if (gsGeometry) gsGeometry.dispose();
       if (gsMaterial) gsMaterial.dispose();
-      if (gsTex) ["centers", "covA", "covB", "colors"].forEach(k => { if (gsTex[k]) gsTex[k].dispose(); });
+      if (gsTex) ["centers", "covA", "covB", "colors", "sh"].forEach(k => { if (gsTex[k]) gsTex[k].dispose(); });
       gsMesh = null; gsGeometry = null; gsMaterial = null; gsTex = null; gsIndexAttr = null;
       gsNumVisible = 0;
     }
@@ -2601,9 +2669,17 @@ gs_viewer <- function(splat = NULL,
       uniform vec2 uViewport;
       uniform float uScaleMod;
       uniform float uOrtho;
+      uniform sampler2D uSH;
+      uniform int uSHTexels;
+      uniform int uSHTexW;
+      uniform int uSHDeg;
+      uniform vec3 uSHScale;
+      uniform float uSHOn;
+      uniform vec3 uCamLocal;
       in float splatIndex;
       out vec4 vColor;
       out vec2 vPos;
+      #define SHC(j) vec3(s[3 * (j) - 3], s[3 * (j) - 2], s[3 * (j) - 1])
       void main() {
         int idx = int(splatIndex + 0.5);
         ivec2 tc = ivec2(idx % uTexW, idx / uTexW);
@@ -2648,7 +2724,36 @@ gs_viewer <- function(splat = NULL,
         vec2 minor = min(sqrt(2.0 * l2), 2048.0) * vec2(-d1.y, d1.x);   // CCW: keeps the quad front-facing
         vec2 ndc = clipPos.xy / clipPos.w;
         vec2 offPx = position.x * major + position.y * minor;
-        vColor = col;
+        vec3 rgb = col.rgb;
+        if (uSHOn > 0.5 && uSHDeg > 0) {
+          // view-dependent color: SH bands 1-3 (Kerbl et al. 2023), dir = mean - camera
+          int base = idx * uSHTexels;
+          float s[48];
+          for (int k = 0; k < 12; k++) {
+            if (k >= uSHTexels) break;
+            int p = base + k;
+            vec4 t = texelFetch(uSH, ivec2(p % uSHTexW, p / uSHTexW), 0) * 255.0 - 128.0;
+            s[4 * k] = t.x; s[4 * k + 1] = t.y; s[4 * k + 2] = t.z; s[4 * k + 3] = t.w;
+          }
+          vec3 dir = normalize(center - uCamLocal);
+          float x = dir.x, y = dir.y, z = dir.z;
+          vec3 r = (-0.4886025119029199 * y * SHC(1) + 0.4886025119029199 * z * SHC(2) - 0.4886025119029199 * x * SHC(3)) * (uSHScale.x / 127.0);
+          if (uSHDeg > 1) {
+            float xx = x * x, yy = y * y, zz = z * z, xy = x * y, yz = y * z, xz = x * z;
+            r += (1.0925484305920792 * xy * SHC(4) - 1.0925484305920792 * yz * SHC(5) +
+                  0.31539156525252005 * (2.0 * zz - xx - yy) * SHC(6) - 1.0925484305920792 * xz * SHC(7) +
+                  0.5462742152960396 * (xx - yy) * SHC(8)) * (uSHScale.y / 127.0);
+            if (uSHDeg > 2) {
+              r += (-0.5900435899266435 * y * (3.0 * xx - yy) * SHC(9) + 2.890611442640554 * xy * z * SHC(10) -
+                    0.4570457994644658 * y * (4.0 * zz - xx - yy) * SHC(11) +
+                    0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * SHC(12) -
+                    0.4570457994644658 * x * (4.0 * zz - xx - yy) * SHC(13) + 1.445305721320277 * z * (xx - yy) * SHC(14) -
+                    0.5900435899266435 * x * (xx - 3.0 * yy) * SHC(15)) * (uSHScale.z / 127.0);
+            }
+          }
+          rgb = max(rgb + r, 0.0);
+        }
+        vColor = vec4(rgb, col.a);
         vPos = position.xy;
         gl_Position = vec4(ndc + offPx * 2.0 / uViewport, clipPos.z / clipPos.w, 1.0);
       }
@@ -2658,13 +2763,22 @@ gs_viewer <- function(splat = NULL,
       precision highp float;
       in vec4 vColor;
       in vec2 vPos;
+      uniform float uExposure;
+      uniform float uContrast;
+      uniform float uSaturation;
+      uniform float uGamma;
       layout(location = 0) out highp vec4 gsFragColor;
       void main() {
         float A = -dot(vPos, vPos);
         if (A < -4.0) discard;
         float B = exp(A) * vColor.a;
         if (B < 1.0 / 255.0) discard;
-        gsFragColor = vec4(vColor.rgb * B, B);
+        vec3 c = vColor.rgb * exp2(uExposure);
+        c = (c - 0.5) * uContrast + 0.5;
+        float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c = mix(vec3(lum), c, uSaturation);
+        c = clamp(pow(max(c, 0.0), vec3(1.0 / uGamma)), 0.0, 1.0);
+        gsFragColor = vec4(c * B, B);
       }
     `;
 
@@ -2696,6 +2810,25 @@ gs_viewer <- function(splat = NULL,
         colors: gsMakeTex(colors, w, h),
         colorData: colors, w: w, h: h
       };
+      // SH bands 1-3: gsSHTexels RGBA8 texels per splat
+      const shW = 2048;
+      let shHas = false;
+      if (gsSHData && gsSHTexels > 0 && gsSHData.length >= n * gsSHTexels * 4) {
+        const total = n * gsSHTexels;
+        const shH = Math.max(1, Math.ceil(total / shW));
+        const buf = new Uint8Array(shW * shH * 4);
+        buf.set(gsSHData.subarray(0, total * 4));
+        gsTex.sh = new THREE.DataTexture(buf, shW, shH, THREE.RGBAFormat, THREE.UnsignedByteType);
+        shHas = true;
+      } else {
+        gsTex.sh = new THREE.DataTexture(new Uint8Array([128, 128, 128, 128]), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
+      }
+      gsTex.sh.minFilter = THREE.NearestFilter;
+      gsTex.sh.magFilter = THREE.NearestFilter;
+      gsTex.sh.generateMipmaps = false;
+      gsTex.sh.flipY = false;
+      gsTex.sh.needsUpdate = true;
+      gsTex.hasSH = shHas;
 
       gsGeometry = new THREE.InstancedBufferGeometry();
       gsGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([-2, -2, 0, 2, -2, 0, 2, 2, 0, -2, 2, 0]), 3));
@@ -2717,7 +2850,18 @@ gs_viewer <- function(splat = NULL,
           uTexW: { value: w },
           uViewport: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
           uScaleMod: { value: pointSizeValue / gsDefaultSize },
-          uOrtho: { value: 0.0 }
+          uOrtho: { value: 0.0 },
+          uSH: { value: gsTex.sh },
+          uSHTexels: { value: Math.max(1, gsSHTexels) },
+          uSHTexW: { value: shW },
+          uSHDeg: { value: shHas ? gsSHDegree : 0 },
+          uSHScale: { value: new THREE.Vector3(gsSHScale[0] || 0, gsSHScale[1] || 0, gsSHScale[2] || 0) },
+          uSHOn: { value: 1.0 },
+          uCamLocal: { value: new THREE.Vector3() },
+          uExposure: { value: gsAdjust.exposure },
+          uContrast: { value: gsAdjust.contrast },
+          uSaturation: { value: gsAdjust.saturation },
+          uGamma: { value: gsAdjust.gamma }
         },
         transparent: true,
         side: THREE.DoubleSide,
@@ -2805,6 +2949,13 @@ gs_viewer <- function(splat = NULL,
       gsMaterial.uniforms.uOrtho.value = isOrtho ? 1.0 : 0.0;
       cam.updateMatrixWorld();
       gsMesh.updateMatrixWorld();
+      const U = gsMaterial.uniforms;
+      U.uSHOn.value = (gsSHEnabled && currentColorMode === "rgb") ? 1.0 : 0.0;
+      U.uCamLocal.value.setFromMatrixPosition(cam.matrixWorld).applyMatrix4(gsTmpMat.copy(gsMesh.matrixWorld).invert());
+      U.uExposure.value = gsAdjust.exposure;
+      U.uContrast.value = gsAdjust.contrast;
+      U.uSaturation.value = gsAdjust.saturation;
+      U.uGamma.value = gsAdjust.gamma;
       const e = gsTmpMat.multiplyMatrices(cam.matrixWorldInverse, gsMesh.matrixWorld).elements;
       const dv = Math.abs(e[2] - gsLastView[0]) + Math.abs(e[6] - gsLastView[1]) + Math.abs(e[10] - gsLastView[2]);
       const dz = Math.abs(e[14] - gsLastView[3]) / Math.max(1e-6, targetDim);
@@ -3157,6 +3308,7 @@ gs_viewer <- function(splat = NULL,
           cov3d: rawCov3D ? new Float32Array(rawCov3D) : null,
           semantics: rawSemantics ? new Int32Array(rawSemantics) : null,
           densities: (pointDensities && pointDensities.length > 0) ? new Float32Array(pointDensities) : null,
+          sh: gsSHData ? new Uint8Array(gsSHData) : null,
           count: numGaussians
         };
       }
@@ -3207,6 +3359,14 @@ gs_viewer <- function(splat = NULL,
         if (newDensities) newDensities[j] = pointDensities[origIdx];
       }
 
+      if (gsSHData && gsSHTexels > 0) {
+        const B = gsSHTexels * 4;
+        const newSH = new Uint8Array(newCount * B);
+        for (let j = 0; j < newCount; ++j) newSH.set(gsSHData.subarray(keptIndices[j] * B, keptIndices[j] * B + B), j * B);
+        gsSHData = newSH;
+      }
+      if (typeof gsToolsOnReindex === "function") gsToolsOnReindex(keptIndices);
+
       rawPositions = newPos;
       rawColorsRGB = newCol;
       rawOpacities = newOpac;
@@ -3237,7 +3397,9 @@ gs_viewer <- function(splat = NULL,
       rawCov3D = initialUncroppedState.cov3d ? new Float32Array(initialUncroppedState.cov3d) : null;
       if (initialUncroppedState.semantics) rawSemantics = new Int32Array(initialUncroppedState.semantics);
       if (initialUncroppedState.densities) pointDensities = new Float32Array(initialUncroppedState.densities);
+      if (initialUncroppedState.sh) gsSHData = new Uint8Array(initialUncroppedState.sh);
       numGaussians = initialUncroppedState.count;
+      if (typeof gsToolsOnReindex === "function") gsToolsOnReindex(null);
 
       rebuildCroppedGeometry();
 
@@ -3308,7 +3470,7 @@ gs_viewer <- function(splat = NULL,
       showToast(`&#128190; Saved point_cloud_cropped_${numGaussians}pts.ply!`);
     }
 
-    let cropRadiusMultiplier = 1.0;
+    let cropRadiusMultiplier = ', crop_init, ';
     function setCropPreset(val) {
       cropRadiusMultiplier = parseFloat(val);
       const slider = document.getElementById("slider-crop");
@@ -3391,6 +3553,13 @@ gs_viewer <- function(splat = NULL,
           }
         }
 
+        // GS Studio: deleted splats, floater filter and section plane
+        if (gsToolMask && gsToolMask[i]) {
+          alphaArr[i] = 0.0;
+          sizeArr[i] = 0.0;
+          continue;
+        }
+
         // Online Noise Filter (Spatial Density Check)
         if (densityCutoff > 0 && pointDensities[i] < densityCutoff) {
           alphaArr[i] = 0.0;
@@ -3446,6 +3615,7 @@ gs_viewer <- function(splat = NULL,
         }
       }
 
+      if (typeof gsToolsTint === "function") gsToolsTint(colArr, alphaArr);
       colorsAttr.needsUpdate = true;
       alphasAttr.needsUpdate = true;
       sizesAttr.needsUpdate = true;
@@ -3470,6 +3640,18 @@ gs_viewer <- function(splat = NULL,
     // Setup interactive mouse handling for 3D coordinates, camera clicking, and gizmo dragging
     let hoveredCamIndex = null;
     let downPointerPos = { x: 0, y: 0 };
+
+    // Picks the front-most visible splat under the cursor and returns it in model
+    // (modelContainer) coordinates. GS Studio provides a picker that honours all
+    // visibility filters; the fallback raycasts the point cloud.
+    function gsPickLocal(clientX, clientY) {
+      if (typeof gsToolsPick === "function") return gsToolsPick(clientX, clientY);
+      if (!pointsMesh) return null;
+      const m = new THREE.Vector2((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
+      raycaster.setFromCamera(m, (isOrtho && orthoCamera) ? orthoCamera : camera);
+      const hits = raycaster.intersectObject(pointsMesh);
+      return hits.length > 0 ? modelContainer.worldToLocal(hits[0].point.clone()) : null;
+    }
 
     function setupInteractions() {
       const coordsText = document.getElementById("coords-text");
@@ -3583,10 +3765,8 @@ gs_viewer <- function(splat = NULL,
         const activeCam = (isOrtho && orthoCamera) ? orthoCamera : camera;
         if (isRulerActive) {
           canvasElem.style.cursor = "crosshair";
-          raycaster.setFromCamera(mouse, activeCam);
-          const rHits = pointsMesh ? raycaster.intersectObject(pointsMesh) : [];
-          if (rHits.length > 0) {
-            const hPt = rHits[0].point;
+          const hPt = gsPickLocal(event.clientX, event.clientY);
+          if (hPt) {
             if (rulerHoverMarker) {
               rulerHoverMarker.position.copy(hPt);
               rulerHoverMarker.visible = true;
@@ -3597,6 +3777,7 @@ gs_viewer <- function(splat = NULL,
               const tMat = new THREE.LineDashedMaterial({ color: 0xfacc15, dashSize: 0.02, gapSize: 0.01, depthTest: false });
               rulerTempLine = new THREE.Line(tGeo, tMat);
               rulerTempLine.computeLineDistances();
+              rulerTempLine.renderOrder = 998;
               rulerGroup.add(rulerTempLine);
             }
           }
@@ -3607,10 +3788,9 @@ gs_viewer <- function(splat = NULL,
 
         // Raycasting for coordinates tracking
         raycaster.setFromCamera(mouse, activeCam);
-        const intersects = pointsMesh ? raycaster.intersectObject(pointsMesh) : [];
+        const hit = gsPickLocal(event.clientX, event.clientY);
 
-        if (intersects.length > 0) {
-          const hit = intersects[0].point;
+        if (hit) {
           const worldX = hit.x + centerOrigin[0];
           const worldY = hit.y + centerOrigin[1];
           const worldZ = hit.z + centerOrigin[2];
@@ -3718,10 +3898,9 @@ gs_viewer <- function(splat = NULL,
         if (isRulerActive && dist < 6) {
           mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
           mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-          raycaster.setFromCamera(mouse, activeCam);
-          const rHits = pointsMesh ? raycaster.intersectObject(pointsMesh) : [];
-          if (rHits.length > 0) {
-            handleRulerClick(rHits[0].point);
+          const pk = gsPickLocal(event.clientX, event.clientY);
+          if (pk) {
+            handleRulerClick(pk);
             return;
           }
         }
@@ -3745,10 +3924,9 @@ gs_viewer <- function(splat = NULL,
         mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         const activeCam = (isOrtho && orthoCamera) ? orthoCamera : camera;
-        raycaster.setFromCamera(mouse, activeCam);
-        const intersects = pointsMesh ? raycaster.intersectObject(pointsMesh) : [];
-        if (intersects.length > 0) {
-          const newTarget = intersects[0].point;
+        const pkL = gsPickLocal(event.clientX, event.clientY);
+        if (pkL) {
+          const newTarget = modelContainer.localToWorld(pkL.clone());
           controls.target.copy(newTarget);
           controls.update();
         }
@@ -4688,6 +4866,7 @@ gs_viewer <- function(splat = NULL,
           const sGeo = new THREE.SphereGeometry(Math.max(0.005, targetDim * 0.015), 16, 16);
           const sMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, wireframe: true, depthTest: false });
           rulerHoverMarker = new THREE.Mesh(sGeo, sMat);
+          rulerHoverMarker.renderOrder = 999;
           rulerGroup.add(rulerHoverMarker);
         }
         rulerHoverMarker.visible = true;
@@ -4706,6 +4885,7 @@ gs_viewer <- function(splat = NULL,
         const sMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, depthTest: false });
         const markerA = new THREE.Mesh(sGeo, sMat);
         markerA.position.copy(rulerPointA);
+        markerA.renderOrder = 999;
         rulerGroup.add(markerA);
 
         const instr = document.getElementById("ruler-instruction");
@@ -4717,22 +4897,25 @@ gs_viewer <- function(splat = NULL,
         const sMat = new THREE.MeshBasicMaterial({ color: 0xef4444, depthTest: false });
         const markerB = new THREE.Mesh(sGeo, sMat);
         markerB.position.copy(rulerPointB);
+        markerB.renderOrder = 999;
         rulerGroup.add(markerB);
 
         const distM = rulerPointA.distanceTo(rulerPointB);
-        const distStr = distM < 1.0 ? (distM * 100).toFixed(2) + " cm" : distM.toFixed(3) + " m";
+        const fmtL = (typeof gsFmtLen === "function") ? gsFmtLen : (d => d < 1.0 ? (d * 100).toFixed(2) + " cm" : d.toFixed(3) + " m");
+        const distStr = fmtL(distM);
         const dx = Math.abs(rulerPointB.x - rulerPointA.x);
         const dy = Math.abs(rulerPointB.y - rulerPointA.y);
         const dz = Math.abs(rulerPointB.z - rulerPointA.z);
 
-        const dxStr = dx < 1.0 ? (dx * 100).toFixed(1) + "cm" : dx.toFixed(2) + "m";
-        const dyStr = dy < 1.0 ? (dy * 100).toFixed(1) + "cm" : dy.toFixed(2) + "m";
-        const dzStr = dz < 1.0 ? (dz * 100).toFixed(1) + "cm" : dz.toFixed(2) + "m";
+        const dxStr = fmtL(dx);
+        const dyStr = fmtL(dy);
+        const dzStr = fmtL(dz);
 
         const lineGeo = new THREE.BufferGeometry().setFromPoints([rulerPointA, rulerPointB]);
         const lineMat = new THREE.LineDashedMaterial({ color: 0xfacc15, dashSize: 0.03, gapSize: 0.015, linewidth: 2, depthTest: false });
         const line = new THREE.Line(lineGeo, lineMat);
         line.computeLineDistances();
+        line.renderOrder = 998;
         rulerGroup.add(line);
 
         const midPoint = rulerPointA.clone().add(rulerPointB).multiplyScalar(0.5);
@@ -4745,7 +4928,7 @@ gs_viewer <- function(splat = NULL,
           id: rulerMeasurements.length + 1,
           pA: rulerPointA,
           pB: rulerPointB,
-          distStr: distStr,
+          distStr: distStr, distM: distM, dx: dx, dy: dy, dz: dz,
           dxStr: dxStr, dyStr: dyStr, dzStr: dzStr,
           markerA: markerA,
           markerB: markerB,
@@ -4784,8 +4967,9 @@ gs_viewer <- function(splat = NULL,
       ctx.fillText(text, 128, 35);
 
       const texture = new THREE.CanvasTexture(canvas);
-      const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false });
+      const spriteMat = new THREE.SpriteMaterial({ map: texture, depthTest: false, depthWrite: false });
       const sprite = new THREE.Sprite(spriteMat);
+      sprite.renderOrder = 1000;   // drawn after the splats (renderOrder 10)
       sprite.position.copy(position);
       const badgeScale = Math.max(0.04, targetDim * 0.12);
       sprite.scale.set(badgeScale * 2.2, badgeScale * 0.6, 1);
@@ -5061,6 +5245,7 @@ gs_viewer <- function(splat = NULL,
       }
 
       const renderCam = (isOrtho && orthoCamera) ? orthoCamera : camera;
+      if (typeof gsToolsBeforeRender === "function") gsToolsBeforeRender(renderCam);
       gsUpdateFrame(renderCam);
       renderer.render(scene, renderCam);
 
@@ -5934,6 +6119,9 @@ gs_viewer <- function(splat = NULL,
       computeDistanceDistribution();
 
       rawCov3D = parsed.cov3d || null;
+      gsSHData = null;
+      gsSHEnabled = false;
+      if (typeof gsToolsOnReindex === "function") gsToolsOnReindex("reset");
 
       // Remove old point cloud mesh
       if (pointsMesh) {
@@ -6076,6 +6264,7 @@ gs_viewer <- function(splat = NULL,
 
     window.onload = init;
   </script>
+', tools_html, '
 </body>
 </html>
 ')
@@ -6183,5 +6372,63 @@ gs_viewer <- function(splat = NULL,
     center = ctr,
     target_dim = med_d / 2.46,
     rotation = round(c(rx, ry, rz) * 180 / pi)
+  )
+}
+
+
+# Higher-order spherical-harmonics coefficients (bands 1-3) for the viewer,
+# quantized to 8 bits with one scale per band (99.9th percentile of |coef|),
+# packed coefficient-major (j = 1..15, channel r/g/b) into RGBA8 texels.
+.gs_viewer_sh_pack <- function(splat) {
+  empty <- list(b64 = "", degree = 0L, texels = 0L, scale = c(0, 0, 0))
+  sh <- splat$sh_coeffs
+  n <- splat$num_gaussians
+  if (is.null(sh) || is.null(n) || n == 0 || ncol(sh) <= 3) return(empty)
+  deg <- min(3L, as.integer(round(sqrt(ncol(sh) / 3))) - 1L)
+  if (deg < 1) return(empty)
+  n_rest <- 3L * ((deg + 1L)^2 - 1L)
+  rest <- as.matrix(sh[, 4:(3 + n_rest), drop = FALSE])
+  rest[!is.finite(rest)] <- 0
+  band_of <- rep(c(1L, 1L, 1L, 2L, 2L, 2L, 2L, 2L, 3L, 3L, 3L, 3L, 3L, 3L, 3L)[seq_len(n_rest / 3)], each = 3)
+  scale <- c(0, 0, 0)
+  q <- matrix(0L, nrow(rest), ncol(rest))
+  for (b in seq_len(deg)) {
+    cols <- which(band_of == b)
+    v <- abs(rest[, cols])
+    sb <- as.numeric(stats::quantile(v, 0.999, names = FALSE))
+    if (!is.finite(sb) || sb <= 0) sb <- max(v, 1e-6)
+    scale[b] <- sb
+    q[, cols] <- as.integer(round(pmax(-1, pmin(1, rest[, cols] / sb)) * 127))
+  }
+  texels <- as.integer(ceiling(n_rest / 4))
+  bytes <- matrix(128L, nrow = texels * 4L, ncol = nrow(rest))
+  bytes[seq_len(n_rest), ] <- t(q) + 128L
+  list(
+    b64 = base64_encode(as.raw(as.vector(bytes))),
+    degree = deg,
+    texels = texels,
+    scale = scale
+  )
+}
+
+# GS Studio (inst/viewer/gs_tools.js + gs_tools.css), inlined into the viewer
+.gs_viewer_tools_html <- function() {
+  find_file <- function(f) {
+    p <- system.file("viewer", f, package = "pliman")
+    if (!nzchar(p)) {
+      cand <- file.path(getwd(), "inst", "viewer", f)
+      if (file.exists(cand)) p <- cand
+    }
+    p
+  }
+  js <- find_file("gs_tools.js")
+  css <- find_file("gs_tools.css")
+  if (!nzchar(js)) {
+    cli::cli_alert_warning("GS Studio tools not found ({.file inst/viewer/gs_tools.js}); the viewer opens without them.")
+    return("")
+  }
+  paste0(
+    if (nzchar(css)) paste0("<style>\n", paste(readLines(css, warn = FALSE, encoding = "UTF-8"), collapse = "\n"), "\n</style>\n") else "",
+    "<script>\n", paste(readLines(js, warn = FALSE, encoding = "UTF-8"), collapse = "\n"), "\n</script>"
   )
 }
