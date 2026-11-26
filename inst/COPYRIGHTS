@@ -32,3 +32,11 @@ Removed in pliman 4.0.0
   detector (src/smooth_contours.c) by Rafael Grompone von Gioi, both
   distributed under the GNU Affero General Public License, were removed.
   image_line_segment() and image_contour_line() are defunct.
+
+Pre-trained models (not distributed with pliman)
+  The deep learning models used by pliman are downloaded at run time from
+  third-party sources and keep their own licenses, which are not the GPL.
+  Several forbid commercial use (e.g. BRIA RMBG 1.4 / 2.0, YOLO-NAS weights)
+  and others are AGPL-3.0 (Ultralytics YOLO26 and YOLO-World weights). The
+  models are provided for research and non-commercial use only. See
+  inst/MODEL_LICENSES.md (system.file("MODEL_LICENSES.md", package = "pliman")).

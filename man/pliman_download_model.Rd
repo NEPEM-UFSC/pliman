@@ -33,6 +33,17 @@ Downloads one or more pre-trained neural models into the user's model directory.
 Supports downloading by model name, model asset name, dynamic GitHub release asset,
 or directly from a custom URL (e.g. \verb{https://.../model.onnx}).
 }
+\section{License notice}{
+
+The pre-trained models are \strong{not} distributed with \code{pliman}: they are downloaded
+from third-party sources and each one keeps its own license. Several models forbid
+commercial use (e.g. \code{"rmbg-1.4"}, \code{"rmbg-2.0"}, \code{"yolo_nas_s"} and \code{"yolo_nas_l"}) and
+others are released under the AGPL-3.0 (the \code{"yolo26*"} and \code{"yolov8*-worldv2"} families).
+The models available through \code{pliman} are therefore provided for research and
+\strong{non-commercial use only}. The license of each model is listed in
+\code{system.file("MODEL_LICENSES.md", package = "pliman")}.
+}
+
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   # Download a single model

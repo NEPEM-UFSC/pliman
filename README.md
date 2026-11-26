@@ -162,6 +162,20 @@ Notes:
 | **Salient Background Removal** | `image_remove_bg()` | `ben2`, `u2netp`, `rmbg-2.0` | Ultra-sharp boundary cutouts and transparent background export. |
 | **Video Detection and Tracking** | `video_detect_dl()` | `yolo26[n/s/m/l/x]`, `yolo26[n/s/m/l/x]-seg` | Detection, tracking and line counting on video files or a webcam. |
 
+## Licenses and non-commercial use
+
+The pre-trained models are **not** part of `pliman`: they are downloaded
+on first use from third-party sources, and each one keeps its own
+license. Several of them forbid commercial use (for example `rmbg-1.4`,
+`rmbg-2.0` and `yolo_nas_*`) and others are released under the AGPL-3.0
+(the `yolo26*` and `yolov8*-worldv2` families). For this reason, the
+models available through `pliman` are provided for **research,
+educational and non-commercial use only**. The license of each model is
+listed in
+[`inst/MODEL_LICENSES.md`](https://github.com/nepem-ufsc/pliman/blob/master/inst/MODEL_LICENSES.md),
+also available with `system.file("MODEL_LICENSES.md", package = "pliman")`.
+The `pliman` source code remains under the GPL (>= 3).
+
 ## A worked example: a farm scene
 
 The examples below use `farm.jpg`, an image installed with `pliman`, to
