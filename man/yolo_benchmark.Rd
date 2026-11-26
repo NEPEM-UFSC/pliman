@@ -22,7 +22,7 @@ yolo_benchmark(
 \item{model}{Character. Model name (e.g. \code{"yolo26n"}) or path to a \code{.onnx} file.}
 
 \item{img}{Image used for timing: an \code{image} object, a file path or \code{NULL} (default),
-which uses the example image \code{"soybean_touch.jpg"}.}
+which uses the example image \code{"farm.jpg"} (a scene with people, animals and vehicles).}
 
 \item{imgsz}{Optional integer inference size. \code{NULL} uses the model's native size.}
 
@@ -77,7 +77,8 @@ may fall back to slower kernels.
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
-yolo_benchmark("yolo26n", engine = "cpu")
-yolo_benchmark("yolo26n", engine = "gpu", sahi = TRUE)
+farm <- image_pliman("farm.jpg")
+yolo_benchmark("yolo26n", img = farm, engine = "cpu")
+yolo_benchmark("yolo26n", img = farm, engine = "gpu", sahi = TRUE)
 \dontshow{\}) # examplesIf}
 }

@@ -394,21 +394,25 @@ non-maximum suppression, mask decoding, SAHI tiling and video tracking also run 
 - For video, `infer_every`, `fps`, `imgsz` and `show = FALSE` are the main speed levers.
 
 ```r
-# Measure inference speed on this machine
-yolo_benchmark("yolo26n", engine = "gpu")
-yolo_benchmark("yolo26n", engine = "cpu", sahi = TRUE)
+# Measure inference speed on this machine, using the farm image
+farm <- image_pliman("farm.jpg")
+yolo_benchmark("yolo26n", img = farm, engine = "gpu")
+yolo_benchmark("yolo26n", img = farm, engine = "cpu", sahi = TRUE)
 
 # Inspect cached ONNX sessions
 pliman_session_info()
 
 # Video detection with tracking and line counting
-res <- video_detect_dl(
-  "conveyor.mp4",
-  model = "yolo26n",
-  track = TRUE,
-  count_line = c(0.5, 0, 0.5, 1),
-  infer_every = 2,
-  output = "annotated.mp4"
+tracked <- video_detect_dl(
+  video                  = "video.mp4",         # input video (or a camera index, e.g. 0)
+  output                 = "video_tracked.mp4", # annotated video saved to this file
+  model                  = "yolo26n-seg",       # YOLO26 segmentation model (boxes + masks)
+  engine                 = "gpu",               # run on the GPU (DirectML); use "cpu" otherwise
+  track                  = TRUE,                # keep the same ID for each object across frames
+  roi                    = c(0.5, 1),           # region of interest: from 50% to 100% of the width
+  roi_orientation        = "vertical",          # the ROI is a vertical band (right half of the frame)
+  count_line             = 0.5,                 # counting line at 50% of the width
+  count_line_orientation = "vertical"           # the line is vertical; objects crossing it are counted
 )
 ```
 

@@ -112,6 +112,7 @@ Press \verb{<Esc>} or right-click when finished. Default is \code{FALSE}.}
 \item Numeric vector \code{c(x, y)}: Coordinates of a single foreground point prompt or single visual exemplar.
 \item Two-column numeric matrix or data frame \code{cbind(x, y)}: Specifies multiple positive point prompts or multiple exemplar prototypes.
 \item Numeric vector of length 4 \code{c(xmin, ymin, xmax, ymax)}: Specifies a bounding box prompt in pixel coordinates.
+The corners can be given in any order (e.g. \code{c(x1, y2, x2, y1)}, as in \code{\link[graphics:rect]{graphics::rect()}}); they are sorted internally.
 \item \code{"center"}: Uses the image center coordinates \code{c(width / 2, height / 2)}.
 \item \code{"box"}: Uses a bounding box spanning the full image canvas.
 }}

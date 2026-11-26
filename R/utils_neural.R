@@ -3050,8 +3050,12 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
       pts_y <- (as.numeric(prompt[, 2]) / orig_h) * 1024.0
       pts_lbl <- rep(1L, length(pts_x))
     } else if (length(prompt) == 4) { # box: c(xmin, ymin, xmax, ymax)
-      pts_x <- c(prompt[1] / orig_w * 1024.0, prompt[3] / orig_w * 1024.0)
-      pts_y <- c(prompt[2] / orig_h * 1024.0, prompt[4] / orig_h * 1024.0)
+      # SAM expects the top-left corner (label 2) before the bottom-right corner (label 3).
+      # Sort the coordinates so boxes given in any corner order (e.g. as in rect()) still work.
+      box_x <- sort(as.numeric(prompt[c(1, 3)]))
+      box_y <- sort(as.numeric(prompt[c(2, 4)]))
+      pts_x <- box_x / orig_w * 1024.0
+      pts_y <- box_y / orig_h * 1024.0
       pts_lbl <- c(2L, 3L)
     } else { # single point: c(x, y)
       pts_x <- (as.numeric(prompt[1]) / orig_w) * 1024.0
@@ -3315,6 +3319,7 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
 #'   * Numeric vector `c(x, y)`: Coordinates of a single foreground point prompt or single visual exemplar.
 #'   * Two-column numeric matrix or data frame `cbind(x, y)`: Specifies multiple positive point prompts or multiple exemplar prototypes.
 #'   * Numeric vector of length 4 `c(xmin, ymin, xmax, ymax)`: Specifies a bounding box prompt in pixel coordinates.
+#'     The corners can be given in any order (e.g. `c(x1, y2, x2, y1)`, as in [graphics::rect()]); they are sorted internally.
 #'   * `"center"`: Uses the image center coordinates `c(width / 2, height / 2)`.
 #'   * `"box"`: Uses a bounding box spanning the full image canvas.
 #' @param exemplar Logical. If `TRUE` (or if `model = "persam"`), activates one-shot visual exemplar segmentation (PerSAM)

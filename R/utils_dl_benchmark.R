@@ -34,7 +34,7 @@
 #'
 #' @param model Character. Model name (e.g. `"yolo26n"`) or path to a `.onnx` file.
 #' @param img Image used for timing: an `image` object, a file path or `NULL` (default),
-#'   which uses the example image `"soybean_touch.jpg"`.
+#'   which uses the example image `"farm.jpg"` (a scene with people, animals and vehicles).
 #' @param imgsz Optional integer inference size. `NULL` uses the model's native size.
 #' @param engine Execution engine: `"gpu"` (DirectML, Windows) or `"cpu"`.
 #' @param threads Integer. ONNX Runtime CPU threads (`0` = runtime default).
@@ -51,8 +51,9 @@
 #' @export
 #' @examplesIf interactive()
 #' library(pliman)
-#' yolo_benchmark("yolo26n", engine = "cpu")
-#' yolo_benchmark("yolo26n", engine = "gpu", sahi = TRUE)
+#' farm <- image_pliman("farm.jpg")
+#' yolo_benchmark("yolo26n", img = farm, engine = "cpu")
+#' yolo_benchmark("yolo26n", img = farm, engine = "gpu", sahi = TRUE)
 yolo_benchmark <- function(model = "yolo26n",
                            img = NULL,
                            imgsz = NULL,
@@ -68,7 +69,7 @@ yolo_benchmark <- function(model = "yolo26n",
   n <- max(1L, as.integer(n))
   warmup <- max(0L, as.integer(warmup))
   im <- if (is.null(img)) {
-    image_pliman("soybean_touch.jpg")
+    image_pliman("farm.jpg")
   } else if (is.character(img)) {
     image_import(img[1])
   } else {

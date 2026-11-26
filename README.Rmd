@@ -150,6 +150,7 @@ seg$counts
 head(seg$results[, c("label", "score", "area", "perimeter", "circularity")])
 ```
 
+
 ### Text-prompted segmentation with SAM 2.1 (Grounded-SAM)
 
 `model = "grounded-sam"` finds objects described by a text `prompt` with Grounding DINO and segments them with SAM 2.1. The classes are not limited to a fixed list, so you can ask for objects that YOLO was not trained on. Here, `box_threshold` is raised so that only the animals are kept; with the default (`0.25`), the airplane is also labeled as an animal.
@@ -171,6 +172,9 @@ animals$counts
 With `model = "persam"`, you give the position of one example object (`prompt`, as x and y pixel coordinates), and SAM 2.1 finds and segments all similar objects in the image. Below, a single point on the cow in the front finds all the animals. Use a higher `sim_threshold` to keep only objects that are more similar to the example. In an interactive session, leave `prompt` out to click on the examples instead.
 
 ```{r farm-persam, message=FALSE, fig.width=10, fig.height=5.625}
+plot(farm)
+points(540, 380, pch = 16, col = "red", cex = 2)
+
 similar <- image_segment_dl(
   farm,
   model = "persam",
@@ -179,6 +183,7 @@ similar <- image_segment_dl(
   type = "highlight",
   bbox = TRUE
 )
+
 nrow(similar$results)
 ```
 
@@ -187,90 +192,55 @@ nrow(similar$results)
 `model = "sam2.1"` segments the object inside a box given as `c(xmin, ymin, xmax, ymax)`, or the object under a point given as `c(x, y)`. Here, a box around the horse:
 
 ```{r farm-sam, message=FALSE, fig.width=10, fig.height=5.625}
-horse <- image_segment_dl(
+
+plot(farm)
+rect(312, 285, 390, 485, lwd = 3, border = "red")
+
+man <- image_segment_dl(
   farm,
   model = "sam2.1",
-  prompt = c(360, 234, 440, 294),
+  prompt = c(312, 285, 390, 485),
   type = "highlight"
 )
+
 ```
 
 ## More examples
 
-### 1. Real-Time Detection, Segmentation, Pose, and Classification (YOLO26)
+### 1. Monocular 3D Depth Estimation (Depth Anything V2)
 
-```r
-library(pliman)
-
-img <- image_import("objects.jpg")
-
-# Fast bounding box detection
-boxes <- image_detect_dl(img, model = "yolo26n", conf_threshold = 0.25)
-
-# High-resolution instance segmentation with polygon overlay
-res_hl <- image_segment_dl(
-  img,
-  model = "yolo26n-seg",
-  type = "highlight",
-  box_threshold = 0.25,
-  bbox = TRUE
-)
-
-# Single multi-label mask image with integer labels (0 = background, 1..N = instances)
-res_mask <- image_segment_dl(img, model = "yolo26n-seg", type = "mask")
-
-# Inspect morphological features (area, perimeter, circularity, etc.)
-head(res_hl$features)
-
-# Real-time pose estimation (17 COCO keypoints + skeleton)
-pose_res <- image_pose_dl(img, model = "yolo26n-pose", conf_threshold = 0.3)
-
-# 1,000-class ImageNet classification
-top_classes <- image_classify_dl(img, model = "yolo26n-cls", top_k = 5)
-```
-
-### 2. Monocular 3D Depth Estimation (Depth Anything V2)
-
-```r
+```{r}
 # Computes relative 3D depth and displays with an inferno colormap
-depth_img <- image_depth_dl(img, col_palette = "inferno")
+depth_img <- image_depth_dl(farm, col_palette = "inferno")
 
 # Access raw continuous depth values
 raw_depth <- attr(depth_img, "depth")
+str(raw_depth)
 ```
 
-### 3. Foundation Semantic Embeddings (DINOv2)
+### 2. Foundation Semantic Embeddings (DINOv2)
 
-```r
+```{r}
 # Extract 384-dimensional ViT patch embeddings and top-3 PCA false-color map
-feats <- image_features_dl(img, return_pca = TRUE)
+feats <- image_features_dl(farm, return_pca = TRUE)
 
 # Global image classification token vector
 feats$cls_token
 ```
 
-### 4. Star-Convex Polygon Segmentation (StarDist)
 
-```r
-# Ideal for crowded seeds, grains, or cell nuclei
-grains <- image_import("grains.jpg")
-res_star <- image_stardist_dl(grains, prob_threshold = 0.5)
-```
+### 3. Generative Super-Resolution (Real-ESRGAN Full & Compact)
 
-### 5. Generative Super-Resolution (Real-ESRGAN Full & Compact)
+```{r}
+img <- image_pliman("soy_green.jpg")
 
-```r
 # 2x Photorealistic super-resolution (RRDBNet default)
-img_2x <- image_superres_dl(img)
+img_2x <- image_superres_dl(img, plot = FALSE)
 
-# 4x Photorealistic super-resolution
-img_4x <- image_superres_dl(img, model = "realesrgan_x4_full")
-
-# 4x Ultra-fast preview with lightweight compact model
-img_fast <- image_superres_dl(img, model = "realesrgan-compact")
+image_combine(img, img_2x, nrow = 2)
 ```
 
-### 6. Inference speed, GPU and video
+### 4. Inference speed
 
 Models run through ONNX Runtime in C++. Sessions are cached for the whole R session, so
 only the first call loads the model (and, on GPU, compiles it). Pre-processing,
@@ -287,23 +257,38 @@ non-maximum suppression, mask decoding, SAHI tiling and video tracking also run 
   workers and their models alive). Use `plot = FALSE` inside loops.
 - For video, `infer_every`, `fps`, `imgsz` and `show = FALSE` are the main speed levers.
 
-```r
-# Measure inference speed on this machine
-yolo_benchmark("yolo26n", engine = "gpu")
-yolo_benchmark("yolo26n", engine = "cpu", sahi = TRUE)
+```{r}
+# Measure inference speed on this machine, using the farm image
+yolo_benchmark("yolo26n", img = farm, engine = "gpu")
+yolo_benchmark("yolo26n", img = farm, engine = "cpu", sahi = TRUE)
 
 # Inspect cached ONNX sessions
 pliman_session_info()
 
-# Video detection with tracking and line counting
+
+```
+
+### 5. Video Detection
+```{r eval = FALSE}
+# Live detection (webcan)
 res <- video_detect_dl(
-  "conveyor.mp4",
-  model = "yolo26n",
-  track = TRUE,
-  count_line = c(0.5, 0, 0.5, 1),
-  infer_every = 2,
-  output = "annotated.mp4"
+  model = "yolo26n"
 )
+
+
+# Video detection with tracking and line counting
+tracked <- video_detect_dl(
+  video                  = "video.mp4",         # input video (or a camera index, e.g. 0)
+  output                 = "video_tracked.mp4", # annotated video saved to this file
+  model                  = "yolo26n-seg",       # YOLO26 segmentation model (boxes + masks)
+  engine                 = "gpu",               # run on the GPU (DirectML); use "cpu" otherwise
+  track                  = TRUE,                # keep the same ID for each object across frames
+  roi                    = c(0.5, 1),           # region of interest: from 50% to 100% of the width
+  roi_orientation        = "vertical",          # the ROI is a vertical band (right half of the frame)
+  count_line             = 0.5,                 # counting line at 50% of the width
+  count_line_orientation = "vertical"           # the line is vertical; objects crossing it are counted
+)
+
 ```
 
 # Analyze objects
