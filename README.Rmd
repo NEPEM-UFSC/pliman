@@ -15,7 +15,7 @@ knitr::opts_chunk$set(
 
 ```
 
-# pliman <img src="man/figures/logo.png" align="right" height="140/"/>
+# pliman <img src="man/figures/logo.png" align="right" height="140"/>
 
 <!-- badges: start -->
 
@@ -49,9 +49,11 @@ pak::pkg_install("nepem-ufsc/pliman")
 
 *Note*: If you are a Windows user, you should also first download and install the latest version of [Rtools](https://cran.r-project.org/bin/windows/Rtools/).
 
+The deep learning functions described below are available from `pliman` 4.0.0 onward. Use `packageVersion("pliman")` to check your installed version.
+
 # Deep Learning & Foundation Models
 
-`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`); see *Inference speed, GPU and video* below.
+`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`); see *Inference speed* below.
 
 ## Initial setup (ONNX Runtime)
 
@@ -116,6 +118,7 @@ Notes:
 | **One-Shot Exemplar Counting** | `image_segment_dl()` | `persam` | One-shot visual exemplar segmentation and counting via SAM 2.1 and Dense Conv ZNCC. |
 | **Promptable Segmentation** | `image_segment_dl()` | `sam2.1` | Zero-shot segmentation of any object from a point or bounding-box prompt (SAM 2.1 Hiera-Tiny). |
 | **Salient Background Removal** | `image_remove_bg()` | `ben2`, `u2netp`, `rmbg-2.0` | Ultra-sharp boundary cutouts and transparent background export. |
+| **Video Detection and Tracking** | `video_detect_dl()` | `yolo26[n/s/m/l/x]`, `yolo26[n/s/m/l/x]-seg` | Detection, tracking and line counting on video files or a webcam. |
 
 ## A worked example: a farm scene
 
@@ -178,7 +181,7 @@ points(540, 380, pch = 16, col = "red", cex = 2)
 similar <- image_segment_dl(
   farm,
   model = "persam",
-  prompt = rbind(c(540, 380)),
+  prompt = c(540, 380),
   sim_threshold = 0.6,
   type = "highlight",
   bbox = TRUE
@@ -189,10 +192,9 @@ nrow(similar$results)
 
 ### Point and box prompts with SAM 2.1
 
-`model = "sam2.1"` segments the object inside a box given as `c(xmin, ymin, xmax, ymax)`, or the object under a point given as `c(x, y)`. Here, a box around the horse:
+`model = "sam2.1"` segments the object inside a box given as `c(xmin, ymin, xmax, ymax)`, or the object under a point given as `c(x, y)`. Here, a box around the man in the center of the image:
 
 ```{r farm-sam, message=FALSE, fig.width=10, fig.height=5.625}
-
 plot(farm)
 rect(312, 285, 390, 485, lwd = 3, border = "red")
 
@@ -202,14 +204,13 @@ man <- image_segment_dl(
   prompt = c(312, 285, 390, 485),
   type = "highlight"
 )
-
 ```
 
 ## More examples
 
 ### 1. Monocular 3D Depth Estimation (Depth Anything V2)
 
-```{r}
+```{r farm-depth, message=FALSE, fig.width=10, fig.height=5.625}
 # Computes relative 3D depth and displays with an inferno colormap
 depth_img <- image_depth_dl(farm, col_palette = "inferno")
 
@@ -220,18 +221,17 @@ str(raw_depth)
 
 ### 2. Foundation Semantic Embeddings (DINOv2)
 
-```{r}
+```{r farm-dinov2, message=FALSE, fig.width=10, fig.height=5.625}
 # Extract 384-dimensional ViT patch embeddings and top-3 PCA false-color map
 feats <- image_features_dl(farm, return_pca = TRUE)
 
-# Global image classification token vector
-feats$cls_token
+# Global image classification token vector (384 values)
+str(feats$cls_token)
 ```
 
+### 3. Generative Super-Resolution (Real-ESRGAN)
 
-### 3. Generative Super-Resolution (Real-ESRGAN Full & Compact)
-
-```{r}
+```{r superres, message=FALSE}
 img <- image_pliman("soy_green.jpg")
 
 # 2x Photorealistic super-resolution (RRDBNet default)
@@ -257,24 +257,22 @@ non-maximum suppression, mask decoding, SAHI tiling and video tracking also run 
   workers and their models alive). Use `plot = FALSE` inside loops.
 - For video, `infer_every`, `fps`, `imgsz` and `show = FALSE` are the main speed levers.
 
-```{r}
+```{r benchmark, message=FALSE}
 # Measure inference speed on this machine, using the farm image
 yolo_benchmark("yolo26n", img = farm, engine = "gpu")
 yolo_benchmark("yolo26n", img = farm, engine = "cpu", sahi = TRUE)
 
 # Inspect cached ONNX sessions
 pliman_session_info()
-
-
 ```
 
 ### 5. Video Detection
+
 ```{r eval = FALSE}
-# Live detection (webcan)
+# Live detection from the default webcam (video = 0); press <Esc> to stop
 res <- video_detect_dl(
   model = "yolo26n"
 )
-
 
 # Video detection with tracking and line counting
 tracked <- video_detect_dl(
@@ -288,6 +286,7 @@ tracked <- video_detect_dl(
   count_line             = 0.5,                 # counting line at 50% of the width
   count_line_orientation = "vertical"           # the line is vertical; objects crossing it are counted
 )
+
 
 ```
 
@@ -322,7 +321,7 @@ flax$statistics
 
 ## Using image indexes
 
-To compute the percentage of symptomatic leaf area you can use the `measure_disease()` function you can use an image index to segment the entire leaf from the background and then separate the diseased tissue from the healthy tissue. Alternatively, you can provide color palette samples to the `measure_disease()` function. In this approach, the function fits a general linear model (binomial family) to the RGB values of the image. It then uses the color palette samples to segment the lesions from the healthy leaf.
+To compute the percentage of symptomatic leaf area, you can use the `measure_disease()` function. You can use an image index to segment the entire leaf from the background and then separate the diseased tissue from the healthy tissue. Alternatively, you can provide color palette samples to the `measure_disease()` function. In this approach, the function fits a general linear model (binomial family) to the RGB values of the image. It then uses the color palette samples to segment the lesions from the healthy leaf.
 
 In the following example, we compute the symptomatic area of a soybean leaf. The proportion of healthy and symptomatic areas is given as a proportion of the total leaf area after segmenting the leaf from the background (blue).
 
@@ -347,7 +346,7 @@ One advantage of using `measure_disease_iter()` is the ability to utilize the "m
 ```{r eval=FALSE}
 img <- image_pliman("sev_leaf.jpg", plot = TRUE)
 
-# works only in an interactive section
+# works only in an interactive session
 measure_disease_iter(img, viewer = "mapview")
 ```
 
@@ -359,7 +358,7 @@ citation("pliman")
 
 # Getting help
 
-If you come across any clear bugs while using the package, please consider filing a minimal reproducible example on [github](https://github.com/TiagoOlivoto/pliman/issues). This will help the developers address the issue promptly.
+If you come across any clear bugs while using the package, please consider filing a minimal reproducible example on [GitHub](https://github.com/nepem-ufsc/pliman/issues). This will help the developers address the issue promptly.
 
 Suggestions and criticisms aimed at improving the quality and usability of the package are highly encouraged. Your feedback is valuable in making {pliman} even better!
 

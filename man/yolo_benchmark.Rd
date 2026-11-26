@@ -45,7 +45,8 @@ which uses the example image \code{"farm.jpg"} (a scene with people, animals and
 \value{
 A data.frame (class \code{pliman_benchmark}) with one row per stage and columns
 \code{stage}, \code{ms_mean}, \code{ms_sd}, \code{ms_min}, \code{fps} and \code{n_objects}. Attributes hold the
-model file, engine, threads, image size and the active ONNX sessions.
+model file, engine, threads, image size, the active ONNX sessions and the measured
+clock resolution in nanoseconds (\code{"clock_resolution_ns"}).
 }
 \description{
 \code{yolo_benchmark()} measures how fast a YOLO ONNX model runs on the current machine,
@@ -57,6 +58,11 @@ post-processing and result tables). Optionally it also times tiled inference wit
 Warm-up iterations are run first and excluded from the timings, so the first-call
 costs (session creation, graph optimisation and, on GPU, DirectML shader compilation)
 do not distort the averages.
+
+Each iteration is timed in C++ with \verb{std::chrono::steady_clock}, a monotonic clock
+with sub-microsecond resolution, instead of \code{\link[base:proc.time]{base::proc.time()}}, which on Windows only
+advances in steps of about 10-16 ms. The measured resolution of the clock is stored in
+the \code{"clock_resolution_ns"} attribute of the result.
 }
 \details{
 Speed depends heavily on the hardware and on the model input size (\code{imgsz}). Some

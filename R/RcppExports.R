@@ -1071,6 +1071,18 @@ analyze_root_system_cpp <- function(binary_mat, pixel_size = 1.0, prune_length_p
     .Call(`_pliman_analyze_root_system_cpp`, binary_mat, pixel_size, prune_length_px, cluster_radius_px, crown_x_in, crown_y_in, num_classes, diameter_bins, n_depth_slices, max_order, gravitropic_alpha, closing_rad, fill_size, rad_fac, dissolve_cycles)
 }
 
+pliman_clock_ms_cpp <- function() {
+    .Call(`_pliman_pliman_clock_ms_cpp`)
+}
+
+pliman_clock_info_cpp <- function() {
+    .Call(`_pliman_pliman_clock_info_cpp`)
+}
+
+pliman_process_memory_cpp <- function() {
+    .Call(`_pliman_pliman_process_memory_cpp`)
+}
+
 update_tracker_cpp <- function(xmin, ymin, xmax, ymax, labels, scores, state, count_line = NULL, roi = NULL, max_dist = 120.0, min_iou = 0.25, max_lost = 15L, max_history = 30L, current_time = -1.0, frame_w = 0L, frame_h = 0L, class_ids = NULL, mask_ids = NULL, interpolate_box = TRUE, interpolate_mask = TRUE, min_hits = 1L) {
     .Call(`_pliman_update_tracker_cpp`, xmin, ymin, xmax, ymax, labels, scores, state, count_line, roi, max_dist, min_iou, max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids, interpolate_box, interpolate_mask, min_hits)
 }

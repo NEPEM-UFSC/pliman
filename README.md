@@ -1,7 +1,7 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# pliman <img src="man/figures/logo.png" align="right" height="140/"/>
+# pliman <img src="man/figures/logo.png" align="right" height="140"/>
 
 <!-- badges: start -->
 
@@ -35,9 +35,9 @@ with complex layouts and supports high-throughput phenotyping of RGB,
 multispectral, and hyperspectral orthomosaics. This functionality
 facilitates field phenotyping using UAV- or satellite-based imagery.
 
-In addition, `pliman` runs pre-trained deep learning models directly from R,
-through Microsoft ONNX Runtime and without Python. These include object
-detection, instance segmentation, pose estimation and image
+In addition, `pliman` runs pre-trained deep learning models directly
+from R, through Microsoft ONNX Runtime and without Python. These include
+object detection, instance segmentation, pose estimation and image
 classification with YOLO26; segmentation from text, point or box prompts
 with SAM 2.1 (Grounded-SAM and PerSAM); counting of touching grains and
 seeds with StarDist; background removal; depth estimation; feature
@@ -65,6 +65,9 @@ The development version of `pliman` can be installed from
 [pak](https://github.com/r-lib/pak) package:
 
 ``` r
+if(!requireNamespace("pak", quietly = TRUE)){
+  install.packages("pak")
+}
 pak::pkg_install("nepem-ufsc/pliman")
 ```
 
@@ -72,9 +75,17 @@ pak::pkg_install("nepem-ufsc/pliman")
 install the latest version of
 [Rtools](https://cran.r-project.org/bin/windows/Rtools/).
 
+The deep learning functions described below are available from `pliman`
+4.0.0 onward. Use `packageVersion("pliman")` to check your installed
+version.
+
 # Deep Learning & Foundation Models
 
-`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`); see *Inference speed, GPU and video* below.
+`pliman` integrates pre-trained Computer Vision and Deep Learning
+Foundation models running directly in C++ via Microsoft **ONNX
+Runtime**, with zero Python or PyTorch dependency. Models automatically
+execute with CPU multi-threading or hardware-accelerated Windows
+DirectML GPU support (`engine = "gpu"`); see *Inference speed* below.
 
 ## Initial setup (ONNX Runtime)
 
@@ -149,6 +160,7 @@ Notes:
 | **One-Shot Exemplar Counting** | `image_segment_dl()` | `persam` | One-shot visual exemplar segmentation and counting via SAM 2.1 and Dense Conv ZNCC. |
 | **Promptable Segmentation** | `image_segment_dl()` | `sam2.1` | Zero-shot segmentation of any object from a point or bounding-box prompt (SAM 2.1 Hiera-Tiny). |
 | **Salient Background Removal** | `image_remove_bg()` | `ben2`, `u2netp`, `rmbg-2.0` | Ultra-sharp boundary cutouts and transparent background export. |
+| **Video Detection and Tracking** | `video_detect_dl()` | `yolo26[n/s/m/l/x]`, `yolo26[n/s/m/l/x]-seg` | Detection, tracking and line counting on video files or a webcam. |
 
 ## A worked example: a farm scene
 
@@ -267,6 +279,14 @@ only objects that are more similar to the example. In an interactive
 session, leave `prompt` out to click on the examples instead.
 
 ``` r
+plot(farm)
+points(540, 380, pch = 16, col = "red", cex = 2)
+```
+
+<img src="man/figures/README-farm-persam-1.png" alt="" width="100%" />
+
+``` r
+
 similar <- image_segment_dl(
   farm,
   model = "persam",
@@ -277,9 +297,10 @@ similar <- image_segment_dl(
 )
 ```
 
-<img src="man/figures/README-farm-persam-1.png" alt="" width="100%" />
+<img src="man/figures/README-farm-persam-2.png" alt="" width="100%" />
 
 ``` r
+
 nrow(similar$results)
 # [1] 6
 ```
@@ -288,119 +309,161 @@ nrow(similar$results)
 
 `model = "sam2.1"` segments the object inside a box given as
 `c(xmin, ymin, xmax, ymax)`, or the object under a point given as
-`c(x, y)`. Here, a box around the horse:
+`c(x, y)`. Here, a box around the man in the center of the image:
 
 ``` r
-horse <- image_segment_dl(
-  farm,
-  model = "sam2.1",
-  prompt = c(360, 234, 440, 294),
-  type = "highlight"
-)
+plot(farm)
+rect(312, 285, 390, 485, lwd = 3, border = "red")
 ```
 
 <img src="man/figures/README-farm-sam-1.png" alt="" width="100%" />
 
-## More examples
-
-### 1. Real-Time Detection, Segmentation, Pose, and Classification (YOLO26)
-
 ``` r
-library(pliman)
 
-img <- image_import("objects.jpg")
-
-# Fast bounding box detection
-boxes <- image_detect_dl(img, model = "yolo26n", conf_threshold = 0.25)
-
-# High-resolution instance segmentation with polygon overlay
-res_hl <- image_segment_dl(
-  img,
-  model = "yolo26n-seg",
-  type = "highlight",
-  box_threshold = 0.25,
-  bbox = TRUE
+man <- image_segment_dl(
+  farm,
+  model = "sam2.1",
+  prompt = c(312, 285, 390, 485),
+  type = "highlight"
 )
-
-# Single multi-label mask image with integer labels (0 = background, 1..N = instances)
-res_mask <- image_segment_dl(img, model = "yolo26n-seg", type = "mask")
-
-# Inspect morphological features (area, perimeter, circularity, etc.)
-head(res_hl$features)
-
-# Real-time pose estimation (17 COCO keypoints + skeleton)
-pose_res <- image_pose_dl(img, model = "yolo26n-pose", conf_threshold = 0.3)
-
-# 1,000-class ImageNet classification
-top_classes <- image_classify_dl(img, model = "yolo26n-cls", top_k = 5)
 ```
 
-### 2. Monocular 3D Depth Estimation (Depth Anything V2)
+<img src="man/figures/README-farm-sam-2.png" alt="" width="100%" />
+
+## More examples
+
+### 1. Monocular 3D Depth Estimation (Depth Anything V2)
 
 ``` r
 # Computes relative 3D depth and displays with an inferno colormap
-depth_img <- image_depth_dl(img, col_palette = "inferno")
+depth_img <- image_depth_dl(farm, col_palette = "inferno")
+```
+
+<img src="man/figures/README-farm-depth-1.png" alt="" width="100%" />
+
+``` r
 
 # Access raw continuous depth values
 raw_depth <- attr(depth_img, "depth")
+str(raw_depth)
+#  num [1:960, 1:540] 0 0 0 0 0 0 0 0 0 0 ...
 ```
 
-### 3. Foundation Semantic Embeddings (DINOv2)
+### 2. Foundation Semantic Embeddings (DINOv2)
 
 ``` r
 # Extract 384-dimensional ViT patch embeddings and top-3 PCA false-color map
-feats <- image_features_dl(img, return_pca = TRUE)
-
-# Global image classification token vector
-feats$cls_token
+feats <- image_features_dl(farm, return_pca = TRUE)
 ```
 
-### 4. Star-Convex Polygon Segmentation (StarDist)
+<img src="man/figures/README-farm-dinov2-1.png" alt="" width="100%" />
 
 ``` r
-# Ideal for crowded seeds, grains, or cell nuclei
-grains <- image_import("grains.jpg")
-res_star <- image_stardist_dl(grains, prob_threshold = 0.5)
+
+# Global image classification token vector (384 values)
+str(feats$cls_token)
+#  num [1:384] 2.12 4.92 3.18 -1.84 2 ...
 ```
 
-### 5. Generative Super-Resolution (Real-ESRGAN Full & Compact)
+### 3. Generative Super-Resolution (Real-ESRGAN)
 
 ``` r
+img <- image_pliman("soy_green.jpg")
+
 # 2x Photorealistic super-resolution (RRDBNet default)
-img_2x <- image_superres_dl(img)
+img_2x <- image_superres_dl(img, plot = FALSE)
 
-# 4x Photorealistic super-resolution
-img_4x <- image_superres_dl(img, model = "realesrgan_x4_full")
-
-# 4x Ultra-fast preview with lightweight compact model
-img_fast <- image_superres_dl(img, model = "realesrgan-compact")
+image_combine(img, img_2x, nrow = 2)
 ```
 
-### 6. Inference speed, GPU and video
+<img src="man/figures/README-superres-1.png" alt="" width="100%" />
 
-Models run through ONNX Runtime in C++. Sessions are cached for the whole R session, so
-only the first call loads the model (and, on GPU, compiles it). Pre-processing,
-non-maximum suppression, mask decoding, SAHI tiling and video tracking also run in C++.
+### 4. Inference speed
 
-- `engine = "gpu"` uses DirectML on Windows (DirectX 12). Gains depend on the GPU; small
-  models on integrated GPUs can be slower than a multi-core CPU.
-- `engine = "cpu"` uses `threads` ONNX Runtime threads (`0` = all physical cores).
-- FP16 models (`yolo_export_fp16()`) are faster only on GPUs with native half-precision
-  throughput, such as NVIDIA Tensor Cores (RTX 20xx and newer). On GPUs without fast FP16
-  (e.g. GTX 10xx/16xx) or on CPU the casting overhead can make them slower. Dynamic INT8
-  models (`onnx_quantize()`) target the CPU.
-- For many images use `image_detect_dl_batch()` (and `pliman_daemons()` to keep parallel
-  workers and their models alive). Use `plot = FALSE` inside loops.
-- For video, `infer_every`, `fps`, `imgsz` and `show = FALSE` are the main speed levers.
+Models run through ONNX Runtime in C++. Sessions are cached for the
+whole R session, so only the first call loads the model (and, on GPU,
+compiles it). Pre-processing, non-maximum suppression, mask decoding,
+SAHI tiling and video tracking also run in C++.
 
-```r
+- `engine = "gpu"` uses DirectML on Windows (DirectX 12). Gains depend
+  on the GPU; small models on integrated GPUs can be slower than a
+  multi-core CPU.
+- `engine = "cpu"` uses `threads` ONNX Runtime threads (`0` = all
+  physical cores).
+- FP16 models (`yolo_export_fp16()`) are faster only on GPUs with native
+  half-precision throughput, such as NVIDIA Tensor Cores (RTX 20xx and
+  newer). On GPUs without fast FP16 (e.g. GTX 10xx/16xx) or on CPU the
+  casting overhead can make them slower. Dynamic INT8 models
+  (`onnx_quantize()`) target the CPU.
+- For many images use `image_detect_dl_batch()` (and `pliman_daemons()`
+  to keep parallel workers and their models alive). Use `plot = FALSE`
+  inside loops.
+- For video, `infer_every`, `fps`, `imgsz` and `show = FALSE` are the
+  main speed levers.
+
+``` r
 # Measure inference speed on this machine, using the farm image
-farm <- image_pliman("farm.jpg")
 yolo_benchmark("yolo26n", img = farm, engine = "gpu")
+#              stage ms_mean ms_sd ms_min   fps n_objects
+#    inference (C++)   17.88  2.61  15.78 55.93        17
+#  image_detect_dl()   21.94  3.50  18.43 45.58        17
 yolo_benchmark("yolo26n", img = farm, engine = "cpu", sahi = TRUE)
+#                stage ms_mean ms_sd ms_min   fps n_objects
+#      inference (C++)   67.20 20.21  48.11 14.88        17
+#    image_detect_dl()   56.99  3.71  48.92 17.55        17
+#  image_detect_sahi()  222.27 84.15 171.12  4.50        17
 
 # Inspect cached ONNX sessions
 pliman_session_info()
+#                          model   gpu requested_gpu device_id threads n_inputs
+# 1                 yolo26n.onnx FALSE         FALSE        -1       0        1
+# 2                 yolo26n.onnx  TRUE          TRUE         1       0        1
+# 3      realesrgan_x2_full.onnx  TRUE          TRUE         1       0        1
+# 4           dinov2-vits14.onnx  TRUE          TRUE         1       0        1
+# 5 depth-anything-v2-small.onnx  TRUE          TRUE         1       0        1
+# 6          sam2.1.decoder.onnx FALSE         FALSE        -1       0        7
+# 7          sam2.1.encoder.onnx FALSE         FALSE        -1       0        1
+#   n_outputs    input_dims batch_dynamic spatial_dynamic warmed_up
+# 1         1       ?x3x?x?          TRUE            TRUE     FALSE
+# 2         1       ?x3x?x?          TRUE            TRUE     FALSE
+# 3         1       1x3x?x?         FALSE            TRUE     FALSE
+# 4         1       ?x?x?x?          TRUE            TRUE     FALSE
+# 5         1       ?x3x?x?          TRUE            TRUE     FALSE
+# 6         2   1x256x64x64         FALSE           FALSE     FALSE
+# 7         3 1x3x1024x1024         FALSE           FALSE     FALSE
+#   fell_back_to_cpu provider graph_cache create_ms fallback_reason
+# 1            FALSE      cpu         off  158.0803                
+# 2            FALSE      dml         off  214.5330                
+# 3            FALSE      dml         off  764.7453                
+# 4            FALSE      dml         off  356.7052                
+# 5            FALSE      dml         off  535.3404                
+# 6            FALSE      cpu         off  219.7311                
+# 7            FALSE      cpu         off 3226.2314                
+#   vram_pressured lru_rank
+# 1          FALSE        1
+# 2          FALSE        2
+# 3          FALSE        3
+# 4          FALSE        4
+# 5          FALSE        5
+# 6          FALSE        6
+# 7          FALSE        7
+#                                                                                             key
+# 1                   C:/Users/tiago/AppData/Roaming/R/data/R/pliman/models/yolo26n.onnx_th_0_cpu
+# 2                 C:/Users/tiago/AppData/Roaming/R/data/R/pliman/models/yolo26n.onnx_th_0_gpu_1
+# 3      C:/Users/tiago/AppData/Roaming/R/data/R/pliman/models/realesrgan_x2_full.onnx_th_0_gpu_1
+# 4           C:/Users/tiago/AppData/Roaming/R/data/R/pliman/models/dinov2-vits14.onnx_th_0_gpu_1
+# 5 C:/Users/tiago/AppData/Roaming/R/data/R/pliman/models/depth-anything-v2-small.onnx_th_0_gpu_1
+# 6            C:/Users/tiago/AppData/Roaming/R/data/R/pliman/models/sam2.1.decoder.onnx_th_0_cpu
+# 7            C:/Users/tiago/AppData/Roaming/R/data/R/pliman/models/sam2.1.encoder.onnx_th_0_cpu
+```
+
+### 5. Video Detection
+
+``` r
+# Live detection from the default webcam (video = 0); press <Esc> to stop
+res <- video_detect_dl(
+  model = "yolo26n"
+)
 
 # Video detection with tracking and line counting
 tracked <- video_detect_dl(
@@ -428,7 +491,7 @@ this last case, the argument `reference` must be set to `TRUE`. There
 are two options to identify the reference object:
 
 1.  By its color, using the arguments `back_fore_index` and
-    `fore_ref_index`  
+    `fore_ref_index`\
 2.  By its size, using the arguments `reference_larger` or
     `reference_smaller`
 
@@ -453,27 +516,27 @@ flax <-
                   show_contour = FALSE) # default is TRUE
 ```
 
-<img src="man/figures/README-unnamed-chunk-4-1.png" width="100%" />
+<img src="man/figures/README-unnamed-chunk-7-1.png" alt="" width="100%" />
 
 ``` r
 # summary statistics
 flax$statistics
 #        stat        value
-# 1         n 2.680000e+02
-# 2  min_area 3.606989e-02
-# 3 mean_area 6.250403e-02
-# 4  max_area 1.262446e-01
-# 5   sd_area 8.047152e-03
-# 6  sum_area 1.675108e+01
-# 7  coverage 5.388462e-02
+# 1         n 272.00000000
+# 2  min_area   0.00000000
+# 3 mean_area   0.00000000
+# 4  max_area   0.10000000
+# 5   sd_area   0.00000000
+# 6  sum_area  13.10000000
+# 7  coverage   0.04107791
 ```
 
 # Disease severity
 
 ## Using image indexes
 
-To compute the percentage of symptomatic leaf area you can use the
-`measure_disease()` function you can use an image index to segment the
+To compute the percentage of symptomatic leaf area, you can use the
+`measure_disease()` function. You can use an image index to segment the
 entire leaf from the background and then separate the diseased tissue
 from the healthy tissue. Alternatively, you can provide color palette
 samples to the `measure_disease()` function. In this approach, the
@@ -495,15 +558,16 @@ sev <-
                   index_dh = "NGRDI", # to isolate the diseased area
                   threshold = c("Otsu", 0), # You can also use the Otsu algorithm in both indexes (default)
                   plot = TRUE)
+# ℹ Processing a single image. Please, wait.
 ```
 
-<img src="man/figures/README-unnamed-chunk-5-1.png" width="100%" />
+<img src="man/figures/README-unnamed-chunk-8-1.png" alt="" width="100%" />
 
-``` r
-sev$severity
-#    healthy symptomatic
-# 1 92.63213    7.367868
-```
+    # ✔ Image Successfully analyzed! [340ms]
+    # 
+    sev$severity
+    #    healthy symptomatic
+    # 1 95.91434    4.085663
 
 ## Interactive disease measurements
 
@@ -522,7 +586,7 @@ disease measurement.
 ``` r
 img <- image_pliman("sev_leaf.jpg", plot = TRUE)
 
-# works only in an interactive section
+# works only in an interactive session
 measure_disease_iter(img, viewer = "mapview")
 ```
 
@@ -555,7 +619,7 @@ Uma entrada BibTeX para usuários(as) de LaTeX é
 
 If you come across any clear bugs while using the package, please
 consider filing a minimal reproducible example on
-[github](https://github.com/TiagoOlivoto/pliman/issues). This will help
+[GitHub](https://github.com/nepem-ufsc/pliman/issues). This will help
 the developers address the issue promptly.
 
 Suggestions and criticisms aimed at improving the quality and usability

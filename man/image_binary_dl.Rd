@@ -6,7 +6,7 @@
 \usage{
 image_binary_dl(
   img,
-  model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0",
+  model = c("rmbg-1.4", "rmbg-2.0", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam",
     "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
   threshold = 0.5,
   fill_hull = TRUE,
@@ -159,19 +159,19 @@ and one-shot visual exemplar segmentation (PerSAM).
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
-  img <- image_import("leaf.png")
+  flower <- image_pliman("flaxflower.jpg")
 
-  # Fast binarization on CPU (ultra-lightweight, 4.6 MB)
-  mask <- image_binary_dl(img, model = "u2netp")
+  # RMBG 1.4
+  mask <- image_binary_dl(flower)
 
-  # Sub-pixel boundary segmentation for fine veins and serrations
-  mask_ben <- image_binary_dl(img, model = "ben2")
+  # SAM 2.1 with a point prompt (x, y): only the white flower
+  mask_white <- image_binary_dl(flower, model = "sam2.1", prompt = c(330, 370))
 
   # Interactive prompt: click directly on objects of interest
-  mask_interactive <- image_binary_dl(img, model = "sam2.1", pick_object = TRUE)
+  mask_interactive <- image_binary_dl(flower, model = "sam2.1", pick_object = TRUE)
 
-  # Open-vocabulary text-prompted binarization
-  mask_weed <- image_binary_dl(img, model = "grounded-sam", prompt = "weed")
+  # Open-vocabulary text-prompted binarization: all flax flowers
+  mask_flowers <- image_binary_dl(flower, model = "grounded-sam", prompt = "flower")
 
   # One-shot visual exemplar segmentation (PerSAM)
   mask_exemplar <- image_binary_dl(img, model = "persam", prompt = c(150, 200))

@@ -7,7 +7,7 @@
 \usage{
 image_remove_bg_dl(
   img,
-  model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0",
+  model = c("rmbg-1.4", "rmbg-2.0", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam",
     "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
   threshold = 0.5,
   fill_hull = TRUE,
@@ -193,24 +193,16 @@ or replacing the background with a solid color.
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
-  img <- image_import("leaf.png")
+  flower <- image_pliman("flaxflower.jpg")
 
-  # Fast background removal with transparent alpha channel (CPU friendly)
-  img_trans <- image_remove_bg_dl(img, model = "u2netp")
-
-  # Razor-sharp plant boundary cutout (leaf margins, serrations, petioles)
-  img_ben <- image_remove_bg_dl(img, model = "ben2")
-
-  # Robust background removal under complex studio shadows and reflections
-  img_rmbg <- image_remove_bg_dl(img, model = "rmbg-1.4")
+  # Robust background removal under complex shadows and reflections
+  img_rmbg <- image_remove_bg_dl(flower, model = "rmbg-1.4")
 
   # Replace background with solid white
-  img_white <- image_remove_bg_dl(img, model = "u2netp", transparent = FALSE, bg_color = "white")
+  img_white <- image_remove_bg_dl(flower, transparent = FALSE, bg_color = "red")
 
-  # Extract specific object via natural language prompt (Grounded-SAM)
-  img_fruit <- image_remove_bg_dl(img, model = "grounded-sam", prompt = "red fruit")
-
-  # Extract instances matching a visual exemplar click (PerSAM)
-  img_exemplar <- image_remove_bg_dl(img, model = "persam", prompt = c(120, 150))
+  # Keep only the objects described by a text prompt (Grounded-SAM): the flowers,
+  # without the hand that holds them
+  img_flowers <- image_remove_bg_dl(flower, model = "grounded-sam", prompt = "flower")
 \dontshow{\}) # examplesIf}
 }

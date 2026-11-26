@@ -365,6 +365,9 @@ reference:
     desc: "Benchmarking, ONNX session management and model compression (FP16, INT8, TensorRT). Speed-ups from FP16/TensorRT depend on GPUs with native half-precision support (e.g. Tensor Cores)."
     contents:
       - yolo_benchmark
+      - benchmark
+      - plot.pliman_bench
+      - pliman_clock
       - pliman_session_info
       - pliman_clear_sessions
       - pliman_gpu_provider

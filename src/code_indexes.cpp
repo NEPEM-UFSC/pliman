@@ -106,7 +106,12 @@ struct RPNToken {
   double val;
 };
 
-inline std::vector<RPNToken> parse_to_rpn(const std::string& expr_str) {
+// When `ok` is not NULL, an unknown identifier (e.g. a named index such as "NGRDI")
+// sets *ok = false and returns an empty vector instead of throwing. Callers that only
+// need to know whether `expr_str` is a band expression should use this form: throwing
+// here was observed to terminate the R process on Windows builds of pliman.
+inline std::vector<RPNToken> parse_to_rpn(const std::string& expr_str, bool* ok = NULL) {
+  if (ok != NULL) *ok = true;
   std::vector<RPNToken> rpn;
   std::stack<std::string> op_stack;
 
@@ -170,6 +175,10 @@ inline std::vector<RPNToken> parse_to_rpn(const std::string& expr_str) {
         else if (id == "NIR") tok.type = TOK_VAR_NIR;
         else if (id == "SWIR") tok.type = TOK_VAR_SWIR;
         else {
+          if (ok != NULL) {
+            *ok = false;
+            return std::vector<RPNToken>();
+          }
           throw std::runtime_error("Unknown variable: " + id);
         }
         rpn.push_back(tok);
@@ -771,8 +780,9 @@ SEXP compute_single_index_cpp(SEXP img_sexp, std::string ind, int r = 1, int g =
   std::vector<RPNToken> rpn_tokens;
   bool rpn_valid = false;
   try {
-    rpn_tokens = parse_to_rpn(ind);
-    if (!rpn_tokens.empty()) rpn_valid = true;
+    bool parsed_ok = true;
+    rpn_tokens = parse_to_rpn(ind, &parsed_ok);
+    if (parsed_ok && !rpn_tokens.empty()) rpn_valid = true;
   } catch (...) {
     rpn_valid = false;
   }

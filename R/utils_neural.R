@@ -3349,24 +3349,24 @@ setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
 #'
 #' @examplesIf interactive()
 #'   library(pliman)
-#'   img <- image_import("leaf.png")
+#'   flower <- image_pliman("flaxflower.jpg")
 #'
-#'   # Fast binarization on CPU (ultra-lightweight, 4.6 MB)
-#'   mask <- image_binary_dl(img, model = "u2netp")
+#'   # RMBG 1.4
+#'   mask <- image_binary_dl(flower)
 #'
-#'   # Sub-pixel boundary segmentation for fine veins and serrations
-#'   mask_ben <- image_binary_dl(img, model = "ben2")
+#'   # SAM 2.1 with a point prompt (x, y): only the white flower
+#'   mask_white <- image_binary_dl(flower, model = "sam2.1", prompt = c(330, 370))
 #'
 #'   # Interactive prompt: click directly on objects of interest
-#'   mask_interactive <- image_binary_dl(img, model = "sam2.1", pick_object = TRUE)
+#'   mask_interactive <- image_binary_dl(flower, model = "sam2.1", pick_object = TRUE)
 #'
-#'   # Open-vocabulary text-prompted binarization
-#'   mask_weed <- image_binary_dl(img, model = "grounded-sam", prompt = "weed")
+#'   # Open-vocabulary text-prompted binarization: all flax flowers
+#'   mask_flowers <- image_binary_dl(flower, model = "grounded-sam", prompt = "flower")
 #'
 #'   # One-shot visual exemplar segmentation (PerSAM)
 #'   mask_exemplar <- image_binary_dl(img, model = "persam", prompt = c(150, 200))
 image_binary_dl <- function(img,
-                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
+                            model = c("rmbg-1.4", "rmbg-2.0", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam",  "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                             threshold = 0.5,
                             fill_hull = TRUE,
                             filter = 0,
@@ -3458,27 +3458,20 @@ image_binary_dl <- function(img,
 #'
 #' @examplesIf interactive()
 #'   library(pliman)
-#'   img <- image_import("leaf.png")
+#'   flower <- image_pliman("flaxflower.jpg")
 #'
-#'   # Fast background removal with transparent alpha channel (CPU friendly)
-#'   img_trans <- image_remove_bg_dl(img, model = "u2netp")
-#'
-#'   # Razor-sharp plant boundary cutout (leaf margins, serrations, petioles)
-#'   img_ben <- image_remove_bg_dl(img, model = "ben2")
-#'
-#'   # Robust background removal under complex studio shadows and reflections
-#'   img_rmbg <- image_remove_bg_dl(img, model = "rmbg-1.4")
+#'   # Robust background removal under complex shadows and reflections
+#'   img_rmbg <- image_remove_bg_dl(flower, model = "rmbg-1.4")
 #'
 #'   # Replace background with solid white
-#'   img_white <- image_remove_bg_dl(img, model = "u2netp", transparent = FALSE, bg_color = "white")
+#'   img_white <- image_remove_bg_dl(flower, transparent = FALSE, bg_color = "red")
 #'
-#'   # Extract specific object via natural language prompt (Grounded-SAM)
-#'   img_fruit <- image_remove_bg_dl(img, model = "grounded-sam", prompt = "red fruit")
+#'   # Keep only the objects described by a text prompt (Grounded-SAM): the flowers,
+#'   # without the hand that holds them
+#'   img_flowers <- image_remove_bg_dl(flower, model = "grounded-sam", prompt = "flower")
 #'
-#'   # Extract instances matching a visual exemplar click (PerSAM)
-#'   img_exemplar <- image_remove_bg_dl(img, model = "persam", prompt = c(120, 150))
 image_remove_bg_dl <- function(img,
-                               model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
+                               model = c("rmbg-1.4", "rmbg-2.0", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam",  "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                                threshold = 0.5,
                                fill_hull = TRUE,
                                filter = 0,
@@ -6473,69 +6466,91 @@ plot_yolo_heatmap <- function(img,
 #'
 #' @examplesIf interactive()
 #'   library(pliman)
-#'   img <- image_import("leaf.png")
 #'
-#'   # 1. Basic salient foreground segmentation with white background (CPU-friendly)
-#'   seg <- image_segment_dl(img, model = "u2netp")
+#'   # ---- Foreground (background removal) segmentation: flax flowers ----
+#'   flower <- image_pliman("flaxflower.jpg")
 #'
-#'   # 2. Razor-sharp plant boundary extraction (leaf margins, serrations, roots)
-#'   seg_ben <- image_segment_dl(img, model = "ben2")
+#'   # 1. Basic salient foreground segmentation with white background (rmbg-1.4)
+#'   seg <- image_segment_dl(flower, model = "rmbg-1.4")
 #'
-#'   # 3. Semi-transparent polygon overlay for visual inspection
-#'   image_segment_dl(img, model = "u2netp", type = "highlight")
-#'
-#'   # 4. Zero-shot text-prompted instance segmentation (Grounded-SAM)
-#'   # Segments leaves and lesions, displaying bounding boxes and summary
+#'   # 2. Zero-shot text-prompted instance segmentation (Grounded-SAM)
+#'   # Finds and segments every flax flower, displaying bounding boxes
 #'   res_gs <- image_segment_dl(
-#'     img,
+#'     flower,
 #'     model = "grounded-sam",
-#'     prompt = "plant leaf, lesion",
+#'     prompt = "flower",
 #'     type = "highlight",
 #'     bbox = TRUE
 #'   )
 #'   # Inspect counts and morphological measures
-#'   print(attr(res_gs, "counts"))
-#'   print(head(attr(res_gs, "features")))
+#'   res_gs$counts
+#'   head(res_gs$results)
 #'
-#'   # 5. Ultra-fast pure object detection without mask generation
-#'   # (Skips SAM 2.1 completely for 10x faster execution)
-#'   boxes <- image_segment_dl(
-#'     img,
-#'     model = "grounded-sam",
-#'     prompt = "insect, leaf",
-#'     mask = FALSE,
-#'     bbox = TRUE
-#'   )
-#'
-#'   # 6. One-shot visual exemplar segmentation (PerSAM):
-#'   # Click on 1 or more representative items (e.g. seeds, logs, grains, cells)
-#'   # to automatically find, outline, and count all matching instances:
+#'   # 3. One-shot visual exemplar segmentation (PerSAM):
+#'   # A point (x, y) on the blue flower finds all similar flowers.
+#'   # Leave `prompt` out to click on the exemplar(s) in the plot window instead.
 #'   res_persam <- image_segment_dl(
-#'     img,
+#'     flower,
 #'     exemplar = TRUE,
-#'     sim_threshold = 0.48,
+#'     prompt = c(565, 340),
+#'     sim_threshold = 0.6,
 #'     type = "highlight",
 #'     bbox = TRUE
 #'   )
 #'
-#'   # 7. Multi-prototype visual exemplar segmentation with predefined coordinates:
-#'   # Passing coordinates of distinct log types (light, dark, weathered)
-#'   pts <- rbind(c(65, 380), c(425, 380), c(630, 380))
-#'   res_logs <- image_segment_dl(
-#'     img,
+#'   # 4. Multi-prototype exemplar segmentation: one point on each flower
+#'   # (white and blue); each point is a separate prototype.
+#'   pts <- rbind(c(330, 370), c(565, 340))
+#'   res_multi <- image_segment_dl(
+#'     flower,
 #'     exemplar = TRUE,
 #'     prompt = pts,
-#'     sim_threshold = 0.45,
-#'     type = "highlight",
-#'     engine = "gpu"
+#'     sim_threshold = 0.65,
+#'     type = "highlight"
 #'   )
-#'   # 8. YOLO26 instance segmentation (real-time polygon mask & box detection)
+#'
+#'
+#'   # ---- Instance segmentation and detection: a farm scene ----
+#'   farm <- image_pliman("farm.jpg")
+#'
+#'   # 5. YOLO26 instance segmentation (real-time polygon mask & box detection)
 #'   res_yolo <- image_segment_dl(
-#'     img,
+#'     farm,
 #'     model = "yolo26n-seg",
 #'     type = "highlight",
 #'     bbox = TRUE
 #'   )
+#'   res_yolo$counts
+#'   head(res_yolo$results[, c("label", "score", "area", "perimeter")])
+#'
+#'   # 6. Keep only some classes
+#'   image_segment_dl(farm, model = "yolo26n-seg", classes = c("cow", "dog"), type = "highlight")
+#'
+#'   # 7. Text-prompted segmentation of classes YOLO was not trained on
+#'   people <- image_segment_dl(
+#'     farm,
+#'     model = "grounded-sam",
+#'     prompt = "people",
+#'     type = "highlight",
+#'     bbox = TRUE
+#'   )
+#'
+#'   # 8. Fast text-prompted detection without mask generation
+#'   # (skips SAM 2.1, returning only the bounding boxes)
+#'   boxes <- image_segment_dl(
+#'     farm,
+#'     model = "grounded-sam",
+#'     prompt = "people",
+#'     mask = FALSE,
+#'     bbox = TRUE
+#'   )
+#'
+#'   # 9. SAM 2.1 with a box prompt c(xmin, ymin, xmax, ymax): the man in the center
+#'   res_box <- image_segment_dl(farm,
+#'    model = "sam2.1",
+#'    prompt = c(312, 285, 390, 485),
+#'    bbox = TRUE,
+#'    type = "highlight")
 image_segment_dl <- function(img,
                              type = c("highlight", "segment", "mask"),
                              col_background = "white",
@@ -8016,8 +8031,8 @@ image_features_dl <- function(img,
 #' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.40).
 #' @param labels Optional character vector of class names (defaults to standard 80 COCO classes).
 #' @param col Optional color or palette for bounding boxes.
-#' @param rainbow Logical. If `TRUE`, assigns a distinct, unique color to each detected object.
-#'   If `FALSE` (the default), objects of the same class share the exact same color. Defaults to `FALSE`.
+#' @param rainbow Logical. If `TRUE` (the default), assigns a distinct, unique color to each detected object.
+#'   If `FALSE`, objects of the same class share the exact same color.
 #' @param lwd Line width for bounding boxes (default 2).
 #' @param cex Size factor for label text (default `1.5`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
@@ -8085,10 +8100,21 @@ image_features_dl <- function(img,
 #' @export
 #' @examplesIf interactive()
 #'   library(pliman)
-#'   img <- image_import("objects.png")
-#'   boxes <- image_detect_dl(img)
-#'   # Rainbow coloring per box:
-#'   boxes_rb <- image_detect_dl(img, rainbow = TRUE)
+#'   farm <- image_pliman("farm.jpg")
+#'
+#'   # Detect the 80 COCO classes (people, animals, vehicles, ...)
+#'   boxes <- image_detect_dl(farm, model = "yolo26x")
+#'   head(boxes)
+#'
+#'   # Count objects per class
+#'   table(boxes$label)
+#'
+#'   # Keep only some classes
+#'   animals <- image_detect_dl(farm, model = "yolo26x", classes = c("cow", "horse", "sheep", "dog"))
+#'
+#'   # Same color for all boxes of a class (instead of one color per box)
+#'   boxes_cls <- image_detect_dl(farm, rainbow = FALSE)
+#'
 image_detect_dl <- function(img,
                             model = "yolo26n",
                             conf_threshold = 0.25,

@@ -16,6 +16,11 @@
 #' costs (session creation, graph optimisation and, on GPU, DirectML shader compilation)
 #' do not distort the averages.
 #'
+#' Each iteration is timed in C++ with `std::chrono::steady_clock`, a monotonic clock
+#' with sub-microsecond resolution, instead of [base::proc.time()], which on Windows only
+#' advances in steps of about 10-16 ms. The measured resolution of the clock is stored in
+#' the `"clock_resolution_ns"` attribute of the result.
+#'
 #' @details
 #' Speed depends heavily on the hardware and on the model input size (`imgsz`). Some
 #' practical notes:
@@ -47,7 +52,8 @@
 #'
 #' @return A data.frame (class `pliman_benchmark`) with one row per stage and columns
 #'   `stage`, `ms_mean`, `ms_sd`, `ms_min`, `fps` and `n_objects`. Attributes hold the
-#'   model file, engine, threads, image size and the active ONNX sessions.
+#'   model file, engine, threads, image size, the active ONNX sessions and the measured
+#'   clock resolution in nanoseconds (`"clock_resolution_ns"`).
 #' @export
 #' @examplesIf interactive()
 #' library(pliman)
@@ -89,9 +95,11 @@ yolo_benchmark <- function(model = "yolo26n",
     t <- numeric(n)
     n_obj <- NA_integer_
     for (i in seq_len(n)) {
-      t0 <- proc.time()[["elapsed"]]
+      # High-resolution monotonic clock (std::chrono::steady_clock, sub-microsecond);
+      # proc.time() ticks in ~10-16 ms steps on Windows, too coarse for fast models.
+      t0 <- pliman_clock_ms_cpp()
       r <- fun()
-      t[i] <- (proc.time()[["elapsed"]] - t0) * 1000
+      t[i] <- pliman_clock_ms_cpp() - t0
       if (i == 1L) n_obj <- tryCatch({
         if (is.data.frame(r)) nrow(r) else if (!is.null(r$boxes)) NROW(r$boxes) else NA_integer_
       }, error = function(e) NA_integer_)
@@ -135,6 +143,8 @@ yolo_benchmark <- function(model = "yolo26n",
   attr(out, "threads") <- threads
   attr(out, "imgsz") <- rt$target_size
   attr(out, "image_size") <- c(width = w, height = h)
+  attr(out, "clock_resolution_ns") <- tryCatch(pliman_clock_info_cpp()$resolution_ns,
+                                               error = function(e) NA_real_)
   class(out) <- c("pliman_benchmark", "data.frame")
   if (isTRUE(verbose)) print(out)
   invisible(out)

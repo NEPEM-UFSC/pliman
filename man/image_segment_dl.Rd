@@ -352,68 +352,90 @@ segments, and counts all visually similar objects across the entire image using 
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
-  img <- image_import("leaf.png")
 
-  # 1. Basic salient foreground segmentation with white background (CPU-friendly)
-  seg <- image_segment_dl(img, model = "u2netp")
+  # ---- Foreground (background removal) segmentation: flax flowers ----
+  flower <- image_pliman("flaxflower.jpg")
 
-  # 2. Razor-sharp plant boundary extraction (leaf margins, serrations, roots)
-  seg_ben <- image_segment_dl(img, model = "ben2")
+  # 1. Basic salient foreground segmentation with white background (rmbg-1.4)
+  seg <- image_segment_dl(flower, model = "rmbg-1.4")
 
-  # 3. Semi-transparent polygon overlay for visual inspection
-  image_segment_dl(img, model = "u2netp", type = "highlight")
-
-  # 4. Zero-shot text-prompted instance segmentation (Grounded-SAM)
-  # Segments leaves and lesions, displaying bounding boxes and summary
+  # 2. Zero-shot text-prompted instance segmentation (Grounded-SAM)
+  # Finds and segments every flax flower, displaying bounding boxes
   res_gs <- image_segment_dl(
-    img,
+    flower,
     model = "grounded-sam",
-    prompt = "plant leaf, lesion",
+    prompt = "flower",
     type = "highlight",
     bbox = TRUE
   )
   # Inspect counts and morphological measures
-  print(attr(res_gs, "counts"))
-  print(head(attr(res_gs, "features")))
+  res_gs$counts
+  head(res_gs$results)
 
-  # 5. Ultra-fast pure object detection without mask generation
-  # (Skips SAM 2.1 completely for 10x faster execution)
-  boxes <- image_segment_dl(
-    img,
-    model = "grounded-sam",
-    prompt = "insect, leaf",
-    mask = FALSE,
-    bbox = TRUE
-  )
-
-  # 6. One-shot visual exemplar segmentation (PerSAM):
-  # Click on 1 or more representative items (e.g. seeds, logs, grains, cells)
-  # to automatically find, outline, and count all matching instances:
+  # 3. One-shot visual exemplar segmentation (PerSAM):
+  # A point (x, y) on the blue flower finds all similar flowers.
+  # Leave `prompt` out to click on the exemplar(s) in the plot window instead.
   res_persam <- image_segment_dl(
-    img,
+    flower,
     exemplar = TRUE,
-    sim_threshold = 0.48,
+    prompt = c(565, 340),
+    sim_threshold = 0.6,
     type = "highlight",
     bbox = TRUE
   )
 
-  # 7. Multi-prototype visual exemplar segmentation with predefined coordinates:
-  # Passing coordinates of distinct log types (light, dark, weathered)
-  pts <- rbind(c(65, 380), c(425, 380), c(630, 380))
-  res_logs <- image_segment_dl(
-    img,
+  # 4. Multi-prototype exemplar segmentation: one point on each flower
+  # (white and blue); each point is a separate prototype.
+  pts <- rbind(c(330, 370), c(565, 340))
+  res_multi <- image_segment_dl(
+    flower,
     exemplar = TRUE,
     prompt = pts,
-    sim_threshold = 0.45,
-    type = "highlight",
-    engine = "gpu"
+    sim_threshold = 0.65,
+    type = "highlight"
   )
-  # 8. YOLO26 instance segmentation (real-time polygon mask & box detection)
+
+
+  # ---- Instance segmentation and detection: a farm scene ----
+  farm <- image_pliman("farm.jpg")
+
+  # 5. YOLO26 instance segmentation (real-time polygon mask & box detection)
   res_yolo <- image_segment_dl(
-    img,
+    farm,
     model = "yolo26n-seg",
     type = "highlight",
     bbox = TRUE
   )
+  res_yolo$counts
+  head(res_yolo$results[, c("label", "score", "area", "perimeter")])
+
+  # 6. Keep only some classes
+  image_segment_dl(farm, model = "yolo26n-seg", classes = c("cow", "dog"), type = "highlight")
+
+  # 7. Text-prompted segmentation of classes YOLO was not trained on
+  people <- image_segment_dl(
+    farm,
+    model = "grounded-sam",
+    prompt = "people",
+    type = "highlight",
+    bbox = TRUE
+  )
+
+  # 8. Fast text-prompted detection without mask generation
+  # (skips SAM 2.1, returning only the bounding boxes)
+  boxes <- image_segment_dl(
+    farm,
+    model = "grounded-sam",
+    prompt = "people",
+    mask = FALSE,
+    bbox = TRUE
+  )
+
+  # 9. SAM 2.1 with a box prompt c(xmin, ymin, xmax, ymax): the man in the center
+  res_box <- image_segment_dl(farm,
+   model = "sam2.1",
+   prompt = c(312, 285, 390, 485),
+   bbox = TRUE,
+   type = "highlight")
 \dontshow{\}) # examplesIf}
 }

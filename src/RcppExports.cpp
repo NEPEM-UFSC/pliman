@@ -2996,6 +2996,36 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// pliman_clock_ms_cpp
+double pliman_clock_ms_cpp();
+RcppExport SEXP _pliman_pliman_clock_ms_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(pliman_clock_ms_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
+// pliman_clock_info_cpp
+Rcpp::List pliman_clock_info_cpp();
+RcppExport SEXP _pliman_pliman_clock_info_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(pliman_clock_info_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
+// pliman_process_memory_cpp
+Rcpp::NumericVector pliman_process_memory_cpp();
+RcppExport SEXP _pliman_pliman_process_memory_cpp() {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    rcpp_result_gen = Rcpp::wrap(pliman_process_memory_cpp());
+    return rcpp_result_gen;
+END_RCPP
+}
 // update_tracker_cpp
 Rcpp::List update_tracker_cpp(Rcpp::NumericVector xmin, Rcpp::NumericVector ymin, Rcpp::NumericVector xmax, Rcpp::NumericVector ymax, Rcpp::CharacterVector labels, Rcpp::NumericVector scores, Rcpp::List state, Rcpp::Nullable<Rcpp::NumericVector> count_line, Rcpp::Nullable<Rcpp::NumericVector> roi, double max_dist, double min_iou, int max_lost, int max_history, double current_time, int frame_w, int frame_h, Rcpp::Nullable<Rcpp::IntegerVector> class_ids, Rcpp::Nullable<Rcpp::IntegerVector> mask_ids, bool interpolate_box, bool interpolate_mask, int min_hits);
 RcppExport SEXP _pliman_update_tracker_cpp(SEXP xminSEXP, SEXP yminSEXP, SEXP xmaxSEXP, SEXP ymaxSEXP, SEXP labelsSEXP, SEXP scoresSEXP, SEXP stateSEXP, SEXP count_lineSEXP, SEXP roiSEXP, SEXP max_distSEXP, SEXP min_iouSEXP, SEXP max_lostSEXP, SEXP max_historySEXP, SEXP current_timeSEXP, SEXP frame_wSEXP, SEXP frame_hSEXP, SEXP class_idsSEXP, SEXP mask_idsSEXP, SEXP interpolate_boxSEXP, SEXP interpolate_maskSEXP, SEXP min_hitsSEXP) {
@@ -3589,6 +3619,9 @@ static const R_CallMethodDef CallEntries[] = {
     {"_pliman_canny_edge_detector", (DL_FUNC) &_pliman_canny_edge_detector, 7},
     {"_pliman_skeleton_mat_cpp", (DL_FUNC) &_pliman_skeleton_mat_cpp, 7},
     {"_pliman_analyze_root_system_cpp", (DL_FUNC) &_pliman_analyze_root_system_cpp, 15},
+    {"_pliman_pliman_clock_ms_cpp", (DL_FUNC) &_pliman_pliman_clock_ms_cpp, 0},
+    {"_pliman_pliman_clock_info_cpp", (DL_FUNC) &_pliman_pliman_clock_info_cpp, 0},
+    {"_pliman_pliman_process_memory_cpp", (DL_FUNC) &_pliman_pliman_process_memory_cpp, 0},
     {"_pliman_update_tracker_cpp", (DL_FUNC) &_pliman_update_tracker_cpp, 21},
     {"_pliman_tracker_create_cpp", (DL_FUNC) &_pliman_tracker_create_cpp, 0},
     {"_pliman_tracker_update_cpp", (DL_FUNC) &_pliman_tracker_update_cpp, 21},

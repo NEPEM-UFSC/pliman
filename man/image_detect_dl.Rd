@@ -59,8 +59,8 @@ Options include \code{"yolo26n"}, \code{"yolo26s"}, \code{"yolo26m"}, \code{"yol
 
 \item{col}{Optional color or palette for bounding boxes.}
 
-\item{rainbow}{Logical. If \code{TRUE}, assigns a distinct, unique color to each detected object.
-If \code{FALSE} (the default), objects of the same class share the exact same color. Defaults to \code{FALSE}.}
+\item{rainbow}{Logical. If \code{TRUE} (the default), assigns a distinct, unique color to each detected object.
+If \code{FALSE}, objects of the same class share the exact same color.}
 
 \item{lwd}{Line width for bounding boxes (default 2).}
 
@@ -165,9 +165,19 @@ Use \code{\link[=yolo_benchmark]{yolo_benchmark()}} to measure inference speed o
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
-  img <- image_import("objects.png")
-  boxes <- image_detect_dl(img)
-  # Rainbow coloring per box:
-  boxes_rb <- image_detect_dl(img, rainbow = TRUE)
+  farm <- image_pliman("farm.jpg")
+
+  # Detect the 80 COCO classes (people, animals, vehicles, ...)
+  boxes <- image_detect_dl(farm, model = "yolo26x")
+  head(boxes)
+
+  # Count objects per class
+  table(boxes$label)
+
+  # Keep only some classes
+  animals <- image_detect_dl(farm, model = "yolo26x", classes = c("cow", "horse", "sheep", "dog"))
+
+  # Same color for all boxes of a class (instead of one color per box)
+  boxes_cls <- image_detect_dl(farm, rainbow = FALSE)
 \dontshow{\}) # examplesIf}
 }
