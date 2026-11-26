@@ -25,6 +25,8 @@ knitr::opts_chunk$set(
 
 The pliman package offers tools for both single and batch image manipulation and analysis ([Olivoto, 2022](https://onlinelibrary.wiley.com/doi/abs/10.1111/2041-210X.13803)), including the quantification of leaf area, disease severity assessment ([Olivoto et al., 2022](https://link.springer.com/article/10.1007/s40858-021-00487-5)), object counting, extraction of image indexes, shape measurement, object landmark identification, and Elliptical Fourier Analysis of object outlines, as detailed by Claude ([2008](https://link.springer.com/book/10.1007/978-0-387-77789-4)). The package also provides a comprehensive pipeline for generating shapefiles with complex layouts and supports high-throughput phenotyping of RGB, multispectral, and hyperspectral orthomosaics. This functionality facilitates field phenotyping using UAV- or satellite-based imagery.
 
+In addition, `pliman` runs pre-trained deep learning models directly from R, through Microsoft ONNX Runtime and without Python. These include object detection, instance segmentation, pose estimation and image classification with YOLO26; segmentation from text, point or box prompts with SAM 2.1 (Grounded-SAM and PerSAM); counting of touching grains and seeds with StarDist; background removal; depth estimation; feature extraction with DINOv2; and super-resolution. Models run on the CPU or, when available, on the GPU, and can also be applied to batches of images and to videos.
+
 `pliman` also provides useful functions for image transformation, binarization, segmentation, and resolution. Please visit the [Examples](https://nepem-ufsc.github.io/pliman/reference/index.html) page on the `pliman` website for detailed documentation of each function.
 
 # Installation
@@ -47,71 +49,58 @@ pak::pkg_install("nepem-ufsc/pliman")
 
 *Note*: If you are a Windows user, you should also first download and install the latest version of [Rtools](https://cran.r-project.org/bin/windows/Rtools/).
 
-# Analyze objects
-
-The function `analyze_objects()` can be used to analyze objects such as leaves, grains, pods, and pollen in an image. By default, all measures are returned in pixel units. Users can [adjust the object measures](https://nepem-ufsc.github.io/pliman/articles/analyze_objects.html#adjusting-object-measures) with `get_measures()` provided that the image resolution (Dots Per Inch) is known. Another option is to use a reference object in the image. In this last case, the argument `reference` must be set to `TRUE`. There are two options to identify the reference object:
-
-1.  By its color, using the arguments `back_fore_index` and `fore_ref_index`\
-2.  By its size, using the arguments `reference_larger` or `reference_smaller`
-
-In both cases, the `reference_area` must be declared. Let's see how to analyze an image with flax grains containing a reference object (rectangle with 2x3 cm). Here, we'll identify the reference object by its size; so, the final results in this case will be in metric units (cm).
-
-```{r warning=FALSE, message=FALSE}
-library(pliman)
-img <- image_pliman("flax_grains.jpg")
-flax <- 
-  analyze_objects(img,
-                  index = "GRAY",
-                  reference = TRUE,
-                  reference_larger = TRUE,
-                  reference_area = 6,
-                  marker = "point",
-                  marker_size = 0.5,
-                  marker_col = "red", # default is white
-                  show_contour = FALSE) # default is TRUE
-# summary statistics
-flax$statistics
-
-```
-
-# Disease severity
-
-## Using image indexes
-
-To compute the percentage of symptomatic leaf area you can use the `measure_disease()` function you can use an image index to segment the entire leaf from the background and then separate the diseased tissue from the healthy tissue. Alternatively, you can provide color palette samples to the `measure_disease()` function. In this approach, the function fits a general linear model (binomial family) to the RGB values of the image. It then uses the color palette samples to segment the lesions from the healthy leaf.
-
-In the following example, we compute the symptomatic area of a soybean leaf. The proportion of healthy and symptomatic areas is given as a proportion of the total leaf area after segmenting the leaf from the background (blue).
-
-```{r}
-img <- image_pliman("sev_leaf.jpg")
-# Computes the symptomatic area
-sev <- 
-  measure_disease(img = img,
-                  index_lb = "B", # to remove the background
-                  index_dh = "NGRDI", # to isolate the diseased area
-                  threshold = c("Otsu", 0), # You can also use the Otsu algorithm in both indexes (default)
-                  plot = TRUE)
-sev$severity
-```
-
-## Interactive disease measurements
-
-An alternative approach to measuring disease percentage is available through the `measure_disease_iter()` function. This function offers an interactive interface that empowers users to manually select sample colors directly from the image. By doing so, it provides a highly customizable analysis method.
-
-One advantage of using `measure_disease_iter()` is the ability to utilize the "mapview" viewer, which enhances the analysis process by offering zoom-in options. This feature allows users to closely examine specific areas of the image, enabling detailed inspection and accurate disease measurement.
-
-```{r eval=FALSE}
-img <- image_pliman("sev_leaf.jpg", plot = TRUE)
-
-# works only in an interactive section
-measure_disease_iter(img, viewer = "mapview")
-```
-
 # Deep Learning & Foundation Models
 
 `pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`); see *Inference speed, GPU and video* below.
 
-Models are downloaded automatically on first use or manually via `pliman_download_model()`.
+## Initial setup (ONNX Runtime)
+
+Before the first use, `pliman` needs the ONNX Runtime library from Microsoft and the model files. Both are saved in your user folder and are reused in later sessions, so this setup is done only once per computer. Python and PyTorch are not needed.
+
+The easiest way is `onnx_setup()`. It looks for a compatible GPU, installs ONNX Runtime, downloads three basic models (`u2netp`, `yolo26s` and `dinov2`) and runs a short test of each one:
+
+```{r eval = FALSE}
+library(pliman)
+
+# Uses the GPU when one is found; otherwise, the CPU
+onnx_setup()
+
+# CPU only
+onnx_setup(engine = "cpu")
+
+# Configure ONNX Runtime only, without downloading models
+onnx_setup(models = NULL)
+```
+
+
+You can also do each step yourself:
+
+```{r eval = FALSE}
+# 1. List the GPUs that can be used (DirectX 12 / DirectML, Windows)
+pliman_gpu_info()
+
+# 2. Install ONNX Runtime
+onnx_install(engine = "gpu")   # DirectML (Windows); on Linux and macOS, it installs the CPU version
+onnx_install(engine = "cpu")   # CPU (Windows, Linux and macOS)
+onnx_install(engine = "cuda")  # NVIDIA CUDA/TensorRT (Windows and Linux)
+pliman_gpu_provider("cuda")    # use CUDA instead of DirectML
+
+# 3. Download the models used in the examples below
+pliman_download_model(c("yolo26n", "yolo26n-seg", "grounded-sam", "sam2.1"))
+
+# 4. Check the installed models and where they are saved
+pliman_available_models()
+pliman_model_dir()
+```
+
+Notes:
+
+- With `engine = "gpu"`, models run on the GPU through DirectML, which is available only on Windows (DirectX 12). On Linux, use the CUDA version of ONNX Runtime on NVIDIA GPUs; on macOS, models run on the CPU.
+- Downloads can take a while: the larger models, such as `grounded-sam` (about 315 MB) and `rmbg-2.0` (about 980 MB), are hundreds of megabytes.
+- If a model is not installed, it is downloaded the first time a function uses it.
+- To delete models and free disk space, use `pliman_remove_model()`.
+
+## Available models
 
 | Task / Capability | Function | Supported Models | Description |
 |:---|:---|:---|:---|
@@ -125,7 +114,88 @@ Models are downloaded automatically on first use or manually via `pliman_downloa
 | **Super-Resolution** | `image_superres_dl()` | `realesrgan_x2_full`, `realesrgan_x4_full`, `realesrgan` | Photorealistic 2x/4x generative super-resolution (RRDBNet full models or ultra-fast compact). |
 | **Text-Prompted Segmentation** | `image_segment_dl()` | `grounded-sam` | Zero-shot open-vocabulary instance segmentation via Grounding DINO + SAM 2.1. |
 | **One-Shot Exemplar Counting** | `image_segment_dl()` | `persam` | One-shot visual exemplar segmentation and counting via SAM 2.1 and Dense Conv ZNCC. |
+| **Promptable Segmentation** | `image_segment_dl()` | `sam2.1` | Zero-shot segmentation of any object from a point or bounding-box prompt (SAM 2.1 Hiera-Tiny). |
 | **Salient Background Removal** | `image_remove_bg()` | `ben2`, `u2netp`, `rmbg-2.0` | Ultra-sharp boundary cutouts and transparent background export. |
+
+## A worked example: a farm scene
+
+The examples below use `farm.jpg`, an image installed with `pliman`, to show detection and segmentation with YOLO26 and with SAM 2.1. Each model is downloaded the first time it is used.
+
+```{r farm, message=FALSE, fig.width=10, fig.height=5.625}
+library(pliman)
+farm <- image_pliman("farm.jpg", plot = TRUE)
+```
+
+### Object detection with YOLO26
+
+`image_detect_dl()` returns one bounding box per object for the 80 COCO classes (people, animals, vehicles, ...).
+
+```{r farm-detect, message=FALSE, fig.width=10, fig.height=5.625}
+boxes <- image_detect_dl(farm, model = "yolo26n")
+head(boxes)
+```
+
+### Instance segmentation with YOLO26
+
+With a `-seg` model, `image_segment_dl()` also returns a pixel mask for each object, the number of objects per class and 28 shape measures for each mask (area, perimeter, circularity, ...).
+
+```{r farm-segment, message=FALSE, fig.width=10, fig.height=5.625}
+seg <- image_segment_dl(
+  farm,
+  model = "yolo26n-seg",
+  type = "highlight",
+  bbox = TRUE
+)
+seg$counts
+head(seg$results[, c("label", "score", "area", "perimeter", "circularity")])
+```
+
+### Text-prompted segmentation with SAM 2.1 (Grounded-SAM)
+
+`model = "grounded-sam"` finds objects described by a text `prompt` with Grounding DINO and segments them with SAM 2.1. The classes are not limited to a fixed list, so you can ask for objects that YOLO was not trained on. Here, `box_threshold` is raised so that only the animals are kept; with the default (`0.25`), the airplane is also labeled as an animal.
+
+```{r farm-gsam, message=FALSE, fig.width=10, fig.height=5.625}
+animals <- image_segment_dl(
+  farm,
+  model = "grounded-sam",
+  prompt = "animal",
+  box_threshold = 0.58,
+  type = "highlight",
+  bbox = TRUE
+)
+animals$counts
+```
+
+### One-shot segmentation from an example (PerSAM)
+
+With `model = "persam"`, you give the position of one example object (`prompt`, as x and y pixel coordinates), and SAM 2.1 finds and segments all similar objects in the image. Below, a single point on the cow in the front finds all the animals. Use a higher `sim_threshold` to keep only objects that are more similar to the example. In an interactive session, leave `prompt` out to click on the examples instead.
+
+```{r farm-persam, message=FALSE, fig.width=10, fig.height=5.625}
+similar <- image_segment_dl(
+  farm,
+  model = "persam",
+  prompt = rbind(c(540, 380)),
+  sim_threshold = 0.6,
+  type = "highlight",
+  bbox = TRUE
+)
+nrow(similar$results)
+```
+
+### Point and box prompts with SAM 2.1
+
+`model = "sam2.1"` segments the object inside a box given as `c(xmin, ymin, xmax, ymax)`, or the object under a point given as `c(x, y)`. Here, a box around the horse:
+
+```{r farm-sam, message=FALSE, fig.width=10, fig.height=5.625}
+horse <- image_segment_dl(
+  farm,
+  model = "sam2.1",
+  prompt = c(360, 234, 440, 294),
+  type = "highlight"
+)
+```
+
+## More examples
 
 ### 1. Real-Time Detection, Segmentation, Pose, and Classification (YOLO26)
 
@@ -234,6 +304,66 @@ res <- video_detect_dl(
   infer_every = 2,
   output = "annotated.mp4"
 )
+```
+
+# Analyze objects
+
+The function `analyze_objects()` can be used to analyze objects such as leaves, grains, pods, and pollen in an image. By default, all measures are returned in pixel units. Users can [adjust the object measures](https://nepem-ufsc.github.io/pliman/articles/analyze_objects.html#adjusting-object-measures) with `get_measures()` provided that the image resolution (Dots Per Inch) is known. Another option is to use a reference object in the image. In this last case, the argument `reference` must be set to `TRUE`. There are two options to identify the reference object:
+
+1.  By its color, using the arguments `back_fore_index` and `fore_ref_index`\
+2.  By its size, using the arguments `reference_larger` or `reference_smaller`
+
+In both cases, the `reference_area` must be declared. Let's see how to analyze an image with flax grains containing a reference object (rectangle with 2x3 cm). Here, we'll identify the reference object by its size; so, the final results in this case will be in metric units (cm).
+
+```{r warning=FALSE, message=FALSE}
+library(pliman)
+img <- image_pliman("flax_grains.jpg")
+flax <- 
+  analyze_objects(img,
+                  index = "GRAY",
+                  reference = TRUE,
+                  reference_larger = TRUE,
+                  reference_area = 6,
+                  marker = "point",
+                  marker_size = 0.5,
+                  marker_col = "red", # default is white
+                  show_contour = FALSE) # default is TRUE
+# summary statistics
+flax$statistics
+
+```
+
+# Disease severity
+
+## Using image indexes
+
+To compute the percentage of symptomatic leaf area you can use the `measure_disease()` function you can use an image index to segment the entire leaf from the background and then separate the diseased tissue from the healthy tissue. Alternatively, you can provide color palette samples to the `measure_disease()` function. In this approach, the function fits a general linear model (binomial family) to the RGB values of the image. It then uses the color palette samples to segment the lesions from the healthy leaf.
+
+In the following example, we compute the symptomatic area of a soybean leaf. The proportion of healthy and symptomatic areas is given as a proportion of the total leaf area after segmenting the leaf from the background (blue).
+
+```{r}
+img <- image_pliman("sev_leaf.jpg")
+# Computes the symptomatic area
+sev <- 
+  measure_disease(img = img,
+                  index_lb = "B", # to remove the background
+                  index_dh = "NGRDI", # to isolate the diseased area
+                  threshold = c("Otsu", 0), # You can also use the Otsu algorithm in both indexes (default)
+                  plot = TRUE)
+sev$severity
+```
+
+## Interactive disease measurements
+
+An alternative approach to measuring disease percentage is available through the `measure_disease_iter()` function. This function offers an interactive interface that empowers users to manually select sample colors directly from the image. By doing so, it provides a highly customizable analysis method.
+
+One advantage of using `measure_disease_iter()` is the ability to utilize the "mapview" viewer, which enhances the analysis process by offering zoom-in options. This feature allows users to closely examine specific areas of the image, enabling detailed inspection and accurate disease measurement.
+
+```{r eval=FALSE}
+img <- image_pliman("sev_leaf.jpg", plot = TRUE)
+
+# works only in an interactive section
+measure_disease_iter(img, viewer = "mapview")
 ```
 
 # Citation

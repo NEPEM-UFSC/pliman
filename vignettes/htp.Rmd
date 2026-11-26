@@ -76,6 +76,7 @@ shp <- shapefile_build(
 
 # see key aspects of the created shapefiles
 shapefile_measures(shp)
+shapefile_plot(shp[[1]], add = TRUE)
 
 ```
 
