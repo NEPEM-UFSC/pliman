@@ -248,7 +248,8 @@ plot_id <- function(shapefile = NULL,
 #'   `"radial"`, or `"landmark"`.
 #' @param basemap An optional `mapview` object.
 #' @param controlpoints An object created with [mosaic_view()] using the
-#'   argument `edit = TRUE`. This must contain the points that defines the
+#'   argument `edit = TRUE`, or an `sf` object (e.g. read with
+#'   [shapefile_input()]). This must contain the points that defines the
 #'   region of interest to be analyzed.
 #' @param buffer Numeric. A buffer distance (in map units) to be applied uniformly
 #'   to the final generated plots. If negative, the plots will be shrunk; if
@@ -273,8 +274,7 @@ plot_id <- function(shapefile = NULL,
 #' @return A list with the built shapefile. Each element is an `sf` object with
 #'   the coordinates of the drawn polygons.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' mosaic <- image_pliman("soy_ortho.tif")
 #'
@@ -295,7 +295,6 @@ plot_id <- function(shapefile = NULL,
 #'                       ncol = 3)
 #' mosaic_plot(mosaic)
 #' shapefile_plot(shps[[1]], add = TRUE)
-#' }
 #'
 shapefile_build <- function(mosaic,
                             basemap = NULL,
@@ -380,8 +379,13 @@ shapefile_build <- function(mosaic,
         cli::cli_abort("Unsupported geometry type: {.val {geom_type}}.")
       }
     } else{
+      # accept an `sf` object (e.g. control points saved to / read from a file,
+      # as in pliman < 4.0) as well as the list returned by mosaic_view(edit = TRUE)
+      if (inherits(controlpoints, "sf")) {
+        controlpoints <- list(finished = controlpoints)
+      }
       if (!"finished" %in% names(controlpoints)) {
-        cli::cli_abort("Input {.arg controlpoints} must be from {.code mosaic_view(..., edit = TRUE)}.")
+        cli::cli_abort("Input {.arg controlpoints} must be an {.cls sf} object or the result of {.code mosaic_view(..., edit = TRUE)}.")
       }
       geom_type <- sf::st_geometry(controlpoints$finished) |> sf::st_geometry_type(by_geometry = FALSE)
       if (geom_type == "POINT") {
@@ -567,12 +571,10 @@ shapefile_build <- function(mosaic,
 #' @return A `NULL` object
 #' @export
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' r <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 #' shapefile_plot(r)
-#' }
 shapefile_plot <- function(shapefile, ...){
   if(!inherits(shapefile, "SpatVector") & !inherits(shapefile, "sf") ){
     cli::cli_abort(c(
@@ -586,7 +588,7 @@ shapefile_plot <- function(shapefile, ...){
 }
 
 
-#' Import/export shapefiles.
+#' Import/export shapefiles
 #' @description
 #'
 #' * `shapefile_input()` creates or imports a shapefile and optionally converts
@@ -631,13 +633,11 @@ shapefile_plot <- function(shapefile, ...){
 #'
 #'  * `shapefile_view()` returns an object of class `mapview`.
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- system.file("ex/lux.shp", package="terra")
 #' shp_file <- shapefile_input(shp, as_sf = FALSE)
 #' shapefile_view(shp_file)
-#' }
 #'
 #' @export
 shapefile_input <- function(shapefile,
@@ -794,12 +794,10 @@ shapefile_view <- function(shapefile,
 #' @export
 #' @return A modified shapefile with user-edited features.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 #' edited <- shapefile_edit(shp)
-#' }
 shapefile_edit <- function(shapefile,
                            mosaic = NULL,
                            basemap = NULL,
@@ -871,14 +869,12 @@ shapefile_edit <- function(shapefile,
 #' The width and height are derived from sequential distances between points.
 #'
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' path_shp <- paste0(image_pliman(), "/soy_shape.rds")
 #' shp <- shapefile_input(path_shp)
 #' shapefile_measures(shp)
-#' }
 #'
 #'
 
@@ -1046,8 +1042,7 @@ check_cols_shp <- function(shpimp){
 #' - `shapefile_union()`: Computes the geometric union of `shp1` and `shp2`.
 #'
 #' @return A filtered `sf` object or the result of the geometric operation.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' shp1 <- shapefile_input(paste0(image_pliman(), "/shp1.rds"))
@@ -1063,7 +1058,6 @@ check_cols_shp <- function(shpimp){
 #' shapefile_intersection(shp1, shp2)
 #' shapefile_difference(shp1, shp2)
 #' shapefile_union(shp1, shp2)
-#' }
 #' @name shapefile_operations
 #' @export
 #'
@@ -1163,9 +1157,7 @@ shapefile_union <- function(shp1, shp2){
 #'   representing the half‐plot midlines.
 #' @export
 #'
-#' @examples
-#'
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- shapefile_input( paste0(image_pliman(), "/soy_shape.rds"))
 #' mosaic <- mosaic_input( paste0(image_pliman(), "/soy_dsm.tif"))
@@ -1173,7 +1165,6 @@ shapefile_union <- function(shp1, shp2){
 #' half <- line_on_halfplot(shp)
 #' shapefile_plot(half, add = TRUE, col = "blue")
 #'
-#' }
 line_on_halfplot <- function(shapefile) {
   coords <- sf::st_coordinates(shapefile)
   corners_list <- split(coords[, c("X","Y")], coords[, "L2"])
@@ -1209,8 +1200,7 @@ line_on_halfplot <- function(shapefile) {
 #' @return An `sf` object with the transformed geometry, preserving all original attributes.
 #' @export
 #'
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- system.file("ex/lux.shp", package="terra")
 #' shp_file <- shapefile_input(shp)
@@ -1218,7 +1208,6 @@ line_on_halfplot <- function(shapefile) {
 #' rot <- shapefile_transform(shp_file, angle = 5)
 #' shapefile_plot(rot, add = TRUE, border = "red")
 #'
-#' }
 shapefile_transform <- function(shapefile,
                                 shift_x = 0,
                                 shift_y = 0,

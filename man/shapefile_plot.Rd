@@ -18,9 +18,9 @@ A \code{NULL} object
 Plot the values of a SpatVector
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 r <- shapefile_input(system.file("ex/lux.shp", package="terra"))
 shapefile_plot(r)
-}
+\dontshow{\}) # examplesIf}
 }

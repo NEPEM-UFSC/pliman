@@ -23,12 +23,10 @@
 #'
 #'
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
 #' object_edge(img)
-#' }
 #'
 object_edge <- function(img,
                         sigma = 1,
@@ -107,13 +105,11 @@ object_edge <- function(img,
 #'   * `overlay`: An `image` object showing the original image with veins highlighted in `col` (if `overlay = TRUE`).
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf_nb.jpg", plot = TRUE)
 #' veins <- object_veins(img, overlay = TRUE, col = "red")
 #' veins$proportion
-#' }
 #'
 object_veins <- function(img,
                          labels = NULL,

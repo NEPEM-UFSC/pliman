@@ -1,0 +1,1947 @@
+# ==============================================================================
+# BATCH DEEP LEARNING INFERENCE
+# pliman: Plant Image Analysis in R
+# ==============================================================================
+
+.extract_boxes <- function(x) {
+  if (is.null(x)) return(NULL)
+  df <- NULL
+  if (is.data.frame(x)) {
+    df <- x
+  } else if (is.list(x)) {
+    if (!is.null(x$results) && is.data.frame(x$results)) {
+      df <- x$results
+    } else if (!is.null(x$boxes) && is.data.frame(x$boxes)) {
+      df <- x$boxes
+    } else if (!is.null(attr(x, "results")) && is.data.frame(attr(x, "results"))) {
+      df <- attr(x, "results")
+    } else if (!is.null(attr(x, "boxes")) && is.data.frame(attr(x, "boxes"))) {
+      df <- attr(x, "boxes")
+    }
+  }
+  if (!is.null(df) && nrow(df) > 0L) {
+    if (is.null(df$label) && !is.null(df$class_name)) df$label <- df$class_name
+    if (is.null(df$score) && !is.null(df$conf)) df$score <- df$conf
+    if (is.null(df$id)) df$id <- seq_len(nrow(df))
+  }
+  df
+}
+
+.get_active_daemons <- function() {
+  if (!requireNamespace("mirai", quietly = TRUE)) return(0L)
+  st <- tryCatch(mirai::status(), error = function(e) NULL)
+  if (is.null(st)) return(0L)
+  if (is.numeric(st$connections) && length(st$connections) == 1L) {
+    as.integer(st$connections)
+  } else if (is.numeric(st$daemons) && length(st$daemons) == 1L) {
+    as.integer(st$daemons)
+  } else if (!is.null(st$daemons) && is.character(st$daemons) && !is.null(st$connections)) {
+    as.integer(st$connections)
+  } else {
+    0L
+  }
+}
+
+.ensure_daemons <- function(n_items = NULL, workers = NULL, max_workers = NULL, verbose = FALSE) {
+  existing_daemons <- .get_active_daemons()
+
+  if (existing_daemons > 0L) {
+    # Daemons were already started by user via pliman_daemons()
+    eff_workers <- if (!is.null(n_items)) min(existing_daemons, n_items) else existing_daemons
+    if (!is.null(workers) && workers > 0L) eff_workers <- min(eff_workers, as.integer(workers))
+    return(list(active = TRUE, nworkers = eff_workers, auto_cleanup = FALSE))
+  }
+
+  # Calculate worker count respecting user requested workers and safety bounds
+  def_workers <- if (!is.null(workers) && as.integer(workers) > 0L) {
+    as.integer(workers)
+  } else {
+    max(1L, floor(parallel::detectCores() * 0.5))
+  }
+  if (!is.null(max_workers) && as.integer(max_workers) > 0L) {
+    def_workers <- min(def_workers, as.integer(max_workers))
+  }
+  eff_workers <- if (!is.null(n_items)) min(def_workers, n_items) else def_workers
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_info("Starting {.val {eff_workers}} temporary background worker{?s} (will auto-close upon completion)...")
+  }
+  empty_prof <- tempfile()
+  file.create(empty_prof)
+  old_prof <- Sys.getenv("R_PROFILE_USER", unset = NA)
+  Sys.setenv(R_PROFILE_USER = empty_prof)
+
+  mirai::daemons(eff_workers)
+
+  if (is.na(old_prof)) Sys.unsetenv("R_PROFILE_USER") else Sys.setenv(R_PROFILE_USER = old_prof)
+  unlink(empty_prof)
+
+  mirai::everywhere(
+    {
+      .libPaths(lp)
+      library(pliman)
+    },
+    lp = .libPaths()
+  )
+  invisible(mirai::mirai_map(seq_len(eff_workers), function(x) TRUE)[])
+
+  list(active = TRUE, nworkers = eff_workers, auto_cleanup = TRUE)
+}
+
+#' Manage Persistent Parallel Workers for High-Speed Processing
+#'
+#' @description
+#' Spawns, inspects, or shuts down persistent background worker processes for high-throughput
+#' batch detection, segmentation, and image processing.
+#'
+#' If `pliman_daemons(n)` is called by the user, workers remain persistent and warm
+#' across multiple function calls throughout your R session (eliminating initialization overhead).
+#' If functions with `parallel = TRUE` are called without prior `pliman_daemons()`,
+#' temporary workers are started and automatically closed when the function finishes,
+#' preventing unnecessary memory consumption.
+#'
+#' @param workers Number of workers to spawn. If `0`, shuts down active daemons.
+#' If `NULL` (default), prints the current status of active daemons.
+#' @return The number of active daemons (invisibly).
+#' @export
+#' @examples
+#' \dontrun{
+#' # Check active workers
+#' pliman_daemons()
+#'
+#' # Start and pre-warm 7 workers once for heavy batch workflows
+#' pliman_daemons(7)
+#'
+#' # Subsequent batch detections start instantly with 0s overhead
+#' image_detect_batch(data = ".", pattern = "\\.jpg$", model = "flax_capsule_det", parallel = TRUE)
+#'
+#' # Shut down daemons when finished to free system memory
+#' pliman_daemons(0)
+#' }
+pliman_daemons <- function(workers = NULL) {
+  if (!requireNamespace("mirai", quietly = TRUE)) {
+    cli::cli_abort("Package {.val mirai} is required for parallel processing. Please install it with {.code install.packages('mirai')}.")
+  }
+  act <- .get_active_daemons()
+  if (is.null(workers)) {
+    if (act > 0L) {
+      cli::cli_alert_info("{.val {act}} active persistent background worker{?s}.")
+    } else {
+      cli::cli_alert_info("No active persistent background workers. Functions with {.code parallel = TRUE} will launch temporary workers and auto-close when done.")
+    }
+    return(invisible(act))
+  }
+  if (identical(workers, 0) || identical(workers, 0L)) {
+    mirai::daemons(0)
+    cli::cli_alert_success("All background parallel workers shut down.")
+    return(invisible(0L))
+  }
+  nw <- as.integer(workers)
+  empty_prof <- tempfile()
+  file.create(empty_prof)
+  old_prof <- Sys.getenv("R_PROFILE_USER", unset = NA)
+  Sys.setenv(R_PROFILE_USER = empty_prof)
+
+  mirai::daemons(nw)
+
+  if (is.na(old_prof)) Sys.unsetenv("R_PROFILE_USER") else Sys.setenv(R_PROFILE_USER = old_prof)
+  unlink(empty_prof)
+
+  cli::cli_alert_info("Pre-warming {.val {nw}} persistent parallel background worker{?s}...")
+  mirai::everywhere(
+    {
+      .libPaths(lp)
+      library(pliman)
+    },
+    lp = .libPaths()
+  )
+  invisible(mirai::mirai_map(seq_len(nw), function(x) TRUE)[])
+  cli::cli_alert_success("Pre-warmed {.val {nw}} persistent parallel workers ready for instant execution.")
+  invisible(nw)
+}
+
+#' Batch Object Detection with Deep Learning
+#'
+#' Runs deep learning object detection (e.g., YOLO models) on a batch of images
+#' defined by a directory path, a filename pattern, a vector of file paths,
+#' or a list of `Image` objects. Supports sequential or parallel processing (via `mirai`),
+#' and returns a consolidated predictions dataset along with per-image and per-class summaries.
+#'
+#' @param data Input data. Can be:
+#'   * A character string representing a directory path containing images (e.g., `"flax_grains"`).
+#'   * A character pattern to match image files in `path` or the current directory (e.g., `"-"`, `"^img_"`).
+#'   * A character vector of image file paths.
+#'   * A list of `Image` objects or numeric arrays.
+#' @param pattern Optional regex pattern to filter image filenames when `data` is a directory path.
+#' @param path Optional directory path to search when `data` is a pattern. Defaults to `"."`.
+#' @param parallel Logical. If `TRUE`, runs inference in parallel across images using `mirai`.
+#'   Defaults to `FALSE`.
+#' @param sahi Logical. If `TRUE`, uses SAHI (Slicing Aided Hyper Inference) for tiled detection
+#'   on large or high-resolution images. Defaults to `FALSE`.
+#' @param slice_height Integer. Height of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param slice_width Integer. Width of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param overlap_height_ratio Numeric scalar between 0 and 0.5. Vertical slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param overlap_width_ratio Numeric scalar between 0 and 0.5. Horizontal slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param match_metric Character string. Box merging overlap metric used when `sahi = TRUE` (`"IOS"` or `"IOU"`). Defaults to `"IOS"`.
+#' @param match_threshold Numeric scalar. Overlap threshold for merging slice detections when `sahi = TRUE`. Defaults to `0.50`.
+#' @param postprocess_type Character string. Post-processing algorithm used when `sahi = TRUE` (`"GREEDY_NMM"` or `"NMS"`). Defaults to `"GREEDY_NMM"`.
+#' @param show_point Logical. Whether to show a point at the centroid of each detected object.
+#'   Defaults to `FALSE`.
+#' @param keep_images Logical. Whether to keep the full original images attached as attributes in `$results`.
+#'   Defaults to `FALSE` to prevent excessive RAM consumption during large batches (saving gigabytes of memory).
+#' @param save_image Logical. Whether to save annotated prediction images with bounding boxes to disk.
+#'   Defaults to `FALSE`.
+#' @param dir_processed Character string. Directory where annotated images should be saved when
+#'   `save_image = TRUE`. Defaults to `"./proc"`.
+#' @param prefix Character string. Prefix prepended to saved output filenames. Defaults to `"proc_"`.
+#' @param verbose Logical. Whether to show progress bars, timing, and formatted CLI summaries.
+#'   Defaults to `TRUE`.
+#' @param imgsz Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+#'   If \code{NULL} (default), inferred automatically or defaults to \code{640}.
+#' @param as_job Logical. If \code{TRUE} and running inside RStudio, runs the batch detection process in an RStudio Background Job. Defaults to \code{FALSE}.
+#' @param ... Additional arguments passed to [image_detect_dl()] (e.g., `model`, `conf_threshold`,
+#'   `iou_threshold`, `classes`, `labels`, `col`, `rainbow`, `lwd`, `cex`, `badge`, `engine`, `device_id`).
+#'
+#' @return An S3 object of class `c("dl_detect_batch", "list")` containing:
+#'   * `predictions`: A consolidated `data.frame` of all detected bounding boxes across all images,
+#'     with column `img` identifying the source image.
+#'   * `summary`: A per-image `data.frame` summarizing total objects detected, mean confidence scores,
+#'     and individual counts for each detected class.
+#'   * `class_summary`: A summary `data.frame` across the entire batch with total counts, frequencies,
+#'     average per image, and mean confidence scores per class.
+#'   * `results`: A named list of raw individual detection outputs from [image_detect_dl()].
+#' @aliases image_detect_batch
+#' @section Performance:
+#' The model is resolved once and every image reuses the cached ONNX session. With
+#' `parallel = TRUE` each worker process loads its own copy of the model, so:
+#' \itemize{
+#'   \item on CPU (`engine = "cpu"`) and `threads = 0`, each worker gets
+#'     `physical cores / workers` ONNX threads to avoid oversubscribing the CPU;
+#'   \item on GPU (`engine = "gpu"`) concurrency is capped at
+#'     `getOption("pliman.gpu_workers", 2)`, because every worker opens its own GPU
+#'     session (GPU memory grows with the number of workers);
+#'   \item temporary workers are started and stopped on every call. Start persistent
+#'     workers with [pliman_daemons()] to keep models loaded across calls;
+#'   \item pass file paths rather than in-memory images, so only paths are sent to the
+#'     workers.
+#' }
+#' @export
+#' @examplesIf interactive()
+#' library(pliman)
+#'
+#' # 1. Batch detection in a specific folder (Sequential)
+#' res <- image_detect_dl_batch(
+#'   data = "flax_grains",
+#'   model = "yolo26n",
+#'   conf_threshold = 0.35
+#' )
+#' head(res$summary)
+#' head(res$predictions)
+#'
+#' # 2. Batch detection using filename pattern in parallel
+#' res_par <- image_detect_dl_batch(
+#'   data = "-",
+#'   path = "flax_grains",
+#'   parallel = TRUE
+#' )
+image_detect_dl_batch <- function(data,
+                                  pattern = NULL,
+                                  path = NULL,
+                                  parallel = FALSE,
+                                  sahi = FALSE,
+                                  slice_height = 640,
+                                  slice_width = 640,
+                                  overlap_height_ratio = 0.20,
+                                  overlap_width_ratio = 0.20,
+                                  match_metric = "IOS",
+                                  match_threshold = 0.50,
+                                  postprocess_type = "GREEDY_NMM",
+                                  show_point = FALSE,
+                                  keep_images = FALSE,
+                                  save_image = FALSE,
+                                  dir_processed = "./proc",
+                                  prefix = "proc_",
+                                  verbose = TRUE,
+                                  imgsz = NULL,
+                                  as_job = FALSE,
+                                  ...) {
+  # Handle RStudio Background Job dispatch
+  if (isTRUE(as_job)) {
+    if (!requireNamespace("rstudioapi", quietly = TRUE) || !rstudioapi::isAvailable()) {
+      cli::cli_alert_warning("RStudio Job API is not available (not running inside RStudio). Executing in foreground.")
+    } else {
+      dots_args <- list(...)
+      evaluated_args <- c(
+        list(
+          data = data,
+          pattern = pattern,
+          path = path,
+          parallel = parallel,
+          sahi = sahi,
+          slice_height = slice_height,
+          slice_width = slice_width,
+          overlap_height_ratio = overlap_height_ratio,
+          overlap_width_ratio = overlap_width_ratio,
+          match_metric = match_metric,
+          match_threshold = match_threshold,
+          postprocess_type = postprocess_type,
+          show_point = show_point,
+          keep_images = keep_images,
+          save_image = save_image,
+          dir_processed = dir_processed,
+          prefix = prefix,
+          verbose = verbose,
+          imgsz = imgsz,
+          as_job = FALSE
+        ),
+        dots_args
+      )
+
+      job_dir <- file.path(tempdir(), "yolo_jobs")
+      if (!dir.exists(job_dir)) dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+      time_stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      job_script_path <- file.path(job_dir, paste0("image_detect_batch_job_", time_stamp, ".R"))
+      job_args_rds <- file.path(job_dir, paste0("image_detect_batch_args_", time_stamp, ".rds"))
+
+      saveRDS(list(args = evaluated_args, getwd = getwd()), job_args_rds)
+
+      target_name <- if (is.character(data) && length(data) == 1L) basename(data) else if (is.character(data)) paste0(length(data), " files") else "images"
+      j_name <- paste0("Batch Detect: ", target_name)
+
+      job_code <- paste0(
+        "# Auto-generated RStudio Background Job by pliman::image_detect_batch()\n",
+        "library(pliman)\n",
+        "cat('================================================================\\n')\n",
+        "cat('   pliman Batch Object Detection - RStudio Background Job\\n')\n",
+        "cat('================================================================\\n\\n')\n",
+        "job_info <- readRDS(", base::deparse(job_args_rds), ")\n",
+        "setwd(job_info$getwd)\n",
+        "res <- do.call(pliman::image_detect_dl_batch, job_info$args)\n",
+        "cat('\\n[OK] Batch Detection Job finished successfully!\\n')\n"
+      )
+      writeLines(job_code, job_script_path)
+
+      job_id <- rstudioapi::jobRunScript(
+        path = job_script_path,
+        name = j_name,
+        workingDir = getwd(),
+        importEnv = FALSE
+      )
+
+      cli::cli_h2("Batch Detection (pliman)")
+      cli::cli_alert_success("Batch detection has been dispatched to RStudio's {.strong Jobs} tab!")
+      cli::cli_ul(c(
+        "Job name: {.val {j_name}}",
+        "Working directory: {.path {getwd()}}",
+        "Target: {.val {target_name}}"
+      ))
+      cli::cli_alert_info("Your R console is free! You can track progress in the {.strong Jobs} tab.")
+      return(invisible(job_id))
+    }
+  }
+  # 1. Resolve image inputs
+  resolved <- .resolve_batch_input(data = data, pattern = pattern, path = path)
+  items <- resolved$items
+  names_items <- resolved$names
+  n_items <- length(items)
+
+  if (n_items == 0L) {
+    cli::cli_abort("No valid images found for batch processing.")
+  }
+
+  dots_args <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots_args)) imgsz <- dots_args$imgz
+    if ("img_size" %in% names(dots_args)) imgsz <- dots_args$img_size
+    if ("image_size" %in% names(dots_args)) imgsz <- dots_args$image_size
+  }
+  if (!is.null(imgsz)) dots_args$imgsz <- imgsz
+  dots_args$plot <- FALSE
+  dots_args$verbose <- FALSE
+  dots_args$show_point <- show_point
+  dots_args$attach_image <- isTRUE(keep_images)
+  dots_args$save_image <- FALSE
+
+  # Pre-resolve model once in main process to avoid worker contention/checks
+  if (!is.null(dots_args$model) && is.character(dots_args$model) && length(dots_args$model) == 1L) {
+    m_raw <- dots_args$model
+    if (file.exists(m_raw)) {
+      dots_args$model <- normalizePath(m_raw, winslash = "/")
+    } else {
+      m_resolved <- tryCatch(pliman_download_model(model = .resolve_model_name(m_raw), verbose = FALSE), error = function(e) m_raw)
+      if (file.exists(m_resolved)) {
+        dots_args$model <- normalizePath(m_resolved, winslash = "/")
+      }
+    }
+  }
+
+  t0 <- Sys.time()
+
+  if (isTRUE(verbose)) {
+    cli::cli_rule(
+      left = cli::col_blue("pliman: Deep Learning Batch Detection"),
+      right = cli::col_blue(format(t0, "%Y-%m-%d | %H:%M:%S"))
+    )
+    cli::cli_alert_info("Found {.val {n_items}} image{?s} to process.")
+  }
+
+  worker_detect_fn <- function(im, args) {
+    if (isTRUE(sahi)) {
+      sahi_args <- args
+      sahi_args$slice_height <- slice_height
+      sahi_args$slice_width <- slice_width
+      sahi_args$overlap_height_ratio <- overlap_height_ratio
+      sahi_args$overlap_width_ratio <- overlap_width_ratio
+      sahi_args$match_metric <- match_metric
+      sahi_args$match_threshold <- match_threshold
+      sahi_args$postprocess_type <- postprocess_type
+      do.call(pliman::image_detect_sahi, c(list(img = im), sahi_args))
+    } else {
+      do.call(pliman::image_detect_dl, c(list(img = im), args))
+    }
+  }
+  environment(worker_detect_fn) <- .slim_worker_env(sahi = sahi, slice_height = slice_height, slice_width = slice_width, overlap_height_ratio = overlap_height_ratio, overlap_width_ratio = overlap_width_ratio, match_metric = match_metric, match_threshold = match_threshold, postprocess_type = postprocess_type)
+
+  # 2. Execution: Parallel vs Sequential
+  if (isTRUE(parallel)) {
+    if (!requireNamespace("mirai", quietly = TRUE)) {
+      cli::cli_abort("Package {.val mirai} is required for parallel processing. Please install it with {.code install.packages('mirai')}.")
+    }
+
+    d_info <- tryCatch({
+      .ensure_daemons(n_items = n_items, verbose = verbose)
+    }, error = function(e) {
+      cli::cli_warn("Failed to initialize parallel daemons: {e$message}. Falling back to sequential execution.")
+      list(active = FALSE)
+    })
+
+    if (isTRUE(d_info$active)) {
+      eff_workers <- d_info$nworkers
+      tuned <- .tune_parallel_dl(dots_args, eff_workers, verbose = verbose)
+      dots_args <- tuned$args
+      eff_workers <- tuned$workers
+      if (isTRUE(d_info$auto_cleanup)) {
+        on.exit(mirai::daemons(0), add = TRUE)
+      }
+      if (isTRUE(verbose)) {
+        cli::cli_rule(
+          left = cli::col_blue("Parallel detection using {.val {eff_workers}} cores"),
+          right = cli::col_blue(format(Sys.time(), "%H:%M:%S"))
+        )
+      }
+
+      n_chunks <- if (n_items <= eff_workers) eff_workers else min(n_items, eff_workers * 3L)
+      # GPU: one chunk per allowed worker, so at most `eff_workers` GPU sessions run at once
+      if (isTRUE(tuned$gpu)) n_chunks <- max(1L, min(n_items, eff_workers))
+      chunk_size <- ceiling(n_items / n_chunks)
+      chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_items)
+      chunks <- split(items, chunk_factor)
+
+      results_chunks <- mirai::mirai_map(
+        .x = chunks,
+        .f = function(chunk_items, fn, args) {
+          lapply(chunk_items, function(it) {
+            fn(it, args)
+          })
+        },
+        .args = list(fn = worker_detect_fn, args = dots_args)
+      )[.progress]
+
+      # Check for worker-level errors
+      failed_chunks <- sapply(results_chunks, function(res) inherits(res, "errorValue") || !is.list(res))
+      if (any(failed_chunks)) {
+        err_msg <- paste(sapply(which(failed_chunks), function(idx) {
+          if (inherits(results_chunks[[idx]], "errorValue")) as.character(results_chunks[[idx]]) else "Worker failure"
+        }), collapse = "; ")
+        cli::cli_abort("Parallel detection failed: {err_msg}")
+      }
+
+      results <- do.call(c, results_chunks)
+      if (!isTRUE(keep_images)) {
+        for (i in seq_len(n_items)) {
+          if (!is.null(results[[i]])) attr(results[[i]], "image") <- NULL
+        }
+        gc(verbose = FALSE)
+      }
+    } else {
+      parallel <- FALSE
+    }
+  }
+
+  if (!isTRUE(parallel)) {
+    if (isTRUE(verbose)) {
+      cli::cli_progress_bar(
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
+        total = n_items,
+        clear = FALSE
+      )
+    }
+    results <- vector("list", n_items)
+    for (i in seq_len(n_items)) {
+      if (isTRUE(verbose)) cli::cli_progress_update()
+      res_i <- worker_detect_fn(items[[i]], dots_args)
+      if (!isTRUE(keep_images) && !is.null(res_i)) {
+        attr(res_i, "image") <- NULL
+      }
+      results[[i]] <- res_i
+      if (i %% 200L == 0L) gc(verbose = FALSE)
+    }
+    if (isTRUE(verbose)) cli::cli_progress_done()
+  }
+
+  names(results) <- names_items
+
+  # 3. Optional saving of annotated images
+  if (isTRUE(save_image)) {
+    if (!dir.exists(dir_processed)) {
+      dir.create(dir_processed, recursive = TRUE)
+    }
+    if (isTRUE(verbose)) {
+      cli::cli_progress_step(
+        msg = "Saving annotated detection images to {.path {dir_processed}}...",
+        msg_done = "Annotated images successfully saved"
+      )
+    }
+    for (i in seq_len(n_items)) {
+      res_i <- results[[i]]
+      out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
+      # Native renderer first (decodes the file directly when the item is a path, so the
+      # image is not re-imported into R); falls back to the graphics device below.
+      native_src <- if (is.character(items[[i]])) {
+        items[[i]]
+      } else if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else {
+        items[[i]]
+      }
+      saved_native <- tryCatch(.save_detections_native(native_src, res_i, out_file, dots_args, show_point),
+                               error = function(e) FALSE)
+      rm(native_src)
+      if (isTRUE(saved_native)) next
+      im_obj <- if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else if (inherits(items[[i]], c("Image", "image"))) {
+        items[[i]]
+      } else if (is.character(items[[i]])) {
+        tryCatch(image_import(items[[i]]), error = function(e) NULL)
+      } else {
+        NULL
+      }
+      if (!is.null(im_obj)) {
+        out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
+        tryCatch({
+          dims <- dim(image_data(im_obj))
+          is_jpg <- grepl("\\.jpe?g$", out_file, ignore.case = TRUE)
+          if (is_jpg) {
+            grDevices::jpeg(out_file, width = dims[1], height = dims[2], quality = 95)
+          } else {
+            grDevices::png(out_file, width = dims[1], height = dims[2])
+          }
+          dev_num <- grDevices::dev.cur()
+          tryCatch({
+            graphics::plot(im_obj)
+            bx <- .extract_boxes(res_i)
+            if (is.data.frame(bx) && nrow(bx) > 0) {
+              pal <- .get_class_palette(
+                labels = bx$label,
+                n = nrow(bx),
+                rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
+                user_col = dots_args$col
+              )
+              .plot_yolo_bboxes(
+                boxes = bx,
+                palette_colors = pal,
+                lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
+                cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
+                pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
+                show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
+                show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
+                show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
+                show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
+                show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else TRUE),
+                show_point = show_point,
+                point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
+                point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
+                point_col = dots_args$point_col,
+                badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
+              )
+            }
+          }, finally = {
+            if (grDevices::dev.cur() == dev_num) {
+              grDevices::dev.off(dev_num)
+            }
+          })
+        }, error = function(e) {
+          cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
+        })
+        rm(im_obj)
+        if (i %% 200L == 0L) gc(verbose = FALSE)
+      }
+    }
+  }
+
+  # 4. Consolidate predictions
+  pred_list <- lapply(seq_len(n_items), function(i) {
+    df <- .extract_boxes(results[[i]])
+    if (is.data.frame(df) && nrow(df) > 0) {
+      data.frame(img = names_items[i], df, stringsAsFactors = FALSE)
+    } else {
+      NULL
+    }
+  })
+  predictions <- do.call(rbind, pred_list)
+  if (is.null(predictions)) {
+    predictions <- data.frame(
+      img = character(0), id = integer(0), xmin = numeric(0), ymin = numeric(0),
+      xmax = numeric(0), ymax = numeric(0), label = character(0), score = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # 5. Build per-image summary
+  all_classes <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) sort(unique(predictions$label)) else character(0)
+  summary_list <- lapply(seq_len(n_items), function(i) {
+    im_name <- names_items[i]
+    df <- .extract_boxes(results[[i]])
+    n_obj <- if (is.data.frame(df)) nrow(df) else 0L
+    mean_sc <- if (n_obj > 0 && "score" %in% names(df)) round(mean(df$score, na.rm = TRUE), 4) else NA_real_
+
+    row_data <- list(img = im_name, num_objects = n_obj, mean_score = mean_sc)
+    if (length(all_classes) > 0) {
+      if (n_obj > 0 && "label" %in% names(df)) {
+        cls_tab <- table(factor(df$label, levels = all_classes))
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- as.integer(cls_tab[[cl]])
+        }
+      } else {
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- 0L
+        }
+      }
+    }
+    as.data.frame(row_data, stringsAsFactors = FALSE)
+  })
+  summary_df <- do.call(rbind, summary_list)
+
+  # 6. Overall class summary
+  class_summary <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) {
+    tab <- table(predictions$label)
+    cls_df <- data.frame(
+      label = names(tab),
+      total_count = as.integer(tab),
+      mean_per_img = round(as.integer(tab) / n_items, 2),
+      pct = round(as.integer(tab) / nrow(predictions) * 100, 2),
+      stringsAsFactors = FALSE
+    )
+    if ("score" %in% names(predictions)) {
+      sc_means <- tapply(predictions$score, predictions$label, mean, na.rm = TRUE)
+      cls_df$mean_score <- round(as.numeric(sc_means[cls_df$label]), 4)
+    }
+    cls_df[order(cls_df$total_count, decreasing = TRUE), , drop = FALSE]
+  } else {
+    data.frame(
+      label = character(0), total_count = integer(0),
+      mean_per_img = numeric(0), pct = numeric(0), mean_score = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+  rownames(class_summary) <- NULL
+
+  # Strip heavy image matrices if keep_images is FALSE (default)
+  if (!isTRUE(keep_images)) {
+    for (i in seq_len(n_items)) {
+      if (!is.null(results[[i]])) {
+        attr(results[[i]], "image") <- NULL
+        attr(results[[i]], "similarity_map") <- NULL
+      }
+    }
+    gc(verbose = FALSE)
+  }
+
+  elapsed_sec <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+
+  out <- structure(
+    list(
+      predictions = predictions,
+      summary = summary_df,
+      class_summary = class_summary,
+      results = results,
+      n_images = n_items,
+      elapsed = elapsed_sec,
+      parallel = parallel
+    ),
+    class = c("dl_detect_batch", "list")
+  )
+
+  if (isTRUE(verbose)) {
+    print(out)
+  }
+
+  invisible(out)
+}
+
+#' @export
+print.dl_detect_batch <- function(x, ...) {
+  cli::cli_rule(
+    left = cli::col_green("\u2714 pliman Deep Learning Batch Detection Finished"),
+    right = cli::col_blue(paste0(x$elapsed, "s"))
+  )
+  cli::cli_alert_success(
+    "Processed {.val {x$n_images}} image{?s} | Found {.val {nrow(x$predictions)}} total object{?s} across {.val {nrow(x$class_summary)}} class{?es}."
+  )
+  if (nrow(x$class_summary) > 0) {
+    cli::cli_h3("Class Summary:")
+    print(x$class_summary, row.names = FALSE)
+  }
+  invisible(x)
+}
+
+#' @rdname image_detect_dl_batch
+#' @export
+image_detect_batch <- image_detect_dl_batch
+
+#' @rdname image_detect_dl_batch
+#' @export
+yolo_detect_batch <- image_detect_dl_batch
+
+
+
+#' Batch Object Detection with Slicing Aided Hyper Inference (SAHI)
+#'
+#' Runs Slicing Aided Hyper Inference ([image_detect_sahi()]) on a batch of images
+#' defined by a directory path, a filename pattern, a vector of file paths,
+#' or a list of `Image` objects. Ultra-high-resolution images (such as drone orthophotos,
+#' aerial mapping surveys, and macro scans) are dynamically sliced into overlapping tiles
+#' of size `slice_width x slice_height`, deep learning inference is executed per slice,
+#' and all candidate boxes are transformed into global image coordinates and unified
+#' using Non-Maximum Merging (Greedy NMM) or standard NMS.
+#' Supports sequential or parallel processing (via `mirai`), optional RStudio Background Job execution,
+#' saving annotated detection images to disk, and returns a consolidated predictions dataset
+#' along with per-image and per-class summaries.
+#'
+#' @param data Input data. Can be:
+#'   * A character string representing a directory path containing images (e.g., `"drone_orthos"`).
+#'   * A character pattern to match image files in `path` or the current directory (e.g., `"-"`, `"^img_"`).
+#'   * A character vector of image file paths.
+#'   * A list of `Image` objects or numeric arrays.
+#' @param pattern Optional regex pattern to filter image filenames when `data` is a directory path.
+#' @param path Optional directory path to search when `data` is a pattern. Defaults to `"."`.
+#' @param slice_height Integer. Height of sliding window slices. Defaults to `640`.
+#' @param slice_width Integer. Width of sliding window slices. Defaults to `640`.
+#' @param overlap_height_ratio Numeric scalar between 0 and 0.5. Height overlap fraction. Defaults to `0.20`.
+#' @param overlap_width_ratio Numeric scalar between 0 and 0.5. Width overlap fraction. Defaults to `0.20`.
+#' @param parallel Logical. If `TRUE`, runs inference in parallel across images using `mirai`.
+#'   Defaults to `FALSE`.
+#' @param show_point Logical. Whether to show a point at the centroid of each detected object.
+#'   Defaults to `FALSE`.
+#' @param keep_images Logical. Whether to keep the full original images attached as attributes in `$results`.
+#'   Defaults to `FALSE` to prevent excessive RAM consumption during large batches (saving gigabytes of memory).
+#' @param save_image Logical. Whether to save annotated prediction images with bounding boxes to disk.
+#'   Defaults to `FALSE`.
+#' @param dir_processed Character string. Directory where annotated images should be saved when
+#'   `save_image = TRUE`. Defaults to `"./proc"`.
+#' @param prefix Character string. Prefix prepended to saved output filenames. Defaults to `"proc_"`.
+#' @param verbose Logical. Whether to show progress bars, timing, and formatted CLI summaries.
+#'   Defaults to `TRUE`.
+#' @param as_job Logical. If \code{TRUE} and running inside RStudio, runs the batch detection process in an RStudio Background Job. Defaults to \code{FALSE}.
+#' @param ... Additional arguments passed to [image_detect_sahi()] (e.g., `model`, `conf_threshold`,
+#'   `iou_threshold`, `match_metric`, `postprocess_type`, `match_threshold`, `classes`,
+#'   `agnostic_nms`, `seam_merging`, `full_image_inference`, `lower_size`, `upper_size`, `size_mode`,
+#'   `cex`, `badge`, `rainbow`, `lwd`).
+#'
+#' @return An S3 object of class `c("sahi_detect_batch", "dl_detect_batch", "list")` containing:
+#'   * `predictions`: A consolidated `data.frame` of all detected bounding boxes across all images,
+#'     with columns `img`, `id`, `xmin`, `ymin`, `xmax`, `ymax`, `label`, `score`.
+#'   * `summary`: A per-image `data.frame` with columns `img`, `num_objects`, `mean_score`, and per-class counts.
+#'   * `class_summary`: A dataset-level summary table of counts and proportions per detected class.
+#'   * `results`: A named list of raw individual detection outputs from [image_detect_sahi()].
+#'   * `n_images`: Total number of images processed.
+#'   * `elapsed`: Processing time in seconds.
+#'   * `parallel`: Logical indicating whether parallel execution was used.
+#'
+#' @aliases image_sahi_batch image_sahi_detect_batch
+#' @section Performance:
+#' The model is resolved once and every image reuses the cached ONNX session. With
+#' `parallel = TRUE` each worker process loads its own copy of the model, so:
+#' \itemize{
+#'   \item on CPU (`engine = "cpu"`) and `threads = 0`, each worker gets
+#'     `physical cores / workers` ONNX threads to avoid oversubscribing the CPU;
+#'   \item on GPU (`engine = "gpu"`) concurrency is capped at
+#'     `getOption("pliman.gpu_workers", 2)`, because every worker opens its own GPU
+#'     session (GPU memory grows with the number of workers);
+#'   \item temporary workers are started and stopped on every call. Start persistent
+#'     workers with [pliman_daemons()] to keep models loaded across calls;
+#'   \item pass file paths rather than in-memory images, so only paths are sent to the
+#'     workers.
+#' }
+#' @export
+#' @examplesIf interactive()
+#' library(pliman)
+#'
+#' # 1. Batch SAHI detection across a folder of drone orthophotos
+#' res <- image_detect_sahi_batch(
+#'   data = "drone_flights",
+#'   model = "seedlings.onnx",
+#'   slice_width = 640,
+#'   slice_height = 640,
+#'   conf_threshold = 0.35
+#' )
+#' head(res$summary)
+#' head(res$predictions)
+#'
+#' # 2. Parallel SAHI detection using 4 workers
+#' res_par <- image_detect_sahi_batch(
+#'   data = "drone_flights",
+#'   model = "seedlings.onnx",
+#'   parallel = TRUE
+#' )
+image_detect_sahi_batch <- function(data,
+                                    pattern = NULL,
+                                    path = NULL,
+                                    slice_height = 640,
+                                    slice_width = 640,
+                                    overlap_height_ratio = 0.20,
+                                    overlap_width_ratio = 0.20,
+                                    parallel = FALSE,
+                                    show_point = FALSE,
+                                    keep_images = FALSE,
+                                    save_image = FALSE,
+                                    dir_processed = "./proc",
+                                    prefix = "proc_",
+                                    verbose = TRUE,
+                                    as_job = FALSE,
+                                    ...) {
+  # Handle RStudio Background Job dispatch
+  if (isTRUE(as_job)) {
+    if (!requireNamespace("rstudioapi", quietly = TRUE) || !rstudioapi::isAvailable()) {
+      cli::cli_alert_warning("RStudio Job API is not available (not running inside RStudio). Executing in foreground.")
+    } else {
+      dots_args <- list(...)
+      evaluated_args <- c(
+        list(
+          data = data,
+          pattern = pattern,
+          path = path,
+          slice_height = slice_height,
+          slice_width = slice_width,
+          overlap_height_ratio = overlap_height_ratio,
+          overlap_width_ratio = overlap_width_ratio,
+          parallel = parallel,
+          show_point = show_point,
+          keep_images = keep_images,
+          save_image = save_image,
+          dir_processed = dir_processed,
+          prefix = prefix,
+          verbose = verbose,
+          as_job = FALSE
+        ),
+        dots_args
+      )
+
+      job_dir <- file.path(tempdir(), "yolo_jobs")
+      if (!dir.exists(job_dir)) dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+      time_stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      job_script_path <- file.path(job_dir, paste0("image_detect_sahi_batch_job_", time_stamp, ".R"))
+      job_args_rds <- file.path(job_dir, paste0("image_detect_sahi_batch_args_", time_stamp, ".rds"))
+
+      saveRDS(list(args = evaluated_args, getwd = getwd()), job_args_rds)
+
+      target_name <- if (is.character(data) && length(data) == 1L) basename(data) else if (is.character(data)) paste0(length(data), " files") else "images"
+      j_name <- paste0("Batch SAHI Detect: ", target_name)
+
+      job_code <- paste0(
+        "# Auto-generated RStudio Background Job by pliman::image_detect_sahi_batch()\n",
+        "library(pliman)\n",
+        "cat('================================================================\\n')\n",
+        "cat('   pliman Batch SAHI Detection - RStudio Background Job\\n')\n",
+        "cat('================================================================\\n\\n')\n",
+        "job_info <- readRDS(", base::deparse(job_args_rds), ")\n",
+        "setwd(job_info$getwd)\n",
+        "res <- do.call(pliman::image_detect_sahi_batch, job_info$args)\n",
+        "cat('\\n[OK] Batch SAHI Detection Job finished successfully!\\n')\n"
+      )
+      writeLines(job_code, job_script_path)
+
+      job_id <- rstudioapi::jobRunScript(
+        path = job_script_path,
+        name = j_name,
+        workingDir = getwd(),
+        importEnv = FALSE
+      )
+
+      cli::cli_h2("Batch SAHI Detection (pliman)")
+      cli::cli_alert_success("Batch SAHI detection has been dispatched to RStudio's {.strong Jobs} tab!")
+      cli::cli_ul(c(
+        "Job name: {.val {j_name}}",
+        "Working directory: {.path {getwd()}}",
+        "Target: {.val {target_name}}"
+      ))
+      cli::cli_alert_info("Your R console is free! You can track progress in the {.strong Jobs} tab.")
+      return(invisible(job_id))
+    }
+  }
+
+  # 1. Resolve image inputs
+  resolved <- .resolve_batch_input(data = data, pattern = pattern, path = path)
+  items <- resolved$items
+  names_items <- resolved$names
+  n_items <- length(items)
+
+  if (n_items == 0L) {
+    cli::cli_abort("No valid images found for batch SAHI processing.")
+  }
+
+  dots_args <- list(...)
+  dots_args$slice_height <- slice_height
+  dots_args$slice_width <- slice_width
+  dots_args$overlap_height_ratio <- overlap_height_ratio
+  dots_args$overlap_width_ratio <- overlap_width_ratio
+  dots_args$plot <- FALSE
+  dots_args$verbose <- FALSE
+  dots_args$show_point <- show_point
+  dots_args$save_image <- FALSE
+
+  t0 <- Sys.time()
+
+  if (isTRUE(verbose)) {
+    cli::cli_rule(
+      left = cli::col_blue("pliman: SAHI (Slicing Aided Hyper Inference) Batch Detection"),
+      right = cli::col_blue(format(t0, "%Y-%m-%d | %H:%M:%S"))
+    )
+    cli::cli_alert_info("Found {.val {n_items}} image{?s} to process with slice size {.val {slice_width}\u00d7{slice_height}}.")
+  }
+
+  worker_sahi_fn <- function(im, args) {
+    do.call(pliman::image_detect_sahi, c(list(img = im), args))
+  }
+  environment(worker_sahi_fn) <- .slim_worker_env()
+
+  # 2. Execution: Parallel vs Sequential
+  if (isTRUE(parallel)) {
+    if (!requireNamespace("mirai", quietly = TRUE)) {
+      cli::cli_abort("Package {.val mirai} is required for parallel processing. Please install it with {.code install.packages('mirai')}.")
+    }
+
+    d_info <- tryCatch({
+      .ensure_daemons(n_items = n_items, verbose = verbose)
+    }, error = function(e) {
+      cli::cli_warn("Failed to initialize parallel daemons: {e$message}. Falling back to sequential execution.")
+      list(active = FALSE)
+    })
+
+    if (isTRUE(d_info$active)) {
+      eff_workers <- d_info$nworkers
+      tuned <- .tune_parallel_dl(dots_args, eff_workers, verbose = verbose)
+      dots_args <- tuned$args
+      eff_workers <- tuned$workers
+      if (isTRUE(d_info$auto_cleanup)) {
+        on.exit(mirai::daemons(0), add = TRUE)
+      }
+      if (isTRUE(verbose)) {
+        cli::cli_rule(
+          left = cli::col_blue("Parallel SAHI detection using {.val {eff_workers}} cores"),
+          right = cli::col_blue(format(Sys.time(), "%H:%M:%S"))
+        )
+      }
+
+      n_chunks <- if (n_items <= eff_workers) eff_workers else min(n_items, eff_workers * 3L)
+      # GPU: one chunk per allowed worker, so at most `eff_workers` GPU sessions run at once
+      if (isTRUE(tuned$gpu)) n_chunks <- max(1L, min(n_items, eff_workers))
+      chunk_size <- ceiling(n_items / n_chunks)
+      chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_items)
+      chunks <- split(items, chunk_factor)
+
+      results_chunks <- mirai::mirai_map(
+        .x = chunks,
+        .f = function(chunk_items, fn, args) {
+          lapply(chunk_items, function(it) {
+            fn(it, args)
+          })
+        },
+        .args = list(fn = worker_sahi_fn, args = dots_args)
+      )[.progress]
+
+      # Check for worker-level errors
+      failed_chunks <- sapply(results_chunks, function(res) inherits(res, "errorValue") || !is.list(res))
+      if (any(failed_chunks)) {
+        err_msg <- paste(sapply(which(failed_chunks), function(idx) {
+          if (inherits(results_chunks[[idx]], "errorValue")) as.character(results_chunks[[idx]]) else "Worker failure"
+        }), collapse = "; ")
+        cli::cli_abort("Parallel SAHI detection failed: {err_msg}")
+      }
+
+      results <- do.call(c, results_chunks)
+      if (!isTRUE(keep_images)) {
+        for (i in seq_len(n_items)) {
+          if (!is.null(results[[i]])) attr(results[[i]], "image") <- NULL
+        }
+        gc(verbose = FALSE)
+      }
+    } else {
+      parallel <- FALSE
+    }
+  }
+
+  if (!isTRUE(parallel)) {
+    if (isTRUE(verbose)) {
+      cli::cli_progress_bar(
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
+        total = n_items,
+        clear = FALSE
+      )
+    }
+    results <- vector("list", n_items)
+    for (i in seq_len(n_items)) {
+      if (isTRUE(verbose)) cli::cli_progress_update()
+      res_i <- worker_sahi_fn(items[[i]], dots_args)
+      if (!isTRUE(keep_images) && !is.null(res_i)) {
+        attr(res_i, "image") <- NULL
+      }
+      results[[i]] <- res_i
+      if (i %% 100L == 0L) gc(verbose = FALSE)
+    }
+    if (isTRUE(verbose)) cli::cli_progress_done()
+  }
+
+  names(results) <- names_items
+
+  # 3. Optional saving of annotated images
+  if (isTRUE(save_image)) {
+    if (!dir.exists(dir_processed)) {
+      dir.create(dir_processed, recursive = TRUE)
+    }
+    if (isTRUE(verbose)) {
+      cli::cli_progress_step(
+        msg = "Saving annotated SAHI images to {.path {dir_processed}}...",
+        msg_done = "Annotated SAHI images successfully saved"
+      )
+    }
+    for (i in seq_len(n_items)) {
+      res_i <- results[[i]]
+      out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
+      # Native renderer first (decodes the file directly when the item is a path, so the
+      # image is not re-imported into R); falls back to the graphics device below.
+      native_src <- if (is.character(items[[i]])) {
+        items[[i]]
+      } else if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else {
+        items[[i]]
+      }
+      saved_native <- tryCatch(.save_detections_native(native_src, res_i, out_file, dots_args, show_point),
+                               error = function(e) FALSE)
+      rm(native_src)
+      if (isTRUE(saved_native)) next
+      im_obj <- if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else if (inherits(items[[i]], c("Image", "image"))) {
+        items[[i]]
+      } else if (is.character(items[[i]])) {
+        tryCatch(image_import(items[[i]]), error = function(e) NULL)
+      } else {
+        NULL
+      }
+      if (!is.null(im_obj)) {
+        out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
+        tryCatch({
+          dims <- dim(image_data(im_obj))
+          is_jpg <- grepl("\\.jpe?g$", out_file, ignore.case = TRUE)
+          if (is_jpg) {
+            grDevices::jpeg(out_file, width = dims[1], height = dims[2], quality = 95)
+          } else {
+            grDevices::png(out_file, width = dims[1], height = dims[2])
+          }
+          dev_num <- grDevices::dev.cur()
+          tryCatch({
+            graphics::plot(im_obj)
+            bx <- .extract_boxes(res_i)
+            if (is.data.frame(bx) && nrow(bx) > 0) {
+              pal <- .get_class_palette(
+                labels = bx$label,
+                n = nrow(bx),
+                rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
+                user_col = dots_args$col
+              )
+              .plot_yolo_bboxes(
+                boxes = bx,
+                palette_colors = pal,
+                lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
+                cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
+                pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
+                show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
+                show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
+                show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
+                show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
+                show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else TRUE),
+                show_point = show_point,
+                point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
+                point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
+                point_col = dots_args$point_col,
+                badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
+              )
+            }
+          }, finally = {
+            if (grDevices::dev.cur() == dev_num) {
+              grDevices::dev.off(dev_num)
+            }
+          })
+        }, error = function(e) {
+          cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
+        })
+        rm(im_obj)
+        if (i %% 100L == 0L) gc(verbose = FALSE)
+      }
+    }
+  }
+
+  # 4. Consolidate predictions
+  pred_list <- lapply(seq_len(n_items), function(i) {
+    df <- .extract_boxes(results[[i]])
+    if (is.data.frame(df) && nrow(df) > 0) {
+      data.frame(img = names_items[i], df, stringsAsFactors = FALSE)
+    } else {
+      NULL
+    }
+  })
+  predictions <- do.call(rbind, pred_list)
+  if (is.null(predictions)) {
+    predictions <- data.frame(
+      img = character(0), id = integer(0), xmin = numeric(0), ymin = numeric(0),
+      xmax = numeric(0), ymax = numeric(0), label = character(0), score = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # 5. Build per-image summary
+  all_classes <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) sort(unique(predictions$label)) else character(0)
+  summary_list <- lapply(seq_len(n_items), function(i) {
+    im_name <- names_items[i]
+    df <- .extract_boxes(results[[i]])
+    n_obj <- if (is.data.frame(df)) nrow(df) else 0L
+    mean_sc <- if (n_obj > 0 && "score" %in% names(df)) round(mean(df$score, na.rm = TRUE), 4) else NA_real_
+
+    row_data <- list(img = im_name, num_objects = n_obj, mean_score = mean_sc)
+    if (length(all_classes) > 0) {
+      if (n_obj > 0 && "label" %in% names(df)) {
+        cls_tab <- table(factor(df$label, levels = all_classes))
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- as.integer(cls_tab[[cl]])
+        }
+      } else {
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- 0L
+        }
+      }
+    }
+    as.data.frame(row_data, stringsAsFactors = FALSE)
+  })
+  summary_df <- do.call(rbind, summary_list)
+
+  # 6. Overall class summary
+  class_summary <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) {
+    tab <- table(predictions$label)
+    cls_df <- data.frame(
+      label = names(tab),
+      total_count = as.integer(tab),
+      mean_per_img = round(as.integer(tab) / n_items, 2),
+      pct = round(as.integer(tab) / nrow(predictions) * 100, 2),
+      stringsAsFactors = FALSE
+    )
+    if ("score" %in% names(predictions)) {
+      sc_means <- tapply(predictions$score, predictions$label, mean, na.rm = TRUE)
+      cls_df$mean_score <- round(as.numeric(sc_means[cls_df$label]), 4)
+    }
+    cls_df[order(cls_df$total_count, decreasing = TRUE), , drop = FALSE]
+  } else {
+    data.frame(
+      label = character(0), total_count = integer(0),
+      mean_per_img = numeric(0), pct = numeric(0), mean_score = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+  rownames(class_summary) <- NULL
+
+  # Strip heavy image matrices if keep_images is FALSE (default)
+  if (!isTRUE(keep_images)) {
+    for (i in seq_len(n_items)) {
+      if (!is.null(results[[i]])) {
+        attr(results[[i]], "image") <- NULL
+      }
+    }
+    gc(verbose = FALSE)
+  }
+
+  elapsed_sec <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+
+  out <- structure(
+    list(
+      predictions = predictions,
+      summary = summary_df,
+      class_summary = class_summary,
+      results = results,
+      n_images = n_items,
+      elapsed = elapsed_sec,
+      parallel = parallel
+    ),
+    class = c("sahi_detect_batch", "dl_detect_batch", "list")
+  )
+
+  if (isTRUE(verbose)) {
+    print(out)
+  }
+
+  invisible(out)
+}
+
+#' @export
+print.sahi_detect_batch <- function(x, ...) {
+  cli::cli_rule(
+    left = cli::col_green("\u2714 pliman SAHI Batch Detection Finished"),
+    right = cli::col_blue(paste0(x$elapsed, "s"))
+  )
+  cli::cli_alert_success(
+    "Processed {.val {x$n_images}} image{?s} | Found {.val {nrow(x$predictions)}} total object{?s} across {.val {nrow(x$class_summary)}} class{?es}."
+  )
+  if (nrow(x$class_summary) > 0) {
+    cli::cli_h3("Class Summary:")
+    print(x$class_summary, row.names = FALSE)
+  }
+  invisible(x)
+}
+
+#' @rdname image_detect_sahi_batch
+#' @export
+image_sahi_batch <- image_detect_sahi_batch
+
+#' @rdname image_detect_sahi_batch
+#' @export
+image_sahi_detect_batch <- image_detect_sahi_batch
+
+
+
+#' Batch Instance and Semantic Segmentation with Deep Learning
+#'
+#' Runs deep learning segmentation models (e.g., YOLO-seg, Grounded-SAM, U2-Net, StarDist)
+#' on a batch of images defined by a directory path, a filename pattern, a vector of file paths,
+#' or a list of `Image` objects. Supports sequential or parallel processing (via `mirai`),
+#' optional automated morphometric feature extraction (via [dl_extract_phenotypes()]),
+#' and returns a consolidated predictions dataset along with per-image summaries.
+#'
+#' @param data Input data. Can be:
+#'   * A character string representing a directory path containing images (e.g., `"flax_grains"`).
+#'   * A character pattern to match image files in `path` or the current directory (e.g., `"-"`, `"^img_"`).
+#'   * A character vector of image file paths.
+#'   * A list of `Image` objects or numeric arrays.
+#' @param pattern Optional regex pattern to filter image filenames when `data` is a directory path.
+#' @param path Optional directory path to search when `data` is a pattern. Defaults to `"."`.
+#' @param parallel Logical. If `TRUE`, runs inference in parallel across images using `mirai`.
+#'   Defaults to `FALSE`.
+#' @param sahi Logical. If `TRUE`, uses SAHI (Slicing Aided Hyper Inference) for tiled segmentation
+#'   on large or high-resolution images. Defaults to `FALSE`.
+#' @param slice_height Integer. Height of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param slice_width Integer. Width of sliding window slices when `sahi = TRUE`. Defaults to `640`.
+#' @param overlap_height_ratio Numeric scalar between 0 and 0.5. Vertical slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param overlap_width_ratio Numeric scalar between 0 and 0.5. Horizontal slice overlap fraction when `sahi = TRUE`. Defaults to `0.20`.
+#' @param match_metric Character string. Box merging overlap metric used when `sahi = TRUE` (`"IOS"` or `"IOU"`). Defaults to `"IOS"`.
+#' @param match_threshold Numeric scalar. Overlap threshold for merging slice detections when `sahi = TRUE`. Defaults to `0.50`.
+#' @param postprocess_type Character string. Post-processing algorithm used when `sahi = TRUE` (`"GREEDY_NMM"` or `"NMS"`). Defaults to `"GREEDY_NMM"`.
+#' @param measure Logical. If `TRUE`, automatically extracts granular morphometric, spectral,
+#'   and geometric phenotypes for every segmented instance using [dl_extract_phenotypes()]. Defaults to `TRUE`.
+#' @param pixel_size Optional numeric physical size per pixel (e.g., `0.05` for 0.05 cm/px) passed to [dl_extract_phenotypes()].
+#' @param show_point Logical. Whether to show a point at the centroid of each segmented object.
+#'   Defaults to `FALSE`.
+#' @param keep_images Logical. Whether to keep the full original images attached as attributes in `$results`.
+#'   Defaults to `FALSE` to prevent excessive RAM consumption during large batches (saving gigabytes of memory).
+#' @param save_image Logical. Whether to save segmented or highlight mask images to disk.
+#'   Defaults to `FALSE`.
+#' @param dir_processed Character string. Directory where segmented images should be saved when
+#'   `save_image = TRUE`. Defaults to `"./proc"`.
+#' @param prefix Character string. Prefix prepended to saved output filenames. Defaults to `"proc_"`.
+#' @param verbose Logical. Whether to show progress bars, timing, and formatted CLI summaries.
+#'   Defaults to `TRUE`.
+#' @param imgsz Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+#'   If \code{NULL} (default), inferred automatically or defaults to \code{640}.
+#' @param as_job Logical. If \code{TRUE} and running inside RStudio, runs the batch segmentation process in an RStudio Background Job. Defaults to \code{FALSE}.
+#' @param ... Additional arguments passed to [image_segment_dl()] (e.g., `model`, `type`, `threshold`,
+#'   `box_threshold`, `text_threshold`, `iou_threshold`, `prompt`, `col_background`, `col_highlight`,
+#'   `alpha`, `bbox`, `mask`, `engine`, `device_id`).
+#'
+#' @return An S3 object of class `c("dl_segment_batch", "list")` containing:
+#'   * `predictions`: A consolidated `data.frame` of all detected bounding boxes or instance centroids across all images.
+#'   * `phenotypes`: (If `measure = TRUE` and instance segmentation was run) A consolidated `data.frame` of all
+#'     morphological, spectral, and shape traits with column `img`.
+#'   * `summary`: A per-image `data.frame` summarizing total objects detected, total segmented area, and average size.
+#'   * `results`: A named list of raw individual segmentation outputs from [image_segment_dl()].
+#' @aliases image_segment_batch
+#' @section Performance:
+#' The model is resolved once and every image reuses the cached ONNX session. With
+#' `parallel = TRUE` each worker process loads its own copy of the model, so:
+#' \itemize{
+#'   \item on CPU (`engine = "cpu"`) and `threads = 0`, each worker gets
+#'     `physical cores / workers` ONNX threads to avoid oversubscribing the CPU;
+#'   \item on GPU (`engine = "gpu"`) concurrency is capped at
+#'     `getOption("pliman.gpu_workers", 2)`, because every worker opens its own GPU
+#'     session (GPU memory grows with the number of workers);
+#'   \item temporary workers are started and stopped on every call. Start persistent
+#'     workers with [pliman_daemons()] to keep models loaded across calls;
+#'   \item pass file paths rather than in-memory images, so only paths are sent to the
+#'     workers.
+#' }
+#' @export
+#' @examplesIf interactive()
+#' library(pliman)
+#'
+#' # 1. Batch instance segmentation with YOLO26-seg (Parallel)
+#' res <- image_segment_dl_batch(
+#'   data = "flax_grains",
+#'   model = "yolo26n-seg",
+#'   parallel = TRUE,
+#'   measure = TRUE
+#' )
+#' head(res$summary)
+#' head(res$phenotypes)
+image_segment_dl_batch <- function(data,
+                                   pattern = NULL,
+                                   path = NULL,
+                                   parallel = FALSE,
+                                   sahi = FALSE,
+                                   slice_height = 640,
+                                   slice_width = 640,
+                                   overlap_height_ratio = 0.20,
+                                   overlap_width_ratio = 0.20,
+                                   match_metric = "IOS",
+                                   match_threshold = 0.50,
+                                   postprocess_type = "GREEDY_NMM",
+                                   measure = TRUE,
+                                   pixel_size = NULL,
+                                   show_point = FALSE,
+                                   keep_images = FALSE,
+                                   save_image = FALSE,
+                                   dir_processed = "./proc",
+                                   prefix = "proc_",
+                                   verbose = TRUE,
+                                   imgsz = NULL,
+                                   as_job = FALSE,
+                                   ...) {
+  # Handle RStudio Background Job dispatch
+  if (isTRUE(as_job)) {
+    if (!requireNamespace("rstudioapi", quietly = TRUE) || !rstudioapi::isAvailable()) {
+      cli::cli_alert_warning("RStudio Job API is not available (not running inside RStudio). Executing in foreground.")
+    } else {
+      dots_args <- list(...)
+      evaluated_args <- c(
+        list(
+          data = data,
+          pattern = pattern,
+          path = path,
+          parallel = parallel,
+          sahi = sahi,
+          slice_height = slice_height,
+          slice_width = slice_width,
+          overlap_height_ratio = overlap_height_ratio,
+          overlap_width_ratio = overlap_width_ratio,
+          match_metric = match_metric,
+          match_threshold = match_threshold,
+          postprocess_type = postprocess_type,
+          measure = measure,
+          pixel_size = pixel_size,
+          show_point = show_point,
+          keep_images = keep_images,
+          save_image = save_image,
+          dir_processed = dir_processed,
+          prefix = prefix,
+          verbose = verbose,
+          imgsz = imgsz,
+          as_job = FALSE
+        ),
+        dots_args
+      )
+
+      job_dir <- file.path(tempdir(), "yolo_jobs")
+      if (!dir.exists(job_dir)) dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+      time_stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      job_script_path <- file.path(job_dir, paste0("image_segment_batch_job_", time_stamp, ".R"))
+      job_args_rds <- file.path(job_dir, paste0("image_segment_batch_args_", time_stamp, ".rds"))
+
+      saveRDS(list(args = evaluated_args, getwd = getwd()), job_args_rds)
+
+      target_name <- if (is.character(data) && length(data) == 1L) basename(data) else if (is.character(data)) paste0(length(data), " files") else "images"
+      j_name <- paste0("Batch Segment: ", target_name)
+
+      job_code <- paste0(
+        "# Auto-generated RStudio Background Job by pliman::image_segment_batch()\n",
+        "library(pliman)\n",
+        "cat('================================================================\\n')\n",
+        "cat('   pliman Batch Segmentation - RStudio Background Job\\n')\n",
+        "cat('================================================================\\n\\n')\n",
+        "job_info <- readRDS(", base::deparse(job_args_rds), ")\n",
+        "setwd(job_info$getwd)\n",
+        "res <- do.call(pliman::image_segment_dl_batch, job_info$args)\n",
+        "cat('\\n[OK] Batch Segmentation Job finished successfully!\\n')\n"
+      )
+      writeLines(job_code, job_script_path)
+
+      job_id <- rstudioapi::jobRunScript(
+        path = job_script_path,
+        name = j_name,
+        workingDir = getwd(),
+        importEnv = FALSE
+      )
+
+      cli::cli_h2("Batch Segmentation (pliman)")
+      cli::cli_alert_success("Batch segmentation has been dispatched to RStudio's {.strong Jobs} tab!")
+      cli::cli_ul(c(
+        "Job name: {.val {j_name}}",
+        "Working directory: {.path {getwd()}}",
+        "Target: {.val {target_name}}"
+      ))
+      cli::cli_alert_info("Your R console is free! You can track progress in the {.strong Jobs} tab.")
+      return(invisible(job_id))
+    }
+  }
+  # 1. Resolve image inputs
+  resolved <- .resolve_batch_input(data = data, pattern = pattern, path = path)
+  items <- resolved$items
+  names_items <- resolved$names
+  n_items <- length(items)
+
+  if (n_items == 0L) {
+    cli::cli_abort("No valid images found for batch segmentation.")
+  }
+
+  user_dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(user_dots)) imgsz <- user_dots$imgz
+    if ("img_size" %in% names(user_dots)) imgsz <- user_dots$img_size
+    if ("image_size" %in% names(user_dots)) imgsz <- user_dots$image_size
+  }
+  dots_args <- user_dots
+  if (!is.null(imgsz)) dots_args$imgsz <- imgsz
+  user_wants_plot <- if ("plot" %in% names(user_dots)) isTRUE(user_dots$plot) else FALSE
+  dots_args$plot <- FALSE
+  dots_args$verbose <- FALSE
+  dots_args$show_point <- show_point
+  dots_args$attach_image <- isTRUE(keep_images)
+  dots_args$save_image <- FALSE
+
+  t0 <- Sys.time()
+
+  if (isTRUE(verbose)) {
+    cli::cli_rule(
+      left = cli::col_blue("pliman: Deep Learning Batch Segmentation"),
+      right = cli::col_blue(format(t0, "%Y-%m-%d | %H:%M:%S"))
+    )
+    cli::cli_alert_info("Found {.val {n_items}} image{?s} to segment.")
+  }
+
+  worker_seg_fn <- function(im, args) {
+    im_obj <- if (is.character(im) && file.exists(im[1])) {
+      pliman::image_import(im[1])
+    } else {
+      im
+    }
+    if (isTRUE(sahi)) {
+      sahi_args <- args
+      sahi_args$slice_height <- slice_height
+      sahi_args$slice_width <- slice_width
+      sahi_args$overlap_height_ratio <- overlap_height_ratio
+      sahi_args$overlap_width_ratio <- overlap_width_ratio
+      sahi_args$match_metric <- match_metric
+      sahi_args$match_threshold <- match_threshold
+      sahi_args$postprocess_type <- postprocess_type
+      do.call(pliman::image_segment_sahi, c(list(img = im_obj), sahi_args))
+    } else {
+      do.call(pliman::image_segment_dl, c(list(img = im_obj), args))
+    }
+  }
+  environment(worker_seg_fn) <- .slim_worker_env(sahi = sahi, slice_height = slice_height, slice_width = slice_width, overlap_height_ratio = overlap_height_ratio, overlap_width_ratio = overlap_width_ratio, match_metric = match_metric, match_threshold = match_threshold, postprocess_type = postprocess_type)
+
+  # 2. Execution: Parallel vs Sequential
+  if (isTRUE(parallel)) {
+    if (!requireNamespace("mirai", quietly = TRUE)) {
+      cli::cli_abort("Package {.val mirai} is required for parallel processing. Please install it with {.code install.packages('mirai')}.")
+    }
+
+    d_info <- tryCatch({
+      .ensure_daemons(n_items = n_items, verbose = verbose)
+    }, error = function(e) {
+      cli::cli_warn("Failed to initialize parallel daemons: {e$message}. Falling back to sequential execution.")
+      list(active = FALSE)
+    })
+
+    if (isTRUE(d_info$active)) {
+      eff_workers <- d_info$nworkers
+      tuned <- .tune_parallel_dl(dots_args, eff_workers, verbose = verbose)
+      dots_args <- tuned$args
+      eff_workers <- tuned$workers
+      if (isTRUE(d_info$auto_cleanup)) {
+        on.exit(mirai::daemons(0), add = TRUE)
+      }
+      if (isTRUE(verbose)) {
+        cli::cli_rule(
+          left = cli::col_blue("Parallel segmentation using {.val {eff_workers}} cores"),
+          right = cli::col_blue(format(Sys.time(), "%H:%M:%S"))
+        )
+      }
+
+      n_chunks <- if (n_items <= eff_workers) eff_workers else min(n_items, eff_workers * 3L)
+      # GPU: one chunk per allowed worker, so at most `eff_workers` GPU sessions run at once
+      if (isTRUE(tuned$gpu)) n_chunks <- max(1L, min(n_items, eff_workers))
+      chunk_size <- ceiling(n_items / n_chunks)
+      chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_items)
+      chunks <- split(items, chunk_factor)
+
+      results_chunks <- mirai::mirai_map(
+        .x = chunks,
+        .f = function(chunk_items, fn, args) {
+          lapply(chunk_items, function(it) {
+            fn(it, args)
+          })
+        },
+        .args = list(fn = worker_seg_fn, args = dots_args)
+      )[.progress]
+
+      failed_chunks <- sapply(results_chunks, function(res) inherits(res, "errorValue") || !is.list(res))
+      if (any(failed_chunks)) {
+        err_msg <- paste(sapply(which(failed_chunks), function(idx) {
+          if (inherits(results_chunks[[idx]], "errorValue")) as.character(results_chunks[[idx]]) else "Worker failure"
+        }), collapse = "; ")
+        cli::cli_abort("Parallel segmentation failed: {err_msg}")
+      }
+
+      results <- do.call(c, results_chunks)
+      if (!isTRUE(keep_images)) {
+        for (i in seq_len(n_items)) {
+          if (!is.null(results[[i]])) {
+            attr(results[[i]], "image") <- NULL
+            attr(results[[i]], "similarity_map") <- NULL
+          }
+        }
+        gc(verbose = FALSE)
+      }
+    } else {
+      parallel <- FALSE
+    }
+  }
+
+  if (!isTRUE(parallel)) {
+    if (isTRUE(verbose)) {
+      cli::cli_progress_bar(
+        format = "{cli::pb_spin} {cli::pb_bar} {cli::pb_current}/{cli::pb_total} | ETA: {cli::pb_eta}",
+        total = n_items,
+        clear = FALSE
+      )
+    }
+    results <- vector("list", n_items)
+    for (i in seq_len(n_items)) {
+      if (isTRUE(verbose)) cli::cli_progress_update()
+      res_i <- worker_seg_fn(items[[i]], dots_args)
+      if (user_wants_plot) {
+        tryCatch({
+          cur_im <- if (inherits(items[[i]], c("Image", "image"))) items[[i]] else image_import(items[[i]])
+          graphics::plot(cur_im)
+          bx_p <- .extract_boxes(res_i)
+          num_inst_p <- if (is.data.frame(bx_p)) nrow(bx_p) else 0L
+          if (num_inst_p > 0L) {
+            pal_p <- .get_class_palette(
+              labels = bx_p$label,
+              n = num_inst_p,
+              rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
+              user_col = dots_args$col
+            )
+            conts_p <- if (!is.null(attr(res_i, "contours"))) attr(res_i, "contours") else res_i$contours
+            draw_m <- if (!is.null(dots_args$mask)) isTRUE(dots_args$mask) else TRUE
+            if (draw_m && is.list(conts_p) && length(conts_p) > 0L) {
+              alpha_v <- if (!is.null(dots_args$alpha)) dots_args$alpha else 0.4
+              border_v <- if (!is.null(dots_args$border)) dots_args$border else NA
+              for (kp in seq_len(min(num_inst_p, length(conts_p)))) {
+                ckp <- conts_p[[kp]]
+                if (is.null(ckp) || length(ckp) == 0L) next
+                k_colp <- pal_p[((kp - 1) %% length(pal_p)) + 1]
+                c_rgbp <- tryCatch(grDevices::col2rgb(k_colp) / 255.0, error = function(e) c(0, 1, 0))
+                poly_colp <- grDevices::rgb(c_rgbp[1], c_rgbp[2], c_rgbp[3], alpha = alpha_v)
+                cur_borderp <- if (is.na(border_v)) NA else k_colp
+                p_listp <- if (is.matrix(ckp)) list(ckp) else if (is.list(ckp)) ckp else list()
+                for (pp in p_listp) {
+                  if (is.matrix(pp) && nrow(pp) >= 3) {
+                    graphics::polygon(pp[, 1], pp[, 2], col = poly_colp, border = cur_borderp, lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 1)
+                  }
+                }
+              }
+            }
+            .plot_yolo_bboxes(
+              boxes = bx_p,
+              palette_colors = pal_p,
+              lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
+              cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
+              pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
+              show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
+              show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
+              show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
+              show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
+              show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else FALSE),
+              show_point = show_point,
+              point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
+              point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
+              point_col = dots_args$point_col,
+              badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
+            )
+          }
+        }, error = function(e) NULL)
+      }
+      if (!isTRUE(keep_images) && !is.null(res_i)) {
+        attr(res_i, "image") <- NULL
+        attr(res_i, "similarity_map") <- NULL
+      }
+      results[[i]] <- res_i
+      if (i %% 200L == 0L) gc(verbose = FALSE)
+    }
+    if (isTRUE(verbose)) cli::cli_progress_done()
+  }
+
+  names(results) <- names_items
+
+  # 3. Optional saving of segmented output images
+  if (isTRUE(save_image)) {
+    if (!dir.exists(dir_processed)) {
+      dir.create(dir_processed, recursive = TRUE)
+    }
+    if (isTRUE(verbose)) {
+      cli::cli_progress_step(
+        msg = "Saving segmented images to {.path {dir_processed}}...",
+        msg_done = "Segmented images successfully saved"
+      )
+    }
+    for (i in seq_len(n_items)) {
+      res_i <- results[[i]]
+      out_img <- if (inherits(res_i, c("Image", "image"))) {
+        res_i
+      } else if (!is.null(attr(res_i, "image"))) {
+        attr(res_i, "image")
+      } else if (inherits(items[[i]], c("Image", "image"))) {
+        items[[i]]
+      } else if (is.character(items[[i]])) {
+        tryCatch(image_import(items[[i]]), error = function(e) NULL)
+      } else {
+        NULL
+      }
+      if (!is.null(out_img)) {
+        out_file <- file.path(dir_processed, paste0(prefix, names_items[i], if (!grepl("\\.[a-zA-Z]+$", names_items[i])) ".png" else ""))
+        tryCatch({
+          is_highlight_res <- !inherits(res_i, c("Image", "image")) && is.list(res_i)
+          draw_canvas <- is_highlight_res || isTRUE(show_point) || isTRUE(dots_args$bbox) || !is.null(dots_args$show_box) || isTRUE(dots_args$show_id)
+          if (draw_canvas) {
+            dims <- dim(image_data(out_img))
+            is_jpg <- grepl("\\.jpe?g$", out_file, ignore.case = TRUE)
+            if (is_jpg) {
+              grDevices::jpeg(out_file, width = dims[1], height = dims[2], quality = 95)
+            } else {
+              grDevices::png(out_file, width = dims[1], height = dims[2])
+            }
+            dev_num <- grDevices::dev.cur()
+            tryCatch({
+              graphics::plot(out_img)
+              bx <- .extract_boxes(res_i)
+              num_inst <- if (is.data.frame(bx)) nrow(bx) else 0L
+              if (num_inst > 0L) {
+                pal <- .get_class_palette(
+                  labels = bx$label,
+                  n = num_inst,
+                  rainbow = if (!is.null(dots_args$rainbow)) dots_args$rainbow else TRUE,
+                  user_col = dots_args$col
+                )
+                conts <- if (!is.null(attr(res_i, "contours"))) attr(res_i, "contours") else res_i$contours
+                draw_mask <- if (!is.null(dots_args$mask)) isTRUE(dots_args$mask) else TRUE
+                if (draw_mask && is.list(conts) && length(conts) > 0L) {
+                  alpha_val <- if (!is.null(dots_args$alpha)) dots_args$alpha else 0.4
+                  border_val <- if (!is.null(dots_args$border)) dots_args$border else NA
+                  for (k in seq_len(min(num_inst, length(conts)))) {
+                    ck <- conts[[k]]
+                    if (is.null(ck) || length(ck) == 0L) next
+                    k_col <- pal[((k - 1) %% length(pal)) + 1]
+                    c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
+                    poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha_val)
+                    cur_border <- if (is.na(border_val)) NA else k_col
+                    p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+                    for (p in p_list) {
+                      if (is.matrix(p) && nrow(p) >= 3) {
+                        graphics::polygon(p[, 1], p[, 2], col = poly_col, border = cur_border, lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 1)
+                      }
+                    }
+                  }
+                }
+                .plot_yolo_bboxes(
+                  boxes = bx,
+                  palette_colors = pal,
+                  lwd = if (!is.null(dots_args$lwd)) dots_args$lwd else 2,
+                  cex = if (!is.null(dots_args$cex)) dots_args$cex else 1.0,
+                  pad = if (!is.null(dots_args$pad)) dots_args$pad else 1.0,
+                  show_text = if (!is.null(dots_args$show_text)) dots_args$show_text else TRUE,
+                  show_conf = if (!is.null(dots_args$show_conf)) dots_args$show_conf else TRUE,
+                  show_class = if (!is.null(dots_args$show_class)) dots_args$show_class else TRUE,
+                  show_id = if (!is.null(dots_args$show_id)) dots_args$show_id else FALSE,
+                  show_box = if (!is.null(dots_args$show_box)) dots_args$show_box else (if (!is.null(dots_args$bbox)) dots_args$bbox else FALSE),
+                  show_point = show_point,
+                  point_size = if (!is.null(dots_args$point_size)) dots_args$point_size else 1.5,
+                  point_pch = if (!is.null(dots_args$point_pch)) dots_args$point_pch else 16,
+                  point_col = dots_args$point_col,
+                  badge = if (!is.null(dots_args$badge)) dots_args$badge else TRUE
+                )
+              }
+            }, finally = {
+              if (grDevices::dev.cur() == dev_num) {
+                grDevices::dev.off(dev_num)
+              }
+            })
+          } else {
+            image_export(out_img, out_file)
+          }
+        }, error = function(e) {
+          cli::cli_warn("Failed to save annotated image for '{names_items[i]}': {conditionMessage(e)}")
+        })
+        rm(out_img)
+        if (i %% 200L == 0L) gc(verbose = FALSE)
+      }
+    }
+  }
+
+  # 4. Consolidate bounding boxes / predictions
+  pred_list <- lapply(seq_len(n_items), function(i) {
+    res_i <- results[[i]]
+    bx <- .extract_boxes(res_i)
+    if (is.data.frame(bx) && nrow(bx) > 0) {
+      data.frame(img = names_items[i], bx, stringsAsFactors = FALSE)
+    } else {
+      NULL
+    }
+  })
+  predictions <- do.call(rbind, pred_list)
+  if (is.null(predictions)) {
+    predictions <- data.frame(
+      img = character(0), id = integer(0), xmin = numeric(0), ymin = numeric(0),
+      xmax = numeric(0), ymax = numeric(0), label = character(0), score = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # 5. Extract phenotypes if measure = TRUE
+  pheno_list <- list()
+  if (isTRUE(measure)) {
+    if (isTRUE(verbose)) {
+      cli::cli_progress_step(
+        msg = "Extracting morphometric phenotypes from segmented instances...",
+        msg_done = "Morphometric feature extraction complete"
+      )
+    }
+    for (i in seq_len(n_items)) {
+      res_i <- results[[i]]
+      ph <- tryCatch(
+        dl_extract_phenotypes(res_i, pixel_size = pixel_size, verbose = FALSE),
+        error = function(e) NULL
+      )
+      if (!is.null(ph) && is.data.frame(ph) && nrow(ph) > 0) {
+        pheno_list[[i]] <- data.frame(img = names_items[i], ph, stringsAsFactors = FALSE)
+      }
+    }
+  }
+  phenotypes <- if (length(pheno_list) > 0) do.call(rbind, pheno_list) else NULL
+
+  # 6. Build per-image summary & overall class summary
+  all_classes <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) sort(unique(predictions$label)) else character(0)
+  summary_list <- lapply(seq_len(n_items), function(i) {
+    im_name <- names_items[i]
+    res_i <- results[[i]]
+    bx <- .extract_boxes(res_i)
+    n_obj <- if (is.data.frame(bx)) nrow(bx) else 0L
+    mean_sc <- if (n_obj > 0 && "score" %in% names(bx)) round(mean(bx$score, na.rm = TRUE), 4) else NA_real_
+
+    feat_i <- if (is.list(res_i) && !is.null(res_i$features) && is.data.frame(res_i$features)) {
+      res_i$features
+    } else if (length(pheno_list) >= i && !is.null(pheno_list[[i]])) {
+      pheno_list[[i]]
+    } else {
+      NULL
+    }
+    tot_area <- if (!is.null(feat_i) && "area" %in% names(feat_i)) round(sum(feat_i$area, na.rm = TRUE), 2) else NA_real_
+    mean_area <- if (!is.null(feat_i) && "area" %in% names(feat_i) && nrow(feat_i) > 0) round(mean(feat_i$area, na.rm = TRUE), 2) else NA_real_
+
+    row_data <- list(img = im_name, num_objects = n_obj, mean_score = mean_sc, total_area = tot_area, mean_area = mean_area)
+    if (length(all_classes) > 0) {
+      if (n_obj > 0 && "label" %in% names(bx)) {
+        cls_tab <- table(factor(bx$label, levels = all_classes))
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- as.integer(cls_tab[[cl]])
+        }
+      } else {
+        for (cl in all_classes) {
+          row_data[[paste0("count_", cl)]] <- 0L
+        }
+      }
+    }
+    as.data.frame(row_data, stringsAsFactors = FALSE)
+  })
+  summary_df <- do.call(rbind, summary_list)
+
+  class_summary <- if (nrow(predictions) > 0 && "label" %in% names(predictions)) {
+    tab <- table(predictions$label)
+    cls_df <- data.frame(
+      label = names(tab),
+      total_count = as.integer(tab),
+      mean_per_img = round(as.integer(tab) / n_items, 2),
+      pct = round(as.integer(tab) / nrow(predictions) * 100, 2),
+      stringsAsFactors = FALSE
+    )
+    if ("score" %in% names(predictions)) {
+      sc_means <- tapply(predictions$score, predictions$label, mean, na.rm = TRUE)
+      cls_df$mean_score <- round(as.numeric(sc_means[cls_df$label]), 4)
+    }
+    cls_df[order(cls_df$total_count, decreasing = TRUE), , drop = FALSE]
+  } else {
+    data.frame(
+      label = character(0), total_count = integer(0),
+      mean_per_img = numeric(0), pct = numeric(0), mean_score = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+  rownames(class_summary) <- NULL
+
+  # Strip heavy image matrices if keep_images is FALSE (default), but keep lightweight contours & boxes
+  if (!isTRUE(keep_images)) {
+    for (i in seq_len(n_items)) {
+      if (!is.null(results[[i]])) {
+        attr(results[[i]], "image") <- NULL
+        attr(results[[i]], "similarity_map") <- NULL
+        if (is.list(results[[i]]) && !inherits(results[[i]], c("Image", "image"))) {
+          results[[i]]$labels <- NULL
+          results[[i]]$mask <- NULL
+        }
+      }
+    }
+    gc(verbose = FALSE)
+  }
+
+  if (nrow(predictions) > 0) {
+    features <- dplyr::bind_rows(lapply(results, function(x) x[["features"]]), .id = "img")
+    predictions <- predictions |> dplyr::left_join(features, by = intersect(names(predictions), names(features))) |> dplyr::select(-dplyr::any_of(c("x", "y", "pcv")))
+  }
+  elapsed_sec <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+
+
+
+  out <- structure(
+    list(
+      predictions = predictions,
+      summary = summary_df,
+      class_summary = class_summary,
+      phenotypes = phenotypes,
+      results = results,
+      n_images = n_items,
+      elapsed = elapsed_sec,
+      parallel = parallel
+    ),
+    class = c("dl_segment_batch", "list")
+  )
+
+  if (isTRUE(verbose)) {
+    print(out)
+  }
+
+  invisible(out)
+}
+
+#' @export
+print.dl_segment_batch <- function(x, ...) {
+  cli::cli_rule(
+    left = cli::col_green("\u2714 pliman Deep Learning Batch Segmentation Finished"),
+    right = cli::col_blue(paste0(x$elapsed, "s"))
+  )
+  n_inst <- nrow(x$predictions)
+  n_cls <- if (!is.null(x$class_summary)) nrow(x$class_summary) else 0L
+  cls_txt <- if (n_cls > 0) paste0(" across ", n_cls, " class", if (n_cls > 1) "es" else "") else ""
+  cli::cli_alert_success(
+    "Processed {.val {x$n_images}} image{?s} | Segmented {.val {n_inst}} object instance{?s}{cls_txt}."
+  )
+  if (!is.null(x$class_summary) && nrow(x$class_summary) > 0) {
+    cli::cli_h3("Class Summary:")
+    print(x$class_summary, row.names = FALSE)
+  }
+  if (!is.null(x$phenotypes) && nrow(x$phenotypes) > 0) {
+    cli::cli_alert_info("Extracted {.val {ncol(x$phenotypes) - 1L}} phenotypic traits per object in {.code $phenotypes}.")
+  }
+  invisible(x)
+}
+
+#' @rdname image_segment_dl_batch
+#' @export
+image_segment_batch <- image_segment_dl_batch
+
+#' @rdname image_segment_dl_batch
+#' @export
+yolo_segment_batch <- image_segment_dl_batch
+
+
+
+# ==============================================================================
+# Helper for resolving batch image inputs
+# ==============================================================================
+.resolve_batch_input <- function(data, pattern = NULL, path = NULL) {
+  ext_pat <- "\\.(png|jpe?g|tiff?|webp|bmp|PNG|JPE?G|TIFF?|WEBP|BMP)$"
+
+  # 1. List of Image objects
+  if (is.list(data) && !is.character(data)) {
+    names_img <- names(data)
+    if (is.null(names_img) || any(names_img == "")) {
+      names_img <- paste0("img_", seq_along(data))
+      names(data) <- names_img
+    }
+    return(list(type = "images", items = data, names = names_img))
+  }
+
+  # 2. Character directory or single string
+  if (is.character(data) && length(data) == 1L) {
+    # Directory exists?
+    if (dir.exists(data)) {
+      patt <- if (!is.null(pattern)) pattern else ext_pat
+      fls <- list.files(path = data, pattern = patt, full.names = TRUE)
+      fls <- fls[grepl(ext_pat, fls)]
+      return(list(type = "files", items = fls, names = basename(fls)))
+    }
+
+    # Single existing image file?
+    if (file.exists(data)) {
+      return(list(type = "files", items = data, names = basename(data)))
+    }
+
+    # Otherwise, treat as pattern
+    target_dir <- if (!is.null(path) && dir.exists(path)) path else "."
+    fls <- list.files(path = target_dir, pattern = data, full.names = TRUE)
+    fls <- fls[grepl(ext_pat, fls)]
+    return(list(type = "files", items = fls, names = basename(fls)))
+  }
+
+  # 3. Vector of file paths
+  if (is.character(data) && length(data) > 1L) {
+    return(list(type = "files", items = data, names = basename(data)))
+  }
+
+  # 4. Pattern with path fallback
+  if ((missing(data) || is.null(data)) && !is.null(pattern)) {
+    target_dir <- if (!is.null(path) && dir.exists(path)) path else "."
+    fls <- list.files(path = target_dir, pattern = pattern, full.names = TRUE)
+    fls <- fls[grepl(ext_pat, fls)]
+    return(list(type = "files", items = fls, names = basename(fls)))
+  }
+
+  cli::cli_abort("Unable to resolve {.arg data}. Please provide a folder path, file pattern, vector of file paths, or list of images.")
+}

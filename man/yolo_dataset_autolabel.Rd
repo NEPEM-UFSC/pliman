@@ -7,17 +7,37 @@
 yolo_dataset_autolabel(
   input_dir,
   model,
-  output_dir,
-  task = if (!is.null(model$task)) model$task else c("segment", "detect"),
+  output_dir = NULL,
+  task = c("detect", "segment"),
+  classes = NULL,
   conf_threshold = NULL,
   max_objects = NULL,
   split_ratio = c(0.7, 0.2, 0.1),
+  crop_to_objects = FALSE,
+  crop_margin = 0.05,
+  sahi = FALSE,
   engine = "gpu",
   device_id = -1,
+  lower_size = NULL,
+  upper_size = NULL,
+  size_mode = c("relative", "absolute"),
+  move = FALSE,
+  as_job = FALSE,
   review = TRUE,
   rainbow = TRUE,
+  show_bbox = TRUE,
+  show_polygon = TRUE,
+  show_points = FALSE,
+  show_labels = TRUE,
+  show_conf = TRUE,
+  bbox = show_bbox,
+  polygon = show_polygon,
+  points = show_points,
+  labels = show_labels,
+  badge = TRUE,
   seed = 42,
-  verbose = TRUE
+  verbose = TRUE,
+  ...
 )
 }
 \arguments{
@@ -25,25 +45,83 @@ yolo_dataset_autolabel(
 
 \item{model}{A \code{yolo_fewshot_model} object fitted with \code{\link[=yolo_fewshot_fit]{yolo_fewshot_fit()}}.}
 
-\item{output_dir}{Target directory to write the YOLO dataset.}
+\item{output_dir}{Target directory to write the YOLO dataset. If \code{NULL} (default),
+the dataset structure (\verb{images/}, \verb{labels/}, \code{data.yaml}) is generated directly inside \code{input_dir}.
+Specify a new directory path only if you wish to create a separate dataset folder.}
 
 \item{task}{Target task: \code{"segment"} (polygons) or \code{"detect"} (bounding boxes). Defaults to \code{model$task}.}
 
+\item{classes}{Character vector of class names. If \code{NULL} (default), automatically inferred from the model object or metadata.}
+
 \item{conf_threshold}{Minimum confidence / similarity threshold for accepting predicted instances (e.g. 0.50). If \code{NULL} (default), uses \code{model$conf_threshold}.}
 
+\item{max_objects}{Maximum number of objects to detect per image. If \code{NULL} (default), no limit is applied.}
+
 \item{split_ratio}{Numeric vector of length 3 for \code{c(train, val, test)} split. Defaults to \code{c(0.70, 0.20, 0.10)}.}
+
+\item{crop_to_objects}{Logical. If \code{TRUE}, crops the image to the bounding box containing all detected objects plus a margin (default: \code{FALSE}).}
+
+\item{crop_margin}{Numeric. Margin fraction added around the object bounding box when \code{crop_to_objects = TRUE} (default: \code{0.05}, i.e., 5\%).}
+
+\item{sahi}{Logical or list. If \code{TRUE} (or a named list of SAHI options, e.g. \code{list(slice_width = 640, slice_height = 640, overlap_width_ratio = 0.20)}),
+uses Slicing Aided Hyper Inference (\code{\link[=image_detect_sahi]{image_detect_sahi()}} / \code{\link[=image_segment_sahi]{image_segment_sahi()}}) instead of standard full-image inference.
+This is ideal for high-resolution images containing hundreds of small, crowded, or tightly clustered objects (e.g. seeds, capsules, stomata, drone orthophotos). Defaults to \code{FALSE}.}
 
 \item{engine}{Execution engine override: \code{"cpu"} or \code{"gpu"}. If \code{NULL}, uses \code{model$engine}.}
 
 \item{device_id}{GPU device ID if \code{engine = "gpu"}. Defaults to \code{-1}.}
 
-\item{review}{Logical. If \code{TRUE} (default), writes annotated review images to \verb{review/} subfolder.}
+\item{lower_size}{Optional numeric value to filter out small detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+less than \code{lower_size} times the mean area of all candidate boxes in that image are removed
+(e.g., \code{lower_size = 0.2} removes small debris, dust, or grains smaller than 20\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) below \code{lower_size} are removed.
+Defaults to \code{NULL} (no lower size filter).}
 
-\item{rainbow}{Logical. If \code{TRUE}, review previews are rendered with distinct rainbow colors per instance. Defaults to \code{FALSE}.}
+\item{upper_size}{Optional numeric value to filter out abnormally large detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+greater than \code{upper_size} times the mean area of all candidate boxes in that image are removed
+(e.g., \code{upper_size = 2.0} removes objects larger than 200\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) above \code{upper_size} are removed.
+Defaults to \code{NULL} (no upper size filter).}
+
+\item{size_mode}{Character string specifying how \code{lower_size} and \code{upper_size} are interpreted.
+\code{"relative"} (default) treats values as proportions/multiples of the mean bounding box area.
+\code{"absolute"} treats values as area in pixels.}
+
+\item{move}{Logical. If \code{TRUE} (default), moves the source images to the target split folders
+instead of copying them, saving disk space and avoiding duplicate files. An undo operation can be performed via \code{\link[=yolo_dataset_undo]{yolo_dataset_undo()}}
+to restore files to their original location. Defaults to \code{TRUE}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches the batch auto-labeling
+process in the background via RStudio Background Jobs, leaving the main R console completely free.
+Defaults to \code{FALSE}.}
+
+\item{review}{Logical or integer. If \code{TRUE}, writes annotated review images to \verb{review/} subfolder for visual inspection. An integer can be provided (e.g. \code{review = 100}) to randomly sample that number of images across the dataset to generate review previews. Defaults to \code{TRUE}.
+subfolder for visual inspection of all images. An integer can be provided (e.g. \code{review = 30})
+to limit the number of review images generated. Setting \code{review = FALSE} avoids creating duplicate preview images.}
+
+\item{rainbow}{Logical. If \code{TRUE}, review previews are rendered with distinct rainbow colors per instance. Defaults to \code{TRUE}.}
+
+\item{show_bbox}{Logical. Whether to draw bounding boxes on review previews. Defaults to \code{TRUE}. Supported alias: \code{bbox}.}
+
+\item{show_polygon}{Logical. Whether to draw segmentation polygons on review previews. Defaults to \code{TRUE}. Supported alias: \code{polygon}.}
+
+\item{show_points}{Logical. If \code{TRUE}, draws points at the centroid of each object using the same color as the box. Defaults to \code{FALSE}. Supported alias: \code{points}.}
+
+\item{show_labels}{Logical. Whether to display class name on labels/badges in review images. Defaults to \code{TRUE}. Supported aliases: \code{show_class}, \code{labels}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges in review images. Defaults to \code{TRUE}. Supported alias: \code{show_scores}.}
+
+\item{bbox, polygon, points, labels}{Backward-compatible aliases for \code{show_bbox}, \code{show_polygon}, \code{show_points}, and \code{show_labels}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels in review images. Defaults to \code{TRUE}.}
 
 \item{seed}{Random seed for reproducible splitting. Defaults to \code{42}.}
 
 \item{verbose}{Logical. Show progress messages. Defaults to \code{TRUE}.}
+
+\item{...}{Additional arguments passed to methods or aliases (e.g. \code{show_labels}, \code{show_scores}, \code{label_box}).}
 }
 \value{
 A \code{yolo_dataset} S3 object pointing to the created dataset.

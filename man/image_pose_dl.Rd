@@ -28,6 +28,7 @@ image_pose_dl(
   verbose = TRUE,
   plot = TRUE,
   dir = pliman_model_dir(),
+  imgsz = NULL,
   ...
 )
 }
@@ -80,6 +81,9 @@ If \code{FALSE}, only the text is drawn directly.}
 
 \item{dir}{Model directory (default \code{pliman_model_dir()}).}
 
+\item{imgsz}{Target input image resolution for YOLO pose inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), inferred automatically from the model or defaults to \code{640}.}
+
 \item{...}{Additional arguments passed to \code{\link[graphics:plot]{graphics::plot()}}.}
 }
 \value{
@@ -97,11 +101,11 @@ Performs real-time human pose estimation and 17 keypoint detection using YOLO26
 anatomical skeleton visualization.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("person.png")
   res <- image_pose_dl(img)
   res$boxes
   res$keypoints[[1]]
-}
+\dontshow{\}) # examplesIf}
 }

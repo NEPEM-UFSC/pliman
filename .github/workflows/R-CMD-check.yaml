@@ -1,0 +1,161 @@
+# R CMD check on Linux, Windows and macOS.
+#
+# Only GitHub-created actions (actions/*) are used, because the NEPEM-UFSC
+# organization does not allow third-party actions. R (and Rtools on Windows)
+# is installed with the rig command-line tool, package dependencies with pak.
+on:
+  # feature branches are checked through their pull request (a push trigger as
+  # well would run every job twice and compete for the scarce macOS runners)
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+name: R-CMD-check
+
+permissions: read-all
+
+concurrency:
+  group: R-CMD-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  R-CMD-check:
+    runs-on: ${{ matrix.config.os }}
+    name: ${{ matrix.config.os }} (${{ matrix.config.r }})
+    timeout-minutes: 150
+
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {os: ubuntu-24.04,   r: 'release'}
+          - {os: ubuntu-24.04,   r: 'oldrel/1'}
+          - {os: windows-latest, r: 'release'}
+          - {os: macos-latest,   r: 'release'}
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+      # Many optional (Suggests) packages are heavy; do not require all of them.
+      _R_CHECK_FORCE_SUGGESTS_: false
+      _R_CHECK_CRAN_INCOMING_: false
+      # let pak install the system libraries needed by R packages (Linux)
+      PKG_SYSREQS: true
+      NOT_CRAN: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rig and R
+        shell: bash
+        run: |
+          set -eo pipefail
+          # report the failing command as an annotation (visible in the run summary)
+          trap 'echo "::error title=Install rig and R failed::line $LINENO: $BASH_COMMAND"' ERR
+          case "$RUNNER_OS" in
+            Linux)
+              curl -Ls https://github.com/r-lib/rig/releases/download/latest/rig-linux-$(arch)-latest.tar.gz | sudo tar xz -C /usr/local
+              sudo rig add ${{ matrix.config.r }}
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends pandoc libpng-dev libfftw3-dev
+              ;;
+            macOS)
+              # Homebrew refuses casks from third-party taps unless they are trusted
+              brew tap r-lib/rig
+              brew trust r-lib/rig || true
+              brew install --cask rig
+              sudo rig add ${{ matrix.config.r }}
+              # CRAN's R for macOS links packages that use $(FLIBS)/LAPACK
+              # (e.g. RcppArmadillo) against the gfortran toolchain in /opt/gfortran
+              curl -fsSL -o /tmp/gfortran.pkg https://mac.r-project.org/tools/gfortran-14.2-universal.pkg
+              sudo installer -pkg /tmp/gfortran.pkg -target /
+              ls /opt/gfortran/lib | head
+              brew install fftw libpng pandoc
+              BREW=$(brew --prefix)
+              mkdir -p ~/.R
+              {
+                echo "CPPFLAGS += -I${BREW}/include"
+                echo "LDFLAGS += -L${BREW}/lib"
+              } >> ~/.R/Makevars
+              ;;
+            Windows)
+              choco install rig -y --no-progress
+              RIG="/c/Program Files/rig/rig.exe"
+              "$RIG" add ${{ matrix.config.r }}
+              "$RIG" list
+              RBIN=$(ls -d "/c/Program Files/R"/R-*/bin | sort -V | tail -1)
+              echo "Using $RBIN"
+              cygpath -w "$RBIN/x64" >> "$GITHUB_PATH"
+              cygpath -w "$RBIN" >> "$GITHUB_PATH"
+              choco install pandoc -y --no-progress
+              ;;
+          esac
+
+      - name: Show R
+        shell: bash
+        run: |
+          which R || true
+          R --version
+          Rscript -e 'sessionInfo()'
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/Library
+          key: rlib-${{ runner.os }}-${{ matrix.config.r }}-${{ hashFiles('DESCRIPTION') }}
+          restore-keys: rlib-${{ runner.os }}-${{ matrix.config.r }}-
+
+      - name: Install dependencies
+        shell: Rscript {0}
+        env:
+          R_LIBS_USER: ${{ runner.temp }}/Library
+        run: |
+          dir.create(Sys.getenv("R_LIBS_USER"), recursive = TRUE, showWarnings = FALSE)
+          .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
+          if (!requireNamespace("pak", quietly = TRUE)) {
+            install.packages("pak", repos = sprintf("https://r-lib.github.io/p/pak/stable/%s/%s/%s",
+                                                    .Platform$pkgType, R.Version()$os, R.Version()$arch))
+          }
+          pak::pkg_install(c("deps::.", "rcmdcheck", "testthat"), dependencies = TRUE, upgrade = FALSE)
+
+      - name: R CMD check
+        shell: Rscript {0}
+        env:
+          R_LIBS_USER: ${{ runner.temp }}/Library
+        run: |
+          .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
+          # workflow-command escaping, so multi-line messages become annotations
+          esc <- function(x) gsub("\n", "%0A", gsub("\r", "%0D", gsub("%", "%25", paste(x, collapse = "\n"), fixed = TRUE), fixed = TRUE), fixed = TRUE)
+          res <- tryCatch(
+            rcmdcheck::rcmdcheck(
+              args = c("--no-manual", "--as-cran", "--ignore-vignettes"),
+              build_args = c("--no-manual", "--no-build-vignettes"),
+              error_on = "never",
+              check_dir = "check"
+            ),
+            error = function(e) e
+          )
+          if (inherits(res, "error")) {
+            cat("::error title=rcmdcheck failed::", esc(conditionMessage(res)), "\n", sep = "")
+            res <- list(errors = "rcmdcheck failed", warnings = character())
+          }
+          for (w in res$warnings) cat("::warning title=R CMD check WARNING::", esc(substr(w, 1, 4000)), "\n", sep = "")
+          for (e in res$errors) cat("::error title=R CMD check ERROR::", esc(substr(e, 1, 4000)), "\n", sep = "")
+          # compilation / installation failures: show the end of the install log
+          inst <- list.files("check", pattern = "^00install\\.out$", recursive = TRUE, full.names = TRUE)
+          if (length(res$errors) && length(inst)) {
+            log <- readLines(inst[1], warn = FALSE)
+            hits <- grep("error|Error|ERROR", log)
+            show <- if (length(hits)) log[unique(pmax(1, pmin(length(log), as.vector(outer(hits, -3:3, "+")))))] else tail(log, 60)
+            cat("::error title=00install.out::", esc(tail(show, 80)), "\n", sep = "")
+          }
+          if (length(res$errors)) quit(status = 1)
+
+      - name: Upload check results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-${{ runner.os }}-${{ strategy.job-index }}
+          path: check

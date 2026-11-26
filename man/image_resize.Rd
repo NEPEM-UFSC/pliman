@@ -54,7 +54,7 @@ three reconstruction filters: Lanczos-3 (highest quality), Bilinear, and
 Nearest-Neighbor.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Load example image
@@ -69,7 +69,7 @@ img_custom <- image_resize(img, width = 400, height = 300, filter = "bilinear")
 # Resize a list of images
 img_list <- list(img, img)
 resized_list <- image_resize(img_list, rel_size = 25, parallel = FALSE)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

@@ -88,12 +88,12 @@ The resulting directory structure conforms to the official YOLO classification f
 }\if{html}{\out{</div>}}
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Organize flower photos into train (70\%), val (20\%), test (10\%)
 ds <- yolo_dataset_classify(
-  src_dir = "D:/Downloads/pliman_dl/flower_photos",
+  src_dir = "flower_photos",
   out_dir = "dataset_flores_yolo",
   split = c(train = 0.70, val = 0.20, test = 0.10),
   min_images = 10
@@ -108,7 +108,7 @@ model <- yolo_train(
   model = "yolo11n-cls",
   epochs = 50
 )
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

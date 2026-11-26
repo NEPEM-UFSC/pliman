@@ -36,8 +36,7 @@
 #' the standard area diagram can be saved by wrapping [sad()] with [png()].
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' sev <-
 #' measure_disease(pattern = "sev_leaf",
@@ -50,7 +49,6 @@
 #'                 dir_original = image_pliman(),
 #'                 dir_processed = tempdir())
 #' sad(sev, n = 2)
-#' }
 sad <- function(object,
                 n,
                 show_original = FALSE,

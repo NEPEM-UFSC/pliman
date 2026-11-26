@@ -51,6 +51,8 @@ if available), \code{"white"}, or \code{"black"}. Defaults to \code{"image"} if 
 
 \item{lwd}{Line width for drawing root skeleton segments (default: 2.0).}
 
+\item{cex_nodes}{Character expansion factor for root topological nodes (Crown, Branch points, Root tips). Defaults to \code{1.0}.}
+
 \item{legend_pos}{Position of the legend: \code{"auto"} (default, automatically places legend in
 the corner with fewest/no root obstacles), \code{"topleft"}, \code{"topright"}, \code{"bottomleft"},
 \code{"bottomright"}, or \code{FALSE} to omit legends.}

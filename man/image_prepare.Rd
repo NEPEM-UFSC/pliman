@@ -40,9 +40,9 @@ visualization. This is useful to prepare the images to be analyzed with
 \code{\link[=analyze_objects_shp]{analyze_objects_shp()}}
 }
 \examples{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 # Example usage:
-if (interactive()) {
 img <- image_pliman("mult_leaves.jpg")
 image_prepare(img, viewer = "mapview")
-}
+\dontshow{\}) # examplesIf}
 }

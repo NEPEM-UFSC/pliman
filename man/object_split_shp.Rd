@@ -57,10 +57,10 @@ number of rows and columns. Then, using the object coordinates, a list of
 \code{image} objects is created.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot = TRUE)
 objects <- object_split_shp(flax, nrow = 3, ncol = 5)
 image_combine(objects$imgs)
-}
+\dontshow{\}) # examplesIf}
 }

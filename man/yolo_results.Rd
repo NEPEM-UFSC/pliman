@@ -2,54 +2,54 @@
 % Please edit documentation in R/utils_yolo_train.R
 \name{yolo_results}
 \alias{yolo_results}
-\title{Load Training Results and Diagnostics for a YOLO Model}
+\title{Inspect YOLO Training Results and Diagnostics}
 \usage{
-yolo_results(model = NULL, results_dir = NULL, output_dir = pliman_model_dir())
+yolo_results(model = NULL, results_dir = NULL, output_dir = NULL)
 }
 \arguments{
-\item{model}{Name or path to a trained YOLO model (e.g. \code{"capsulas_det"}, \code{"capsulas_det.onnx"}).}
+\item{model}{A model name, a direct path to a results directory, or path to a results \code{.zip} archive.
+Can be omitted if \code{results_dir} is explicitly supplied.}
 
-\item{results_dir}{Optional direct path to the \verb{<model>_results} folder. If \code{NULL} (default),
-the folder is searched in \code{output_dir}, in \code{pliman_model_dir()}, or alongside the model file.}
+\item{results_dir}{Optional direct path to the training results folder. If \code{model} is already
+a directory or \code{.zip} path, this is inferred automatically.}
 
-\item{output_dir}{Directory where pliman models and results are stored. Defaults to \code{\link[=pliman_model_dir]{pliman_model_dir()}}.}
+\item{output_dir}{Base directory to search for trained models. Defaults to \code{\link[=pliman_model_dir]{pliman_model_dir()}}.}
 }
 \value{
 An object of class \code{c("yolo_train", "list")}.
 }
 \description{
-Reconstructs a \code{yolo_train} S3 object from an existing model name, \code{.onnx}/\code{.pt} file,
-or results directory without needing to retrain. The resulting object can be directly
-printed with \code{\link[=print.yolo_train]{print.yolo_train()}} and visualized with \code{\link[=plot.yolo_train]{plot.yolo_train()}} or \code{\link[=yolo_plot]{yolo_plot()}}.
-}
-\details{
-When a YOLO model is trained via \code{\link[=yolo_train]{yolo_train()}}, all evaluation tables, weights, and logs
-are preserved in \verb{<output_name>_results}. \code{\link[=yolo_results]{yolo_results()}} reconstructs the full training
-session state by parsing:
+\code{yolo_results()} loads, inspects, and plots diagnostics, training metrics, loss curves,
+confusion matrices, and precision-recall graphs for a trained YOLO model.
+
+It supports models trained locally with \code{\link[=yolo_train]{yolo_train()}} or \code{\link[=yolo_train_workflow]{yolo_train_workflow()}}, as well
+as training runs downloaded from Google Colab, cloud VMs, or external directories.
+
+You can pass:
 \itemize{
-\item \code{results.csv}: Epoch-by-epoch loss progressions, precision, recall, mAP50, and mAP50-95.
-\item \code{confusion_matrix.csv}: Complete confusion matrix counts including the background class.
-\item \code{confusion_matrix_normalized.csv}: Normalized classification rates.
-\item \code{pr_curve.csv}: 1,000-point Precision-Recall evaluation curve per class.
-\item \code{f1_curve.csv}: 1,000-point F1 vs. Confidence evaluation curve per class.
-\item Model weights: Automatically locates exported \code{.onnx} and \code{.pt} files.
+\item A model name (e.g. \code{"capsulas_det"}, \code{"model_capsulas"}).
+\item A direct path to an external results folder (e.g. \code{"runs/detect/train"}, \code{"capsulas_small_results"}, or downloaded from Colab).
+\item A direct path to a \code{.zip} archive containing the downloaded training results (automatically extracted).
 }
-This enables instant, offline performance inspection, publication-ready vector plotting,
-and threshold selection for any trained model without needing Python or GPU re-execution.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
-# Load diagnostics from a previously trained model
+# 1. Inspect a model by name
 res <- yolo_results("capsulas_det")
 
-# Inspect training metrics and plot diagnostic dashboard
-print(res)
+# 2. Inspect a folder downloaded from Google Colab
+res_colab <- yolo_results("capsulas_small_results")
+
+# 3. Inspect a .zip archive directly
+res_zip <- yolo_results("capsulas_small_results.zip")
+
+# Plot diagnostic dashboard
 plot(res)
 plot(res, which = "confusion_matrix")
 plot(res, which = "pr_curve")
-}
+\dontshow{\}) # examplesIf}
 }
 \seealso{
 \code{\link[=plot.yolo_train]{plot.yolo_train()}}, \code{\link[=yolo_plot]{yolo_plot()}}, \code{\link[=yolo_train]{yolo_train()}}

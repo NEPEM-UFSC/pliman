@@ -14,7 +14,7 @@ Queries the system's graphics hardware (via DirectX DXGI on Windows) to list
 available GPU adapters, dedicated video memory (VRAM), and DirectML status.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   pliman_gpu_info()
-}
+\dontshow{\}) # examplesIf}
 }

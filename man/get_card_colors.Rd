@@ -106,7 +106,7 @@ inwards towards its center, ensuring pixel sampling is strictly restricted to th
 homogeneous nucleus of the color chip, immune to edge glare, shadows, and plastic borders.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("colorcheck.jpg")
 
@@ -116,5 +116,5 @@ head(card)
 
 # View patch overlay
 plot(card)
-}
+\dontshow{\}) # examplesIf}
 }

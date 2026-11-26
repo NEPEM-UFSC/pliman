@@ -14,3 +14,15 @@ src/*.a
 .DS_Store
 *.Rcheck/
 *.tar.gz
+
+# Local / development files
+logo_pliman.ai
+package_release.R
+check.R
+inst/doc
+/doc/
+/Meta/
+
+# Python bytecode (inst/python)
+__pycache__/
+*.pyc

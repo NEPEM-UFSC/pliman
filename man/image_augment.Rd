@@ -45,11 +45,10 @@ a list of augmented images is returned.
 This function takes an image and augments it by rotating it multiple times.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("sev_leaf.jpg")
 imgs <- image_augment(img, type = "return", times = 4)
 image_combine(imgs)
-}
-
+\dontshow{\}) # examplesIf}
 }

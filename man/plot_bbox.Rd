@@ -18,7 +18,7 @@ None (adds bounding boxes to an existing plot).
 This function overlays bounding boxes onto an existing plot.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 plot(NA,
     xlim = c(0, 200),
     ylim = c(0, 200),
@@ -30,6 +30,5 @@ contours <- list(
 )
 bbox_list <- object_bbox(contours)
 plot_bbox(bbox_list)
-}
-
+\dontshow{\}) # examplesIf}
 }

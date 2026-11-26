@@ -1,5 +1,9 @@
+# The FFT backend for dense exemplar matching (src/dense_zncc.cpp) needs the fftw3
+# headers, not only the library that PKG_LIBS already links. Rtools ships them, so it
+# is enabled on Windows (see Makevars.win); on other platforms it is left off so that a
+# system with libfftw3 but without its development headers still builds. Add
+# -DPLIMAN_HAVE_FFTW below to enable it once fftw3.h is known to be available: the
+# dense path then runs ~1.6x faster for large exemplar radii, and is unchanged
+# otherwise.
 PKG_CXXFLAGS = $(SHLIB_OPENMP_CXXFLAGS)
 PKG_LIBS     = $(SHLIB_OPENMP_CXXFLAGS) $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS) -lpng -lfftw3 -lm
-SHLIB_CXXLD        = $(CXX)
-SHLIB_CXXLDFLAGS   = $(SHLIB_CXXLDFLAGS) -s
-SHLIB_LDFLAGS      = $(SHLIB_LDFLAGS) -s

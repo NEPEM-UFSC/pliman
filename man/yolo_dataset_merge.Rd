@@ -11,6 +11,8 @@ yolo_dataset_merge(
   class_map = NULL,
   copy = TRUE,
   overwrite = FALSE,
+  parallel = TRUE,
+  num_threads = 0,
   verbose = TRUE
 )
 }
@@ -26,6 +28,10 @@ yolo_dataset_merge(
 
 \item{overwrite}{Logical. If \code{TRUE}, overwrites \code{out_dir} if it exists. Defaults to \code{FALSE}.}
 
+\item{parallel}{Logical. Whether to use parallel multithreading for file copying and label remapping (default: \code{TRUE}).}
+
+\item{num_threads}{Integer. Number of OpenMP threads to use (default: \code{0}, uses all available CPU cores).}
+
 \item{verbose}{Logical. Whether to show progress. Defaults to \code{TRUE}.}
 }
 \value{
@@ -39,7 +45,7 @@ across differing \code{data.yaml} definitions (with optional custom class renami
 updates label files on-the-fly, and generates a unified master \code{data.yaml}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Merge two datasets collected from different seasons
@@ -47,5 +53,5 @@ ds_total <- yolo_dataset_merge(
   datasets = list("dataset_2024", "dataset_2025"),
   out_dir  = "dataset_unificado"
 )
-}
+\dontshow{\}) # examplesIf}
 }

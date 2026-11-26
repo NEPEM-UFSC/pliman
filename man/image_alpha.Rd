@@ -24,7 +24,7 @@ The alpha layer can be specified as a single numeric value for uniform transpare
 or as a matrix/array matching the dimensions of the image for varying transparency.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Load a sample RGB image
@@ -38,6 +38,5 @@ mask <- image_binary(img, "NB")[[1]]
 img_tb <- image_alpha(img, mask)
 plot(img_tb)
 
-}
-
+\dontshow{\}) # examplesIf}
 }

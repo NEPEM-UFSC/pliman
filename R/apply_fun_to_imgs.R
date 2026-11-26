@@ -33,6 +33,8 @@
 #' @param workers A positive numeric scalar or a function specifying the number of
 #'   parallel processes that can be active at the same time. Defaults to 3.
 #' @param verbose Shows the progress in console? Defaults to `TRUE`.
+#' @param as_job Logical. If `TRUE` and running inside RStudio, runs the image processing
+#'   as an RStudio Background Job (default: `FALSE`).
 #'
 #' @return Nothing. The processed images are saved to the current working directory.
 #' @export
@@ -48,7 +50,73 @@ apply_fun_to_imgs <- function(pattern,
                                suffix = "",
                                parallel = FALSE,
                                workers = 3,
-                               verbose = TRUE){
+                               verbose = TRUE,
+                               as_job = FALSE){
+  # 0. Support for RStudio Background Jobs (as_job = TRUE)
+  if (isTRUE(as_job)) {
+    if (!requireNamespace("rstudioapi", quietly = TRUE) || !rstudioapi::isAvailable()) {
+      cli::cli_alert_warning("RStudio Job API is not available (not running inside interactive RStudio). Proceeding with image processing in current session.")
+    } else {
+      mc <- match.call(expand.dots = TRUE)
+      eval_env <- parent.frame()
+      evaluated_args <- list()
+      arg_names <- setdiff(names(mc), c("", "as_job"))
+      for (arg_name in arg_names) {
+        arg_val <- tryCatch(eval(mc[[arg_name]], envir = eval_env), error = function(e) mc[[arg_name]])
+        evaluated_args[[arg_name]] <- arg_val
+      }
+      evaluated_args$as_job <- FALSE
+
+      job_dir <- file.path(tempdir(), "pliman_jobs")
+      if (!dir.exists(job_dir)) dir.create(job_dir, recursive = TRUE, showWarnings = FALSE)
+
+      time_stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+      job_script_path <- file.path(job_dir, paste0("apply_fun_job_", time_stamp, ".R"))
+      job_args_rds <- file.path(job_dir, paste0("apply_fun_args_", time_stamp, ".rds"))
+
+      saveRDS(list(args = evaluated_args, getwd = getwd()), job_args_rds)
+
+      fun_name <- tryCatch({
+        deparse(substitute(fun))
+      }, error = function(e) "function")
+      if (length(fun_name) > 1L || !nzchar(fun_name)) fun_name <- "function"
+
+      pat_name <- if (is.character(pattern) && nzchar(pattern[1])) pattern[1] else "images"
+      j_name <- paste0("Apply ", fun_name, ": ", pat_name)
+
+      job_code <- paste0(
+        "# Auto-generated RStudio Background Job by pliman::apply_fun_to_imgs()\n",
+        "library(pliman)\n",
+        "cat('================================================================\\n')\n",
+        "cat('   pliman apply_fun_to_imgs() - RStudio Background Job\\n')\n",
+        "cat('================================================================\\n\\n')\n",
+        "job_info <- readRDS(", base::deparse(job_args_rds), ")\n",
+        "setwd(job_info$getwd)\n",
+        "do.call(pliman::apply_fun_to_imgs, job_info$args)\n",
+        "cat('\\n[OK] Image processing background job finished successfully!\\n')\n"
+      )
+      writeLines(job_code, job_script_path)
+
+      job_id <- rstudioapi::jobRunScript(
+        path = job_script_path,
+        name = j_name,
+        workingDir = getwd(),
+        importEnv = FALSE
+      )
+
+      cli::cli_h2("Apply Function to Images (pliman)")
+      cli::cli_alert_success("Image processing task has been dispatched to RStudio's {.strong Jobs} tab!")
+      cli::cli_ul(c(
+        "Job name: {.val {j_name}}",
+        "Working directory: {.path {getwd()}}",
+        "Pattern: {.val {pat_name}}",
+        "Function: {.val {fun_name}}"
+      ))
+      cli::cli_alert_info("Your R console is free! You can track live progress in the {.strong Jobs} tab.")
+      return(invisible(job_id))
+    }
+  }
+
   if(is.null(dir_original)){
     diretorio_original <- paste0("./")
   } else{

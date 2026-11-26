@@ -54,8 +54,7 @@
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@gmail.com}
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #'
@@ -67,7 +66,6 @@
 #'
 #' # create a palette from point(s)
 #' pick_palette(img)
-#' }
 pick_count <- function(img,
                        n = Inf,
                        col = "red",

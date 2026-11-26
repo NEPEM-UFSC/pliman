@@ -57,11 +57,10 @@ allow groups to be distinguished (Claude, 2008).
 Adapted from Claude (2008). pp. 229.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 pw <- efourier(contours) |> efourier_power()
-}
-
+\dontshow{\}) # examplesIf}
 }
 \references{
 Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,

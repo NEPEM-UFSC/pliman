@@ -132,6 +132,7 @@ struct WSThreadScratch {
   std::vector<float> seed_peak_val;
   std::vector<int> seed_peak_r;
   std::vector<int> seed_peak_c;
+  std::vector<int> seed_d2;
 
   void ensure_capacity(int s_N, int s_nrow, int s_ncol, int max_d2) {
     if ((int)D_vec.size() < s_N) D_vec.resize(s_N * 2);
@@ -146,7 +147,12 @@ struct WSThreadScratch {
 };
 
 // Watershed Regional dentro de uma sub-caixa recortada
-static inline int ws_scratch_sub_watershed(const uint8_t* sub_bin, int* sub_out, int s_nrow, int s_ncol, double tolerance, int ext, WSThreadScratch& sc) {
+// Saída extra: para cada rótulo final k (1..n), root_d2[k-1] e root_idx[k-1]
+// (índice linear no sub-box) da semente raiz, usados para reproduzir a
+// numeração global do watershed de grade completa.
+static inline int ws_scratch_sub_watershed(const uint8_t* sub_bin, int* sub_out, int s_nrow, int s_ncol, double tolerance, int ext, WSThreadScratch& sc,
+                                           std::vector<int>* root_d2 = nullptr, std::vector<int>* root_idx = nullptr,
+                                           bool parallel_edt = false) {
   int s_N = s_nrow * s_ncol;
   sc.ensure_capacity(s_N, s_nrow, s_ncol, 4096);
 
@@ -156,7 +162,12 @@ static inline int ws_scratch_sub_watershed(const uint8_t* sub_bin, int* sub_out,
   int* v_buf = sc.v_vec.data();
   float* z_buf = sc.z_vec.data();
 
-  // 2D EDT no sub-box
+  // 2D EDT no sub-box (versão paralela para componentes grandes, chamada fora
+  // de região paralela; o algoritmo é o mesmo, portanto o resultado é idêntico)
+  if (parallel_edt) {
+    VecI Dp = ws_edt2d_fused(sub_bin, s_nrow, s_ncol);
+    std::copy(Dp.begin(), Dp.end(), D);
+  } else {
   for (int c = 0; c < s_ncol; c++) {
     const uint8_t* col_in = sub_bin + c * s_nrow;
     int* row_out = D_t + c;
@@ -178,6 +189,7 @@ static inline int ws_scratch_sub_watershed(const uint8_t* sub_bin, int* sub_out,
   for (int r = 0; r < s_nrow; r++) {
     const int* p_r = D_t + r * s_ncol;
     ws_dt1d_fast(p_r, D + r, s_nrow, v_buf, z_buf, s_ncol);
+  }
   }
 
   int max_d2 = 0;
@@ -209,16 +221,19 @@ static inline int ws_scratch_sub_watershed(const uint8_t* sub_bin, int* sub_out,
   auto& seed_peak_val = sc.seed_peak_val;
   auto& seed_peak_r = sc.seed_peak_r;
   auto& seed_peak_c = sc.seed_peak_c;
+  auto& seed_d2 = sc.seed_d2;
 
   parent.clear();
   seed_peak_val.clear();
   seed_peak_r.clear();
   seed_peak_c.clear();
+  seed_d2.clear();
 
   parent.push_back(0);
   seed_peak_val.push_back(0.0f);
   seed_peak_r.push_back(0);
   seed_peak_c.push_back(0);
+  seed_d2.push_back(0);
 
   int n_seeds = 0;
   bool use_relative = (tolerance < 1.0);
@@ -296,6 +311,7 @@ static inline int ws_scratch_sub_watershed(const uint8_t* sub_bin, int* sub_out,
         seed_peak_val.push_back(v);
         seed_peak_r.push_back(p_r);
         seed_peak_c.push_back(p_c);
+        seed_d2.push_back(d2);
         p_parent = parent.data();
 
       } else if (n_roots_sz == 1) {
@@ -349,9 +365,14 @@ static inline int ws_scratch_sub_watershed(const uint8_t* sub_bin, int* sub_out,
 
   std::vector<int> final_label(parent.size(), 0);
   int current_label = 0;
+  if (root_d2) { root_d2->clear(); root_idx->clear(); }
   for (size_t i = 1; i < parent.size(); i++) {
     if (parent[i] == static_cast<int>(i)) {
       final_label[i] = ++current_label;
+      if (root_d2) {
+        root_d2->push_back(seed_d2[i]);
+        root_idx->push_back(seed_peak_c[i] * s_nrow + seed_peak_r[i]);
+      }
     }
   }
   for (size_t i = 1; i < parent.size(); i++) {
@@ -596,35 +617,54 @@ IntegerMatrix watershed_cpp(SEXP img_r, double tolerance = 1.0, int ext = 1) {
     p_bin_real = REAL(img_r);
   }
 
-  auto is_fg = [&](int idx) -> bool {
-    if (p_bin_int) return p_bin_int[idx] != 0;
-    if (p_bin_raw) return p_bin_raw[idx] != 0;
-    if (p_bin_real) return p_bin_real[idx] != 0.0 && !std::isnan(p_bin_real[idx]);
-    return false;
-  };
-
   struct Run {
     int r0, r1, c;
     int label;
   };
 
-  std::vector<Run> runs;
-  runs.reserve(N / 32);
+  // RLE por coluna em duas passadas paralelas (contagem + preenchimento), com
+  // o teste de primeiro plano especializado por tipo fora do laço interno.
   std::vector<int> col_run_start(ncol + 1, 0);
+  std::vector<Run> runs;
 
-  for (int c = 0; c < ncol; c++) {
-    col_run_start[c] = (int)runs.size();
-    int c_off = c * nrow;
-    int r = 0;
-    while (r < nrow) {
-      while (r < nrow && !is_fg(c_off + r)) r++;
-      if (r >= nrow) break;
-      int r0 = r;
-      while (r < nrow && is_fg(c_off + r)) r++;
-      runs.push_back({r0, r - 1, c, 0});
+  auto rle = [&](auto is_fg) {
+    std::vector<int> col_cnt(ncol, 0);
+    #pragma omp parallel for schedule(static) if(N > 250000)
+    for (int c = 0; c < ncol; c++) {
+      const int c_off = c * nrow;
+      int cnt = 0;
+      bool prev = false;
+      for (int r = 0; r < nrow; r++) {
+        bool f = is_fg(c_off + r);
+        cnt += (f && !prev);
+        prev = f;
+      }
+      col_cnt[c] = cnt;
     }
+    for (int c = 0; c < ncol; c++) col_run_start[c + 1] = col_run_start[c] + col_cnt[c];
+    runs.resize(col_run_start[ncol]);
+    #pragma omp parallel for schedule(static) if(N > 250000)
+    for (int c = 0; c < ncol; c++) {
+      const int c_off = c * nrow;
+      int w = col_run_start[c];
+      int r = 0;
+      while (r < nrow) {
+        while (r < nrow && !is_fg(c_off + r)) r++;
+        if (r >= nrow) break;
+        int r0 = r;
+        while (r < nrow && is_fg(c_off + r)) r++;
+        runs[w++] = {r0, r - 1, c, 0};
+      }
+    }
+  };
+
+  if (p_bin_int) {
+    rle([p_bin_int](int i) { return p_bin_int[i] != 0; });
+  } else if (p_bin_raw) {
+    rle([p_bin_raw](int i) { return p_bin_raw[i] != 0; });
+  } else if (p_bin_real) {
+    rle([p_bin_real](int i) { return p_bin_real[i] != 0.0 && !std::isnan(p_bin_real[i]); });
   }
-  col_run_start[ncol] = (int)runs.size();
 
   int num_runs = (int)runs.size();
   if (num_runs == 0) {
@@ -699,7 +739,14 @@ IntegerMatrix watershed_cpp(SEXP img_r, double tolerance = 1.0, int ext = 1) {
     if (s_area > max_single_bbox) max_single_bbox = s_area;
   }
 
-  if (max_single_bbox > N * 0.3 || total_bbox_area > N * 0.7 || num_comps > 400 || (N > 2000000 && num_comps > 200)) {
+  // O watershed é independente entre componentes 8-conexos (não se tocam, e a
+  // EDT de cada pixel depende apenas do fundo mais próximo), então processar
+  // cada componente em seu sub-box, em paralelo, gera a mesma partição da grade
+  // completa (inclusive na numeração, ver abaixo). A grade completa é usada
+  // apenas quando um único componente domina a imagem (nesse caso o sub-box não
+  // traz ganho e só adiciona cópias) ou como salvaguarda de memória, quando a
+  // soma das áreas dos bounding boxes excede muito a imagem.
+  if (max_single_bbox > N * 0.3 || total_bbox_area > 4LL * (long long)N) {
     return watershed_full_grid_internal(img_r, tolerance, ext);
   }
 
@@ -712,6 +759,8 @@ IntegerMatrix watershed_cpp(SEXP img_r, double tolerance = 1.0, int ext = 1) {
     int r0, c0, s_nrow, s_ncol;
     int num_sub_labels;
     std::vector<int> sub_labels;
+    std::vector<int> root_d2;   // d2 da semente raiz de cada rótulo local
+    std::vector<int> root_idx;  // índice linear (sub-box) da semente raiz
   };
 
   std::vector<SubRes> sub_res(num_comps);
@@ -722,8 +771,16 @@ IntegerMatrix watershed_cpp(SEXP img_r, double tolerance = 1.0, int ext = 1) {
   #endif
   std::vector<WSThreadScratch> thread_scratch(max_threads);
 
-  #pragma omp parallel for schedule(dynamic)
-  for (int ci = 0; ci < num_comps; ci++) {
+  // Componentes grandes: processados um a um, com EDT paralela interna.
+  // Componentes pequenos: processados em paralelo entre si.
+  const long long BIG_COMP = 250000;
+  auto bbox_area = [&](int ci) -> long long {
+    int id = active_comps[ci];
+    int r0 = std::max(0, comp_r0[id] - 1), r1 = std::min(nrow - 1, comp_r1[id] + 1);
+    int c0 = std::max(0, comp_c0[id] - 1), c1 = std::min(ncol - 1, comp_c1[id] + 1);
+    return (long long)(r1 - r0 + 1) * (long long)(c1 - c0 + 1);
+  };
+  auto process_comp = [&](int ci, WSThreadScratch& sc_ref, bool big) {
     int id = active_comps[ci];
     int r0 = std::max(0, comp_r0[id] - 1);
     int r1 = std::min(nrow - 1, comp_r1[id] + 1);
@@ -743,18 +800,6 @@ IntegerMatrix watershed_cpp(SEXP img_r, double tolerance = 1.0, int ext = 1) {
 
     const auto& r_indices = comp_run_indices[id];
 
-    if (comp_area[id] < 16) {
-      res.num_sub_labels = 1;
-      for (int ri : r_indices) {
-        int sc = runs[ri].c - c0;
-        int sc_off = sc * s_nrow;
-        for (int sr = runs[ri].r0 - r0; sr <= runs[ri].r1 - r0; sr++) {
-          res.sub_labels[sc_off + sr] = 1;
-        }
-      }
-      continue;
-    }
-
     std::vector<uint8_t> sub_bin(s_N, 0);
     for (int ri : r_indices) {
       int sc = runs[ri].c - c0;
@@ -764,36 +809,75 @@ IntegerMatrix watershed_cpp(SEXP img_r, double tolerance = 1.0, int ext = 1) {
       }
     }
 
+    res.num_sub_labels = ws_scratch_sub_watershed(sub_bin.data(), res.sub_labels.data(), s_nrow, s_ncol, tolerance, ext,
+                                                  sc_ref, &res.root_d2, &res.root_idx, big);
+  };
+
+  std::vector<int> small_comps;
+  small_comps.reserve(num_comps);
+  for (int ci = 0; ci < num_comps; ci++) {
+    if (bbox_area(ci) >= BIG_COMP) process_comp(ci, thread_scratch[0], true);
+    else small_comps.push_back(ci);
+  }
+
+  const int n_small = (int)small_comps.size();
+  #pragma omp parallel for schedule(dynamic)
+  for (int si = 0; si < n_small; si++) {
     int tid = 0;
     #ifdef _OPENMP
       tid = omp_get_thread_num();
     #endif
-
-    res.num_sub_labels = ws_scratch_sub_watershed(sub_bin.data(), res.sub_labels.data(), s_nrow, s_ncol, tolerance, ext, thread_scratch[tid]);
+    process_comp(small_comps[si], thread_scratch[tid], false);
   }
 
-  IntegerMatrix out(nrow, ncol);
-  int* p_out = INTEGER(out);
+  // Numeração global idêntica à da grade completa: regiões ordenadas pela
+  // criação da semente raiz (d2 decrescente, índice linear global decrescente).
+  struct RegKey { int d2; int gidx; int ci; int local; };
+  std::vector<RegKey> keys;
+  {
+    size_t total = 0;
+    for (int ci = 0; ci < num_comps; ci++) total += sub_res[ci].num_sub_labels;
+    keys.reserve(total);
+  }
+  for (int ci = 0; ci < num_comps; ci++) {
+    const auto& res = sub_res[ci];
+    for (int k = 0; k < res.num_sub_labels; k++) {
+      int li = res.root_idx[k];
+      int sc = li / res.s_nrow;
+      int sr = li - sc * res.s_nrow;
+      int gidx = (res.c0 + sc) * nrow + (res.r0 + sr);
+      keys.push_back({res.root_d2[k], gidx, ci, k + 1});
+    }
+  }
+  std::sort(keys.begin(), keys.end(), [](const RegKey& a, const RegKey& b) {
+    if (a.d2 != b.d2) return a.d2 > b.d2;
+    return a.gidx > b.gidx;
+  });
+  std::vector<std::vector<int>> remap(num_comps);
+  for (int ci = 0; ci < num_comps; ci++) remap[ci].assign(sub_res[ci].num_sub_labels + 1, 0);
+  for (size_t q = 0; q < keys.size(); q++) remap[keys[q].ci][keys[q].local] = (int)q + 1;
 
-  int global_label_offset = 0;
+  // Alocação sem preenchimento serial; o zeramento é feito em paralelo.
+  IntegerMatrix out(Rf_allocMatrix(INTSXP, nrow, ncol));
+  int* p_out = INTEGER(out);
+  #pragma omp parallel for schedule(static) if(N > 250000)
+  for (int c = 0; c < ncol; c++) std::memset(p_out + (size_t)c * nrow, 0, sizeof(int) * nrow);
+
+  // Componentes são disjuntos em pixels; sub-boxes podem se sobrepor, mas só
+  // pixels com rótulo > 0 são escritos, então a escrita paralela é segura.
+  #pragma omp parallel for schedule(dynamic)
   for (int ci = 0; ci < num_comps; ci++) {
     const auto& res = sub_res[ci];
     if (res.num_sub_labels == 0) continue;
-
-    int offset = global_label_offset;
+    const int* rm = remap[ci].data();
     for (int sc = 0; sc < res.s_ncol; sc++) {
-      int gc = res.c0 + sc;
-      int gc_off = gc * nrow;
+      int gc_off = (res.c0 + sc) * nrow + res.r0;
       int sc_off = sc * res.s_nrow;
       for (int sr = 0; sr < res.s_nrow; sr++) {
-        int gr = res.r0 + sr;
         int l = res.sub_labels[sc_off + sr];
-        if (l > 0) {
-          p_out[gc_off + gr] = l + offset;
-        }
+        if (l > 0) p_out[gc_off + sr] = rm[l];
       }
     }
-    global_label_offset += res.num_sub_labels;
   }
 
   return out;

@@ -1,5 +1,93 @@
+# pliman 4.0.0
+
+## Major Release: Next-Generation Computer Vision & Deep Learning Ecosystem
+`pliman 4.0.0` represents a transformative milestone, establishing an end-to-end, zero-Python deep learning and computer vision framework directly in R. Key innovations include:
+
+### Breaking changes and licensing
+* `image_line_segment()` and `image_contour_line()` are now defunct (they throw an informative error). They relied on the Line Segment Detector and the sub-pixel contour detector by R. Grompone von Gioi, distributed under the GNU Affero General Public License; that code (`src/lsd.c`, `src/smooth_contours.c`) was removed so that pliman stays under GPL (>= 3). Use `image_canny_edge()` instead. `plot_line_segment()` is kept and works with any list of segments.
+* Bundled third-party code is now credited in `inst/COPYRIGHTS` and as copyright holders (`cph`) in `DESCRIPTION`.
+* Removed the unused `BiocManager` suggestion and the empty `biocViews` field.
+
+* `mosaic_extract()` was rewritten (native C++ engine): it now returns raw pixel values by default (`fun = NULL`) and a data frame (`return = "df"`). To get the pliman < 4.0 behaviour (median per polygon bound to the shapefile) use `mosaic_extract(mosaic, shp, fun = "median", return = "shapefile")`; with a single statistic the columns are named after the layers (e.g. `NDVI` instead of `median.NDVI`).
+
+### Bug fixes
+* `plot_index_shp(viewer = "mapview")` failed with `could not find function "compute_downsample"` when the image had more pixels than `max_pixels` (#7). `compute_downsample()` is now a single internal helper instead of local copies inside other functions.
+* `plot_index_shp(viewer = "mapview")` and `mosaic_view()` with an `image` object failed with `[setValues] values must be numeric...`, because 8-bit images are stored as raw bytes since 4.0.0; they are now converted to the 0-1 scale before building the raster.
+* `contour()` (and therefore `object_contour()`) returns the list of contours named by object label again (`"1"`, `"2"`, ...), as in pliman < 4.0. Note that the contour matrices now have columns `x` and `y` (they were unnamed, i.e. `V1`/`V2` in a data frame), and that objects may be numbered differently from pliman < 4.0 because of the new labelling engine.
+* `image_to_mat()` returns 0-1 numeric values again for 8-bit images (raw bytes broke `image_palette()` and `image_segment_kmeans()`).
+* `image_palette()` and `image_expand()` used `image_combine(..., along =)`, which no longer concatenates images; they now use an internal helper.
+* `shapefile_build(controlpoints =)` accepts an `sf` object again (e.g. read with `shapefile_input()`), besides the result of `mosaic_view(edit = TRUE)`.
+* `mosaic_analyze(segment_plot = TRUE)` failed with `[mask] extents do not match` when the analysis was cropped to the shapefile extent, and passed `summarize_quantiles = NULL` to `mosaic_extract()`, which rejected it.
+* `plot_index()` gives the colour bars an absolute width, fixing "figure margins too large" with several indexes on small devices.
+* `mosaic_chm_extract()`, `mosaic_segment_pick()` and `mosaic_draw()` referenced variables that did not exist in the function (`shp`, `mind_temp`, `summarize_quantiles`) and always failed. These names were listed in `globalVariables()`, which hid the problem from `R CMD check`; they were removed from the list.
+* `mosaic_chm_extract()` names the height quantiles `min`, `q05`, `q50`, `q95` and `max` again (as documented and as in pliman < 4.0), instead of `q0`, `q0.05`, ...
+* `mosaic_aggregate()` (also used by `mosaic_view()`) falls back to `terra::resample()` when `gdal_translate` fails, e.g. on a mosaic read from a URL.
+* `poly_area()` and `plot_polygon()` report empty elements in a list of polygons (e.g. a name that does not exist) instead of failing in compiled code.
+
+### Deep Learning Architecture & Foundation Models
+* **Segment Anything 2.1 (SAM 2.1)**: Full ONNX Runtime C++ execution for sub-pixel instance segmentation masks, zero-shot polygon extraction, and interactive exemplar prompting.
+* **PerSAM (Personalized Segment Anything)**: One-shot visual exemplar segmentation and high-density counting via multi-prototype max-pooling, dense stride-1 convolutional ZNCC matching, and ViT semantic guidance.
+* **Grounded-SAM & Open-Vocabulary Detection**: Zero-shot text-prompted instance segmentation and bounding box proposals combining Grounding DINO with SAM 2.1.
+* **Optical Character Recognition (OCR)**: High-throughput scene text detection and recognition via `image_ocr_dl()` powered by DBNet and PaddleOCRv4/v5 (Latin, English, multilingual), plus Microsoft TrOCR transformer decoders.
+* **Automated Batch OCR Renaming**: `image_rename_ocr()` with regex-based tag extraction, automatic folder restructuring, and collision-free `image_rename_undo()` rollback logs.
+* **Low-Light Image Restoration & Enhancement**: `image_restore_dl()` featuring Zero-DCE (Zero-Reference Deep Curve Estimation) and NAFNet for noise removal and deblurring.
+* **Deep Feature Embeddings & Visual Discovery**: High-dimensional semantic feature representations via OpenAI CLIP ViT-B/32 (512-D) and Meta DINOv2-S (384-D), with spatial PCA false-color mapping.
+* **Real-ESRGAN Super-Resolution**: Neural upscaling (`2x` and `4x`) via `image_superres_dl()` for enhancing low-resolution plant imagery and similarity heatmaps.
+* **Zero-Shot World Detection**: `image_detect_world()` enabling open-vocabulary object localization across arbitrary text prompts.
+* **Keypoint Pose Estimation**: `image_pose_dl()` and `yolo_dataset_label_pose()` for joint detection, skeleton analysis, and custom pose dataset annotation.
+
+### YOLO Dataset Curation, Annotation & Training Pipeline
+* **Interactive Manual Bounding Box Labeling**: `yolo_dataset_export(model = "manual")` (or `"box"`, `"boxes"`) allows instant, lightweight 2-click bounding box drawing (zero AI downloads or GPU required) with live interactive review, undo, and multi-class support.
+* **Automated Dataset Export & Active Learning**: `yolo_dataset_export()` supports PerSAM one-shot exemplars, Grounded-SAM text prompts, pre-trained YOLO pseudo-labeling, classical contour extraction, and pure manual labeling with automatic `train`/`val`/`test` splitting and `data.yaml` generation.
+* **Few-Shot Fitting & Rapid Propagation**: `yolo_fewshot_fit()` and `yolo_fewshot_predict()` for fitting compact visual prototype memories from 1-5 sample images and propagating labels across thousands of images in seconds.
+* **Interactive Dataset Review & Correction**: `yolo_dataset_review()` (and `yolo_dataset_edit()`) provides visual auditing, one-click false positive deletion (`r`), 2-point box addition (`a`), threshold tuning (`t`), and live annotation synchronization.
+* **Dataset Auditing, Hygiene & Manipulation**: Comprehensive suite for dataset lifecycle management:
+  - `yolo_dataset_audit()`: Validates label syntax, detects out-of-bounds coordinates, empty annotations, and missing image pairs.
+  - `yolo_dataset_dedup()`: Identifies duplicate or near-duplicate frames via perceptual and feature hashing.
+  - `yolo_dataset_merge()` & `yolo_dataset_split()`: Merges multiple datasets with automated class ID remapping and splits datasets into balanced partitions.
+  - `yolo_dataset_augment()`: Rich offline data augmentation (photometric jitter, perspective shifts, cutouts, rotations, noise).
+  - `yolo_dataset_copypaste()`: Automated foreground object copy-paste augmentation for expanding rare object classes.
+  - `yolo_dataset_tiling()`: Ultra-resolution image slicing for small object detection.
+  - `yolo_dataset_balance()`: Balances class distributions via selective oversampling or undersampling.
+  - `yolo_dataset_anonymize()`: Automated blurring/pixelation of sensitive objects (faces, license plates, badges).
+  - `yolo_dataset_convert()` & `yolo_dataset_to_segment()`: Converts between detection bounding boxes and instance segmentation polygons.
+  - `yolo_dataset_zip()` & `yolo_dataset_unzip()`: Lossless compression and sharing of YOLO datasets.
+
+### Model Training, Testing & Diagnostics
+* **Integrated YOLO Training Workflow**: `yolo_train()` and `yolo_train_workflow()` provide complete training management with automated dependency setup, tensorboard tracking, checkpoint recovery, and hyperparameter tuning.
+* **Model Evaluation & Error Analysis**: `yolo_model_test()` and `yolo_error_analysis()` generate detailed confusion matrices, precision-recall breakdowns, and diagnostic error classifications (background confusion, localization errors, false positives).
+* **Model & Pipeline Comparison**: `image_compare_dl()` (with `plot.image_compare_dl()`) compares two detection or segmentation outputs (`image_detect_dl()` or `image_segment_dl()`) via IoU instance matching, supporting intersection (`mode = "intersection"`), symmetric or one-sided difference (`mode = "difference"`, `"only_x"`, `"only_y"`), and union (`mode = "all"`), with automatic status color-coding, legend, and Jaccard/Dice metrics.
+* **Dedicated Plot Methods & Enriched Geometry**:
+  - Added S3 methods `plot.image_segment_dl()` and `plot.image_detect_dl()` for re-rendering segmentation and detection overlays with customizable visual parameters and seamless `image_combine()` integration.
+  - `image_detect_dl()` and `image_segment_dl()` now report bounding-box geometry (`width`, `height`, `box_area`) alongside polygon mask `area` and `box_fill` (`area / box_area` mask-to-box fill ratio), and consistently attach `attr(x, "labels")` and `attr(x, "semantic_map")` (including `-sem` semantic segmentation models).
+* **Publication-Ready Grid Headers in `image_combine()`**: Added `row_labels`, `col_labels`, `strip_bg`, `strip_col`, `strip_cex`, and automatic device-aspect-ratio-fitted `strip_size` for multi-row and multi-column image panels.
+* **Quantization & Edge Optimization**: `model_to_int8()`, `model_to_fp16()`, `onnx_quantize()`, and `yolo_export_engine()` for deploying lightweight INT8/FP16 models and TensorRT engines.
+
+### 3D Reconstruction & Video Analytics
+* **Gaussian Splatting & 3D Phenotyping**: `gs_create()`, `gs_render()`, `gs_measure()`, and `gs_segment_sam()` for 3D point cloud generation, volumetric plant reconstruction, and novel view synthesis.
+  - `gs_fit()` now follows Kerbl et al. (2023): anisotropic Gaussians (scales + rotations), SH up to degree 3, L1 + D-SSIM loss, extent-relative densification, opacity reset and exact analytical gradients. The GPU back end (PyTorch + CuPy runtime-compiled CUDA kernels) bins splats into tiles correctly (previously each tile received an arbitrary slice of Gaussians).
+  - COLMAP reconstructions with lens distortion (e.g. `"OPENCV"`) are undistorted with `image_undistorter` before training; point clouds are initialized with opacity 0.1 and k-NN scales.
+  - `gs_viewer()` renders true anisotropic, depth-sorted splats (WebGL2) and opens trained splats in `"splats"` mode; fixed a duplicated `let` declaration that prevented the viewer script from running, plus crop/export errors.
+  - `gs_export_ply()` writes the full 3DGS PLY layout (`f_rest_*`), and `gs_import_metashape()` reads trained 3DGS PLY files back.
+  - `gs_viewer()` gains the **GS Studio** panel (`tools = TRUE`; code in `inst/viewer/`):
+    - *Render*: view-dependent color from the spherical harmonics (bands 1-3, 8-bit quantized), floater filter (minimum opacity and maximum splat size), exposure/contrast/saturation/gamma and background color.
+    - *Edit*: rectangle, lasso and brush selection with delete, keep-selected, invert and undo; a section (clipping) plane along X, Y, Z or the view direction; export of the visible splats as a full 3DGS PLY (SH, opacity, scales, rotations), readable by `gs_import_metashape()`.
+    - *Measure*: scale calibration from two points of known distance (new argument `unit_scale`; COLMAP reconstructions are shown in model units until calibrated), polyline, angle and area measurements (live value while drawing; finish with double-click, Enter, right-click, the Finish button or by leaving the tool), and voxel volume plus principal dimensions of the selection.
+    - *Output*: camera animations recorded as WebM (turntable, spiral/helix, vortex spiral zoom-in, zoom in-out, orbit with zoom pulses, wiggle and fly-through along the training cameras, with turns, height, zoom, direction and easing controls), high-resolution and transparent PNG snapshots, and a blend/split comparison of the render with the original photo of a training camera.
+    - New arguments `focus_subject = TRUE` (opens with the *Focus on Subject* region, 35%) and `min_opacity = 0.2` (initial floater filter; skipped when it would hide more than 90% of the splats). Area measurements are drawn as filled polygons (salmon, alpha 0.5).
+    - Picking (ruler, coordinates, measurements) now snaps to the front-most *visible* splat and works in model coordinates, fixing misplaced ruler markers and coordinates when the model is rotated; measurement labels are drawn on top of the splats.
+  - `gs_filter_outliers()` gains `method = "density"` (now the default), the same voxel-grid density filter as the *Online Noise Filter* of `gs_viewer()` (`density = "light"`, `"medium"`, `"strong"` or a percentile; `cell_size`). The SOR cut-off (`mean + std_ratio * sd`) is inflated by a few very distant tie points and left most floating noise in SfM clouds; it remains available with `method = "sor"` (or `"both"`). The viewer now uses the same voxel grid as R, so both filters agree.
+* **High-Throughput Video Analytics**: `video_detect_dl()` with multi-object tracking (ByteTrack/SORT), C++ state management, and real-time bounding box and mask rendering.
+* **Image Stitching & Focus Stacking**: `image_stitch()` for seamless panoramic mosaic construction and `focus_stack()` for extended depth-of-field macro photography.
+
 # pliman 3.2.0
 ## New Functions
+* New `yolo_benchmark()` to measure YOLO inference speed (raw C++ inference, the full `image_detect_dl()` pipeline and, optionally, SAHI) with warm-up iterations excluded from the timings.
+* New `pliman_session_info()` and `pliman_max_sessions()` to inspect and size the cache of ONNX Runtime sessions.
+* New `pliman_gpu_provider()` and `onnx_available_providers()`: GPU sessions can now use the NVIDIA CUDA and TensorRT execution providers (Windows and Linux, with `onnx_install(engine = "cuda")`), CoreML (macOS) and OpenVINO, besides DirectML. The default (`"auto"`) keeps the previous behaviour; a provider that cannot start falls back to CUDA, DirectML and then the CPU. `pliman_session_info()` reports the provider actually used.
+* New `pliman_onnx_profiling()` and `onnx_profile_summary()` to trace which execution provider ran each operator (finds CPU fallbacks inside GPU sessions).
+* New `pliman_onnx_graph_cache()` (opt-in): saves ONNX Runtime's optimized graphs to disk so later CPU sessions start faster (SAM 2.1 encoder 3.3 s -> 0.18 s, Grounding DINO 1.7 s -> 0.7 s), with identical predictions.
+* New `pliman_build_model_variant()` to build INT8/FP16 SAM 2.1 encoders and a mixed-precision FP16 Grounding DINO, selectable with `options(pliman.sam_encoder = )` and used automatically for Grounding DINO under CUDA/TensorRT. Speed depends on the hardware (see its documentation).
 * Modernized `get_card_colors()` with perspective-aware **Bilinear Homography**, dynamic **Negative Buffering** (`buffer = 0.45`), outer margins, multi-statistic extraction (`mean`, `median`, `sd`, `n_pixels`), automated reference matching, $\Delta E$ calculations, and modern overlay/swatch plotting.
 * Modernized `image_correction()` to support industry-standard **CCM (Color Correction Matrix 3x3)** with Ridge Regularization, **Affine (4x3)**, **White Balance**, **Cubic (9-term)**, and **Root-Polynomial (20-term)** models with native C++ acceleration and direct integration with `get_card_colors()`.
 * New `colorchecker_ref()` providing standard reference sRGB coordinates for 24-patch ColorChecker Classic (Macbeth) charts.
@@ -16,6 +104,24 @@
 * New `get_uuid()` function for generating unique identifiers.
 
 ## Minor Improvements
+* **Faster deep-learning inference** (outputs unchanged unless noted):
+  - ONNX Runtime sessions: a single process-wide environment, cached input/output metadata, up to 8 cached sessions (was 3) and no eviction of other thread/device variants of the same model, so Grounded-SAM, PerSAM and feature extraction no longer reload models on every call. GPU sessions with static input shapes are warmed up at creation.
+  - YOLO decoding reads class scores contiguously (class-major) in parallel, and non-maximum suppression runs per class. Instance masks are decoded in parallel across detections.
+  - `image_detect_sahi()` runs all slices (and the full-image pass) in one C++ call (`run_yolo_tiles_cpp()`) for detection and pose models instead of calling `image_detect_dl()` per slice. `video_detect_dl()` with `sahi = TRUE` uses the same path.
+  - `video_detect_dl()`: object tracking state is kept in C++ (only per-frame results return to R), the nested-box filter runs in C++, the model is warmed up before the first frame, per-frame records are bound column-wise at the end, and video frames are converted from BGRA to RGB in parallel.
+  - Model lookups are cached: alias table built once, directory listings and failed lookups cached, `pliman_download_model()` returns cached paths, model input sizes come from a static table, and GPU and Python environment checks run once per session.
+  - Grounded-SAM no longer clears all cached sessions on GPUs with less than 6 GB of memory. Grounded-SAM and PerSAM process each instance mask in a window around its box instead of the full image.
+  - `.preprocess_nchw()` (U2Net, RMBG, BEN2, SAM, Grounding DINO, StarDist, DINOv2, CLIP, depth) runs in C++ with identical results.
+  - Parallel batch functions give each CPU worker `physical cores / workers` ONNX threads, cap concurrent GPU workers at `getOption("pliman.gpu_workers", 2)`, and no longer serialise the whole input list with every chunk.
+  - `save_image = TRUE` in `image_detect_dl_batch()` and `image_detect_sahi_batch()` draws and encodes annotated images natively instead of through the R graphics device (falls back to it for other formats or with `options(pliman.native_save = FALSE)`).
+  - SAHI tiles of batch-dynamic YOLO exports run in batches of 8 under CUDA/TensorRT (`PLIMAN_YOLO_TILE_BATCH`), with the same post-processing per tile.
+  - Grounding DINO accepts FP16 exports; with an FP16 model the pixel tensor is converted and the outputs widened automatically.
+  - Grounded-SAM / PerSAM in `image_segment_dl()` no longer default to the CPU on GPUs with less than 6 GB of memory; any dedicated GPU is used. On such GPUs Grounded-SAM keeps Grounding DINO on the GPU and runs SAM 2.1 on the CPU (`options(pliman.gsam_sam_device =)` overrides), instead of releasing and rebuilding DINO for every image: about 3 s per image after warm-up on a 4 GB GTX 1650, versus ~50 s with the former release policy and ~13 s on the CPU.
+  - GPU memory guard (Windows): idle GPU sessions are released before a new one is built when the process is above 80% of its video-memory budget, and a session built over budget is rebuilt once memory frees up. A YOLO model loaded after Grounded-SAM on a 4 GB GPU ran at 145-390 ms per image (part of its memory demoted to system RAM, permanently) and now runs at ~50 ms.
+  - A GPU session that fails to build (e.g. GPU memory held by another process) now warns, records the reason in `pliman_session_info()$fallback_reason` and is retried on the GPU after 30 s, instead of silently staying on the CPU for the rest of the R session.
+  - Opt-in `options(pliman.video_pipeline = TRUE)` overlaps YOLO inference of the next video frame with tracking/drawing of the current one (identical detections).
+* New `max_det` argument in `image_detect_dl()` and `video_detect_dl()` (maximum detections kept after NMS; `0` keeps all). New `filter_nested` argument in `video_detect_dl()`.
+* Documented inference-speed guidance and hardware dependence of FP16, INT8 and TensorRT (Tensor Cores; `.engine` files cannot be run by pliman) in `image_detect_dl()`, `video_detect_dl()`, batch and SAHI functions, `yolo_export_engine()`, `onnx_quantize()` and the README. Added deep-learning groups to the pkgdown reference.
 * Reduced external package dependencies by replacing heavy external imports (such as **EBImage**`) with native, standalone C++ algorithms for image processing and segmentation.
 * Removed dependencies on **future**, **foreach** and **doFuture** in favour of the new **mirai** background engine. This simplifies installation and delivers faster, more reliable parallel processing across all image-based functions.
 * Added **cli**-based messages (rules, progress steps and alerts) throughout both parallel and sequential workflows to provide clear, informative status updates during long-running image processing tasks.
@@ -37,6 +143,12 @@
 * Added `return_exact = TRUE` to `image_opening()` and `analyze_objects()` to remove noise (including noise touching large objects) while preserving 100% of exact original object boundaries.
 
 ## Bug fixes
+* `image_detect_dl()` now processes every path of a character vector (previously only the first) and forwards `filter_nested` when given a list of images.
+* `image_detect_sahi()` reports `cx`/`cy` in global image coordinates (they were left in slice coordinates).
+* YOLO segmentation: where instance masks overlap, the pixel now belongs to the highest-scoring instance (previously the lowest-scoring one overwrote it).
+* `update_tracker_cpp()` no longer modifies vectors returned for previous frames in place.
+* ONNX Runtime library lookup now honours `engine` in YOLO and StarDist inference.
+* `src/Makevars` no longer defines self-referencing linker variables that break builds on Linux/macOS.
 * Fix bug with `mosaic_chm()` with lat/lon projection.
 * Fix error in `mosaic_chm_extract()`.
 * Fix bug with `as_sf = FALSE`.

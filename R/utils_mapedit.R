@@ -29,12 +29,10 @@
 #' @param ... Additional arguments to be passed to `downsample_fun`.
 #' @return An `sf` object, the same object returned by [mapedit::editMap()].
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' # Example usage:
 #' img <- image_pliman("sev_leaf.jpg")
 #' image_view(img)
-#' }
 #'
 #' @export
 #'
@@ -57,17 +55,6 @@ image_view <- function(img,
   check_mapview()
   viewopt <- c("rgb", "index")
   viewopt <- viewopt[pmatch(show[[1]], viewopt)]
-  compute_downsample <- function(nr, nc, n) {
-    if (n == 0) {
-      invisible(nr * nc)
-    } else if (n == 1) {
-      invisible(ceiling(nr/2) * ceiling(nc/2))
-    } else if (n > 1) {
-      invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
-    } else {
-      cli::cli_abort("Invalid downsampling factor. n must be a non-negative integer.")
-    }
-  }
 
   arr <- if (inherits(img, "image")) {
     image_data(img, type = "numeric")
@@ -285,13 +272,11 @@ custom_palette <- function(colors = c("yellow", "#53CC67", "#009B95", "#00588B",
 #' @return None
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' # Example usage:
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' plot_index(img, index = c("R", "G"))
-#' }
 #'
 plot_index <- function(img = NULL,
                        object = NULL,
@@ -308,17 +293,6 @@ plot_index <- function(img = NULL,
                        nrow = NULL,
                        aspect_ratio = NA){
   check_mapview()
-  compute_downsample <- function(nr, nc, n) {
-    if (n == 0) {
-      invisible(nr * nc)
-    } else if (n == 1) {
-      invisible(ceiling(nr/2) * ceiling(nc/2))
-    } else if (n > 1) {
-      invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
-    } else {
-      cli::cli_abort("Invalid downsampling factor. n must be a non-negative integer.")
-    }
-  }
   vieweropt <- c("base", "mapview")
   vieweropt <- vieweropt[pmatch(viewer[1], vieweropt)]
 
@@ -420,10 +394,31 @@ plot_index <- function(img = NULL,
         }
       }
 
-      widths_vec <- rep(c(8, 1), times = ncol)
-      layout(mat_layout, widths = widths_vec)
+      # colorbar panels get an absolute width that always fits their margins
+      # (0.3 + 2.2 lines) plus the bar itself; images share the remaining width.
+      # Relative widths (8:1) made the bars narrower than their margins on
+      # small devices ("figure margins too large").
+      bar_in <- (0.3 + 2.2) * par("csi") + 0.18
+      dev_w <- tryCatch(par("din")[1], error = function(e) NA_real_)
+      widths_vec <- if (is.finite(dev_w) && dev_w > ncol * (bar_in + 0.6)) {
+        rep(c(1, lcm(bar_in * 2.54)), times = ncol)
+      } else {
+        rep(c(8, 1), times = ncol)
+      }
+      tryCatch({
+        layout(mat_layout, widths = widths_vec)
+      }, error = function(e) {
+        if (grepl("gr[\u00e1a]fico inv[\u00e1a]lido|invalid graphics", e$message, ignore.case = TRUE)) {
+          if (grDevices::dev.cur() > 1L) {
+            try(grDevices::dev.off(), silent = TRUE)
+          }
+          layout(mat_layout, widths = widths_vec)
+        } else {
+          stop(e)
+        }
+      })
       old_par <- par(mar = c(1.5, 1.5, 2, 0.2))
-      on.exit({ par(old_par); layout(1) }, add = TRUE)
+      on.exit({ try(par(old_par), silent = TRUE); try(layout(1), silent = TRUE) }, add = TRUE)
 
       pal <- color_regions
       n_pal <- length(pal)
@@ -437,7 +432,7 @@ plot_index <- function(img = NULL,
         u_vec  <- as.vector(obj)
         # Keep raw as integer 0-255 so colorbar shows true uint8 scale
         u <- if (is.raw(u_vec)) as.integer(u_vec) else as.double(u_vec)
-        dim(u) <- c(nr_obj, nc_obj)  # [width, height] — correct for image(x, y, z)
+        dim(u) <- c(nr_obj, nc_obj)  # [width, height] -- correct for image(x, y, z)
 
         # No transpose: u[x, y] already matches image(x=width, y=height, z=u)
         # Flip y with ylim so row 1 (top of image) appears at top of plot
@@ -621,12 +616,10 @@ plot_index <- function(img = NULL,
 #'   all functions.
 #' @return The alighed/cropped image for further visualization or analysis.
 #'
-#' @examples
+#' @examplesIf interactive()
 #' # Example usage:
-#' if (interactive()) {
 #' img <- image_pliman("mult_leaves.jpg")
 #' image_prepare(img, viewer = "mapview")
-#'}
 #' @export
 image_prepare <- function(img,
                           viewer = get_pliman_viewer(),

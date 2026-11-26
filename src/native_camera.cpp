@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <atomic>
 #include "stb_image_write.h"
 
@@ -309,6 +310,139 @@ static void window_finalizer(SEXP ptr) {
   if (win) {
     delete win;
     R_ClearExternalPtr(ptr);
+  }
+}
+
+struct NativeVideoReader {
+  IMFSourceReader* pReader = nullptr;
+  UINT32 width = 0;
+  UINT32 height = 0;
+  INT32 stride = 0;
+  int abs_stride = 0;
+  bool is_bottom_up = false;
+  double fps = 30.0;
+  double duration = 0.0;
+  int total_frames = 0;
+  LONGLONG last_timestamp = 0;
+  LONGLONG producer_last_ts = 0;
+  int current_frame = 0;
+  bool is_open = false;
+
+  // Asynchronous 2-slot prefetch queue for zero-latency decoding
+  std::thread prefetch_thread;
+  std::mutex mtx;
+  std::condition_variable cv_can_produce;
+  std::condition_variable cv_can_consume;
+  bool prefetch_active = false;
+  bool stop_requested = false;
+  bool eof_reached = false;
+  std::vector<unsigned char> slot_rgb[2];
+  LONGLONG slot_ts[2] = {0, 0};
+  int q_read = 0;
+  int q_write = 0;
+  int q_count = 0;
+  double target_fps = 0.0;
+  double start_time = 0.0;
+  double end_time = 0.0;
+
+  ~NativeVideoReader() {
+    close();
+  }
+
+  void stop_prefetch() {
+    if (prefetch_active) {
+      {
+        std::lock_guard<std::mutex> lk(mtx);
+        stop_requested = true;
+      }
+      cv_can_produce.notify_all();
+      cv_can_consume.notify_all();
+      if (prefetch_thread.joinable()) {
+        prefetch_thread.join();
+      }
+      prefetch_active = false;
+    }
+  }
+
+  void close() {
+    stop_prefetch();
+    if (pReader) {
+      pReader->Release();
+      pReader = nullptr;
+    }
+    is_open = false;
+  }
+};
+
+static void video_reader_finalizer(SEXP ptr) {
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(ptr);
+  if (reader) {
+    delete reader;
+    R_ClearExternalPtr(ptr);
+  }
+}
+
+struct NativeVideoWriter {
+  IMFSinkWriter* pWriter = nullptr;
+  DWORD streamIndex = 0;
+  int width = 0;
+  int height = 0;
+  double fps = 30.0;
+  LONGLONG frame_duration = 0;
+  LONGLONG current_time = 0;
+  bool is_open = false;
+
+  // Asynchronous 2-slot H.264 encoding queue
+  std::thread writer_thread;
+  std::mutex mtx;
+  std::condition_variable cv_can_queue;
+  std::condition_variable cv_can_encode;
+  bool async_active = false;
+  bool stop_requested = false;
+  std::vector<unsigned char> slot_bgr32[2];
+  int w_read = 0;
+  int w_write = 0;
+  int w_count = 0;
+
+  void stop_async() {
+    if (async_active) {
+      {
+        std::lock_guard<std::mutex> lk(mtx);
+        stop_requested = true;
+      }
+      cv_can_encode.notify_all();
+      cv_can_queue.notify_all();
+      if (writer_thread.joinable()) {
+        writer_thread.join();
+      }
+      async_active = false;
+    }
+  }
+
+  void close() {
+    stop_async();
+    if (pWriter) {
+      if (is_open) {
+        pWriter->Finalize();
+      }
+      pWriter->Release();
+      pWriter = nullptr;
+    }
+    is_open = false;
+  }
+
+  ~NativeVideoWriter() {
+    close();
+  }
+};
+
+static void video_writer_finalizer(SEXP ptr) {
+  if (TYPEOF(ptr) == EXTPTRSXP) {
+    NativeVideoWriter* writer = (NativeVideoWriter*)R_ExternalPtrAddr(ptr);
+    if (writer) {
+      delete writer;
+      R_ClearExternalPtr(ptr);
+    }
   }
 }
 #endif
@@ -1016,7 +1150,15 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
     next_fps_target = 0;
   }
 
-  std::vector<unsigned char> rgb_buffer((size_t)width * height * 3);
+  const int batch_cap = 8;
+  std::vector<std::vector<unsigned char>> batch_rgb(batch_cap, std::vector<unsigned char>((size_t)width * height * 3));
+  std::vector<std::string> batch_paths(batch_cap);
+  std::vector<double> batch_times(batch_cap);
+  std::vector<int> batch_ok(batch_cap, 0);
+  int batch_len = 0;
+  int queued_count = 0;
+  int last_valid_slot = -1;
+
   std::vector<int> saved_frames;
   std::vector<std::string> saved_files;
   std::vector<double> saved_times;
@@ -1046,6 +1188,38 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
   if (verbose) {
     render_c_progress_bar(0, total_expected, 0.0);
   }
+
+  auto flush_batch = [&]() {
+    if (batch_len <= 0) return;
+    #pragma omp parallel for schedule(dynamic) if(batch_len > 1)
+    for (int b = 0; b < batch_len; ++b) {
+      if (is_png) {
+        batch_ok[b] = stbi_write_png(batch_paths[b].c_str(), (int)width, (int)height, 3, batch_rgb[b].data(), (int)width * 3);
+      } else {
+        batch_ok[b] = stbi_write_jpg(batch_paths[b].c_str(), (int)width, (int)height, 3, batch_rgb[b].data(), quality);
+      }
+    }
+    for (int b = 0; b < batch_len; ++b) {
+      if (batch_ok[b]) {
+        saved_count++;
+        saved_frames.push_back(saved_count);
+        saved_files.push_back(batch_paths[b]);
+        saved_times.push_back(batch_times[b]);
+        if (callback.isNotNull()) {
+          Rcpp::Function cb(callback.get());
+          cb();
+        }
+      }
+    }
+    if (verbose) {
+      auto t_now = std::chrono::steady_clock::now();
+      double el = std::chrono::duration<double>(t_now - t_start).count();
+      render_c_progress_bar(saved_count, total_expected, el);
+    }
+    batch_len = 0;
+  };
+
+  LONGLONG half_frame_100ns = (LONGLONG)(5000000.0 / std::max(1.0, native_fps));
 
   while (true) {
     if (++check_interrupt_counter % 20 == 0) {
@@ -1087,9 +1261,9 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
         target_idx++;
       }
     } else if (sample_by_fps) {
-      if (timestamp >= next_fps_target) {
+      if (timestamp + half_frame_100ns >= next_fps_target) {
         should_save = true;
-        while (next_fps_target <= timestamp) {
+        while (next_fps_target <= timestamp + half_frame_100ns) {
           next_fps_target += fps_step_100ns;
         }
       }
@@ -1104,50 +1278,61 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
     }
 
     IMFMediaBuffer* pBuffer = nullptr;
-    if (SUCCEEDED(pSample->ConvertToContiguousBuffer(&pBuffer)) && pBuffer) {
+    HRESULT hrBuf = pSample->GetBufferByIndex(0, &pBuffer);
+    if (FAILED(hrBuf) || !pBuffer) {
+      hrBuf = pSample->ConvertToContiguousBuffer(&pBuffer);
+    }
+    if (SUCCEEDED(hrBuf) && pBuffer) {
       BYTE* pData = nullptr;
       DWORD maxLen = 0, curLen = 0;
       if (SUCCEEDED(pBuffer->Lock(&pData, &maxLen, &curLen)) && pData) {
-        if (curLen >= (DWORD)(abs_stride * height)) {
-          #pragma omp parallel for schedule(static) if(height > 100)
-          for (int y = 0; y < (int)height; ++y) {
-            int src_y = is_bottom_up ? ((int)height - 1 - y) : y;
-            const unsigned char* src_row = pData + (size_t)src_y * abs_stride;
-            unsigned char* dst_row = rgb_buffer.data() + (size_t)y * width * 3;
-            for (int x = 0; x < (int)width; ++x) {
+        int w = (int)width;
+        int h = (int)height;
+        int actual_stride = abs_stride;
+        int min_stride = w * 4;
+        int align64 = ((min_stride + 63) / 64) * 64;
+        int align128 = ((min_stride + 127) / 128) * 128;
+
+        if (h > 0 && (curLen % h == 0) && (int)(curLen / h) >= min_stride) {
+          actual_stride = (int)(curLen / h);
+        } else if (abs_stride >= min_stride && (abs_stride % 64 == 0) && (DWORD)(abs_stride * h) <= curLen) {
+          actual_stride = abs_stride;
+        } else if ((DWORD)(align64 * h) <= curLen) {
+          actual_stride = align64;
+        } else if ((DWORD)(align128 * h) <= curLen) {
+          actual_stride = align128;
+        } else if (abs_stride >= min_stride) {
+          actual_stride = abs_stride;
+        } else {
+          actual_stride = min_stride;
+        }
+
+        if (curLen >= (DWORD)((size_t)actual_stride * h)) {
+          unsigned char* dst_buf = batch_rgb[batch_len].data();
+          #pragma omp parallel for schedule(static) if(h > 100)
+          for (int y = 0; y < h; ++y) {
+            int src_y = is_bottom_up ? (h - 1 - y) : y;
+            const unsigned char* src_row = pData + (size_t)src_y * actual_stride;
+            unsigned char* dst_row = dst_buf + (size_t)y * w * 3;
+            for (int x = 0; x < w; ++x) {
               dst_row[x * 3 + 0] = src_row[x * 4 + 2]; // R
               dst_row[x * 3 + 1] = src_row[x * 4 + 1]; // G
               dst_row[x * 3 + 2] = src_row[x * 4 + 0]; // B
             }
           }
 
+          queued_count++;
           char fname[256];
-          snprintf(fname, sizeof(fname), "%s%0*d.%s", prefix.c_str(), digits, saved_count + 1, ext.c_str());
-          std::string out_filepath = output_dir + "/" + std::string(fname);
-
-          int write_res = 0;
-          if (is_png) {
-            write_res = stbi_write_png(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), (int)width * 3);
-          } else {
-            write_res = stbi_write_jpg(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), quality);
-          }
-
-          if (write_res) {
-            saved_count++;
-            saved_frames.push_back(saved_count);
-            saved_files.push_back(out_filepath);
-            saved_times.push_back((double)timestamp / 10000000.0);
-            if (verbose) {
-              auto t_now = std::chrono::steady_clock::now();
-              double el = std::chrono::duration<double>(t_now - t_start).count();
-              render_c_progress_bar(saved_count, total_expected, el);
-            }
-            if (callback.isNotNull()) {
-              Rcpp::Function cb(callback.get());
-              cb();
-            }
-          }
+          snprintf(fname, sizeof(fname), "%s%0*d.%s", prefix.c_str(), digits, queued_count, ext.c_str());
+          batch_paths[batch_len] = output_dir + "/" + std::string(fname);
+          batch_times[batch_len] = (double)timestamp / 10000000.0;
+          last_valid_slot = batch_len;
           last_frame_valid = true;
+          batch_len++;
+
+          if (batch_len >= batch_cap) {
+            flush_batch();
+          }
         }
         pBuffer->Unlock();
       }
@@ -1156,17 +1341,19 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
     pSample->Release();
   }
 
+  flush_batch();
+
   // If sample_by_n and only target_n - 1 frames were saved due to stream end timing,
   // save the last valid frame so the user gets exactly target_n frames.
-  if (sample_by_n && saved_count == (target_n - 1) && last_frame_valid) {
+  if (sample_by_n && saved_count == (target_n - 1) && last_frame_valid && last_valid_slot >= 0) {
     char fname[256];
     snprintf(fname, sizeof(fname), "%s%0*d.%s", prefix.c_str(), digits, saved_count + 1, ext.c_str());
     std::string out_filepath = output_dir + "/" + std::string(fname);
     int write_res = 0;
     if (is_png) {
-      write_res = stbi_write_png(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), (int)width * 3);
+      write_res = stbi_write_png(out_filepath.c_str(), (int)width, (int)height, 3, batch_rgb[last_valid_slot].data(), (int)width * 3);
     } else {
-      write_res = stbi_write_jpg(out_filepath.c_str(), (int)width, (int)height, 3, rgb_buffer.data(), quality);
+      write_res = stbi_write_jpg(out_filepath.c_str(), (int)width, (int)height, 3, batch_rgb[last_valid_slot].data(), quality);
     }
     if (write_res) {
       saved_count++;
@@ -1206,3 +1393,773 @@ Rcpp::DataFrame split_video_native_cpp(std::string video_path,
   return Rcpp::DataFrame::create();
 #endif
 }
+
+// [[Rcpp::export]]
+bool has_native_video_reader_cpp() {
+#ifdef _WIN32
+  return true;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+SEXP open_native_video_reader_cpp(std::string video_path) {
+#ifdef _WIN32
+  ensure_mf_started();
+
+  int wlen = MultiByteToWideChar(CP_UTF8, 0, video_path.c_str(), -1, NULL, 0);
+  if (wlen <= 0) return R_NilValue;
+  std::wstring wpath(wlen, 0);
+  MultiByteToWideChar(CP_UTF8, 0, video_path.c_str(), -1, &wpath[0], wlen);
+
+  IMFAttributes* pAttributes = nullptr;
+  HRESULT hr = MFCreateAttributes(&pAttributes, 2);
+  if (SUCCEEDED(hr) && pAttributes) {
+    pAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+    pAttributes->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
+  }
+
+  IMFSourceReader* pReader = nullptr;
+  hr = MFCreateSourceReaderFromURL(wpath.c_str(), pAttributes, &pReader);
+  if (pAttributes) pAttributes->Release();
+  if (FAILED(hr) || !pReader) return R_NilValue;
+
+  pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_ALL_STREAMS, FALSE);
+  pReader->SetStreamSelection((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, TRUE);
+
+  IMFMediaType* pMediaType = nullptr;
+  hr = MFCreateMediaType(&pMediaType);
+  if (SUCCEEDED(hr) && pMediaType) {
+    pMediaType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+    pMediaType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+    hr = pReader->SetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, NULL, pMediaType);
+    pMediaType->Release();
+  }
+  if (FAILED(hr)) {
+    pReader->Release();
+    return R_NilValue;
+  }
+
+  IMFMediaType* pActualType = nullptr;
+  hr = pReader->GetCurrentMediaType((DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM, &pActualType);
+  UINT32 width = 0, height = 0;
+  INT32 stride = 0;
+  UINT32 fps_num = 0, fps_den = 1;
+  if (SUCCEEDED(hr) && pActualType) {
+    MFGetAttributeSize(pActualType, MF_MT_FRAME_SIZE, &width, &height);
+    pActualType->GetUINT32(MF_MT_DEFAULT_STRIDE, (UINT32*)&stride);
+    MFGetAttributeRatio(pActualType, MF_MT_FRAME_RATE, &fps_num, &fps_den);
+    pActualType->Release();
+  }
+  if (stride == 0) stride = (INT32)(width * 4);
+  int abs_stride = std::abs((int)stride);
+  bool is_bottom_up = (stride < 0);
+  double native_fps = (fps_den > 0 && fps_num > 0) ? ((double)fps_num / (double)fps_den) : 30.0;
+
+  PROPVARIANT var;
+  PropVariantInit(&var);
+  hr = pReader->GetPresentationAttribute((DWORD)MF_SOURCE_READER_MEDIASOURCE, MF_PD_DURATION, &var);
+  LONGLONG duration_100ns = 0;
+  if (SUCCEEDED(hr) && var.vt == VT_UI8) {
+    duration_100ns = var.uhVal.QuadPart;
+  }
+  PropVariantClear(&var);
+
+  double dur_s = (double)duration_100ns / 10000000.0;
+  int tot_frames = (int)std::max(1.0, std::round(dur_s * native_fps));
+
+  NativeVideoReader* reader = new NativeVideoReader();
+  reader->pReader = pReader;
+  reader->width = width;
+  reader->height = height;
+  reader->stride = stride;
+  reader->abs_stride = abs_stride;
+  reader->is_bottom_up = is_bottom_up;
+  reader->fps = native_fps;
+  reader->duration = dur_s;
+  reader->total_frames = tot_frames;
+  reader->is_open = true;
+
+  SEXP ptr = PROTECT(R_MakeExternalPtr(reader, R_NilValue, R_NilValue));
+  R_RegisterCFinalizerEx(ptr, video_reader_finalizer, (Rboolean)TRUE);
+  UNPROTECT(1);
+  return ptr;
+#else
+  return R_NilValue;
+#endif
+}
+
+// [[Rcpp::export]]
+Rcpp::List get_video_reader_info_cpp(SEXP reader_ptr) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return Rcpp::List::create();
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader || !reader->is_open) return Rcpp::List::create();
+  return Rcpp::List::create(
+    Rcpp::Named("width") = (int)reader->width,
+    Rcpp::Named("height") = (int)reader->height,
+    Rcpp::Named("fps") = reader->fps,
+    Rcpp::Named("duration") = reader->duration,
+    Rcpp::Named("total_frames") = reader->total_frames
+  );
+#else
+  return Rcpp::List::create();
+#endif
+}
+
+#ifdef _WIN32
+static bool decode_single_mf_frame(NativeVideoReader* reader, unsigned char* dst, LONGLONG& out_ts) {
+  int w = (int)reader->width;
+  int h = (int)reader->height;
+  int abs_stride = reader->abs_stride;
+  bool is_bottom_up = reader->is_bottom_up;
+
+  LONGLONG step_100ns = 0;
+  LONGLONG half_src_100ns = 0;
+  if (reader->target_fps > 0.0 && reader->fps > 0.0 && reader->target_fps < reader->fps * 0.98) {
+    step_100ns = (LONGLONG)(10000000.0 / reader->target_fps);
+    half_src_100ns = (LONGLONG)(0.45 * 10000000.0 / reader->fps);
+  }
+  LONGLONG end_100ns = (reader->end_time > 0.0) ? (LONGLONG)(reader->end_time * 10000000.0) : 0;
+  LONGLONG next_target_100ns = 0;
+  if (step_100ns > 0 && reader->current_frame > 0) {
+    next_target_100ns = reader->producer_last_ts + step_100ns;
+  } else if (reader->start_time > 0.0 && reader->current_frame == 0) {
+    next_target_100ns = (LONGLONG)(reader->start_time * 10000000.0);
+  }
+
+  while (true) {
+    DWORD streamIndex = 0, flags = 0;
+    LONGLONG timestamp = 0;
+    IMFSample* pSample = nullptr;
+
+    HRESULT hr = reader->pReader->ReadSample(
+      (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+      0,
+      &streamIndex,
+      &flags,
+      &timestamp,
+      &pSample
+    );
+
+    if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
+      if (pSample) pSample->Release();
+      return false; // EOF
+    }
+
+    if (!pSample) {
+      continue;
+    }
+
+    if (end_100ns > 0 && timestamp > end_100ns) {
+      pSample->Release();
+      return false; // Reached end_time
+    }
+
+    // Fast frame-skipping when target_fps < native fps (or seeking to start_time) without unpacking BGRA->RGB
+    if (next_target_100ns > 0 && timestamp < next_target_100ns - half_src_100ns) {
+      pSample->Release();
+      continue;
+    }
+
+    reader->producer_last_ts = timestamp;
+    if (!reader->prefetch_active) {
+      reader->last_timestamp = timestamp;
+    }
+    reader->current_frame++;
+    out_ts = timestamp;
+
+    IMFMediaBuffer* pBuffer = nullptr;
+    HRESULT hrBuf = pSample->GetBufferByIndex(0, &pBuffer);
+    if (FAILED(hrBuf) || !pBuffer) {
+      hrBuf = pSample->ConvertToContiguousBuffer(&pBuffer);
+    }
+
+    if (SUCCEEDED(hrBuf) && pBuffer) {
+      BYTE* pData = nullptr;
+      DWORD maxLen = 0, curLen = 0;
+      if (SUCCEEDED(pBuffer->Lock(&pData, &maxLen, &curLen)) && pData) {
+        int actual_stride = abs_stride;
+        int min_stride = w * 4;
+        int align64 = ((min_stride + 63) / 64) * 64;
+        int align128 = ((min_stride + 127) / 128) * 128;
+
+        if (h > 0 && (curLen % h == 0) && (int)(curLen / h) >= min_stride) {
+          actual_stride = (int)(curLen / h);
+        } else if (abs_stride >= min_stride && (abs_stride % 64 == 0) && (DWORD)(abs_stride * h) <= curLen) {
+          actual_stride = abs_stride;
+        } else if ((DWORD)(align64 * h) <= curLen) {
+          actual_stride = align64;
+        } else if ((DWORD)(align128 * h) <= curLen) {
+          actual_stride = align128;
+        } else if (abs_stride >= min_stride) {
+          actual_stride = abs_stride;
+        } else {
+          actual_stride = min_stride;
+        }
+        if (curLen >= (DWORD)(actual_stride * h)) {
+          // BGRA -> RGB repack in parallel (runs on the prefetch thread; capped at 4
+          // threads so it does not compete with ONNX Runtime's pool on the R thread).
+#ifdef _OPENMP
+          const int repack_threads = std::max(1, std::min(4, omp_get_max_threads()));
+#endif
+          #pragma omp parallel for schedule(static) num_threads(repack_threads) if(h >= 240)
+          for (int y = 0; y < h; ++y) {
+            int src_y = is_bottom_up ? (h - 1 - y) : y;
+            const unsigned char* src_row = pData + (size_t)src_y * actual_stride;
+            unsigned char* dst_row = dst + (size_t)y * ((size_t)w * 3);
+            for (int x = 0; x < w; ++x) {
+              size_t src_idx = (size_t)x * 4;
+              size_t dst_idx = (size_t)x * 3;
+              dst_row[dst_idx + 0] = src_row[src_idx + 2]; // R
+              dst_row[dst_idx + 1] = src_row[src_idx + 1]; // G
+              dst_row[dst_idx + 2] = src_row[src_idx + 0]; // B
+            }
+          }
+          pBuffer->Unlock();
+          pBuffer->Release();
+          pSample->Release();
+          return true;
+        }
+        pBuffer->Unlock();
+      }
+
+      pBuffer->Release();
+      pSample->Release();
+    } else {
+      pSample->Release();
+    }
+  }
+  return false;
+}
+
+static void video_prefetch_worker_loop(NativeVideoReader* reader) {
+  HRESULT hr_co = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+  while (true) {
+    int write_slot = 0;
+    {
+      std::unique_lock<std::mutex> lk(reader->mtx);
+      reader->cv_can_produce.wait(lk, [&]() {
+        return reader->stop_requested || reader->q_count < 2;
+      });
+      if (reader->stop_requested) break;
+      write_slot = reader->q_write;
+    }
+
+    LONGLONG ts = 0;
+    bool ok = decode_single_mf_frame(reader, reader->slot_rgb[write_slot].data(), ts);
+
+    {
+      std::lock_guard<std::mutex> lk(reader->mtx);
+      if (ok && !reader->stop_requested) {
+        reader->slot_ts[write_slot] = ts;
+        reader->q_write = (reader->q_write + 1) % 2;
+        reader->q_count++;
+      } else {
+        reader->eof_reached = true;
+      }
+    }
+    reader->cv_can_consume.notify_one();
+    if (!ok) break;
+  }
+  if (SUCCEEDED(hr_co)) CoUninitialize();
+}
+#endif
+
+// [[Rcpp::export]]
+bool start_native_video_prefetch_cpp(SEXP reader_ptr, double target_fps = 0.0, double start_time = 0.0, double end_time = 0.0) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return false;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader || !reader->is_open || !reader->pReader) return false;
+
+  reader->stop_prefetch();
+  reader->target_fps = target_fps;
+  reader->start_time = start_time;
+  reader->end_time = end_time;
+
+  if (start_time > 0.0) {
+    static const GUID k_guid_null = { 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0 } };
+    PROPVARIANT var;
+    PropVariantInit(&var);
+    var.vt = VT_I8;
+    var.hVal.QuadPart = (LONGLONG)(start_time * 10000000.0);
+    reader->pReader->SetCurrentPosition(k_guid_null, var);
+    PropVariantClear(&var);
+  }
+
+  size_t frame_bytes = (size_t)reader->width * (size_t)reader->height * 3;
+  reader->slot_rgb[0].resize(frame_bytes);
+  reader->slot_rgb[1].resize(frame_bytes);
+  reader->q_read = 0;
+  reader->q_write = 0;
+  reader->q_count = 0;
+  reader->stop_requested = false;
+  reader->eof_reached = false;
+  reader->prefetch_active = true;
+  reader->prefetch_thread = std::thread(video_prefetch_worker_loop, reader);
+  return true;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+double get_video_reader_timestamp_cpp(SEXP reader_ptr) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return 0.0;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader) return 0.0;
+  return (double)reader->last_timestamp / 10000000.0;
+#else
+  return 0.0;
+#endif
+}
+
+// [[Rcpp::export]]
+bool read_native_video_frame_cpp(SEXP reader_ptr, Rcpp::RawVector out_bm) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return false;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader || !reader->is_open || !reader->pReader) return false;
+
+  if (reader->prefetch_active) {
+    int read_slot = 0;
+    LONGLONG ts = 0;
+    {
+      std::unique_lock<std::mutex> lk(reader->mtx);
+      reader->cv_can_consume.wait(lk, [&]() {
+        return reader->q_count > 0 || reader->eof_reached || reader->stop_requested;
+      });
+      if (reader->q_count == 0) {
+        return false;
+      }
+      read_slot = reader->q_read;
+      ts = reader->slot_ts[read_slot];
+    }
+
+    size_t frame_bytes = (size_t)reader->width * (size_t)reader->height * 3;
+    if ((size_t)out_bm.size() >= frame_bytes && reader->slot_rgb[read_slot].size() >= frame_bytes) {
+      std::memcpy(RAW(out_bm), reader->slot_rgb[read_slot].data(), frame_bytes);
+    }
+
+    {
+      std::lock_guard<std::mutex> lk(reader->mtx);
+      reader->last_timestamp = ts;
+      reader->q_read = (reader->q_read + 1) % 2;
+      reader->q_count--;
+    }
+    reader->cv_can_produce.notify_one();
+    return true;
+  }
+
+  LONGLONG ts = 0;
+  return decode_single_mf_frame(reader, RAW(out_bm), ts);
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+SEXP extract_native_frame_to_image_cpp(SEXP reader_ptr, int target_frame) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return R_NilValue;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (!reader || !reader->is_open || !reader->pReader) return R_NilValue;
+
+  double fps = (reader->fps > 0) ? reader->fps : 30.0;
+  double target_sec = (double)(target_frame - 1) / fps;
+  LONGLONG target_100ns = (LONGLONG)(target_sec * 10000000.0);
+  LONGLONG half_frame_100ns = (LONGLONG)((0.5 / fps) * 10000000.0);
+
+  double cur_sec = (double)reader->last_timestamp / 10000000.0;
+  int cur_frame = (int)std::round(cur_sec * fps) + 1;
+
+  // Seek if target frame is behind current position or more than 20 frames ahead
+  if (target_frame < cur_frame || target_frame > cur_frame + 20) {
+    static const GUID k_guid_null = { 0, 0, 0, { 0, 0, 0, 0, 0, 0, 0, 0 } };
+    PROPVARIANT var;
+    PropVariantInit(&var);
+    var.vt = VT_I8;
+    var.hVal.QuadPart = target_100ns;
+    reader->pReader->SetCurrentPosition(k_guid_null, var);
+    PropVariantClear(&var);
+  }
+
+  int w = (int)reader->width;
+  int h = (int)reader->height;
+  int abs_stride = reader->abs_stride;
+  bool is_bottom_up = reader->is_bottom_up;
+
+  while (true) {
+    DWORD streamIndex = 0, flags = 0;
+    LONGLONG ts = 0;
+    IMFSample* pSample = nullptr;
+
+    HRESULT hr = reader->pReader->ReadSample(
+      (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM,
+      0,
+      &streamIndex,
+      &flags,
+      &ts,
+      &pSample
+    );
+
+    if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
+      if (pSample) pSample->Release();
+      return R_NilValue;
+    }
+    if (!pSample) continue;
+
+    reader->last_timestamp = ts;
+    reader->current_frame = (int)std::round(((double)ts / 10000000.0) * fps) + 1;
+
+    // If before target timestamp, discard sample immediately (zero copy overhead)
+    if (ts < target_100ns - half_frame_100ns) {
+      pSample->Release();
+      continue;
+    }
+
+    // Found target frame: unpack directly into Image layout
+    IMFMediaBuffer* pBuffer = nullptr;
+    HRESULT hrBuf = pSample->GetBufferByIndex(0, &pBuffer);
+    if (FAILED(hrBuf) || !pBuffer) {
+      hrBuf = pSample->ConvertToContiguousBuffer(&pBuffer);
+    }
+
+    if (SUCCEEDED(hrBuf) && pBuffer) {
+      BYTE* pData = nullptr;
+      DWORD maxLen = 0, curLen = 0;
+      if (SUCCEEDED(pBuffer->Lock(&pData, &maxLen, &curLen)) && pData) {
+        int actual_stride = abs_stride;
+        int min_stride = w * 4;
+        int align64 = ((min_stride + 63) / 64) * 64;
+        int align128 = ((min_stride + 127) / 128) * 128;
+
+        if (h > 0 && (curLen % h == 0) && (int)(curLen / h) >= min_stride) {
+          actual_stride = (int)(curLen / h);
+        } else if (abs_stride >= min_stride && (abs_stride % 64 == 0) && (DWORD)(abs_stride * h) <= curLen) {
+          actual_stride = abs_stride;
+        } else if ((DWORD)(align64 * h) <= curLen) {
+          actual_stride = align64;
+        } else if ((DWORD)(align128 * h) <= curLen) {
+          actual_stride = align128;
+        } else if (abs_stride >= min_stride) {
+          actual_stride = abs_stride;
+        } else {
+          actual_stride = min_stride;
+        }
+
+        std::size_t total_pixels = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
+        Rcpp::RawVector out(total_pixels * 3);
+        unsigned char* dst = RAW(out);
+
+        #pragma omp parallel for schedule(static) if(h > 100)
+        for (int y = 0; y < h; ++y) {
+          int src_y = is_bottom_up ? (h - 1 - y) : y;
+          const unsigned char* src_row = pData + (size_t)src_y * actual_stride;
+          for (int x = 0; x < w; ++x) {
+            size_t src_idx = (size_t)x * 4;
+            // R channel in Image (c=0)
+            dst[x + (size_t)w * (y + (size_t)h * 0)] = src_row[src_idx + 2];
+            // G channel in Image (c=1)
+            dst[x + (size_t)w * (y + (size_t)h * 1)] = src_row[src_idx + 1];
+            // B channel in Image (c=2)
+            dst[x + (size_t)w * (y + (size_t)h * 2)] = src_row[src_idx + 0];
+          }
+        }
+
+        pBuffer->Unlock();
+        pBuffer->Release();
+        pSample->Release();
+
+        out.attr("dim") = Rcpp::IntegerVector::create(w, h, 3);
+        out.attr("class") = Rcpp::CharacterVector::create("image", "array");
+        out.attr("colormode") = "Color";
+        return out;
+      }
+      pBuffer->Release();
+    }
+    pSample->Release();
+    return R_NilValue;
+  }
+#else
+  return R_NilValue;
+#endif
+}
+
+// [[Rcpp::export]]
+bool close_native_video_reader_cpp(SEXP reader_ptr) {
+#ifdef _WIN32
+  if (TYPEOF(reader_ptr) != EXTPTRSXP) return false;
+  NativeVideoReader* reader = (NativeVideoReader*)R_ExternalPtrAddr(reader_ptr);
+  if (reader) {
+    reader->close();
+    return true;
+  }
+  return false;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+bool has_native_video_writer_cpp() {
+#ifdef _WIN32
+  return true;
+#else
+  return false;
+#endif
+}
+
+#ifdef _WIN32
+static void video_writer_worker_loop(NativeVideoWriter* writer) {
+  HRESULT hr_co = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+  int out_w = writer->width;
+  int out_h = writer->height;
+  DWORD cbBuffer = (DWORD)((size_t)out_w * (size_t)out_h * 4);
+
+  while (true) {
+    int read_slot = 0;
+    {
+      std::unique_lock<std::mutex> lk(writer->mtx);
+      writer->cv_can_encode.wait(lk, [&]() {
+        return writer->w_count > 0 || writer->stop_requested;
+      });
+      if (writer->w_count == 0 && writer->stop_requested) {
+        break;
+      }
+      read_slot = writer->w_read;
+    }
+
+    IMFMediaBuffer* pBuffer = nullptr;
+    HRESULT hr = MFCreateMemoryBuffer(cbBuffer, &pBuffer);
+    if (SUCCEEDED(hr) && pBuffer) {
+      BYTE* pData = nullptr;
+      if (SUCCEEDED(pBuffer->Lock(&pData, NULL, NULL)) && pData) {
+        std::memcpy(pData, writer->slot_bgr32[read_slot].data(), cbBuffer);
+        pBuffer->Unlock();
+        pBuffer->SetCurrentLength(cbBuffer);
+
+        IMFSample* pSample = nullptr;
+        if (SUCCEEDED(MFCreateSample(&pSample)) && pSample) {
+          pSample->AddBuffer(pBuffer);
+          pSample->SetSampleTime(writer->current_time);
+          pSample->SetSampleDuration(writer->frame_duration);
+          writer->pWriter->WriteSample(writer->streamIndex, pSample);
+          writer->current_time += writer->frame_duration;
+          pSample->Release();
+        }
+      }
+      pBuffer->Release();
+    }
+
+    {
+      std::lock_guard<std::mutex> lk(writer->mtx);
+      writer->w_read = (writer->w_read + 1) % 2;
+      writer->w_count--;
+    }
+    writer->cv_can_queue.notify_one();
+  }
+  if (SUCCEEDED(hr_co)) CoUninitialize();
+}
+#endif
+
+// [[Rcpp::export]]
+SEXP open_native_video_writer_cpp(std::string video_path, int width, int height, double fps = 30.0, int bitrate = 0) {
+#ifdef _WIN32
+  ensure_mf_started();
+
+  IMFAttributes* pAttributes = nullptr;
+  MFCreateAttributes(&pAttributes, 2);
+  if (pAttributes) {
+    pAttributes->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+    pAttributes->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING, TRUE);
+  }
+
+  std::wstring wpath(video_path.begin(), video_path.end());
+  IMFSinkWriter* pWriter = nullptr;
+  HRESULT hr = MFCreateSinkWriterFromURL(wpath.c_str(), NULL, pAttributes, &pWriter);
+  if (pAttributes) pAttributes->Release();
+  if (FAILED(hr) || !pWriter) return R_NilValue;
+
+  int out_w = width - (width % 2);
+  int out_h = height - (height % 2);
+  if (out_w <= 0 || out_h <= 0) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  if (fps <= 0.0) fps = 30.0;
+  UINT32 fps_num = (UINT32)std::round(fps * 1000.0);
+  UINT32 fps_den = 1000;
+
+  if (bitrate <= 0) {
+    bitrate = (int)std::round((double)out_w * out_h * fps * 0.15);
+    if (bitrate < 1000000) bitrate = 1000000;
+    if (bitrate > 20000000) bitrate = 20000000;
+  }
+
+  // Output MediaType (H.264 / MP4)
+  IMFMediaType* pOutType = nullptr;
+  MFCreateMediaType(&pOutType);
+  pOutType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+  pOutType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
+  pOutType->SetUINT32(MF_MT_AVG_BITRATE, (UINT32)bitrate);
+  MFSetAttributeSize(pOutType, MF_MT_FRAME_SIZE, out_w, out_h);
+  MFSetAttributeRatio(pOutType, MF_MT_FRAME_RATE, fps_num, fps_den);
+  MFSetAttributeRatio(pOutType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+  pOutType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+
+  DWORD streamIndex = 0;
+  hr = pWriter->AddStream(pOutType, &streamIndex);
+  pOutType->Release();
+  if (FAILED(hr)) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  // Input MediaType (RGB32)
+  IMFMediaType* pInType = nullptr;
+  MFCreateMediaType(&pInType);
+  pInType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+  pInType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+  MFSetAttributeSize(pInType, MF_MT_FRAME_SIZE, out_w, out_h);
+  MFSetAttributeRatio(pInType, MF_MT_FRAME_RATE, fps_num, fps_den);
+  MFSetAttributeRatio(pInType, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+  pInType->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+
+  hr = pWriter->SetInputMediaType(streamIndex, pInType, NULL);
+  pInType->Release();
+  if (FAILED(hr)) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  hr = pWriter->BeginWriting();
+  if (FAILED(hr)) {
+    pWriter->Release();
+    return R_NilValue;
+  }
+
+  NativeVideoWriter* writer = new NativeVideoWriter();
+  writer->pWriter = pWriter;
+  writer->streamIndex = streamIndex;
+  writer->width = out_w;
+  writer->height = out_h;
+  writer->fps = fps;
+  writer->frame_duration = (LONGLONG)(10000000.0 / fps);
+  writer->current_time = 0;
+  writer->is_open = true;
+
+  size_t bgr32_bytes = (size_t)out_w * (size_t)out_h * 4;
+  writer->slot_bgr32[0].resize(bgr32_bytes, 0);
+  writer->slot_bgr32[1].resize(bgr32_bytes, 0);
+  writer->w_read = 0;
+  writer->w_write = 0;
+  writer->w_count = 0;
+  writer->stop_requested = false;
+  writer->async_active = true;
+  writer->writer_thread = std::thread(video_writer_worker_loop, writer);
+
+  SEXP ptr = PROTECT(R_MakeExternalPtr(writer, R_NilValue, R_NilValue));
+  R_RegisterCFinalizerEx(ptr, video_writer_finalizer, (Rboolean)TRUE);
+  UNPROTECT(1);
+  return ptr;
+#else
+  return R_NilValue;
+#endif
+}
+
+// [[Rcpp::export]]
+bool write_native_video_frame_cpp(SEXP writer_ptr, Rcpp::RawVector bm) {
+#ifdef _WIN32
+  if (TYPEOF(writer_ptr) != EXTPTRSXP) return false;
+  NativeVideoWriter* writer = (NativeVideoWriter*)R_ExternalPtrAddr(writer_ptr);
+  if (!writer || !writer->is_open || !writer->pWriter) return false;
+
+  SEXP dim_attr = Rf_getAttrib(bm, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 3) return false;
+  int* dims = INTEGER(dim_attr);
+  int c_dim = dims[0];
+  int w = dims[1];
+  int h = dims[2];
+
+  int out_w = writer->width;
+  int out_h = writer->height;
+  int copy_w = std::min(w, out_w);
+  int copy_h = std::min(h, out_h);
+  const unsigned char* src = RAW(bm);
+
+  int write_slot = 0;
+  {
+    std::unique_lock<std::mutex> lk(writer->mtx);
+    writer->cv_can_queue.wait(lk, [&]() {
+      return writer->w_count < 2 || writer->stop_requested;
+    });
+    if (writer->stop_requested) return false;
+    write_slot = writer->w_write;
+  }
+
+  unsigned char* pData = writer->slot_bgr32[write_slot].data();
+  // Determine if bm is RGB (3 channels) or BGR32 (4 channels from draw_yolo_detections_bgr_cpp)
+  bool is_bgr4 = (c_dim == 4);
+
+  #pragma omp parallel for schedule(static) if(out_h > 100)
+  for (int y = 0; y < out_h; ++y) {
+    // Media Foundation H.264 encoder expects bottom-up RGB32:
+    // Row 0 of pData is the bottom of the video, so map to (out_h - 1 - y) in src
+    int src_y = out_h - 1 - y;
+    unsigned char* dst_row = pData + (size_t)y * ((size_t)out_w * 4);
+    if (src_y >= 0 && src_y < copy_h) {
+      if (is_bgr4) {
+        const unsigned char* src_row = src + (size_t)src_y * ((size_t)w * 4);
+        std::memcpy(dst_row, src_row, (size_t)copy_w * 4);
+      } else {
+        const unsigned char* src_row = src + (size_t)src_y * ((size_t)w * 3);
+        for (int x = 0; x < copy_w; ++x) {
+          size_t s_idx = (size_t)x * 3;
+          size_t d_idx = (size_t)x * 4;
+          dst_row[d_idx + 0] = src_row[s_idx + 2]; // B
+          dst_row[d_idx + 1] = src_row[s_idx + 1]; // G
+          dst_row[d_idx + 2] = src_row[s_idx + 0]; // R
+          dst_row[d_idx + 3] = 0;
+        }
+      }
+      if (copy_w < out_w) {
+        std::memset(dst_row + (size_t)copy_w * 4, 0, (size_t)(out_w - copy_w) * 4);
+      }
+    } else {
+      std::memset(dst_row, 0, (size_t)out_w * 4);
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lk(writer->mtx);
+    writer->w_write = (writer->w_write + 1) % 2;
+    writer->w_count++;
+  }
+  writer->cv_can_encode.notify_one();
+  return true;
+#else
+  return false;
+#endif
+}
+
+// [[Rcpp::export]]
+bool close_native_video_writer_cpp(SEXP writer_ptr) {
+#ifdef _WIN32
+  if (TYPEOF(writer_ptr) != EXTPTRSXP) return false;
+  NativeVideoWriter* writer = (NativeVideoWriter*)R_ExternalPtrAddr(writer_ptr);
+  if (writer) {
+    writer->close();
+    return true;
+  }
+  return false;
+#else
+  return false;
+#endif
+}
+
+

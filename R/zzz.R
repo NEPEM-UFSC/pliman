@@ -79,12 +79,12 @@ if (getRversion() >= "2.15.1") {
       "m.majoraxis", "s.radius.mean", "n_greater", "n_less", "setNames", "s.radius.sd",
       "perimeter", "radius_max", "radius_mean", "radius_min", "radius_sd", "X1",
       "X2", "i", "img", "plotn", "x", "leaf", "Band", "block", "mosaic",
-      "geometry", "n", "area_sum", "individual", "compute_downsample", "plot_id",
-      "re", "nir", "coverage_fraction", "sigma", "summarize_quantiles", "prop", "plot_id_seq",
+      "geometry", "n", "area_sum", "individual", "plot_id",
+      "re", "nir", "coverage_fraction", "sigma", "prop", "plot_id_seq",
       "B1", "B2", "B3", "cluster", "h", "s", "column", "data", "plot_area", "unique_id",
-      "diam_max", "uuids", ".progress", "show", "caliper", "width",
-      "utils_contours", "coverage", "lp", "mask_disease", "mask_leaf",
-      "mind_temp", "p_dir", "progress_bar", "shp"))
+      "diam_max", "uuids", ".progress", ".data", "show", "caliper", "width",
+      "coverage", "lp", "mask_disease", "mask_leaf",
+      "p_dir", "progress_bar"))
 }
 
 
@@ -158,6 +158,12 @@ set_pliman_viewer <- function(value) {
   )
   toset <- !(names(op.pliman) %in% names(op))
   if (any(toset)) options(op.pliman[toset])
+
+  # Optional cap on cached ONNX Runtime sessions (see ?pliman_session_info)
+  max_sess <- getOption("pliman.max_sessions")
+  if (!is.null(max_sess)) {
+    try(onnx_set_max_sessions_cpp(as.integer(max_sess)), silent = TRUE)
+  }
 
   # Safely wipe any dangling ghost progress bars from previously interrupted sessions
   try({

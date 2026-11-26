@@ -84,7 +84,7 @@ specified in the \code{attribute} argument and should be present in the
 rectangles are colored using a color scale.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Computes the DGCI index for each flax leaf
@@ -98,6 +98,5 @@ res <-
                        plot = FALSE,
                        object_index = "DGCI")
 plot_index_shp(res, attribute = "DGCI")
-}
-
+\dontshow{\}) # examplesIf}
 }

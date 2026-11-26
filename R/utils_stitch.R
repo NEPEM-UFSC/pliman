@@ -30,8 +30,7 @@
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #'
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Stitch two overlapping leaf scans
@@ -41,7 +40,6 @@
 #' )
 #' stitched <- image_stitch(imgs, direction = "horizontal")
 #' plot(stitched)
-#' }
 image_stitch <- function(images,
                          direction = c("horizontal", "vertical", "auto"),
                          blend = TRUE,

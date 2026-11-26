@@ -35,19 +35,22 @@ sf_to_polygon <- function(shps) {
   return(shps)
 }
 
-find_aggrfact <- function(mosaic, max_pixels = 1000000){
-  compute_downsample <- function(nr, nc, n) {
-    if (n == 0) {
-      invisible(nr * nc)
-    } else if (n == 1) {
-      invisible(ceiling(nr/2) * ceiling(nc/2))
-    } else if (n > 1) {
-      invisible(ceiling(nr/(n+1)) * ceiling(nc/(n+1)))
-    } else {
-      cli::cli_abort("{.arg n} must be a non-negative integer.")
-
-    }
+# Number of pixels kept when a raster of nr x nc pixels is downsampled by a
+# factor n (0 = no downsampling, n >= 1 keeps every (n + 1)-th pixel). Used to
+# choose the downsampling factor that approximates `max_pixels` in the viewers.
+compute_downsample <- function(nr, nc, n) {
+  if (n == 0) {
+    invisible(nr * nc)
+  } else if (n == 1) {
+    invisible(ceiling(nr / 2) * ceiling(nc / 2))
+  } else if (n > 1) {
+    invisible(ceiling(nr / (n + 1)) * ceiling(nc / (n + 1)))
+  } else {
+    cli::cli_abort("{.arg n} must be a non-negative integer.")
   }
+}
+
+find_aggrfact <- function(mosaic, max_pixels = 1000000){
   nr <- nrow(mosaic)
   nc <- ncol(mosaic)
   npixel <- nr * nc
@@ -354,8 +357,7 @@ mosaic_interpolate <- function(mosaic, points, method = c("bilinear", "loess", "
 #' * `shapefile`: The generated shapefile, with the drawn grids/blocks.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' url <- "https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"
 #' mosaic <- mosaic_input(url)
@@ -371,7 +373,6 @@ mosaic_interpolate <- function(mosaic, points, method = c("bilinear", "loess", "
 #'                 map_individuals = TRUE)
 #'# map with individual results
 #'res$map_indiv
-#' }
 
 mosaic_analyze <- function(mosaic,
                            r = 3,
@@ -769,10 +770,13 @@ mosaic_analyze <- function(mosaic,
             mask <- mind_temp[[segment_index[j]]] < thresh
           }
         }
-        mind_temp <- terra::mask(mosaic[[1]], mask, maskvalues = TRUE)
-        # compute plot coverage
+        # mask the index layers (same extent as `mask`, which was derived from
+        # them); masking the full-extent mosaic failed with "extents do not
+        # match" whenever the analysis was cropped to the shapefile extent
+        mind_temp <- terra::mask(mind_temp, mask, maskvalues = TRUE)
+        # compute plot coverage (single layer)
 
-        covered_area <- mosaic_extract(mind_temp,
+        covered_area <- mosaic_extract(mind_temp[[1]],
                                        plot_grid,
                                        exact = TRUE,
                                        fun = "mean",
@@ -1587,7 +1591,7 @@ mosaic_analyze_iter <- function(mosaic,
   if(parallel){
     nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
     mirai::daemons(nworkers)
-    on.exit(mirai::daemons(0))
+    on.exit(mirai::daemons(0), add = TRUE)
 
     if (verbose) {
       cli::cli_rule(
@@ -1833,8 +1837,7 @@ mosaic_analyze_iter <- function(mosaic,
 #' @importFrom dplyr summarise across mutate arrange left_join bind_cols
 #'   bind_rows contains ends_with everything between where select filter
 #'   relocate rename
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # Load a raster showing the elevation of Luxembourg
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -1844,7 +1847,6 @@ mosaic_analyze_iter <- function(mosaic,
 #'
 #' # Generate a static plot using 'base'
 #' mosaic_view(mosaic, viewer = "base")
-#' }
 #'
 #'
 #' @export
@@ -1878,7 +1880,7 @@ mosaic_view <- function(mosaic,
   vieweropt <- vieweropt[pmatch(viewer[[1]], vieweropt)]
 
   if(inherits(mosaic, "image") || inherits(mosaic, "Image")){
-    mosaic <- terra::rast(image_data(image_transpose(mosaic)))
+    mosaic <- terra::rast(image_data(image_transpose(mosaic), type = "normalized"))
   }
   if(viewopt == "rgb" & vieweropt == "base" & terra::nlyr(mosaic) > 1){
     cli::cli_warn("{.arg viewer = 'base'} can only be used with {.arg show = 'index'}. Defaulting to {.arg viewer = 'mapview'}")
@@ -2075,8 +2077,7 @@ mosaic_view <- function(mosaic,
 #' * `mosaic_input()` returns an `SpatRaster` object.
 #' * `mosaic_export()` do not return an object.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # create an SpatRaster object based on a matrix
@@ -2088,7 +2089,6 @@ mosaic_view <- function(mosaic,
 #' f <- file.path(tempdir(), "test.tif")
 #' mosaic_export(rast, f, overwrite=TRUE)
 #' list.files(tempdir())
-#' }
 #'
 mosaic_input <- function(mosaic,
                          mosaic_pattern = NULL,
@@ -2225,8 +2225,7 @@ mosaic_export <- function(mosaic,
 #' @return SpatRaster
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' library(terra)
 #' r <- rast(nrows=3, ncols=3, xmin=0, xmax=10, ymin=0, ymax=10)
@@ -2238,7 +2237,6 @@ mosaic_export <- function(mosaic,
 #' plot(r)
 #' plot(x)
 #' par(opar)
-#' }
 mosaic_resample <- function(mosaic, y, ...){
   terra::resample(mosaic, y, ...)
 }
@@ -2269,8 +2267,7 @@ mosaic_resample <- function(mosaic, y, ...){
 #' @return SpatRaster
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' library(terra)
 #' r <- rast()
@@ -2281,7 +2278,6 @@ mosaic_resample <- function(mosaic, y, ...){
 #' mosaic_plot(r)
 #' mosaic_plot(r2)
 #' par(opar)
-#' }
 mosaic_aggregate <- function(mosaic,
                              pct = 50,
                              fun = "nearest",
@@ -2328,15 +2324,35 @@ mosaic_aggregate <- function(mosaic,
     }
   }, add = TRUE)
 
-  sf::gdal_utils(
-    util = "translate",
-    source = in_raster,
-    destination = tmp_out,
-    options = strsplit(paste("-r", fun, "-outsize", outsize[1], outsize[2]), split = "\\s")[[1]]
-  )
+  ok <- tryCatch({
+    sf::gdal_utils(
+      util = "translate",
+      source = in_raster,
+      destination = tmp_out,
+      options = strsplit(paste("-r", fun, "-outsize", outsize[1], outsize[2]), split = "\\s")[[1]]
+    )
+    file.exists(tmp_out)
+  }, error = function(e) FALSE)
 
-  if(!file.exists(tmp_out)){
-    cli::cli_abort("Failed to generate aggregated raster.")
+  if(!ok){
+    # gdal_translate can fail on remote sources (e.g. a mosaic read from a URL)
+    # or unusual drivers: resample with terra to the same output size instead
+    pct2 <- rep(as.numeric(sub("%", "", outsize)), length.out = 2)
+    tmpl <- terra::rast(terra::ext(mosaic),
+                        ncols = max(1, round(terra::ncol(mosaic) * pct2[1] / 100)),
+                        nrows = max(1, round(terra::nrow(mosaic) * pct2[2] / 100)),
+                        crs = terra::crs(mosaic))
+    method <- switch(fun, nearest = "near", average = "average", rms = "rms", mode = "mode", fun)
+    agg <- tryCatch(terra::resample(mosaic, tmpl, method = method), error = function(e) NULL)
+    if(is.null(agg)){
+      cli::cli_abort("Failed to generate aggregated raster.")
+    }
+    names(agg) <- names(mosaic)
+    if(!is.null(target_file)){
+      terra::writeRaster(agg, target_file, overwrite = TRUE)
+      return(if(in_memory) terra::rast(target_file) |> terra::wrap() |> terra::unwrap() else terra::rast(target_file))
+    }
+    return(if(in_memory) agg else terra::writeRaster(agg, tmp_out, overwrite = TRUE))
   }
 
   if(!is.null(target_file)){
@@ -2370,12 +2386,10 @@ mosaic_aggregate <- function(mosaic,
 #' @return A `NULL` object
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_plot(r)
-#' }
 mosaic_plot <- function(mosaic,
                         col = custom_palette(c("red", "yellow", "forestgreen"), n = 200),
                         smooth = TRUE,
@@ -2402,12 +2416,10 @@ mosaic_plot <- function(mosaic,
 #' @return A `NULL` object
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' r <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_hist(r)
-#' }
 mosaic_hist <- function(mosaic, layer, ...){
   if(!inherits(mosaic, "SpatRaster")){
     cli::cli_abort("{.arg mosaic} must be an object of class {.cls SpatRaster}.")
@@ -2470,8 +2482,7 @@ mosaic_plot_rgb <- function(mosaic, ...){
 #' @return A cropped or masked `SpatRaster` object.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   # Load a sample raster
 #'   mosaic <- mosaic_input(system.file("ex/elev.tif", package = "terra"))
@@ -2481,7 +2492,6 @@ mosaic_plot_rgb <- function(mosaic, ...){
 #'
 #'   # View result
 #'   mosaic_view(cropped)
-#' }
 
 mosaic_crop <- function(mosaic,
                         r = 3,
@@ -2642,8 +2652,7 @@ mosaic_crop <- function(mosaic,
 #'   details), it attempts to compute the index using the specified band
 #'   indices. The resulting index layer is returned as an `SpatRaster` object.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' names(mosaic)
@@ -2656,7 +2665,6 @@ mosaic_crop <- function(mosaic,
 #'
 #' # return the original parameters
 #' par(oldpar)
-#' }
 #'
 
 mosaic_index <- function(mosaic,
@@ -2833,7 +2841,7 @@ mosaic_index <- function(mosaic,
 
       if(terra::inMemory(mosaic)){
         tf <- paste0(tempfile(), ".tif")
-        on.exit(file.remove(tf))
+        on.exit(file.remove(tf), add = TRUE)
         terra::writeRaster(mosaic, filename = tf)
         tempf <- tf
       } else{
@@ -2977,8 +2985,7 @@ mosaic_index <- function(mosaic,
 #' @param gdal The PATH for gdal_calc.py
 #' @return An index layer extracted/computed from the mosaic raster.
 #' @export
-#' @examples
-#' if(interactive() & (Sys.which('python.exe') != '' ) & (Sys.which('gdal_calc.py') != '' )){
+#' @examplesIf interactive() && (Sys.which('python.exe') != '' ) && (Sys.which('gdal_calc.py') != '' )
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' names(mosaic) <- "R"
@@ -2987,7 +2994,6 @@ mosaic_index <- function(mosaic,
 #' mosaic_plot(mosaic)
 #' mosaic_plot(elev2)
 #' par(mfrow=c(1,2))
-#' }
 
 mosaic_index2 <- function(mosaic,
                           index = "B",
@@ -3067,8 +3073,7 @@ mosaic_index2 <- function(mosaic,
 #' @return The segmented mosaic (`SpatRaster` object)
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' seg <-
@@ -3076,7 +3081,6 @@ mosaic_index2 <- function(mosaic,
 #'                index = "elevation",
 #'                threshold = 350)
 #' mosaic_plot(seg)
-#' }
 mosaic_segment <- function(mosaic,
                            index = "R",
                            r = 3,
@@ -3135,12 +3139,10 @@ mosaic_segment <- function(mosaic,
 #'   'mosaic'`) or a mask (if `return = 'mask'`).
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #'  mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #'  seg <- mosaic_segment_pick(mosaic)
 #'  mosaic_plot(seg)
-#' }
 mosaic_segment_pick <- function(mosaic,
                                 basemap = NULL,
                                 g = 2,
@@ -3174,12 +3176,6 @@ mosaic_segment_pick <- function(mosaic,
                            title = "Use the 'Draw Rectangle' tool to pick up background fractions",
                            editor = "leafpm")$finished
   soil <- soil |> sf::st_transform(sf::st_crs(mosaic))
-  vals <- mosaic_extract(mind_temp,
-                         shp,
-                         exact = TRUE,
-                         fun = "none",
-                         verbose = FALSE,
-                         coverage_area = FALSE)
   soil_sample <-
     mosaic_extract(mosaic,
                    soil,
@@ -3249,14 +3245,12 @@ mosaic_segment_pick <- function(mosaic,
 #'   `SpatRaster` is loaded, the resulting object may increase considerably the
 #'   memory usage.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # Convert a mosaic raster to an Image object
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' pliman_image <- mosaic_to_pliman(mosaic)
 #' plot(pliman_image)
-#' }
 #'
 mosaic_to_pliman <- function(mosaic,
                              r = 3,
@@ -3304,8 +3298,7 @@ mosaic_to_pliman <- function(mosaic,
 #'   parameter.
 #'
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #'
 #' library(pliman)
 #' # Convert a mosaic raster to an RGB image and display it
@@ -3314,7 +3307,6 @@ mosaic_to_pliman <- function(mosaic,
 #' # Convert a mosaic raster to an RGB image without displaying it
 #' rgb_image <- mosaic_to_rgb(c(mosaic * 2, mosaic - 0.3, mosaic * 0.8))
 #' plot(rgb_image)
-#' }
 #'
 #'
 mosaic_to_rgb <- function(mosaic,
@@ -3357,12 +3349,10 @@ mosaic_to_rgb <- function(mosaic,
 #' @return A prepared object of class `image`.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #' mosaic_prepare(mosaic)
-#' }
 #'
 mosaic_prepare <- function(mosaic,
                            r = 3,
@@ -3485,16 +3475,13 @@ mosaic_prepare <- function(mosaic,
 #' @return An invisible list containing the mosaic, draw_data, distance,
 #'   distance_profile, geometry, and map.
 #' @export
-#' @examples
-#'
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # Load a raster showing the elevation of Luxembourg
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 #'
 #' # draw a polyline to see the elevation profile along the line
 #' mosaic_draw(mosaic, buffer = 1500)
-#' }
 mosaic_draw <- function(mosaic,
                         r = 3,
                         g = 2,
@@ -3681,7 +3668,6 @@ mosaic_draw <- function(mosaic,
                            polygons,
                            exact = TRUE,
                            fun = summarize_fun,
-                           summarize_quantiles = summarize_quantiles,
                            verbose = FALSE,
                            coverage_area = FALSE)
     if(inherits(vals, "list")){
@@ -4138,7 +4124,13 @@ mosaic_chm_extract <- function(chm,
     }
     sumvalids <- sum(valids)
     result_df <- as.data.frame(as.list(quantile(valids, quantiles)))
-    colnames(result_df) <- paste0("q", quantiles)
+    # same names as pliman < 4.0: min, q05, q50, q95, max (0.975 -> q97.5)
+    colnames(result_df) <- vapply(quantiles, function(q) {
+      if (q == 0) return("min")
+      if (q == 1) return("max")
+      p <- q * 100
+      if (abs(p - round(p)) < 1e-8) sprintf("q%02d", as.integer(round(p))) else paste0("q", format(p))
+    }, character(1))
     mean_val <- sumvalids / length(valids)
     volume <- sumvalids * cell_area
     cv <- mean(valids) / sd(valids)
@@ -4165,7 +4157,7 @@ mosaic_chm_extract <- function(chm,
 
   height <-
     mosaic_extract(chm$chm[[2]],
-                   shp,
+                   shapefile,
                    exact = TRUE,
                    fun = custom_summary,
                    verbose = FALSE)
@@ -4263,8 +4255,7 @@ mosaic_chm_mask <- function(dsm,
 #'   the hemisphere based on the centroid's latitude. The EPSG code is then
 #'   constructed accordingly.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' library(terra)
 #'
@@ -4273,7 +4264,6 @@ mosaic_chm_mask <- function(dsm,
 #'
 #' # Get the EPSG code for the mosaic
 #' mosaic_epsg(mosaic)
-#' }
 #'
 #' @export
 mosaic_epsg <- function(mosaic) {
@@ -4305,8 +4295,7 @@ mosaic_epsg <- function(mosaic) {
 #'
 #' @return A raster object representing the projected mosaic.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(terra)
 #' library(pliman)
 #'
@@ -4319,7 +4308,6 @@ mosaic_epsg <- function(mosaic) {
 #' # Project the mosaic
 #' projected_mosaic <- mosaic_project(mosaic, "EPSG:32633")
 #' projected_mosaic
-#' }
 #'
 #' @export
 mosaic_project <- function(mosaic, y, ...){
@@ -4337,8 +4325,7 @@ mosaic_project <- function(mosaic, y, ...){
 #' @return A raster object representing the projected mosaic. If the mosaic is
 #'   not in the lon/lat coordinate system, a warning is issued.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(terra)
 #' library(pliman)
 #'
@@ -4347,7 +4334,6 @@ mosaic_project <- function(mosaic, y, ...){
 #'
 #' # Project the mosaic to the appropriate UTM zone
 #' mosaic_lonlat2epsg(mosaic)
-#' }
 #'
 #' @export
 mosaic_lonlat2epsg <- function(mosaic){
@@ -4377,14 +4363,12 @@ mosaic_lonlat2epsg <- function(mosaic){
 #' @param smooth Smoothes the contours using a moving average filter. Default is
 #'   `FALSE`.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' mask <- image_pliman("mask.tif")
 #' shp <- mosaic_vectorize(mask, watershed = FALSE)
 #' mosaic_plot(mask)
 #' shapefile_plot(shp, add = TRUE, lwd = 3)
-#' }
 #'
 #'
 mosaic_vectorize <- function(mask,
@@ -4487,8 +4471,7 @@ mosaic_vectorize <- function(mask,
 #' @return A `SpatRaster` object with the rotated mosaic image.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # Convert a mosaic raster to an Image object
 #' mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
@@ -4503,7 +4486,6 @@ mosaic_vectorize <- function(mask,
 #' mosaic_plot(r270, main = "270 Degrees")
 #' par(mfrow = c(1, 1))
 #'
-#' }
 mosaic_rotate <- function(mosaic, angle, direction = "clockwise") {
   # Ensure angle is one of the allowed values
   if (!angle %in% c(90, 180, 270)) {
@@ -4552,8 +4534,7 @@ mosaic_rotate <- function(mosaic, angle, direction = "clockwise") {
 #'   - `class_freq`: A data frame containing class frequencies, areas (ha), and percentages (if `frequency = TRUE`).
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' library(terra)
 #'
@@ -4566,7 +4547,6 @@ mosaic_rotate <- function(mosaic, angle, direction = "clockwise") {
 #' # View results
 #' result$classified
 #' result$class_freq
-#' }
 #'
 mosaic_classify <- function(mosaic, breaks, frequency = TRUE, plot = TRUE) {
   breaks <- c(-Inf, breaks, Inf)
@@ -4740,7 +4720,7 @@ mosaic_clip <- function(mosaic,
   if(parallel){
     nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.7), workers)
     mirai::daemons(nworkers)
-    on.exit(mirai::daemons(0))
+    on.exit(mirai::daemons(0), add = TRUE)
 
     cli::cli_rule(
       left  = cli::col_blue("Clipping mosaic into tiles using  {.val {n}} polygons"),

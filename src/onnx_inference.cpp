@@ -8,7 +8,14 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <memory>
+#include <cstdlib>
+#include <cstring>
 #include <chrono>
+#include <limits>
+#include <cstdio>
+#include <thread>
+#include <sys/stat.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -31,6 +38,7 @@
 #endif
 
 #include "onnxruntime_c_api.h"
+#include "dense_zncc.h"
 
 // [[Rcpp::depends(RcppArmadillo)]]
 
@@ -39,13 +47,29 @@ typedef const OrtApiBase* (ORT_API_CALL *OrtGetApiBaseFn)(void);
 static void* g_ort_lib_handle = NULL;
 static const OrtApi* g_ort_api = NULL;
 static std::string g_current_lib_path = "";
+// OrtApi version actually obtained from the loaded library. Entries added to the OrtApi
+// struct after this version must not be dereferenced (older runtimes return a shorter
+// table), so provider helpers check it before calling e.g. the *_V2 appenders.
+static uint32_t g_ort_api_version = 0;
 
 #ifdef _WIN32
 #include <dxgi.h>
+#include <dxgi1_4.h>
 typedef HRESULT (WINAPI *CreateDXGIFactory1Fn)(REFIID, void**);
 typedef OrtStatus* (*OrtAppendDMLFn)(OrtSessionOptions*, int);
 
+static bool g_gpu_probed = false;
+static int g_cached_best_gpu_id = 0;
+static std::string g_cached_best_gpu_name = "Default GPU";
+static double g_cached_best_gpu_vram = 0.0;
+
 static int find_best_gpu_id(std::string* out_name = NULL, double* out_vram = NULL) {
+  if (g_gpu_probed) {
+    if (out_name) *out_name = g_cached_best_gpu_name;
+    if (out_vram) *out_vram = g_cached_best_gpu_vram;
+    return g_cached_best_gpu_id;
+  }
+
   HMODULE hDxgi = LoadLibraryA("dxgi.dll");
   if (!hDxgi) return 0;
 
@@ -93,11 +117,63 @@ static int find_best_gpu_id(std::string* out_name = NULL, double* out_vram = NUL
   pFactory->Release();
   FreeLibrary(hDxgi);
 
+  g_cached_best_gpu_id = best_id;
+  g_cached_best_gpu_name = best_name;
+  g_cached_best_gpu_vram = (double)max_vram / (1024.0 * 1024.0);
+  g_gpu_probed = true;
+
   if (out_name) *out_name = best_name;
-  if (out_vram) *out_vram = (double)max_vram / (1024.0 * 1024.0);
+  if (out_vram) *out_vram = g_cached_best_gpu_vram;
   return best_id;
 }
+
+// Dedicated video memory used by *this process* on DXGI adapter `adapter_id`, and the
+// budget the OS currently grants it (DXGI 1.4). When usage exceeds the budget, WDDM
+// demotes allocations to system memory; a DirectML session created in that state keeps
+// part of its working set there and stays slow even after memory is freed.
+static bool dxgi_vram_usage(int adapter_id, double* usage_mb, double* budget_mb) {
+  HMODULE hDxgi = LoadLibraryA("dxgi.dll");
+  if (!hDxgi) return false;
+  CreateDXGIFactory1Fn create_dxgi1 = (CreateDXGIFactory1Fn)GetProcAddress(hDxgi, "CreateDXGIFactory1");
+  if (!create_dxgi1) { FreeLibrary(hDxgi); return false; }
+  static const GUID IID_Factory1 = { 0x770aae78, 0xf26f, 0x4dba, { 0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87 } };
+  static const GUID IID_Adapter3 = { 0x645967a4, 0x1392, 0x4310, { 0xa7, 0x98, 0x80, 0x53, 0xce, 0x3e, 0x93, 0xfd } };
+  IDXGIFactory1* factory = NULL;
+  bool ok = false;
+  if (SUCCEEDED(create_dxgi1(IID_Factory1, (void**)&factory)) && factory) {
+    IDXGIAdapter1* a1 = NULL;
+    if (factory->EnumAdapters1((UINT)std::max(0, adapter_id), &a1) == S_OK && a1) {
+      IDXGIAdapter3* a3 = NULL;
+      if (SUCCEEDED(a1->QueryInterface(IID_Adapter3, (void**)&a3)) && a3) {
+        DXGI_QUERY_VIDEO_MEMORY_INFO info;
+        if (SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info))) {
+          if (usage_mb) *usage_mb = (double)info.CurrentUsage / (1024.0 * 1024.0);
+          if (budget_mb) *budget_mb = (double)info.Budget / (1024.0 * 1024.0);
+          ok = true;
+        }
+        a3->Release();
+      }
+      a1->Release();
+    }
+    factory->Release();
+  }
+  FreeLibrary(hDxgi);
+  return ok;
+}
 #endif
+
+// Process video-memory usage and budget in MB for a DXGI adapter (-1 = default GPU).
+// [[Rcpp::export]]
+Rcpp::NumericVector pliman_vram_usage_cpp(int device_id = -1) {
+  double u = NA_REAL, b = NA_REAL;
+#ifdef _WIN32
+  int id = (device_id >= 0) ? device_id : find_best_gpu_id();
+  if (!dxgi_vram_usage(id, &u, &b)) { u = NA_REAL; b = NA_REAL; }
+#else
+  (void)device_id;
+#endif
+  return Rcpp::NumericVector::create(Rcpp::Named("usage_mb") = u, Rcpp::Named("budget_mb") = b);
+}
 
 // [[Rcpp::export]]
 Rcpp::List pliman_gpu_info_cpp() {
@@ -171,6 +247,11 @@ Rcpp::List pliman_gpu_info_cpp() {
 }
 
 static void clear_onnx_sessions_internal();
+static void get_session_io_names(const OrtApi* ort, OrtSession* session,
+                                 std::vector<std::string>& in_names_str,
+                                 std::vector<const char*>& in_names,
+                                 std::vector<std::string>& out_names_str,
+                                 std::vector<const char*>& out_names);
 
 static const OrtApi* get_ort_api(const std::string& lib_path) {
   if (g_ort_api != NULL && g_current_lib_path == lib_path) {
@@ -217,10 +298,11 @@ static const OrtApi* get_ort_api(const std::string& lib_path) {
   }
 
   g_ort_api = api_base->GetApi(ORT_API_VERSION);
+  g_ort_api_version = g_ort_api ? (uint32_t)ORT_API_VERSION : 0;
   if (!g_ort_api) {
     for (uint32_t v = ORT_API_VERSION; v >= 1; --v) {
       g_ort_api = api_base->GetApi(v);
-      if (g_ort_api) break;
+      if (g_ort_api) { g_ort_api_version = v; break; }
     }
   }
   if (!g_ort_api) {
@@ -264,25 +346,1001 @@ static inline double half_to_double(uint16_t h) {
   return (double)res;
 }
 
+// Per-session metadata cached once at session creation (names, input types/dims, flags).
+// Owned by g_session_meta; CachedSession copies hold a raw pointer that stays valid
+// until the session is evicted.
+struct SessionMeta {
+  std::string key;
+  std::string model_path;
+  int num_threads = 0;
+  int device_id = -1;
+  bool requested_gpu = false;
+  bool is_gpu = false;
+  bool fell_back_to_cpu = false;
+  bool warmed_up = false;
+  // Execution provider that actually serves the session: "cpu", "dml", "cuda",
+  // "tensorrt", "coreml" or "openvino".
+  std::string provider = "cpu";
+  // Optimized-graph disk cache (PLIMAN_ORT_OPT_CACHE): "off", "hit" (loaded from a
+  // previously saved optimized graph) or "saved" (optimized graph written this time).
+  std::string graph_cache = "off";
+  double create_ms = 0.0;
+  // Why a requested GPU session runs on the CPU ("" otherwise). When the GPU session
+  // itself failed to build (typically out of VRAM because another process holds it),
+  // the failure may be transient: `retry_gpu_at` schedules a new GPU attempt instead of
+  // keeping the CPU fallback for the rest of the R session.
+  std::string fallback_reason;
+  bool retry_gpu = false;
+  std::chrono::steady_clock::time_point retry_gpu_at{};
+  // VRAM bookkeeping (Windows / DXGI): when the session was last used, and whether it
+  // was built while the process exceeded its video-memory budget (see
+  // relieve_vram_pressure()); such a session is rebuilt once memory is available.
+  std::chrono::steady_clock::time_point last_used_time{};
+  bool vram_pressured = false;
+  std::chrono::steady_clock::time_point vram_check_at{};
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  std::vector<ONNXTensorElementDataType> in_types;
+  std::vector<std::vector<int64_t> > in_dims;
+  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  bool batch_dynamic = false;
+  bool spatial_dynamic = true;
+  uint64_t last_used = 0;
+};
+
 struct CachedSession {
   OrtSession* session = NULL;
   OrtSessionOptions* options = NULL;
-  OrtEnv* env = NULL;
+  OrtEnv* env = NULL;             // alias of the process-wide g_ort_env (not owned)
   OrtMemoryInfo* mem_info = NULL;
+  int64_t file_mtime = 0;
+  int64_t file_size = 0;
+  SessionMeta* meta = NULL;
+  std::chrono::steady_clock::time_point last_stat_time{};
 };
 
+static void get_file_stat(const std::string& path, int64_t& out_mtime, int64_t& out_size) {
+  out_mtime = 0;
+  out_size = 0;
+#ifdef _WIN32
+  struct _stat64 st;
+  int size_needed = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), NULL, 0);
+  std::wstring wpath(size_needed, 0);
+  MultiByteToWideChar(CP_UTF8, 0, path.c_str(), (int)path.size(), &wpath[0], size_needed);
+  if (_wstat64(wpath.c_str(), &st) == 0) {
+    out_mtime = (int64_t)st.st_mtime;
+    out_size = (int64_t)st.st_size;
+  }
+#else
+  struct stat st;
+  if (stat(path.c_str(), &st) == 0) {
+    out_mtime = (int64_t)st.st_mtime;
+    out_size = (int64_t)st.st_size;
+  }
+#endif
+}
+
 static std::map<std::string, CachedSession> g_session_cache;
+static std::map<std::string, std::unique_ptr<SessionMeta> > g_session_meta;
+static std::map<OrtSession*, SessionMeta*> g_session_meta_by_ptr;
+static std::vector<std::string> g_session_lru_order;
+static OrtEnv* g_ort_env = NULL;
+static size_t g_max_sessions = 0;   // 0 = unresolved (env var PLIMAN_ONNX_MAX_SESSIONS, default 8)
+static uint64_t g_session_tick = 0;
+
+static size_t resolve_max_sessions() {
+  if (g_max_sessions == 0) {
+    size_t v = 8;
+    const char* ev = std::getenv("PLIMAN_ONNX_MAX_SESSIONS");
+    if (ev != NULL) {
+      long n = std::strtol(ev, NULL, 10);
+      if (n >= 1 && n <= 256) v = (size_t)n;
+    }
+    g_max_sessions = v;
+  }
+  return g_max_sessions;
+}
+
+static bool ort_spinning_enabled() {
+  static int cached = -1;
+  if (cached < 0) {
+    // ONNX Runtime's default (spinning on) unless PLIMAN_ORT_SPIN=0/false: measurements
+    // showed no latency gain from disabling it, but it frees CPU for other processes.
+    const char* ev = std::getenv("PLIMAN_ORT_SPIN");
+    cached = (ev != NULL && (ev[0] == '0' || ev[0] == 'f' || ev[0] == 'F')) ? 0 : 1;
+  }
+  return cached == 1;
+}
+
+static inline void ort_ignore_status(const OrtApi* ort, OrtStatus* st);
+
+// ------------------------------------------------------------------------------------
+// Execution-provider and session-creation configuration
+//
+// Read from environment variables at session-creation time (cheap: sessions are created
+// rarely), so the R setters (pliman_gpu_provider(), pliman_onnx_profiling(),
+// pliman_onnx_graph_cache()) only need Sys.setenv() and the settings are inherited by
+// mirai / callr workers started afterwards.
+//
+//   PLIMAN_GPU_PROVIDER    auto | dml | cuda | tensorrt | coreml | openvino
+//                          (used only when a GPU session is requested; default "auto",
+//                          which means CUDA when the loaded runtime has it, else DirectML)
+//   PLIMAN_TRT_CACHE_DIR   TensorRT engine/timing cache directory
+//   PLIMAN_TRT_FP16        1 = let TensorRT build FP16 kernels
+//   PLIMAN_ORT_PROFILE     prefix (directory + stem) for ONNX Runtime JSON profiles
+//   PLIMAN_ORT_OPT_CACHE   directory for optimized CPU graphs (session start-up cache)
+// ------------------------------------------------------------------------------------
+static std::string env_string(const char* name) {
+  const char* v = std::getenv(name);
+  return (v != NULL) ? std::string(v) : std::string();
+}
+
+static std::string lower_copy(std::string s) {
+  std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+  return s;
+}
+
+static std::string resolve_gpu_provider_pref() {
+  std::string p = lower_copy(env_string("PLIMAN_GPU_PROVIDER"));
+  if (p == "directml") p = "dml";
+  if (p == "trt") p = "tensorrt";
+  if (p != "dml" && p != "cuda" && p != "tensorrt" && p != "coreml" && p != "openvino") p = "auto";
+  return p;
+}
+
+#ifdef _WIN32
+static std::wstring utf8_to_wide(const std::string& s) {
+  if (s.empty()) return std::wstring();
+  int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), NULL, 0);
+  std::wstring w(n, 0);
+  MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], n);
+  return w;
+}
+#endif
+
+static bool file_exists_utf8(const std::string& path) {
+#ifdef _WIN32
+  struct _stat64 st;
+  return _wstat64(utf8_to_wide(path).c_str(), &st) == 0;
+#else
+  struct stat st;
+  return stat(path.c_str(), &st) == 0;
+#endif
+}
+
+static bool rename_utf8(const std::string& from, const std::string& to) {
+#ifdef _WIN32
+  return MoveFileExW(utf8_to_wide(from).c_str(), utf8_to_wide(to).c_str(),
+                     MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+  return std::rename(from.c_str(), to.c_str()) == 0;
+#endif
+}
+
+static void remove_utf8(const std::string& path) {
+#ifdef _WIN32
+  DeleteFileW(utf8_to_wide(path).c_str());
+#else
+  std::remove(path.c_str());
+#endif
+}
+
+static std::string path_basename(const std::string& p) {
+  size_t k = p.find_last_of("/\\");
+  return (k == std::string::npos) ? p : p.substr(k + 1);
+}
+
+// Execution providers compiled into the loaded runtime (e.g. "CUDAExecutionProvider").
+static std::vector<std::string> ort_available_providers(const OrtApi* ort) {
+  std::vector<std::string> out;
+  char** names = NULL;
+  int n = 0;
+  OrtStatus* st = ort->GetAvailableProviders(&names, &n);
+  if (st != NULL) { ort->ReleaseStatus(st); return out; }
+  for (int i = 0; i < n; ++i) if (names[i]) out.push_back(std::string(names[i]));
+  if (names) {
+    OrtStatus* st2 = ort->ReleaseAvailableProviders(names, n);
+    if (st2) ort->ReleaseStatus(st2);
+  }
+  return out;
+}
+
+static bool ort_has_provider(const OrtApi* ort, const char* ep_name) {
+  std::vector<std::string> av = ort_available_providers(ort);
+  return std::find(av.begin(), av.end(), std::string(ep_name)) != av.end();
+}
+
+static bool ort_append_status_ok(const OrtApi* ort, OrtStatus* st, std::string* err) {
+  if (st == NULL) return true;
+  if (err) *err = ort->GetErrorMessage(st);
+  ort->ReleaseStatus(st);
+  return false;
+}
+
+static bool append_cuda_provider(const OrtApi* ort, OrtSessionOptions* opts, int cuda_dev,
+                                 std::string* err) {
+  if (g_ort_api_version < 13 || !ort_has_provider(ort, "CUDAExecutionProvider")) return false;
+  OrtCUDAProviderOptionsV2* co = NULL;
+  if (!ort_append_status_ok(ort, ort->CreateCUDAProviderOptions(&co), err) || co == NULL) return false;
+  const std::string dev = std::to_string(cuda_dev < 0 ? 0 : cuda_dev);
+  // kSameAsRequested keeps the BFC arena from doubling past what the model needs, which
+  // matters on 4-6 GB cards running SAM + DINO side by side.
+  const char* keys[] = { "device_id", "arena_extend_strategy", "cudnn_conv_use_max_workspace" };
+  const char* vals[] = { dev.c_str(), "kSameAsRequested", "1" };
+  bool ok = ort_append_status_ok(ort, ort->UpdateCUDAProviderOptions(co, keys, vals, 3), err);
+  if (ok) ok = ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider_CUDA_V2(opts, co), err);
+  ort->ReleaseCUDAProviderOptions(co);
+  return ok;
+}
+
+static bool append_tensorrt_provider(const OrtApi* ort, OrtSessionOptions* opts, int cuda_dev,
+                                     std::string* err) {
+  if (g_ort_api_version < 10 || !ort_has_provider(ort, "TensorrtExecutionProvider")) return false;
+  OrtTensorRTProviderOptionsV2* to = NULL;
+  if (!ort_append_status_ok(ort, ort->CreateTensorRTProviderOptions(&to), err) || to == NULL) return false;
+  const std::string dev = std::to_string(cuda_dev < 0 ? 0 : cuda_dev);
+  const std::string cache_dir = env_string("PLIMAN_TRT_CACHE_DIR");
+  const std::string fp16 = env_string("PLIMAN_TRT_FP16");
+  const bool use_fp16 = !fp16.empty() && (fp16[0] == '1' || fp16[0] == 't' || fp16[0] == 'T');
+  std::vector<const char*> keys, vals;
+  keys.push_back("device_id"); vals.push_back(dev.c_str());
+  keys.push_back("trt_fp16_enable"); vals.push_back(use_fp16 ? "1" : "0");
+  if (!cache_dir.empty()) {
+    // Engine builds take seconds to minutes; caching them per model/GPU makes every
+    // later session start almost instantly.
+    keys.push_back("trt_engine_cache_enable"); vals.push_back("1");
+    keys.push_back("trt_engine_cache_path"); vals.push_back(cache_dir.c_str());
+    keys.push_back("trt_timing_cache_enable"); vals.push_back("1");
+    keys.push_back("trt_timing_cache_path"); vals.push_back(cache_dir.c_str());
+  }
+  bool ok = ort_append_status_ok(ort, ort->UpdateTensorRTProviderOptions(to, keys.data(), vals.data(), keys.size()), err);
+  if (ok) ok = ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider_TensorRT_V2(opts, to), err);
+  ort->ReleaseTensorRTProviderOptions(to);
+  // Nodes TensorRT cannot take go to CUDA rather than to the CPU.
+  if (ok) { std::string e2; (void)append_cuda_provider(ort, opts, cuda_dev, &e2); }
+  return ok;
+}
+
+static bool append_dml_provider(const OrtApi* ort, OrtSessionOptions* opts, int dml_dev,
+                                std::string* err) {
+#ifdef _WIN32
+  if (g_ort_lib_handle == NULL) return false;
+  OrtAppendDMLFn append_dml = (OrtAppendDMLFn)GetProcAddress((HMODULE)g_ort_lib_handle,
+                                                             "OrtSessionOptionsAppendExecutionProvider_DML");
+  if (!append_dml) return false;
+  if (!ort_append_status_ok(ort, append_dml(opts, dml_dev), err)) return false;
+  // DirectML requires sequential execution without memory patterns.
+  ort_ignore_status(ort, ort->DisableMemPattern(opts));
+  ort_ignore_status(ort, ort->SetSessionExecutionMode(opts, ORT_SEQUENTIAL));
+  return true;
+#else
+  (void)ort; (void)opts; (void)dml_dev; (void)err;
+  return false;
+#endif
+}
+
+static bool append_coreml_provider(const OrtApi* ort, OrtSessionOptions* opts, std::string* err) {
+  if (!ort_has_provider(ort, "CoreMLExecutionProvider")) return false;
+  if (g_ort_api_version >= 12) {
+    const char* keys[] = { "ModelFormat" };
+    const char* vals[] = { "MLProgram" };
+    if (ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider(opts, "CoreML", keys, vals, 1), err)) {
+      return true;
+    }
+  }
+#ifndef _WIN32
+  typedef OrtStatus* (*OrtAppendCoreMLFn)(OrtSessionOptions*, uint32_t);
+  OrtAppendCoreMLFn fn = g_ort_lib_handle
+    ? (OrtAppendCoreMLFn)dlsym(g_ort_lib_handle, "OrtSessionOptionsAppendExecutionProvider_CoreML")
+    : NULL;
+  if (fn) return ort_append_status_ok(ort, fn(opts, 0), err);
+#endif
+  return false;
+}
+
+static bool append_openvino_provider(const OrtApi* ort, OrtSessionOptions* opts, std::string* err) {
+  if (g_ort_api_version < 18 || !ort_has_provider(ort, "OpenVINOExecutionProvider")) return false;
+  std::string dev = env_string("PLIMAN_OPENVINO_DEVICE");
+  if (dev.empty()) dev = "AUTO:GPU,CPU";
+  const char* keys[] = { "device_type" };
+  const char* vals[] = { dev.c_str() };
+  return ort_append_status_ok(ort, ort->SessionOptionsAppendExecutionProvider_OpenVINO_V2(opts, keys, vals, 1), err);
+}
+
+// Appends the preferred accelerator to `opts`. An explicit preference that cannot be
+// honoured by the loaded runtime falls through to the automatic chain (CUDA, then
+// DirectML), so a session is never left without an accelerator just because the
+// preference names a provider this build lacks. Returns the provider that was attached,
+// or "" when none could be (the caller then builds a CPU session).
+static std::string append_gpu_provider(const OrtApi* ort, OrtSessionOptions* opts,
+                                       const std::string& pref, int dml_dev, int cuda_dev,
+                                       std::string* err) {
+  std::vector<std::string> chain;
+  if (pref != "auto") chain.push_back(pref);
+  chain.push_back("cuda");
+  chain.push_back("dml");
+  for (size_t i = 0; i < chain.size(); ++i) {
+    const std::string& p = chain[i];
+    bool ok = false;
+    if (p == "cuda") ok = append_cuda_provider(ort, opts, cuda_dev, err);
+    else if (p == "tensorrt") ok = append_tensorrt_provider(ort, opts, cuda_dev, err);
+    else if (p == "dml") ok = append_dml_provider(ort, opts, dml_dev, err);
+    else if (p == "coreml") ok = append_coreml_provider(ort, opts, err);
+    else if (p == "openvino") ok = append_openvino_provider(ort, opts, err);
+    if (ok) return p;
+  }
+  return std::string();
+}
+
+// FNV-1a style 64-bit hash over an entire byte range, consuming 8 bytes per step.
+// Used to key the SAM 2.1 encoder feature cache on the full input tensor: an earlier
+// version hashed only ~4096 sampled elements, so two different frames of the same
+// fixed-camera scene could collide and silently reuse stale embeddings.
+static uint64_t hash_bytes64(const void* p, size_t nbytes) {
+  const uint8_t* b = (const uint8_t*)p;
+  uint64_t h = 1469598103934665603ULL;
+  size_t i = 0;
+  for (; i + 8 <= nbytes; i += 8) {
+    uint64_t v;
+    std::memcpy(&v, b + i, 8);
+    h ^= v;
+    h *= 1099511628211ULL;
+    h ^= (h >> 29);
+  }
+  for (; i < nbytes; ++i) {
+    h ^= (uint64_t)b[i];
+    h *= 1099511628211ULL;
+  }
+  return h;
+}
+
+struct CachedEncoderFeatures {
+  bool valid = false;
+  uint64_t tensor_hash = 0;
+  size_t tensor_size = 0;
+  std::string enc_path;
+  std::vector<float> hr0;
+  std::vector<float> hr1;
+  std::vector<float> embed;
+  uint64_t last_used = 0;
+};
+
+// Several encoder outputs are retained (LRU), not just the most recent one: labelling
+// one image for multiple classes, the interactive review loop, and stepping back to a
+// previous image all re-encode the same pixels otherwise. Capacity is set by
+// PLIMAN_SAM_CACHE (default 4); each entry holds ~16 MB of float features.
+static std::vector<CachedEncoderFeatures> g_encoder_cache;
+static uint64_t g_encoder_tick = 0;
+
+static size_t resolve_encoder_cache_size() {
+  static size_t cached = 0;
+  if (cached == 0) {
+    cached = 4;
+    const char* ev = std::getenv("PLIMAN_SAM_CACHE");
+    if (ev != NULL) {
+      long v = std::strtol(ev, NULL, 10);
+      if (v >= 1 && v <= 64) cached = (size_t)v;
+    }
+  }
+  return cached;
+}
+
+static CachedEncoderFeatures* encoder_cache_find(const std::string& enc_path,
+                                                 uint64_t hash, size_t tensor_size) {
+  for (size_t i = 0; i < g_encoder_cache.size(); ++i) {
+    CachedEncoderFeatures& e = g_encoder_cache[i];
+    if (e.valid && e.tensor_hash == hash && e.tensor_size == tensor_size &&
+        e.enc_path == enc_path) {
+      e.last_used = ++g_encoder_tick;
+      return &e;
+    }
+  }
+  return NULL;
+}
+
+static CachedEncoderFeatures* encoder_cache_slot() {
+  for (size_t i = 0; i < g_encoder_cache.size(); ++i) {
+    if (!g_encoder_cache[i].valid) return &g_encoder_cache[i];
+  }
+  if (g_encoder_cache.size() < resolve_encoder_cache_size()) {
+    g_encoder_cache.push_back(CachedEncoderFeatures());
+    return &g_encoder_cache.back();
+  }
+  CachedEncoderFeatures* lru = &g_encoder_cache[0];
+  for (size_t i = 1; i < g_encoder_cache.size(); ++i) {
+    if (g_encoder_cache[i].last_used < lru->last_used) lru = &g_encoder_cache[i];
+  }
+  return lru;
+}
+
+static void encoder_cache_clear() {
+  g_encoder_cache.clear();
+  g_encoder_tick = 0;
+}
+
+// Runs the SAM 2.1 image encoder for `img_values`, or reuses cached features when the
+// same tensor has already been encoded by this process. Shared by every SAM runner
+// (point/box prompting, Grounded-SAM box batches, PerSAM exemplar matching), so a
+// second call on the same image -- a different text prompt, a different exemplar click,
+// or a Grounded-SAM pass followed by a PerSAM pass -- skips the backbone entirely,
+// which is the dominant cost of all three.
+//
+// On success `enc_outputs` holds {high_res_feats_0, high_res_feats_1, image_embed},
+// which the caller releases as usual. `*out_input_tensor` is non-NULL only when the
+// encoder actually ran, and must be released too.
+static bool sam2_encode_cached(const OrtApi* ort,
+                               OrtSession* session_enc,
+                               OrtMemoryInfo* mem_info,
+                               OrtRunOptions* run_options,
+                               const std::string& enc_path,
+                               const std::vector<float>& img_values,
+                               OrtValue* enc_outputs[3],
+                               OrtValue** out_input_tensor,
+                               std::string* err_msg,
+                               uint64_t* out_hash = NULL) {
+  static const int64_t hr0_shape[4] = { 1, 32, 256, 256 };
+  static const int64_t hr1_shape[4] = { 1, 64, 128, 128 };
+  static const int64_t embed_shape[4] = { 1, 256, 64, 64 };
+  const size_t n = img_values.size();
+
+  if (out_input_tensor) *out_input_tensor = NULL;
+  enc_outputs[0] = enc_outputs[1] = enc_outputs[2] = NULL;
+
+  const uint64_t h = hash_bytes64(img_values.data(), n * sizeof(float));
+  if (out_hash) *out_hash = h;
+  CachedEncoderFeatures* hit = encoder_cache_find(enc_path, h, n);
+  if (hit != NULL) {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      mem_info, hit->hr0.data(), hit->hr0.size() * sizeof(float),
+      hr0_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[0]);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      mem_info, hit->hr1.data(), hit->hr1.size() * sizeof(float),
+      hr1_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[1]);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      mem_info, hit->embed.data(), hit->embed.size() * sizeof(float),
+      embed_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_outputs[2]);
+    return true;
+  }
+
+  const int64_t img_shape[4] = { 1, 3, 1024, 1024 };
+  OrtValue* in_t = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    mem_info, (void*)img_values.data(), n * sizeof(float),
+    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_t);
+  if (out_input_tensor) *out_input_tensor = in_t;
+
+  const char* enc_in_names[] = { "image" };
+  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
+  OrtStatus* st = ort->Run(session_enc, run_options, enc_in_names,
+                           (const OrtValue* const*)&in_t, 1,
+                           enc_out_names, 3, enc_outputs);
+  if (st != NULL) {
+    if (err_msg) *err_msg = ort->GetErrorMessage(st);
+    ort->ReleaseStatus(st);
+    return false;
+  }
+
+  float* p_hr0 = NULL;
+  float* p_hr1 = NULL;
+  float* p_emb = NULL;
+  (void)ort->GetTensorMutableData(enc_outputs[0], (void**)&p_hr0);
+  (void)ort->GetTensorMutableData(enc_outputs[1], (void**)&p_hr1);
+  (void)ort->GetTensorMutableData(enc_outputs[2], (void**)&p_emb);
+  if (p_hr0 && p_hr1 && p_emb) {
+    CachedEncoderFeatures* slot = encoder_cache_slot();
+    slot->hr0.assign(p_hr0, p_hr0 + (size_t)1 * 32 * 256 * 256);
+    slot->hr1.assign(p_hr1, p_hr1 + (size_t)1 * 64 * 128 * 128);
+    slot->embed.assign(p_emb, p_emb + (size_t)1 * 256 * 64 * 64);
+    slot->tensor_hash = h;
+    slot->tensor_size = n;
+    slot->enc_path = enc_path;
+    slot->last_used = ++g_encoder_tick;
+    slot->valid = true;
+  }
+  return true;
+}
+
+// SAM 2.1 decoder runner that binds the three image-feature inputs once per image
+// (OrtIoBinding) and only rebinds the small prompt tensors for each batch.
+//
+// Plain Run() uploads every input on every call, so on a GPU session the ~21 MB of
+// encoder features (image_embed + high_res_feats_0/1) crossed the bus once per prompt
+// batch; IoBinding copies a CPU input to the provider's device when it is bound, so the
+// features now cross once per image. Outputs are bound to CPU memory and read exactly as
+// before. Considered only for GPU decoder sessions (CPU sessions see no copy to save).
+// When binding fails for any reason `ok()` is false and callers fall back to Run().
+//
+// Opt-in (PLIMAN_SAM_IOBINDING=1). Measured on a GTX 1650, 1985 x 1025 image with more
+// than one 32-prompt batch, encoder features cached, results identical to Run():
+//   DirectML  0.61 s with binding vs 0.61-0.66 s without
+//   CUDA      0.50 s with binding vs 0.48-0.50 s without
+// i.e. no measurable gain on either provider at this feature size, so the default stays
+// with plain Run(). It is kept for GPUs behind slower links (eGPU, PCIe x4), where the
+// per-batch upload weighs more.
+struct SamDecoderBinding {
+  const OrtApi* ort = NULL;
+  OrtIoBinding* binding = NULL;
+  OrtSession* session = NULL;
+  OrtMemoryInfo* out_mem = NULL;
+  bool ready = false;
+
+  static bool enabled() {
+    const char* ev = std::getenv("PLIMAN_SAM_IOBINDING");
+    return ev != NULL && (ev[0] == '1' || ev[0] == 't' || ev[0] == 'T');
+  }
+
+  SamDecoderBinding(const OrtApi* api, OrtSession* sess, OrtValue* const enc_outputs[3],
+                    OrtMemoryInfo* cpu_mem) : ort(api), session(sess), out_mem(cpu_mem) {
+    if (!enabled() || ort == NULL || session == NULL || cpu_mem == NULL) return;
+    if (ort->CreateIoBinding(session, &binding) != NULL || binding == NULL) { binding = NULL; return; }
+    const char* names[3] = { "image_embed", "high_res_feats_0", "high_res_feats_1" };
+    const OrtValue* vals[3] = { enc_outputs[2], enc_outputs[0], enc_outputs[1] };
+    for (int i = 0; i < 3; ++i) {
+      OrtStatus* st = ort->BindInput(binding, names[i], vals[i]);
+      if (st != NULL) { ort->ReleaseStatus(st); return; }
+    }
+    ready = true;
+  }
+
+  bool ok() const { return ready; }
+
+  // Same contract as Run(): on success out[0] = masks, out[1] = iou_predictions (the
+  // caller releases both) and NULL is returned; otherwise the error status.
+  OrtStatus* run(OrtRunOptions* run_options, OrtValue* pts, OrtValue* lbl,
+                 OrtValue* mask_in, OrtValue* has_mask, OrtValue* out[2]) {
+    out[0] = out[1] = NULL;
+    OrtStatus* st = NULL;
+    // Fresh output buffers for every batch. Letting the binding reuse the previous
+    // batch's outputs was ~25% faster on DirectML but returned wrong masks there (one
+    // instance lost on a 1985 x 1025 grain image), so it is never done.
+    ort->ClearBoundOutputs(binding);
+    if ((st = ort->BindOutputToDevice(binding, "masks", out_mem)) != NULL) return st;
+    if ((st = ort->BindOutputToDevice(binding, "iou_predictions", out_mem)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "point_coords", pts)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "point_labels", lbl)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "mask_input", mask_in)) != NULL) return st;
+    if ((st = ort->BindInput(binding, "has_mask_input", has_mask)) != NULL) return st;
+    // Device uploads triggered by BindInput may be asynchronous on some providers.
+    if (g_ort_api_version >= 14 && (st = ort->SynchronizeBoundInputs(binding)) != NULL) return st;
+    if ((st = ort->RunWithBinding(session, run_options, binding)) != NULL) return st;
+    if (g_ort_api_version >= 14 && (st = ort->SynchronizeBoundOutputs(binding)) != NULL) return st;
+    OrtAllocator* alloc = NULL;
+    if ((st = ort->GetAllocatorWithDefaultOptions(&alloc)) != NULL) return st;
+    OrtValue** vals = NULL;
+    size_t n = 0;
+    if ((st = ort->GetBoundOutputValues(binding, alloc, &vals, &n)) != NULL) return st;
+    if (vals != NULL && n >= 2) {
+      out[0] = vals[0];
+      out[1] = vals[1];
+      for (size_t k = 2; k < n; ++k) ort->ReleaseValue(vals[k]);
+    } else if (vals != NULL) {
+      for (size_t k = 0; k < n; ++k) ort->ReleaseValue(vals[k]);
+    }
+    if (vals != NULL) alloc->Free(alloc, vals);
+    if (out[0] == NULL || out[1] == NULL) {
+      if (out[0]) ort->ReleaseValue(out[0]);
+      if (out[1]) ort->ReleaseValue(out[1]);
+      out[0] = out[1] = NULL;
+      return ort->CreateStatus(ORT_FAIL, "IoBinding returned no decoder outputs");
+    }
+    return NULL;
+  }
+
+  ~SamDecoderBinding() {
+    if (binding != NULL) ort->ReleaseIoBinding(binding);
+  }
+};
+
+// ------------------------------------------------------------------------------------
+// YOLO inference prefetch (video pipeline, OPTIMIZATION_PLAN 6.1)
+//
+// yolo_prefetch_cpp(frame) preprocesses the *next* frame on the R thread and starts the
+// ONNX Runtime Run() for it on a worker std::thread, while R tracks, draws and encodes the
+// current frame. The next run_yolo_cpp() call on that same frame (same model and
+// settings, byte-identical pixels verified by a full 64-bit hash) takes the finished
+// outputs instead of preprocessing and running again, and then post-processes them with
+// the unchanged code path: results are identical by construction. Any mismatch discards
+// the prefetched outputs and the call runs synchronously as before.
+//
+// The worker thread touches no R object: it only reads the float input owned by the slot
+// and the session, which cannot be released meanwhile because every session eviction /
+// cache flush joins the worker first (yolo_prefetch_discard()).
+// ------------------------------------------------------------------------------------
+struct YoloPrefetch {
+  bool active = false;
+  std::thread worker;
+  // request identity
+  std::string model_path;
+  int num_threads = 0;
+  bool use_gpu = false;
+  int device_id = -1;
+  int target_size = 0;
+  uint64_t src_hash = 0;
+  size_t src_bytes = 0;
+  int src_dims[3] = { 0, 0, 0 };
+  // preprocessing outputs
+  std::vector<float> input;
+  std::vector<uint16_t> input_fp16;
+  int64_t in_w = 0, in_h = 0;
+  int orig_w = 0, orig_h = 0;
+  double gain = 1.0, pad_x = 0.0, pad_y = 0.0;
+  // run state
+  OrtSession* session = NULL;
+  OrtValue* in_tensor = NULL;
+  OrtRunOptions* run_options = NULL;
+  std::vector<OrtValue*> outputs;
+  OrtStatus* status = NULL;
+  // statistics (exposed by yolo_prefetch_stats_cpp)
+  uint64_t n_submitted = 0, n_used = 0, n_discarded = 0;
+};
+static YoloPrefetch g_yolo_prefetch;
+
+static void yolo_prefetch_join() {
+  if (g_yolo_prefetch.worker.joinable()) g_yolo_prefetch.worker.join();
+}
+
+// Waits for a pending prefetch and releases everything it produced.
+static void yolo_prefetch_discard() {
+  YoloPrefetch& pf = g_yolo_prefetch;
+  yolo_prefetch_join();
+  if (!pf.active) return;
+  const OrtApi* ort = g_ort_api;
+  if (ort != NULL) {
+    for (size_t k = 0; k < pf.outputs.size(); ++k) if (pf.outputs[k]) ort->ReleaseValue(pf.outputs[k]);
+    if (pf.status) ort->ReleaseStatus(pf.status);
+    if (pf.in_tensor) ort->ReleaseValue(pf.in_tensor);
+    if (pf.run_options) ort->ReleaseRunOptions(pf.run_options);
+  }
+  pf.outputs.clear();
+  pf.status = NULL;
+  pf.in_tensor = NULL;
+  pf.run_options = NULL;
+  pf.session = NULL;
+  pf.active = false;
+  pf.n_discarded++;
+}
+
+static void evict_cached_session_by_key(const OrtApi* ort, const std::string& key) {
+  // a prefetched Run may still be using this session
+  yolo_prefetch_discard();
+  auto it = g_session_cache.find(key);
+  if (it != g_session_cache.end()) {
+    CachedSession& cs = it->second;
+    if (cs.session) {
+      g_session_meta_by_ptr.erase(cs.session);
+      ort->ReleaseSession(cs.session);
+    }
+    if (cs.mem_info) ort->ReleaseMemoryInfo(cs.mem_info);
+    if (cs.options) ort->ReleaseSessionOptions(cs.options);
+    g_session_cache.erase(it);
+  }
+  g_session_meta.erase(key);
+  for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
+    if (*it_lru == key) {
+      g_session_lru_order.erase(it_lru);
+      break;
+    }
+  }
+}
+
+// GPU memory pressure (DirectML on small GPUs).
+//
+// Measured on a 4 GB GTX 1650: a YOLO session built while Grounding DINO + SAM 2.1 +
+// YOLO26x were resident (process usage 4513 MB for a 2812 MB budget) ran at 318-390
+// ms/call, and still 219-224 ms after those models were released, because WDDM had
+// placed part of its allocations in system memory; rebuilt with memory available it
+// ran at 72 ms (45 ms with nothing else loaded). Hence:
+//   * before a GPU session is built, sessions idle for >= 2 s are released (least
+//     recently used first) while usage exceeds 80% of the budget -- sessions taken in
+//     the same call (encoder + decoder) are never idle that long;
+//   * a session still built over budget is marked and rebuilt on a later use, once
+//     usage is back under 80% of the budget (checked at most every 5 s).
+// Disable with PLIMAN_VRAM_GUARD=0.
+static bool vram_guard_enabled() {
+  const char* ev = std::getenv("PLIMAN_VRAM_GUARD");
+  return !(ev != NULL && (ev[0] == '0' || ev[0] == 'f' || ev[0] == 'F'));
+}
+
+static const double kVramSoftLimit = 0.80;
+
+// Returns true when usage is (now) within the soft limit; false when no measurement
+// is available or the limit could not be reached.
+static bool relieve_vram_pressure(const OrtApi* ort, int adapter_id, const std::string& keep_key,
+                                  double* usage_out = NULL, double* budget_out = NULL) {
+#ifdef _WIN32
+  double u = 0.0, b = 0.0;
+  if (!dxgi_vram_usage(adapter_id, &u, &b) || b <= 0.0) return false;
+  const auto now = std::chrono::steady_clock::now();
+  while (u > kVramSoftLimit * b) {
+    std::string victim;
+    for (size_t i = 0; i < g_session_lru_order.size(); ++i) {   // oldest first
+      const std::string& k = g_session_lru_order[i];
+      if (k == keep_key) continue;
+      auto mit = g_session_meta.find(k);
+      if (mit == g_session_meta.end() || !mit->second || !mit->second->is_gpu) continue;
+      if (std::chrono::duration_cast<std::chrono::milliseconds>(now - mit->second->last_used_time).count() < 2000) continue;
+      victim = k;
+      break;
+    }
+    if (victim.empty()) break;
+    evict_cached_session_by_key(ort, victim);
+    if (!dxgi_vram_usage(adapter_id, &u, &b) || b <= 0.0) return false;
+  }
+  if (usage_out) *usage_out = u;
+  if (budget_out) *budget_out = b;
+  return u <= kVramSoftLimit * b;
+#else
+  (void)ort; (void)adapter_id; (void)keep_key; (void)usage_out; (void)budget_out;
+  return false;
+#endif
+}
+
+struct CachedIOShape {
+  bool dynamic = true;
+  bool batch_dynamic = false;
+  int expected_w = 640;
+  int expected_h = 640;
+  int64_t file_mtime = 0;
+  int64_t file_size = 0;
+};
+static std::map<std::string, CachedIOShape> g_io_shape_cache;
+
+// Portable bitwise IEEE 754 float32 <-> float16 (half-precision) converters
+static inline uint16_t float_to_half(float f) {
+  uint32_t x;
+  std::memcpy(&x, &f, sizeof(float));
+  uint32_t sign = (x >> 16) & 0x8000;
+  int32_t exp = ((x >> 23) & 0xff) - 127 + 15;
+  uint32_t mant = x & 0x7fffff;
+  if (exp <= 0) {
+    if (exp < -10) return (uint16_t)sign;
+    mant = (mant | 0x800000) >> (1 - exp);
+    return (uint16_t)(sign | (mant >> 13));
+  } else if (exp >= 31) {
+    return (uint16_t)(sign | 0x7c00);
+  }
+  return (uint16_t)(sign | (exp << 10) | (mant >> 13));
+}
+
+static inline float half_to_float(uint16_t h) {
+  uint32_t sign = (uint32_t)(h & 0x8000) << 16;
+  int32_t exp = (h >> 10) & 0x1f;
+  uint32_t mant = h & 0x3ff;
+  if (exp == 0) {
+    if (mant == 0) {
+      float zero = 0.0f;
+      if (sign) { uint32_t neg = sign; std::memcpy(&zero, &neg, sizeof(float)); }
+      return zero;
+    }
+    while (!(mant & 0x400)) { mant <<= 1; exp--; }
+    exp++;
+    mant &= ~0x400;
+  } else if (exp == 31) {
+    exp = 255;
+  } else {
+    exp = exp - 15 + 127;
+  }
+  uint32_t x = sign | ((uint32_t)exp << 23) | (mant << 13);
+  float f;
+  std::memcpy(&f, &x, sizeof(float));
+  return f;
+}
 
 static void clear_onnx_sessions_internal() {
   if (g_ort_api == NULL) return;
+  yolo_prefetch_discard();
+  encoder_cache_clear();
+  g_io_shape_cache.clear();
+  dense_zncc_clear_cache();
   for (auto& pair : g_session_cache) {
     CachedSession& cs = pair.second;
     if (cs.session) g_ort_api->ReleaseSession(cs.session);
     if (cs.mem_info) g_ort_api->ReleaseMemoryInfo(cs.mem_info);
     if (cs.options) g_ort_api->ReleaseSessionOptions(cs.options);
-    if (cs.env) g_ort_api->ReleaseEnv(cs.env);
   }
   g_session_cache.clear();
+  g_session_meta.clear();
+  g_session_meta_by_ptr.clear();
+  g_session_lru_order.clear();
+  if (g_ort_env) {
+    g_ort_api->ReleaseEnv(g_ort_env);
+    g_ort_env = NULL;
+  }
+}
+
+static OrtEnv* ensure_global_env(const OrtApi* ort) {
+  if (g_ort_env == NULL) {
+    OrtStatus* st = ort->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "pliman_onnx", &g_ort_env);
+    if (st != NULL) {
+      std::string msg = ort->GetErrorMessage(st);
+      ort->ReleaseStatus(st);
+      g_ort_env = NULL;
+      Rcpp::stop("Failed to create ONNX Runtime environment: " + msg);
+    }
+  }
+  return g_ort_env;
+}
+
+static inline void ort_ignore_status(const OrtApi* ort, OrtStatus* st) {
+  if (st != NULL) ort->ReleaseStatus(st);
+}
+
+// Builds session options shared by the GPU and CPU-fallback paths.
+// Thread spinning follows ONNX Runtime's default; set the environment variable
+// PLIMAN_ORT_SPIN=0 to stop idle ORT workers from busy-waiting between runs (useful when
+// several R processes share the CPU).
+static OrtSessionOptions* make_session_options(const OrtApi* ort, int num_threads, bool gpu_mode) {
+  OrtSessionOptions* opts = NULL;
+  ort_ignore_status(ort, ort->CreateSessionOptions(&opts));
+  if (opts == NULL) Rcpp::stop("Failed to create ONNX session options.");
+  if (num_threads > 0) {
+    ort_ignore_status(ort, ort->SetIntraOpNumThreads(opts, num_threads));
+  }
+  ort_ignore_status(ort, ort->SetInterOpNumThreads(opts, 1));
+  ort_ignore_status(ort, ort->SetSessionGraphOptimizationLevel(opts, ORT_ENABLE_ALL));
+  ort_ignore_status(ort, ort->SetSessionLogSeverityLevel(opts, ORT_LOGGING_LEVEL_ERROR));
+  ort_ignore_status(ort, ort->SetSessionExecutionMode(opts, ORT_SEQUENTIAL));
+  if (!ort_spinning_enabled()) {
+    ort_ignore_status(ort, ort->AddSessionConfigEntry(opts, "session.intra_op.allow_spinning", "0"));
+    ort_ignore_status(ort, ort->AddSessionConfigEntry(opts, "session.inter_op.allow_spinning", "0"));
+  }
+  ort_ignore_status(ort, ort->AddSessionConfigEntry(opts, "session.set_denormal_as_zero", "1"));
+  if (gpu_mode) {
+    ort_ignore_status(ort, ort->DisableMemPattern(opts));
+  } else {
+    ort_ignore_status(ort, ort->EnableCpuMemArena(opts));
+    ort_ignore_status(ort, ort->EnableMemPattern(opts));
+  }
+  return opts;
+}
+
+static void populate_session_metadata(const OrtApi* ort, OrtSession* session, SessionMeta& m) {
+  OrtAllocator* allocator = NULL;
+  ort_ignore_status(ort, ort->GetAllocatorWithDefaultOptions(&allocator));
+  size_t n_in = 0, n_out = 0;
+  ort_ignore_status(ort, ort->SessionGetInputCount(session, &n_in));
+  ort_ignore_status(ort, ort->SessionGetOutputCount(session, &n_out));
+  m.in_names_str.assign(n_in, std::string());
+  m.out_names_str.assign(n_out, std::string());
+  m.in_types.assign(n_in, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
+  m.in_dims.assign(n_in, std::vector<int64_t>());
+  for (size_t i = 0; i < n_in; ++i) {
+    char* name = NULL;
+    ort_ignore_status(ort, ort->SessionGetInputName(session, i, allocator, &name));
+    m.in_names_str[i] = std::string(name ? name : "input");
+    if (name) allocator->Free(allocator, name);
+    OrtTypeInfo* ti = NULL;
+    if (ort->SessionGetInputTypeInfo(session, i, &ti) == NULL && ti != NULL) {
+      const OrtTensorTypeAndShapeInfo* si = NULL;
+      if (ort->CastTypeInfoToTensorInfo(ti, &si) == NULL && si != NULL) {
+        ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+        ort_ignore_status(ort, ort->GetTensorElementType(si, &et));
+        m.in_types[i] = et;
+        size_t nd = 0;
+        ort_ignore_status(ort, ort->GetDimensionsCount(si, &nd));
+        m.in_dims[i].assign(nd, 0);
+        if (nd > 0) ort_ignore_status(ort, ort->GetDimensions(si, m.in_dims[i].data(), nd));
+      }
+      ort->ReleaseTypeInfo(ti);
+    }
+  }
+  for (size_t i = 0; i < n_out; ++i) {
+    char* name = NULL;
+    ort_ignore_status(ort, ort->SessionGetOutputName(session, i, allocator, &name));
+    m.out_names_str[i] = std::string(name ? name : "output");
+    if (name) allocator->Free(allocator, name);
+  }
+  m.in_names.resize(n_in);
+  m.out_names.resize(n_out);
+  for (size_t i = 0; i < n_in; ++i) m.in_names[i] = m.in_names_str[i].c_str();
+  for (size_t i = 0; i < n_out; ++i) m.out_names[i] = m.out_names_str[i].c_str();
+  m.in_elem_type = (n_in > 0) ? m.in_types[0] : ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  m.batch_dynamic = (n_in > 0 && !m.in_dims[0].empty() && m.in_dims[0][0] <= 0);
+  m.spatial_dynamic = true;
+  if (n_in > 0 && m.in_dims[0].size() >= 4) {
+    m.spatial_dynamic = (m.in_dims[0][2] <= 0 || m.in_dims[0][3] <= 0);
+  }
+}
+
+// One dummy Run on freshly created GPU sessions with fully static input shapes, so
+// DirectML shader compilation and allocation happen at load time instead of inflating
+// the first real inference (first video frame, first benchmark iteration).
+static void warmup_session(const OrtApi* ort, OrtSession* session, OrtMemoryInfo* mem_info, SessionMeta& m) {
+  if (m.in_names.size() != 1 || m.in_dims.empty()) return;
+  const std::vector<int64_t>& d = m.in_dims[0];
+  if (d.empty()) return;
+  size_t n = 1;
+  for (size_t k = 0; k < d.size(); ++k) {
+    if (d[k] <= 0) return;
+    n *= (size_t)d[k];
+  }
+  if (n == 0 || n > (size_t)64 * 1024 * 1024) return;
+  OrtValue* in_t = NULL;
+  std::vector<float> zf;
+  std::vector<uint16_t> zh;
+  OrtStatus* st = NULL;
+  if (m.in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+    zf.assign(n, 0.0f);
+    st = ort->CreateTensorWithDataAsOrtValue(mem_info, zf.data(), n * sizeof(float), d.data(), d.size(),
+                                             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_t);
+  } else if (m.in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    zh.assign(n, 0);
+    st = ort->CreateTensorWithDataAsOrtValue(mem_info, zh.data(), n * sizeof(uint16_t), d.data(), d.size(),
+                                             ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_t);
+  } else {
+    return;
+  }
+  if (st != NULL || in_t == NULL) { ort_ignore_status(ort, st); return; }
+  std::vector<OrtValue*> outs(m.out_names.size(), (OrtValue*)NULL);
+  st = ort->Run(session, NULL, m.in_names.data(), (const OrtValue* const*)&in_t, 1,
+                m.out_names.data(), m.out_names.size(), outs.data());
+  if (st == NULL) m.warmed_up = true;
+  ort_ignore_status(ort, st);
+  for (size_t k = 0; k < outs.size(); ++k) if (outs[k]) ort->ReleaseValue(outs[k]);
+  ort->ReleaseValue(in_t);
+}
+
+// Cached element type of input `idx` (avoids SessionGetInputTypeInfo on every call).
+static ONNXTensorElementDataType session_input_type(const OrtApi* ort, OrtSession* session, size_t idx = 0) {
+  auto it_meta = g_session_meta_by_ptr.find(session);
+  if (it_meta != g_session_meta_by_ptr.end() && it_meta->second != NULL &&
+      idx < it_meta->second->in_types.size()) {
+    return it_meta->second->in_types[idx];
+  }
+  ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  OrtTypeInfo* ti = NULL;
+  if (ort->SessionGetInputTypeInfo(session, idx, &ti) == NULL && ti != NULL) {
+    const OrtTensorTypeAndShapeInfo* si = NULL;
+    if (ort->CastTypeInfoToTensorInfo(ti, &si) == NULL && si != NULL) {
+      OrtStatus* st = ort->GetTensorElementType(si, &et);
+      if (st) ort->ReleaseStatus(st);
+    }
+    ort->ReleaseTypeInfo(ti);
+  }
+  return et;
+}
+
+// Parallel conversion of an R numeric/integer/logical/raw vector into a float buffer.
+// Replaces the single-threaded `(float)tensor_vec[i]` loops of the individual runners.
+static void sexp_to_float(SEXP x, std::vector<float>& out, size_t n = (size_t)-1, float raw_scale = 1.0f) {
+  size_t len = (size_t)Rf_xlength(x);
+  if (n == (size_t)-1) n = len;
+  out.resize(n);
+  if (n > len) std::fill(out.begin() + len, out.end(), 0.0f);
+  float* o = out.data();
+  const int64_t nn = (int64_t)std::min(n, len);
+  switch (TYPEOF(x)) {
+  case REALSXP: {
+    const double* p = REAL(x);
+    #pragma omp parallel for schedule(static) if(nn > 65536)
+    for (int64_t i = 0; i < nn; ++i) o[i] = (float)p[i];
+    break;
+  }
+  case INTSXP:
+  case LGLSXP: {
+    const int* p = (TYPEOF(x) == INTSXP) ? INTEGER(x) : LOGICAL(x);
+    #pragma omp parallel for schedule(static) if(nn > 65536)
+    for (int64_t i = 0; i < nn; ++i) o[i] = (float)p[i];
+    break;
+  }
+  case RAWSXP: {
+    const Rbyte* p = RAW(x);
+    #pragma omp parallel for schedule(static) if(nn > 65536)
+    for (int64_t i = 0; i < nn; ++i) o[i] = (float)p[i] * raw_scale;
+    break;
+  }
+  default:
+    Rcpp::stop("sexp_to_float: unsupported vector type.");
+  }
+}
+
+static void float_vec_to_half(const std::vector<float>& in, std::vector<uint16_t>& out) {
+  out.resize(in.size());
+  const int64_t nn = (int64_t)in.size();
+  const float* p = in.data();
+  uint16_t* o = out.data();
+  #pragma omp parallel for schedule(static) if(nn > 65536)
+  for (int64_t i = 0; i < nn; ++i) o[i] = float_to_half(p[i]);
 }
 
 static CachedSession get_or_create_cached_session(
@@ -299,67 +1357,217 @@ static CachedSession get_or_create_cached_session(
   }
 #endif
 
+  int64_t cur_mtime = 0, cur_size = 0;
+
+  // The provider preference and profiling switch are part of the key, so changing them
+  // mid-session builds a new session instead of silently reusing one created under the
+  // previous setting. The default ("auto", no profiling) keeps the historical key.
+  const std::string gpu_pref = use_gpu ? resolve_gpu_provider_pref() : std::string("cpu");
+  const std::string profile_prefix = env_string("PLIMAN_ORT_PROFILE");
+  const std::string opt_cache_dir = use_gpu ? std::string() : env_string("PLIMAN_ORT_OPT_CACHE");
   std::string key = model_path + "_th_" + std::to_string(num_threads) +
                     (use_gpu ? ("_gpu_" + std::to_string(actual_device_id)) : "_cpu");
+  if (use_gpu && gpu_pref != "auto") key += "_" + gpu_pref;
+  if (!profile_prefix.empty()) key += "_prof";
   auto it = g_session_cache.find(key);
   if (it != g_session_cache.end()) {
+    auto now_t = std::chrono::steady_clock::now();
+    bool should_stat = (it->second.last_stat_time.time_since_epoch().count() == 0) ||
+                       (std::chrono::duration_cast<std::chrono::seconds>(now_t - it->second.last_stat_time).count() >= 2);
+    if (should_stat) {
+      it->second.last_stat_time = now_t;
+      get_file_stat(model_path, cur_mtime, cur_size);
+      if (cur_mtime != 0 && (it->second.file_mtime != cur_mtime || it->second.file_size != cur_size)) {
+        // Model file changed on disk: drop every cached variant of this path.
+        std::vector<std::string> stale_keys;
+        std::string prefix = model_path + "_th_";
+        for (const auto& pair : g_session_cache) {
+          if (pair.first.rfind(prefix, 0) == 0) stale_keys.push_back(pair.first);
+        }
+        for (const auto& sk : stale_keys) evict_cached_session_by_key(ort, sk);
+        g_io_shape_cache.erase(model_path);
+        goto create_session;
+      }
+    }
+    if (it->second.meta != NULL && it->second.meta->retry_gpu &&
+        std::chrono::steady_clock::now() >= it->second.meta->retry_gpu_at) {
+      // CPU fallback of a GPU session that failed to build: try the GPU again.
+      evict_cached_session_by_key(ort, key);
+      goto create_session;
+    }
+    if (it->second.meta != NULL && it->second.meta->vram_pressured && vram_guard_enabled() &&
+        std::chrono::steady_clock::now() >= it->second.meta->vram_check_at) {
+      // Built over the VRAM budget (partly in system memory): rebuild once there is room.
+      bool room = false;
+#ifdef _WIN32
+      {
+        double vu = 0.0, vb = 0.0;
+        room = dxgi_vram_usage(actual_device_id, &vu, &vb) && vb > 0.0 && vu <= kVramSoftLimit * vb;
+      }
+#endif
+      if (room) {
+        evict_cached_session_by_key(ort, key);
+        goto create_session;
+      }
+      it->second.meta->vram_check_at = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
+    if (g_session_lru_order.empty() || g_session_lru_order.back() != key) {
+      for (auto it_lru = g_session_lru_order.begin(); it_lru != g_session_lru_order.end(); ++it_lru) {
+        if (*it_lru == key) {
+          g_session_lru_order.erase(it_lru);
+          break;
+        }
+      }
+      g_session_lru_order.push_back(key);
+    }
+    if (it->second.meta) {
+      it->second.meta->last_used = ++g_session_tick;
+      it->second.meta->last_used_time = std::chrono::steady_clock::now();
+    }
     return it->second;
+  } else {
+    get_file_stat(model_path, cur_mtime, cur_size);
+  }
+
+create_session:
+
+  // LRU eviction only. Variants of the same model with different thread counts or devices
+  // may coexist (e.g. the PerSAM decoder at 1 CPU thread next to SAM2 on the GPU), which
+  // avoids recreating multi-second sessions when callers alternate settings.
+  while (g_session_cache.size() >= resolve_max_sessions() && !g_session_lru_order.empty()) {
+    std::string lru_key = g_session_lru_order.front();
+    evict_cached_session_by_key(ort, lru_key);
+  }
+
+  // Make room on the GPU first: a session built over the VRAM budget stays slow.
+  const int dxgi_adapter_id = actual_device_id;
+  if (use_gpu && vram_guard_enabled()) {
+    (void)relieve_vram_pressure(ort, dxgi_adapter_id, key);
   }
 
   CachedSession cs;
-  (void)ort->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "pliman_onnx", &cs.env);
-  (void)ort->CreateSessionOptions(&cs.options);
-  if (num_threads > 0) {
-    (void)ort->SetIntraOpNumThreads(cs.options, num_threads);
-  }
-  (void)ort->SetSessionGraphOptimizationLevel(cs.options, ORT_ENABLE_ALL);
-  (void)ort->SetSessionLogSeverityLevel(cs.options, ORT_LOGGING_LEVEL_ERROR);
+  cs.env = ensure_global_env(ort);
+  const auto t_create0 = std::chrono::steady_clock::now();
+  cs.options = make_session_options(ort, num_threads, false);
 
+  // DXGI adapter index for DirectML; CUDA ordinals are numbered independently (an
+  // integrated GPU is DXGI adapter 0 on hybrid laptops but has no CUDA ordinal), so CUDA
+  // and TensorRT use the explicit device_id when given and device 0 otherwise.
+  const int cuda_device_id = (device_id >= 0) ? device_id : 0;
+  std::string provider_used;
+  std::string provider_err;
   if (use_gpu) {
-    (void)ort->DisableMemPattern(cs.options);
-    (void)ort->SetSessionExecutionMode(cs.options, ORT_SEQUENTIAL);
-  } else {
-    (void)ort->EnableCpuMemArena(cs.options);
-    (void)ort->EnableMemPattern(cs.options);
+    provider_used = append_gpu_provider(ort, cs.options, gpu_pref, actual_device_id,
+                                        cuda_device_id, &provider_err);
+  }
+  bool gpu_ok = !provider_used.empty();
+  if (provider_used == "cuda" || provider_used == "tensorrt") actual_device_id = cuda_device_id;
+
+  bool fell_back = false;
+  if (use_gpu && !gpu_ok) {
+    // GPU requested but no GPU execution provider could be attached: rebuild clean CPU
+    // options (memory pattern on) instead of running the CPU EP with GPU-tuned options.
+    ort->ReleaseSessionOptions(cs.options);
+    cs.options = make_session_options(ort, num_threads, false);
+    fell_back = true;
   }
 
+  if (!profile_prefix.empty()) {
+    // One JSON trace per session, written when the session is released (cache eviction
+    // or pliman_clear_sessions()). It lists the provider that ran every node, which is
+    // how CPU fallbacks inside a "GPU" session are found.
+    std::string stem = profile_prefix + "_" + path_basename(model_path) + "_" +
+                       (provider_used.empty() ? std::string("cpu") : provider_used);
 #ifdef _WIN32
-  if (use_gpu && g_ort_lib_handle != NULL) {
-    OrtAppendDMLFn append_dml = (OrtAppendDMLFn)GetProcAddress((HMODULE)g_ort_lib_handle, "OrtSessionOptionsAppendExecutionProvider_DML");
-    if (append_dml) {
-      OrtStatus* dml_st = append_dml(cs.options, actual_device_id);
-      if (dml_st != NULL) {
-        ort->ReleaseStatus(dml_st);
+    std::wstring wstem = utf8_to_wide(stem);
+    ort_ignore_status(ort, ort->EnableProfiling(cs.options, wstem.c_str()));
+#else
+    ort_ignore_status(ort, ort->EnableProfiling(cs.options, stem.c_str()));
+#endif
+  }
+
+  // Optimized-graph disk cache (CPU sessions only). Graph optimization of large models
+  // (SAM encoder, Grounding DINO, RMBG) takes a noticeable part of session start-up; the
+  // optimized graph is saved once and later sessions load it with optimizations off.
+  // The file name encodes size, mtime and runtime API version, so a changed model or a
+  // different ONNX Runtime never reuses a stale graph. GPU sessions are excluded because
+  // a graph optimized for one execution provider may contain provider-specific nodes.
+  std::string load_path = model_path;
+  std::string opt_target, opt_tmp;
+  std::string graph_cache_state = "off";
+  if (!opt_cache_dir.empty() && !use_gpu && !file_exists_utf8(model_path + ".data") &&
+      !file_exists_utf8(model_path + "_data")) {
+    if (cur_mtime == 0) get_file_stat(model_path, cur_mtime, cur_size);
+    if (cur_size > 0 && cur_size < (int64_t)1800 * 1024 * 1024) {
+      std::string stem = path_basename(model_path);
+      if (stem.size() > 5 && lower_copy(stem.substr(stem.size() - 5)) == ".onnx") stem = stem.substr(0, stem.size() - 5);
+      opt_target = opt_cache_dir + "/" + stem + "_" + std::to_string((long long)cur_size) + "_" +
+                   std::to_string((long long)cur_mtime) + "_api" + std::to_string(g_ort_api_version) +
+                   ".opt.onnx";
+      if (file_exists_utf8(opt_target)) {
+        load_path = opt_target;
+        ort_ignore_status(ort, ort->SetSessionGraphOptimizationLevel(cs.options, ORT_DISABLE_ALL));
+        graph_cache_state = "hit";
+      } else {
+        opt_tmp = opt_target + ".tmp" + std::to_string((long long)std::chrono::steady_clock::now().time_since_epoch().count() % 1000000);
+#ifdef _WIN32
+        std::wstring wtmp = utf8_to_wide(opt_tmp);
+        ort_ignore_status(ort, ort->SetOptimizedModelFilePath(cs.options, wtmp.c_str()));
+#else
+        ort_ignore_status(ort, ort->SetOptimizedModelFilePath(cs.options, opt_tmp.c_str()));
+#endif
       }
     }
   }
-#endif
 
 #ifdef _WIN32
-  int size_needed = MultiByteToWideChar(CP_UTF8, 0, model_path.c_str(), (int)model_path.size(), NULL, 0);
-  std::wstring wmodel_path(size_needed, 0);
-  MultiByteToWideChar(CP_UTF8, 0, model_path.c_str(), (int)model_path.size(), &wmodel_path[0], size_needed);
+  std::wstring wmodel_path = utf8_to_wide(load_path);
   OrtStatus* status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
 #else
-  OrtStatus* status = ort->CreateSession(cs.env, model_path.c_str(), cs.options, &cs.session);
+  OrtStatus* status = ort->CreateSession(cs.env, load_path.c_str(), cs.options, &cs.session);
 #endif
 
-  // If GPU session creation failed, gracefully fall back to CPU session without crashing!
-  if ((status != NULL || !cs.session) && use_gpu) {
+  if ((status != NULL || !cs.session) && graph_cache_state == "hit") {
+    // A cached graph the runtime rejects (truncated file, incompatible build): drop it
+    // and load the original model.
+    if (status) ort->ReleaseStatus(status);
+    status = NULL;
+    cs.session = NULL;
+    remove_utf8(opt_target);
+    ort->ReleaseSessionOptions(cs.options);
+    cs.options = make_session_options(ort, num_threads, false);
+    graph_cache_state = "off";
+    load_path = model_path;
+#ifdef _WIN32
+    wmodel_path = utf8_to_wide(load_path);
+    status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
+#else
+    status = ort->CreateSession(cs.env, load_path.c_str(), cs.options, &cs.session);
+#endif
+  }
+
+  // Test hook: simulate a GPU session that fails to build (VRAM exhausted), so the
+  // fallback/retry path can be exercised without actually exhausting the GPU.
+  if (status == NULL && cs.session != NULL && use_gpu && gpu_ok &&
+      !env_string("PLIMAN_TEST_FAIL_GPU_SESSION").empty()) {
+    ort->ReleaseSession(cs.session);
+    cs.session = NULL;
+    status = ort->CreateStatus(ORT_FAIL, "simulated GPU session failure (PLIMAN_TEST_FAIL_GPU_SESSION)");
+  }
+
+  // If GPU session creation failed, gracefully fall back to a CPU session.
+  std::string gpu_create_err;
+  if ((status != NULL || !cs.session) && use_gpu && gpu_ok) {
+    gpu_create_err = status ? ort->GetErrorMessage(status) : "unknown error";
     if (status) ort->ReleaseStatus(status);
     if (cs.options) ort->ReleaseSessionOptions(cs.options);
-    (void)ort->CreateSessionOptions(&cs.options);
-    if (num_threads > 0) {
-      (void)ort->SetIntraOpNumThreads(cs.options, num_threads);
-    }
-    (void)ort->SetSessionGraphOptimizationLevel(cs.options, ORT_ENABLE_ALL);
-    (void)ort->SetSessionLogSeverityLevel(cs.options, ORT_LOGGING_LEVEL_ERROR);
-    (void)ort->EnableCpuMemArena(cs.options);
-    (void)ort->EnableMemPattern(cs.options);
+    cs.session = NULL;
+    cs.options = make_session_options(ort, num_threads, false);
+    fell_back = true;
 #ifdef _WIN32
     status = ort->CreateSession(cs.env, wmodel_path.c_str(), cs.options, &cs.session);
 #else
-    status = ort->CreateSession(cs.env, model_path.c_str(), cs.options, &cs.session);
+    status = ort->CreateSession(cs.env, load_path.c_str(), cs.options, &cs.session);
 #endif
   }
 
@@ -367,19 +1575,252 @@ static CachedSession get_or_create_cached_session(
     std::string msg = status ? ort->GetErrorMessage(status) : "Unknown error";
     if (status) ort->ReleaseStatus(status);
     if (cs.options) ort->ReleaseSessionOptions(cs.options);
-    if (cs.env) ort->ReleaseEnv(cs.env);
+    if (!opt_tmp.empty()) remove_utf8(opt_tmp);
     Rcpp::stop("Failed to create ONNX session for " + model_path + ": " + msg);
+  }
+
+  if (!opt_tmp.empty()) {
+    // Publish the optimized graph atomically so a concurrent worker never reads a
+    // partially written file.
+    if (file_exists_utf8(opt_tmp) && rename_utf8(opt_tmp, opt_target)) {
+      graph_cache_state = "saved";
+    } else {
+      remove_utf8(opt_tmp);
+    }
   }
 
   (void)ort->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &cs.mem_info);
 
+  std::unique_ptr<SessionMeta> meta(new SessionMeta());
+  meta->key = key;
+  meta->model_path = model_path;
+  meta->num_threads = num_threads;
+  meta->device_id = actual_device_id;
+  meta->requested_gpu = use_gpu;
+  meta->is_gpu = use_gpu && gpu_ok && !fell_back;
+  meta->fell_back_to_cpu = use_gpu && fell_back;
+  meta->provider = meta->is_gpu ? provider_used : std::string("cpu");
+  meta->graph_cache = graph_cache_state;
+  if (meta->fell_back_to_cpu) {
+    if (!gpu_create_err.empty()) {
+      meta->fallback_reason = "GPU session (" + provider_used + ") failed: " + gpu_create_err;
+      meta->retry_gpu = true;
+      long retry_s = 30;
+      const std::string ev_retry = env_string("PLIMAN_GPU_RETRY_S");
+      if (!ev_retry.empty()) {
+        long v = std::strtol(ev_retry.c_str(), NULL, 10);
+        if (v >= 0 && v <= 86400) retry_s = v;
+      }
+      meta->retry_gpu_at = std::chrono::steady_clock::now() + std::chrono::seconds(retry_s);
+    } else {
+      meta->fallback_reason = provider_err.empty()
+        ? std::string("no GPU execution provider in this ONNX Runtime library")
+        : ("no GPU execution provider could be attached: " + provider_err);
+    }
+    // A GPU that failed to build the session (e.g. VRAM held by another process) used to
+    // leave the model on the CPU silently for the rest of the R session -- a 20 fps
+    // video run dropped to 2 fps with no hint. Reported now. A runtime without any GPU
+    // provider (CPU builds on Linux/macOS) is only recorded in pliman_session_info().
+    if (meta->retry_gpu) {
+      Rcpp::warning("ONNX model '%s' requested on the GPU is running on the CPU (%s). The GPU is retried after 30 s; pliman_clear_sessions() retries immediately.",
+                    path_basename(model_path).c_str(), meta->fallback_reason.c_str());
+    }
+  }
+  meta->create_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_create0).count();
+  meta->last_used = ++g_session_tick;
+  meta->last_used_time = std::chrono::steady_clock::now();
+#ifdef _WIN32
+  if (meta->is_gpu && vram_guard_enabled()) {
+    double vu = 0.0, vb = 0.0;
+    if (dxgi_vram_usage(dxgi_adapter_id, &vu, &vb) && vb > 0.0 && vu > vb) {
+      meta->vram_pressured = true;
+      meta->vram_check_at = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    }
+  }
+#endif
+  populate_session_metadata(ort, cs.session, *meta);
+
+  // Feed the IO-shape cache so get_onnx_model_io_shape_cpp() never needs its own lookup.
+  if (!meta->in_dims.empty()) {
+    CachedIOShape csh;
+    const std::vector<int64_t>& d0 = meta->in_dims[0];
+    csh.dynamic = meta->spatial_dynamic;
+    csh.batch_dynamic = meta->batch_dynamic;
+    csh.expected_h = (d0.size() >= 4 && d0[2] > 0) ? (int)d0[2] : 640;
+    csh.expected_w = (d0.size() >= 4 && d0[3] > 0) ? (int)d0[3] : 640;
+    csh.file_mtime = cur_mtime;
+    csh.file_size = cur_size;
+    g_io_shape_cache[model_path] = csh;
+  }
+
+  if (meta->is_gpu && !meta->spatial_dynamic && !meta->batch_dynamic) {
+    warmup_session(ort, cs.session, cs.mem_info, *meta);
+  }
+
+  cs.meta = meta.get();
+  g_session_meta_by_ptr[cs.session] = meta.get();
+  g_session_meta[key] = std::move(meta);
+  cs.file_mtime = cur_mtime;
+  cs.file_size = cur_size;
+  cs.last_stat_time = std::chrono::steady_clock::now();
   g_session_cache[key] = cs;
+  g_session_lru_order.push_back(key);
   return cs;
 }
 
 // [[Rcpp::export]]
 void clear_onnx_sessions_cpp() {
   clear_onnx_sessions_internal();
+}
+
+// Releases only the sessions belonging to one model file (all thread-count and device
+// variants of it), leaving every other cached session warm. Used to free VRAM between
+// the two stages of a composite pipeline -- Grounding DINO then SAM 2.1, say -- without
+// the wholesale cache flush that forced both models to be rebuilt on the next image.
+// Returns the number of sessions released.
+// [[Rcpp::export]]
+int onnx_evict_session_cpp(std::string model_path) {
+  if (g_ort_api == NULL) return 0;
+  const std::string prefix = model_path + "_th_";
+  std::vector<std::string> stale;
+  for (std::map<std::string, CachedSession>::const_iterator it = g_session_cache.begin();
+       it != g_session_cache.end(); ++it) {
+    if (it->first.rfind(prefix, 0) == 0) stale.push_back(it->first);
+  }
+  for (size_t i = 0; i < stale.size(); ++i) {
+    evict_cached_session_by_key(g_ort_api, stale[i]);
+  }
+  g_io_shape_cache.erase(model_path);
+  return (int)stale.size();
+}
+
+// Drops the cached SAM 2.1 encoder features without touching the ONNX sessions.
+// [[Rcpp::export]]
+void onnx_clear_encoder_cache_cpp() {
+  encoder_cache_clear();
+}
+
+// Attempts and successes of the FFT-based dense ZNCC backend (@seealso dense_zncc.cpp).
+// Lets the regression test assert that the fast path is actually taken rather than
+// silently falling back to direct evaluation.
+// [[Rcpp::export]]
+Rcpp::IntegerVector pliman_zncc_fft_stats_cpp() {
+  return Rcpp::IntegerVector::create(
+    Rcpp::Named("attempts") = (int)g_zncc_fft_attempts,
+    Rcpp::Named("success") = (int)g_zncc_fft_success
+  );
+}
+
+// Process-wide OpenMP thread default. Exposed for diagnostics and for the regression
+// test asserting that a per-call `threads` argument does not mutate it.
+// [[Rcpp::export]]
+int pliman_omp_max_threads_cpp() {
+#ifdef _OPENMP
+  return omp_get_max_threads();
+#else
+  return 1;
+#endif
+}
+
+// [[Rcpp::export]]
+int onnx_set_max_sessions_cpp(int n = 0) {
+  int prev = (int)resolve_max_sessions();
+  if (n >= 1) {
+    g_max_sessions = (size_t)n;
+    if (g_ort_api != NULL) {
+      while (g_session_cache.size() > g_max_sessions && !g_session_lru_order.empty()) {
+        std::string lru_key = g_session_lru_order.front();
+        evict_cached_session_by_key(g_ort_api, lru_key);
+      }
+    }
+  }
+  return prev;
+}
+
+// [[Rcpp::export]]
+Rcpp::DataFrame onnx_session_info_cpp() {
+  size_t n = g_session_lru_order.size();
+  Rcpp::CharacterVector key(n), model(n), input_dims(n), provider(n), graph_cache(n), fallback_reason(n);
+  Rcpp::NumericVector create_ms(n);
+  Rcpp::LogicalVector gpu(n), requested_gpu(n), batch_dynamic(n), spatial_dynamic(n), warmed_up(n), fell_back(n), vram_pressured(n);
+  Rcpp::IntegerVector device_id(n), threads(n), n_inputs(n), n_outputs(n), lru_rank(n);
+  for (size_t i = 0; i < n; ++i) {
+    const std::string& k = g_session_lru_order[n - 1 - i];  // most recently used first
+    key[i] = k;
+    lru_rank[i] = (int)i + 1;
+    auto it = g_session_meta.find(k);
+    if (it == g_session_meta.end() || !it->second) {
+      model[i] = NA_STRING; input_dims[i] = NA_STRING;
+      gpu[i] = NA_LOGICAL; requested_gpu[i] = NA_LOGICAL; batch_dynamic[i] = NA_LOGICAL;
+      spatial_dynamic[i] = NA_LOGICAL; warmed_up[i] = NA_LOGICAL; fell_back[i] = NA_LOGICAL;
+      device_id[i] = NA_INTEGER; threads[i] = NA_INTEGER; n_inputs[i] = NA_INTEGER; n_outputs[i] = NA_INTEGER;
+      provider[i] = NA_STRING; graph_cache[i] = NA_STRING; create_ms[i] = NA_REAL;
+      fallback_reason[i] = NA_STRING;
+      vram_pressured[i] = NA_LOGICAL;
+      continue;
+    }
+    vram_pressured[i] = it->second->vram_pressured;
+    const SessionMeta& m = *it->second;
+    model[i] = m.model_path;
+    provider[i] = m.provider;
+    fallback_reason[i] = m.fallback_reason;
+    graph_cache[i] = m.graph_cache;
+    create_ms[i] = m.create_ms;
+    gpu[i] = m.is_gpu;
+    requested_gpu[i] = m.requested_gpu;
+    device_id[i] = m.device_id;
+    threads[i] = m.num_threads;
+    n_inputs[i] = (int)m.in_names_str.size();
+    n_outputs[i] = (int)m.out_names_str.size();
+    batch_dynamic[i] = m.batch_dynamic;
+    spatial_dynamic[i] = m.spatial_dynamic;
+    warmed_up[i] = m.warmed_up;
+    fell_back[i] = m.fell_back_to_cpu;
+    std::string ds;
+    if (!m.in_dims.empty()) {
+      for (size_t d = 0; d < m.in_dims[0].size(); ++d) {
+        if (d) ds += "x";
+        ds += (m.in_dims[0][d] > 0) ? std::to_string(m.in_dims[0][d]) : std::string("?");
+      }
+    }
+    input_dims[i] = ds;
+  }
+  return Rcpp::DataFrame::create(
+    Rcpp::Named("model") = model,
+    Rcpp::Named("gpu") = gpu,
+    Rcpp::Named("requested_gpu") = requested_gpu,
+    Rcpp::Named("device_id") = device_id,
+    Rcpp::Named("threads") = threads,
+    Rcpp::Named("n_inputs") = n_inputs,
+    Rcpp::Named("n_outputs") = n_outputs,
+    Rcpp::Named("input_dims") = input_dims,
+    Rcpp::Named("batch_dynamic") = batch_dynamic,
+    Rcpp::Named("spatial_dynamic") = spatial_dynamic,
+    Rcpp::Named("warmed_up") = warmed_up,
+    Rcpp::Named("fell_back_to_cpu") = fell_back,
+    Rcpp::Named("provider") = provider,
+    Rcpp::Named("graph_cache") = graph_cache,
+    Rcpp::Named("create_ms") = create_ms,
+    Rcpp::Named("fallback_reason") = fallback_reason,
+    Rcpp::Named("vram_pressured") = vram_pressured,
+    Rcpp::Named("lru_rank") = lru_rank,
+    Rcpp::Named("key") = key,
+    Rcpp::Named("stringsAsFactors") = false
+  );
+}
+
+// Execution providers compiled into the ONNX Runtime library at `lib_path`.
+// [[Rcpp::export]]
+Rcpp::CharacterVector onnx_available_providers_cpp(std::string lib_path) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  std::vector<std::string> av = ort_available_providers(ort);
+  return Rcpp::wrap(av);
+}
+
+// OrtApi version negotiated with the loaded runtime (0 when none is loaded).
+// [[Rcpp::export]]
+int onnx_api_version_cpp() {
+  return (int)g_ort_api_version;
 }
 
 // [[Rcpp::export]]
@@ -396,14 +1837,17 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
   OrtSession* session = cs.session;
   OrtMemoryInfo* memory_info = cs.mem_info;
 
-  OrtAllocator* allocator = NULL;
-  (void)ort->GetAllocatorWithDefaultOptions(&allocator);
-
-  char* input_name = NULL;
-  (void)ort->SessionGetInputName(session, 0, allocator, &input_name);
-
-  char* output_name = NULL;
-  (void)ort->SessionGetOutputName(session, 0, allocator, &output_name);
+  // Input/output names come from the cached session metadata. Querying them from the
+  // session on every call allocated and freed two strings through the ORT allocator per
+  // inference, which is pure overhead in batch and per-frame use.
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names_v, out_names_v;
+  get_session_io_names(ort, session, in_names_str, in_names_v, out_names_str, out_names_v);
+  if (in_names_v.empty() || out_names_v.empty()) {
+    Rcpp::stop("ONNX model exposes no inputs or outputs: " + model_path);
+  }
+  const char* input_name = in_names_v[0];
+  const char* output_name = out_names_v[0];
 
   int64_t input_shape[4] = {
     (int64_t)tensor_dims[0],
@@ -413,21 +1857,35 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
   };
   size_t total_elements = tensor_dims[0] * tensor_dims[1] * tensor_dims[2] * tensor_dims[3];
 
-  std::vector<float> input_tensor_values(total_elements);
-  for (size_t i = 0; i < total_elements; ++i) {
-    input_tensor_values[i] = (float)tensor_vec[i];
-  }
+  std::vector<float> input_tensor_values;
+  sexp_to_float(tensor_vec, input_tensor_values, total_elements);
+
+  ONNXTensorElementDataType in_elem_type = session_input_type(ort, session, 0);
 
   OrtValue* input_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info,
-    input_tensor_values.data(),
-    total_elements * sizeof(float),
-    input_shape,
-    4,
-    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
-    &input_tensor
-  );
+  std::vector<uint16_t> in_fp16;
+  if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    float_vec_to_half(input_tensor_values, in_fp16);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info,
+      in_fp16.data(),
+      total_elements * sizeof(uint16_t),
+      input_shape,
+      4,
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16,
+      &input_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info,
+      input_tensor_values.data(),
+      total_elements * sizeof(float),
+      input_shape,
+      4,
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
+      &input_tensor
+    );
+  }
 
   const char* input_names[] = { input_name };
   const char* output_names[] = { output_name };
@@ -453,8 +1911,6 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
     std::string msg = ort->GetErrorMessage(status);
     ort->ReleaseStatus(status);
     ort->ReleaseValue(input_tensor);
-    allocator->Free(allocator, input_name);
-    allocator->Free(allocator, output_name);
     Rcpp::stop("ONNX Run failed: " + msg);
   }
 
@@ -503,8 +1959,6 @@ Rcpp::NumericMatrix run_onnx_inference_cpp(Rcpp::NumericVector tensor_vec,
   ort->ReleaseTensorTypeAndShapeInfo(shape_info);
   ort->ReleaseValue(input_tensor);
   ort->ReleaseValue(output_tensor);
-  allocator->Free(allocator, input_name);
-  allocator->Free(allocator, output_name);
 
   return out_mat;
 }
@@ -529,52 +1983,25 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
 
   // 3. Prepare Image Tensor [1, 3, 1024, 1024]
-  int64_t img_shape[4] = {1, 3, 1024, 1024};
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
-  std::vector<float> img_values(total_img_floats);
-  for (size_t i = 0; i < total_img_floats; ++i) {
-    img_values[i] = (float)tensor_vec[i];
-  }
-
-  OrtValue* input_img_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info,
-    img_values.data(),
-    total_img_floats * sizeof(float),
-    img_shape,
-    4,
-    ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
-    &input_img_tensor
-  );
-
-  // 4. Run Encoder
-  const char* enc_in_names[] = { "image" };
-  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
-  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  std::vector<float> img_values;
+  sexp_to_float(tensor_vec, img_values, total_img_floats);
 
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
   (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
 
-  OrtStatus* status = ort->Run(
-    session_enc,
-    run_options,
-    enc_in_names,
-    (const OrtValue* const*)&input_img_tensor,
-    1,
-    enc_out_names,
-    3,
-    enc_outputs
-  );
-
-  if (status != NULL) {
-    std::string msg = ort->GetErrorMessage(status);
-    ort->ReleaseStatus(status);
-    ort->ReleaseValue(input_img_tensor);
-    Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
+  // 4. Encode (shared cache: a repeated prompt on the same image skips the backbone)
+  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  OrtValue* input_img_tensor = NULL;
+  std::string enc_err;
+  if (!sam2_encode_cached(ort, session_enc, memory_info, run_options, encoder_path,
+                          img_values, enc_outputs, &input_img_tensor, &enc_err)) {
+    ort->ReleaseRunOptions(run_options);
+    if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
+    Rcpp::stop("SAM 2.1 Encoder Run failed: " + enc_err);
   }
 
-  // 5. Prepare Decoder Prompts & Inputs
   // 5. Prepare Decoder Constant Inputs
   int mask_h = 256;
   int mask_w = 256;
@@ -625,24 +2052,47 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
     }
   }
 
-  int num_pts = (int)points_x.size();
-  if (num_pts < 1) num_pts = 1;
+  const int n_in_pts = (int)points_x.size();
 
-  for (int p = 0; p < num_pts; ++p) {
-    float cur_pt_coords[2] = {
-      (float)(p < (int)points_x.size() ? points_x[p] : 512.0),
-      (float)(p < (int)points_y.size() ? points_y[p] : 512.0)
-    };
-    float cur_pt_lbl = (float)(p < (int)point_labels.size() ? point_labels[p] : 1);
+  // A box prompt is a *single* prompt made of two labelled corner points (labels 2 and
+  // 3). Feeding the corners through the per-point loop below sent them as two separate
+  // one-point prompts, which SAM interprets as two unrelated clicks with invalid
+  // labels; the resulting mask bore no relation to the requested box. Detect that case
+  // and issue one prompt of shape [1, 2, 2]. Label-1 point sets keep the per-point
+  // loop, whose max-over-masks behaviour is what gives "segment each clicked object".
+  bool box_prompt = false;
+  if (n_in_pts == 2 && (int)point_labels.size() == 2) {
+    const int l0 = point_labels[0], l1 = point_labels[1];
+    box_prompt = (l0 == 2 && l1 == 3) || (l0 == 3 && l1 == 2);
+  }
 
-    int64_t single_pt_shape[3] = { 1, 1, 2 };
-    int64_t single_lbl_shape[2] = { 1, 1 };
+  const int num_prompts = box_prompt ? 1 : std::max(1, n_in_pts);
+  const int pts_per_prompt = box_prompt ? 2 : 1;
+
+  for (int p = 0; p < num_prompts; ++p) {
+    float cur_pt_coords[4];
+    float cur_pt_lbl[2];
+    if (box_prompt) {
+      cur_pt_coords[0] = (float)points_x[0];
+      cur_pt_coords[1] = (float)points_y[0];
+      cur_pt_coords[2] = (float)points_x[1];
+      cur_pt_coords[3] = (float)points_y[1];
+      cur_pt_lbl[0] = (float)point_labels[0];
+      cur_pt_lbl[1] = (float)point_labels[1];
+    } else {
+      cur_pt_coords[0] = (float)(p < n_in_pts ? points_x[p] : 512.0);
+      cur_pt_coords[1] = (float)(p < n_in_pts ? points_y[p] : 512.0);
+      cur_pt_lbl[0] = (float)(p < (int)point_labels.size() ? point_labels[p] : 1);
+    }
+
+    int64_t single_pt_shape[3] = { 1, (int64_t)pts_per_prompt, 2 };
+    int64_t single_lbl_shape[2] = { 1, (int64_t)pts_per_prompt };
 
     OrtValue* single_pts_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info,
       cur_pt_coords,
-      2 * sizeof(float),
+      (size_t)pts_per_prompt * 2 * sizeof(float),
       single_pt_shape,
       3,
       ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
@@ -652,8 +2102,8 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
     OrtValue* single_lbl_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info,
-      &cur_pt_lbl,
-      sizeof(float),
+      cur_pt_lbl,
+      (size_t)pts_per_prompt * sizeof(float),
       single_lbl_shape,
       2,
       ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT,
@@ -741,7 +2191,7 @@ Rcpp::NumericMatrix run_sam2_inference_cpp(Rcpp::NumericVector tensor_vec,
   }
 
   ort->ReleaseRunOptions(run_options);
-  ort->ReleaseValue(input_img_tensor);
+  if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
   ort->ReleaseValue(mask_input_tensor);
   ort->ReleaseValue(has_mask_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);
@@ -777,15 +2227,23 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
   // 1. Prepare pixel_values [1, 3, 800, 800]
   int64_t img_shape[4] = { 1, 3, 800, 800 };
   size_t total_pix = 1 * 3 * 800 * 800;
-  std::vector<float> img_values(total_pix);
-  for (size_t i = 0; i < total_pix; ++i) {
-    img_values[i] = (float)pixel_values[i];
-  }
+  std::vector<float> img_values;
+  sexp_to_float(pixel_values, img_values, total_pix);
   OrtValue* pixel_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, img_values.data(), total_pix * sizeof(float),
-    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pixel_tensor
-  );
+  // FP16 exports converted without keep_io_types take half-precision pixels.
+  std::vector<uint16_t> img_values_fp16;
+  if (session_input_type(ort, session, 0) == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    float_vec_to_half(img_values, img_values_fp16);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, img_values_fp16.data(), total_pix * sizeof(uint16_t),
+      img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &pixel_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, img_values.data(), total_pix * sizeof(float),
+      img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pixel_tensor
+    );
+  }
 
   // 2. Prepare input_ids [1, seq_len]
   int seq_len = input_ids.size();
@@ -816,10 +2274,12 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
     seq_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, &att_tensor
   );
 
-  // 5. Prepare pixel_mask [1, 800, 800]
+  // 5. Prepare pixel_mask [1, 800, 800]. The contents are constant (all ones), so the
+  // 5 MB int64 buffer is allocated and filled once per process rather than per call.
   int64_t mask_shape[3] = { 1, 800, 800 };
   size_t total_mask_pix = 800 * 800;
-  std::vector<int64_t> mask_vec(total_mask_pix, 1LL);
+  static std::vector<int64_t> mask_vec;
+  if (mask_vec.size() != total_mask_pix) mask_vec.assign(total_mask_pix, 1LL);
   OrtValue* mask_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, mask_vec.data(), total_mask_pix * sizeof(int64_t),
@@ -856,41 +2316,103 @@ Rcpp::List run_grounding_dino_cpp(Rcpp::NumericVector pixel_values,
     Rcpp::stop("Grounding DINO inference failed: " + msg);
   }
 
+  // Outputs may be half precision (FP16 export without keep_io_types): widen them.
+  std::vector<float> logits_conv, boxes_conv;
   float* logits_data = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[0], (void**)&logits_data);
-
   float* boxes_data = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[1], (void**)&boxes_data);
+  for (int oi = 0; oi < 2; ++oi) {
+    ONNXTensorElementDataType et = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    size_t cnt = 0;
+    OrtTensorTypeAndShapeInfo* oinfo = NULL;
+    if (ort->GetTensorTypeAndShape(out_tensors[oi], &oinfo) == NULL && oinfo != NULL) {
+      (void)ort->GetTensorElementType(oinfo, &et);
+      (void)ort->GetTensorShapeElementCount(oinfo, &cnt);
+      ort->ReleaseTensorTypeAndShapeInfo(oinfo);
+    }
+    void* raw = NULL;
+    (void)ort->GetTensorMutableData(out_tensors[oi], &raw);
+    std::vector<float>& conv = (oi == 0) ? logits_conv : boxes_conv;
+    float* ptr = (float*)raw;
+    if (et == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16 && raw != NULL) {
+      conv.resize(cnt);
+      const uint16_t* h = (const uint16_t*)raw;
+      for (size_t k = 0; k < cnt; ++k) conv[k] = half_to_float(h[k]);
+      ptr = conv.data();
+    }
+    if (oi == 0) logits_data = ptr; else boxes_data = ptr;
+  }
 
-  // Post-processing: 900 queries, 256 token logits
+  // Read the query and token counts from the logits tensor instead of assuming the
+  // 900 x 256 shape of one particular export: a model exported with different values
+  // previously caused out-of-bounds reads.
+  int num_queries = 900;
+  int num_tokens = 256;
+  {
+    OrtTensorTypeAndShapeInfo* lg_info = NULL;
+    if (ort->GetTensorTypeAndShape(out_tensors[0], &lg_info) == NULL && lg_info != NULL) {
+      size_t nd = 0;
+      (void)ort->GetDimensionsCount(lg_info, &nd);
+      std::vector<int64_t> lg_dims(nd);
+      if (nd > 0) (void)ort->GetDimensions(lg_info, lg_dims.data(), nd);
+      if (nd >= 3) {
+        if (lg_dims[1] > 0) num_queries = (int)lg_dims[1];
+        if (lg_dims[2] > 0) num_tokens = (int)lg_dims[2];
+      } else if (nd == 2) {
+        if (lg_dims[0] > 0) num_queries = (int)lg_dims[0];
+        if (lg_dims[1] > 0) num_tokens = (int)lg_dims[1];
+      }
+      ort->ReleaseTensorTypeAndShapeInfo(lg_info);
+    }
+  }
+
+  // Tokens [1, seq_len - 2] carry the prompt; index 0 is [CLS] and seq_len-1 is [SEP].
+  const int t_end = std::min(seq_len - 1, num_tokens);
+
+  // Compare logits rather than probabilities to find the winning token, and convert
+  // only once per query: sigmoid is monotonic, so the argmax is identical, and the
+  // thresholds are mapped into logit space so that the exp() is skipped entirely for
+  // queries that cannot pass. Thresholds <= 0 or >= 1 are handled without logit().
+  const double eff_text_thr = (text_threshold > 0.0) ? text_threshold : 0.0;
+  const double gate_prob = std::max(box_threshold, eff_text_thr);
+  const bool gate_always = (gate_prob <= 0.0);
+  const float gate_logit = gate_always ? -std::numeric_limits<float>::infinity()
+                         : (gate_prob >= 1.0 ? std::numeric_limits<float>::infinity()
+                            : (float)std::log(gate_prob / (1.0 - gate_prob)));
+
   std::vector<DinoBox> candidates;
-  for (int q = 0; q < 900; ++q) {
-    float cx = boxes_data[q * 4 + 0];
-    float cy = boxes_data[q * 4 + 1];
-    float w  = boxes_data[q * 4 + 2];
-    float h  = boxes_data[q * 4 + 3];
+  for (int q = 0; q < num_queries; ++q) {
+    const float* row = logits_data + (size_t)q * num_tokens;
 
-    double max_prob = -1.0;
+    float max_logit = -std::numeric_limits<float>::infinity();
     int best_t = -1;
-    for (int t = 1; t < seq_len - 1; ++t) {
-      float logit = logits_data[q * 256 + t];
-      double prob = 1.0 / (1.0 + std::exp(-(double)logit));
-      if (prob > max_prob) {
-        max_prob = prob;
+    for (int t = 1; t < t_end; ++t) {
+      if (row[t] > max_logit) {
+        max_logit = row[t];
         best_t = t;
       }
     }
+    if (best_t < 0) continue;
 
-    if (max_prob >= box_threshold) {
-      DinoBox b;
-      b.x1 = std::max(0.0, (double)(cx - w / 2.0));
-      b.y1 = std::max(0.0, (double)(cy - h / 2.0));
-      b.x2 = std::min(1.0, (double)(cx + w / 2.0));
-      b.y2 = std::min(1.0, (double)(cy + h / 2.0));
-      b.score = max_prob;
-      b.token_idx = best_t;
-      candidates.push_back(b);
-    }
+    // A box survives only if its strongest prompt token clears both box_threshold and
+    // text_threshold. The latter was previously accepted and never used, so
+    // text_threshold had no effect on the result at all.
+    if (!(max_logit >= gate_logit)) continue;
+
+    const double max_prob = 1.0 / (1.0 + std::exp(-(double)max_logit));
+
+    float cx = boxes_data[(size_t)q * 4 + 0];
+    float cy = boxes_data[(size_t)q * 4 + 1];
+    float w  = boxes_data[(size_t)q * 4 + 2];
+    float h  = boxes_data[(size_t)q * 4 + 3];
+
+    DinoBox b;
+    b.x1 = std::max(0.0, (double)(cx - w / 2.0));
+    b.y1 = std::max(0.0, (double)(cy - h / 2.0));
+    b.x2 = std::min(1.0, (double)(cx + w / 2.0));
+    b.y2 = std::min(1.0, (double)(cy + h / 2.0));
+    b.score = max_prob;
+    b.token_idx = best_t;
+    candidates.push_back(b);
   }
 
   std::sort(candidates.begin(), candidates.end(), [](const DinoBox& a, const DinoBox& b) {
@@ -963,7 +2485,8 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
                                   std::string lib_path,
                                   int num_threads = 0,
                                   bool use_gpu = false,
-                                  int device_id = -1) {
+                                  int device_id = -1,
+                                  int batch_size = 64) {
   const OrtApi* ort = get_ort_api(lib_path);
 
   CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, use_gpu, device_id);
@@ -972,60 +2495,32 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
   OrtSession* session_dec = cs_dec.session;
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
 
-  // 1. Run Encoder ONCE on [1, 3, 1024, 1024]
-  int64_t img_shape[4] = {1, 3, 1024, 1024};
+  // 1. Encode ONCE on [1, 3, 1024, 1024], through the shared feature cache. A second
+  // Grounded-SAM pass over the same image -- another text prompt, or a re-run after a
+  // threshold change in the review loop -- now skips the backbone entirely.
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
-  std::vector<float> img_values(total_img_floats);
-  for (size_t i = 0; i < total_img_floats; ++i) {
-    img_values[i] = (float)tensor_vec[i];
-  }
-
-  OrtValue* input_img_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, img_values.data(), total_img_floats * sizeof(float),
-    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_img_tensor
-  );
-
-  const char* enc_in_names[] = { "image" };
-  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
-  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  std::vector<float> img_values;
+  sexp_to_float(tensor_vec, img_values, total_img_floats);
 
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
   (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
 
-  OrtStatus* status = ort->Run(
-    session_enc, run_options, enc_in_names, (const OrtValue* const*)&input_img_tensor,
-    1, enc_out_names, 3, enc_outputs
-  );
-
-  if (status != NULL) {
-    std::string msg = ort->GetErrorMessage(status);
-    ort->ReleaseStatus(status);
+  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  OrtValue* input_img_tensor = NULL;
+  std::string enc_err;
+  if (!sam2_encode_cached(ort, session_enc, memory_info, run_options, encoder_path,
+                          img_values, enc_outputs, &input_img_tensor, &enc_err)) {
     ort->ReleaseRunOptions(run_options);
-    ort->ReleaseValue(input_img_tensor);
-    Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
+    if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
+    Rcpp::stop("SAM 2.1 Encoder Run failed: " + enc_err);
   }
 
   // 2. Decoder Common Setup
   int mask_h = 256;
   int mask_w = 256;
-
-  int64_t mask_input_shape[4] = { 1, 1, 256, 256 };
-  std::vector<float> mask_input_vals(256 * 256, 0.0f);
-  OrtValue* mask_input_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, mask_input_vals.data(), mask_input_vals.size() * sizeof(float),
-    mask_input_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &mask_input_tensor
-  );
-
-  int64_t has_mask_shape[1] = { 1 };
-  float has_mask_val = 0.0f;
-  OrtValue* has_mask_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, &has_mask_val, sizeof(float),
-    has_mask_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &has_mask_tensor
-  );
+  int num_boxes = boxes.nrow();
+  Rcpp::List res_masks(num_boxes);
 
   const char* dec_in_names[] = {
     "image_embed", "high_res_feats_0", "high_res_feats_1",
@@ -1033,31 +2528,67 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
   };
   const char* dec_out_names[] = { "masks", "iou_predictions" };
 
-  int num_boxes = boxes.nrow();
-  Rcpp::List res_masks(num_boxes);
+  int b_size = std::max(1, batch_size);
 
-  for (int b = 0; b < num_boxes; ++b) {
-    float x1 = (float)(boxes(b, 0) / orig_w * 1024.0);
-    float y1 = (float)(boxes(b, 1) / orig_h * 1024.0);
-    float x2 = (float)(boxes(b, 2) / orig_w * 1024.0);
-    float y2 = (float)(boxes(b, 3) / orig_h * 1024.0);
+  // GPU decoder: upload the image features once for all box batches (IoBinding).
+  const bool inst_dec_on_gpu = (cs_dec.meta != NULL) && cs_dec.meta->is_gpu;
+  std::unique_ptr<SamDecoderBinding> inst_binding;
+  if (inst_dec_on_gpu && num_boxes > b_size) {
+    inst_binding.reset(new SamDecoderBinding(ort, session_dec, enc_outputs, memory_info));
+    if (!inst_binding->ok()) inst_binding.reset();
+  }
 
-    float box_coords[4] = { x1, y1, x2, y2 };
-    float box_labels[2] = { 2.0f, 3.0f };
+  for (int start_idx = 0; start_idx < num_boxes; start_idx += b_size) {
+    int cur_batch = std::min(b_size, num_boxes - start_idx);
 
-    int64_t pts_shape[3] = { 1, 2, 2 };
-    int64_t lbls_shape[2] = { 1, 2 };
+    std::vector<float> box_coords((size_t)cur_batch * 4);
+    std::vector<float> box_labels((size_t)cur_batch * 2);
+    for (int k = 0; k < cur_batch; ++k) {
+      int b = start_idx + k;
+      float x1 = (float)(boxes(b, 0) / orig_w * 1024.0);
+      float y1 = (float)(boxes(b, 1) / orig_h * 1024.0);
+      float x2 = (float)(boxes(b, 2) / orig_w * 1024.0);
+      float y2 = (float)(boxes(b, 3) / orig_h * 1024.0);
+
+      box_coords[k * 4 + 0] = x1;
+      box_coords[k * 4 + 1] = y1;
+      box_coords[k * 4 + 2] = x2;
+      box_coords[k * 4 + 3] = y2;
+
+      box_labels[k * 2 + 0] = 2.0f;
+      box_labels[k * 2 + 1] = 3.0f;
+    }
+
+    int64_t pts_shape[3] = { (int64_t)cur_batch, 2, 2 };
+    int64_t lbls_shape[2] = { (int64_t)cur_batch, 2 };
+    int64_t mask_input_shape[4] = { (int64_t)cur_batch, 1, 256, 256 };
+    int64_t has_mask_shape[1] = { (int64_t)cur_batch };
+
+    std::vector<float> mask_input_vals((size_t)cur_batch * 256 * 256, 0.0f);
+    std::vector<float> has_mask_vals((size_t)cur_batch, 0.0f);
 
     OrtValue* pts_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, box_coords, 4 * sizeof(float),
+      memory_info, box_coords.data(), box_coords.size() * sizeof(float),
       pts_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pts_tensor
     );
 
     OrtValue* lbl_tensor = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, box_labels, 2 * sizeof(float),
+      memory_info, box_labels.data(), box_labels.size() * sizeof(float),
       lbls_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &lbl_tensor
+    );
+
+    OrtValue* mask_input_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, mask_input_vals.data(), mask_input_vals.size() * sizeof(float),
+      mask_input_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &mask_input_tensor
+    );
+
+    OrtValue* has_mask_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, has_mask_vals.data(), has_mask_vals.size() * sizeof(float),
+      has_mask_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &has_mask_tensor
     );
 
     const OrtValue* cur_dec_in_values[] = {
@@ -1066,16 +2597,9 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
     };
 
     OrtValue* cur_dec_outputs[2] = { NULL, NULL };
-    OrtStatus* dec_status = ort->Run(
-      session_dec, run_options, dec_in_names, cur_dec_in_values, 7, dec_out_names, 2, cur_dec_outputs
-    );
-
-    Rcpp::NumericMatrix inst_mat(mask_w, mask_h);
-    for (int i = 0; i < mask_w; ++i) {
-      for (int j = 0; j < mask_h; ++j) {
-        inst_mat(i, j) = 0.0;
-      }
-    }
+    OrtStatus* dec_status = inst_binding
+      ? inst_binding->run(run_options, pts_tensor, lbl_tensor, mask_input_tensor, has_mask_tensor, cur_dec_outputs)
+      : ort->Run(session_dec, run_options, dec_in_names, cur_dec_in_values, 7, dec_out_names, 2, cur_dec_outputs);
 
     if (dec_status == NULL) {
       OrtTensorTypeAndShapeInfo* iou_shape_info = NULL;
@@ -1084,7 +2608,7 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
       (void)ort->GetDimensionsCount(iou_shape_info, &iou_dims_count);
       std::vector<int64_t> iou_dims(iou_dims_count);
       (void)ort->GetDimensions(iou_shape_info, iou_dims.data(), iou_dims_count);
-      int num_masks = (iou_dims_count >= 2) ? (int)iou_dims[1] : 1;
+      int num_masks = (iou_dims_count >= 2) ? (int)iou_dims[1] : 3;
 
       float* iou_data = NULL;
       (void)ort->GetTensorMutableData(cur_dec_outputs[1], (void**)&iou_data);
@@ -1092,22 +2616,27 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
       float* mask_data = NULL;
       (void)ort->GetTensorMutableData(cur_dec_outputs[0], (void**)&mask_data);
 
-      int best_idx = 0;
-      float best_score = -1e9f;
-      for (int m = 0; m < num_masks; ++m) {
-        if (iou_data[m] > best_score) {
-          best_score = iou_data[m];
-          best_idx = m;
+      for (int k = 0; k < cur_batch; ++k) {
+        int best_idx = 0;
+        float best_score = -1e9f;
+        for (int m = 0; m < num_masks; ++m) {
+          float score = iou_data[k * num_masks + m];
+          if (score > best_score) {
+            best_score = score;
+            best_idx = m;
+          }
         }
-      }
 
-      size_t slice_offset = (size_t)best_idx * mask_h * mask_w;
-      for (int r = 0; r < mask_h; ++r) {
-        for (int c = 0; c < mask_w; ++c) {
-          float logit = mask_data[slice_offset + r * mask_w + c];
-          double prob = 1.0 / (1.0 + std::exp(-(double)logit));
-          inst_mat(c, r) = prob;
+        Rcpp::NumericMatrix inst_mat(mask_w, mask_h);
+        size_t slice_offset = ((size_t)k * num_masks + (size_t)best_idx) * mask_h * mask_w;
+        for (int r = 0; r < mask_h; ++r) {
+          for (int c = 0; c < mask_w; ++c) {
+            float logit = mask_data[slice_offset + r * mask_w + c];
+            double prob = 1.0 / (1.0 + std::exp(-(double)logit));
+            inst_mat(c, r) = prob;
+          }
         }
+        res_masks[start_idx + k] = inst_mat;
       }
 
       ort->ReleaseTensorTypeAndShapeInfo(iou_shape_info);
@@ -1115,38 +2644,80 @@ Rcpp::List run_sam2_instances_cpp(Rcpp::NumericVector tensor_vec,
       ort->ReleaseValue(cur_dec_outputs[1]);
     } else {
       ort->ReleaseStatus(dec_status);
+      // Fallback: sequential single-box execution
+      for (int k = 0; k < cur_batch; ++k) {
+        int b = start_idx + k;
+        float x1 = (float)(boxes(b, 0) / orig_w * 1024.0);
+        float y1 = (float)(boxes(b, 1) / orig_h * 1024.0);
+        float x2 = (float)(boxes(b, 2) / orig_w * 1024.0);
+        float y2 = (float)(boxes(b, 3) / orig_h * 1024.0);
+
+        float s_coords[4] = { x1, y1, x2, y2 };
+        float s_labels[2] = { 2.0f, 3.0f };
+        int64_t s_pts_shape[3] = { 1, 2, 2 };
+        int64_t s_lbls_shape[2] = { 1, 2 };
+        int64_t s_mask_shape[4] = { 1, 1, 256, 256 };
+        int64_t s_has_mask_shape[1] = { 1 };
+        std::vector<float> s_mask_vals(256 * 256, 0.0f);
+        float s_has_val = 0.0f;
+
+        OrtValue* s_pts_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, s_coords, 4 * sizeof(float), s_pts_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_pts_t);
+        OrtValue* s_lbl_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, s_labels, 2 * sizeof(float), s_lbls_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_lbl_t);
+        OrtValue* s_mask_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, s_mask_vals.data(), s_mask_vals.size() * sizeof(float), s_mask_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_mask_t);
+        OrtValue* s_has_t = NULL;
+        (void)ort->CreateTensorWithDataAsOrtValue(memory_info, &s_has_val, sizeof(float), s_has_mask_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &s_has_t);
+
+        const OrtValue* s_in_values[] = { enc_outputs[2], enc_outputs[0], enc_outputs[1], s_pts_t, s_lbl_t, s_mask_t, s_has_t };
+        OrtValue* s_outputs[2] = { NULL, NULL };
+        OrtStatus* s_status = ort->Run(session_dec, run_options, dec_in_names, s_in_values, 7, dec_out_names, 2, s_outputs);
+
+        Rcpp::NumericMatrix inst_mat(mask_w, mask_h);
+        if (s_status == NULL) {
+          float* s_iou = NULL;
+          (void)ort->GetTensorMutableData(s_outputs[1], (void**)&s_iou);
+          float* s_mask = NULL;
+          (void)ort->GetTensorMutableData(s_outputs[0], (void**)&s_mask);
+          int best_m = 0;
+          float best_s = -1e9f;
+          for (int m = 0; m < 3; ++m) {
+            if (s_iou[m] > best_s) { best_s = s_iou[m]; best_m = m; }
+          }
+          size_t s_off = (size_t)best_m * mask_h * mask_w;
+          for (int r = 0; r < mask_h; ++r) {
+            for (int c = 0; c < mask_w; ++c) {
+              float logit = s_mask[s_off + r * mask_w + c];
+              inst_mat(c, r) = 1.0 / (1.0 + std::exp(-(double)logit));
+            }
+          }
+          ort->ReleaseValue(s_outputs[0]);
+          ort->ReleaseValue(s_outputs[1]);
+        } else {
+          ort->ReleaseStatus(s_status);
+        }
+        ort->ReleaseValue(s_pts_t);
+        ort->ReleaseValue(s_lbl_t);
+        ort->ReleaseValue(s_mask_t);
+        ort->ReleaseValue(s_has_t);
+        res_masks[b] = inst_mat;
+      }
     }
 
     ort->ReleaseValue(pts_tensor);
     ort->ReleaseValue(lbl_tensor);
-
-    res_masks[b] = inst_mat;
+    ort->ReleaseValue(mask_input_tensor);
+    ort->ReleaseValue(has_mask_tensor);
   }
 
   // Cleanup
   ort->ReleaseRunOptions(run_options);
-  ort->ReleaseValue(input_img_tensor);
-  ort->ReleaseValue(mask_input_tensor);
-  ort->ReleaseValue(has_mask_tensor);
+  if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);
 
   return res_masks;
 }
-
-struct ZnccKernelEntry {
-  int dx;
-  int dy;
-  float w;
-  float t_zero[3];
-};
-
-struct DenseExemplarKernel {
-  std::vector<ZnccKernelEntry> entries;
-  float tmpl_std;
-  float sum_w;
-  float inv_sum_w;
-  int radius;
-};
 
 // [[Rcpp::export]]
 Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
@@ -1166,54 +2737,54 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
                                bool use_gpu = false,
                                int device_id = -1,
                                Rcpp::Nullable<Rcpp::List> precomputed_prototypes = R_NilValue) {
-  // SAM 2.1 Vision Transformer backbone has known DirectML driver issues (DXGI_ERROR_DEVICE_HUNG 887A0006)
-  // on Windows when executing hierarchical attention / mask downscaling kernels.
-  // We force CPU execution for SAM 2.1 to guarantee 100% session stability and prevent RStudio crashes.
-  (void)use_gpu;
-  (void)device_id;
+  // The SAM 2.1 Hiera backbone has been reported to trigger DirectML driver faults
+  // (DXGI_ERROR_DEVICE_HUNG 887A0006) in its hierarchical attention / mask-downscaling
+  // kernels on some driver and runtime combinations, which takes down the whole R
+  // session rather than raising a recoverable error. GPU execution is therefore
+  // opt-in: `use_gpu` is honoured when the caller explicitly asks for it (R exposes
+  // this as `sam_device = "gpu"`), while the default path stays on CPU and is
+  // numerically unchanged. On hardware where DirectML is stable this is roughly an
+  // order of magnitude faster, since the encoder dominates the cost.
   if (max_objects <= 0) max_objects = 100000;
 
   const OrtApi* ort = get_ort_api(lib_path);
 
-  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, false, -1);
-  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path, 1, false, -1);
+  // Decoder threading depends on how stage 7 drives it, and the two devices want
+  // opposite strategies (measured, see the comment there): on GPU one batched Run at a
+  // time with the full thread budget; on CPU many single-prompt Runs fanned out across
+  // an OpenMP loop, each with one intra-op thread so the two levels do not multiply.
+  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, use_gpu, device_id);
+  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path,
+                                                     use_gpu ? num_threads : 1,
+                                                     use_gpu, device_id);
+  const bool dec_on_gpu = (cs_dec.meta != NULL) && cs_dec.meta->is_gpu;
   OrtSession* session_enc = cs_enc.session;
   OrtSession* session_dec = cs_dec.session;
   OrtMemoryInfo* memory_info = cs_enc.mem_info;
 
-  // 1. Run SAM 2.1 Encoder ONCE on [1, 3, 1024, 1024]
-  int64_t img_shape[4] = {1, 3, 1024, 1024};
+  // 1. Run the SAM 2.1 encoder once on [1, 3, 1024, 1024]; sam2_encode_cached() owns
+  // the tensor shape and the feature cache.
   size_t total_img_floats = 1 * 3 * 1024 * 1024;
-  std::vector<float> img_values(total_img_floats);
-  for (size_t i = 0; i < total_img_floats; ++i) {
-    img_values[i] = (float)tensor_vec[i];
-  }
-
-  OrtValue* input_img_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, img_values.data(), total_img_floats * sizeof(float),
-    img_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_img_tensor
-  );
-
-  const char* enc_in_names[] = { "image" };
-  const char* enc_out_names[] = { "high_res_feats_0", "high_res_feats_1", "image_embed" };
-  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  std::vector<float> img_values;
+  sexp_to_float(tensor_vec, img_values, total_img_floats);
 
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
   (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
 
-  OrtStatus* status = ort->Run(
-    session_enc, run_options, enc_in_names, (const OrtValue* const*)&input_img_tensor,
-    1, enc_out_names, 3, enc_outputs
-  );
-
-  if (status != NULL) {
-    std::string msg = ort->GetErrorMessage(status);
-    ort->ReleaseStatus(status);
+  // 1b. Encode through the shared feature cache. Re-running the same image with a
+  // different sim_threshold, min_dist or feat_res therefore costs only the matching
+  // and decoding stages, which is what makes interactive tuning usable.
+  OrtValue* enc_outputs[3] = { NULL, NULL, NULL };
+  OrtValue* input_img_tensor = NULL;
+  std::string enc_err;
+  uint64_t cur_img_key = 0;
+  if (!sam2_encode_cached(ort, session_enc, memory_info, run_options, encoder_path,
+                          img_values, enc_outputs, &input_img_tensor, &enc_err,
+                          &cur_img_key)) {
     ort->ReleaseRunOptions(run_options);
-    ort->ReleaseValue(input_img_tensor);
-    Rcpp::stop("SAM 2.1 Encoder Run failed: " + msg);
+    if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
+    Rcpp::stop("SAM 2.1 Encoder Run failed: " + enc_err);
   }
 
   // 2. Decoder Common Setup
@@ -1257,22 +2828,71 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   float max_ex_area = 0.0f;
   float avg_ex_area = 100.0f;
 
+  // Prototypes carried over from previous images are held separately and appended
+  // *after* the prototypes extracted from the clicks on this image. The previous code
+  // loaded them first and appended the new ones, so the later resize(8) discarded
+  // exactly the freshly clicked exemplars: with 8 accumulated prototypes, new clicks
+  // in the review loop had no effect on the similarity map.
+  std::vector<std::vector<float>> carried_prototypes;
+  std::vector<std::vector<float>> carried_prototypes_hr0;
+  std::vector<DenseExemplarKernel> carried_dense_kernels;
+
   if (precomputed_prototypes.isNotNull()) {
     Rcpp::List p_list(precomputed_prototypes.get());
     if (p_list.containsElementNamed("semantic")) {
       Rcpp::List sem_list = p_list["semantic"];
-      for (int i = 0; i < sem_list.size(); ++i) {
+      int max_to_load = std::min((int)sem_list.size(), 8);
+      for (int i = 0; i < max_to_load; ++i) {
         Rcpp::NumericVector sv = sem_list[i];
         std::vector<float> fv(sv.begin(), sv.end());
-        exemplar_prototypes.push_back(fv);
+        carried_prototypes.push_back(fv);
       }
     }
     if (p_list.containsElementNamed("hr0")) {
       Rcpp::List hr_list = p_list["hr0"];
-      for (int i = 0; i < hr_list.size(); ++i) {
+      int max_to_load = std::min((int)hr_list.size(), 8);
+      for (int i = 0; i < max_to_load; ++i) {
         Rcpp::NumericVector hv = hr_list[i];
         std::vector<float> fv(hv.begin(), hv.end());
-        exemplar_prototypes_hr0.push_back(fv);
+        carried_prototypes_hr0.push_back(fv);
+      }
+    }
+    // Dense ZNCC kernels serialized by a previous call, so that feat_res = 1024 works
+    // on images 2..N of a batch instead of producing an all-zero similarity map.
+    if (p_list.containsElementNamed("dense")) {
+      Rcpp::List d_list = p_list["dense"];
+      int max_to_load = std::min((int)d_list.size(), 8);
+      for (int i = 0; i < max_to_load; ++i) {
+        if (Rf_isNull(d_list[i])) continue;
+        Rcpp::List dk = d_list[i];
+        if (!dk.containsElementNamed("dx") || !dk.containsElementNamed("t_zero")) continue;
+        Rcpp::IntegerVector dxv = dk["dx"];
+        Rcpp::IntegerVector dyv = dk["dy"];
+        Rcpp::NumericVector wv  = dk["w"];
+        Rcpp::NumericMatrix tz  = dk["t_zero"];
+        int n_ent = (int)dxv.size();
+        if (n_ent < 1 || (int)dyv.size() != n_ent || (int)wv.size() != n_ent ||
+            tz.nrow() != n_ent || tz.ncol() != 3) continue;
+        DenseExemplarKernel dkern;
+        dkern.radius = dk.containsElementNamed("radius") ? Rcpp::as<int>(dk["radius"]) : 16;
+        dkern.sum_w = dk.containsElementNamed("sum_w") ? Rcpp::as<float>(dk["sum_w"]) : 1.0f;
+        if (dkern.sum_w < 1e-5f) dkern.sum_w = 1.0f;
+        dkern.inv_sum_w = 1.0f / dkern.sum_w;
+        dkern.tmpl_std = dk.containsElementNamed("tmpl_std") ? Rcpp::as<float>(dk["tmpl_std"]) : 1.0f;
+        if (dkern.tmpl_std < 1e-6f) dkern.tmpl_std = 1.0f;
+        dkern.entries.reserve(n_ent);
+        for (int k = 0; k < n_ent; ++k) {
+          ZnccKernelEntry ke;
+          ke.dx = dxv[k];
+          ke.dy = dyv[k];
+          ke.w = (float)wv[k];
+          ke.t_zero[0] = (float)tz(k, 0);
+          ke.t_zero[1] = (float)tz(k, 1);
+          ke.t_zero[2] = (float)tz(k, 2);
+          dkern.entries.push_back(ke);
+        }
+        build_zncc_spans(dkern);
+        carried_dense_kernels.push_back(dkern);
       }
     }
     if (p_list.containsElementNamed("avg_area")) {
@@ -1284,14 +2904,16 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     if (p_list.containsElementNamed("max_area")) {
       max_ex_area = Rcpp::as<float>(p_list["max_area"]);
     }
-  } else {
-    int num_exemplars = (int)exemplar_x.size();
-    if (num_exemplars < 1) {
-      exemplar_x = Rcpp::NumericVector::create(orig_w / 2.0);
-      exemplar_y = Rcpp::NumericVector::create(orig_h / 2.0);
-      num_exemplars = 1;
-    }
+  }
 
+  int num_exemplars = (int)exemplar_x.size();
+  if (precomputed_prototypes.isNull() && num_exemplars < 1) {
+    exemplar_x = Rcpp::NumericVector::create(orig_w / 2.0);
+    exemplar_y = Rcpp::NumericVector::create(orig_h / 2.0);
+    num_exemplars = 1;
+  }
+
+  if (num_exemplars > 0) {
     for (int ex = 0; ex < num_exemplars; ++ex) {
     float px = (float)(exemplar_x[ex] / orig_w * 1024.0);
     float py = (float)(exemplar_y[ex] / orig_h * 1024.0);
@@ -1520,6 +3142,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       }
       d_kernel.tmpl_std = std::sqrt(tmpl_std_sq);
       if (d_kernel.tmpl_std < 1e-6f) d_kernel.tmpl_std = 1.0f;
+      build_zncc_spans(d_kernel);
       exemplar_dense_kernels.push_back(d_kernel);
 
       ort->ReleaseTensorTypeAndShapeInfo(iou_shape_info);
@@ -1584,6 +3207,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       }
       d_kernel.tmpl_std = std::sqrt(tmpl_std_sq);
       if (d_kernel.tmpl_std < 1e-6f) d_kernel.tmpl_std = 1.0f;
+      build_zncc_spans(d_kernel);
       exemplar_dense_kernels.push_back(d_kernel);
     }
 
@@ -1633,6 +3257,21 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
       max_ex_area = std::max(min_ex_area, avg_ex_area * 2.20f);
     }
   }
+
+  // Merge carried-over prototypes *after* this image's own, then cap at 8. Keeping the
+  // freshly clicked exemplars at the front is what makes a new click in the review loop
+  // actually change the similarity map.
+  for (size_t i = 0; i < carried_prototypes.size() && exemplar_prototypes.size() < 8; ++i) {
+    exemplar_prototypes.push_back(carried_prototypes[i]);
+  }
+  for (size_t i = 0; i < carried_prototypes_hr0.size() && exemplar_prototypes_hr0.size() < 8; ++i) {
+    exemplar_prototypes_hr0.push_back(carried_prototypes_hr0[i]);
+  }
+  for (size_t i = 0; i < carried_dense_kernels.size() && exemplar_dense_kernels.size() < 8; ++i) {
+    exemplar_dense_kernels.push_back(carried_dense_kernels[i]);
+  }
+  if (exemplar_prototypes.size() > 8) exemplar_prototypes.resize(8);
+  if (exemplar_prototypes_hr0.size() > 8) exemplar_prototypes_hr0.resize(8);
 
   // 4. Compute Cosine Similarity Heatmap with Multi-Prototype Max-Pooling (64x64 base):
   std::vector<float> sim_grid(64 * 64, 0.0f);
@@ -1684,6 +3323,17 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
 
   int grid_res = (feat_res > 64) ? feat_res : 64;
   std::vector<float> peak_grid;
+
+  // The dense stride-1 path needs ZNCC templates. With only carried-over prototypes and
+  // no serialized kernels there are none, and the dense pass would scan 1M pixels only
+  // to return an all-zero map (and therefore zero instances). Fall back to the 256 path
+  // instead of silently producing nothing.
+  if (grid_res > 256 && exemplar_dense_kernels.empty()) {
+    Rcpp::warning("PerSAM: no dense exemplar kernels available for feat_res = 1024 "
+                  "(prototypes were supplied without serialized kernels); "
+                  "falling back to feat_res = 256.");
+    grid_res = 256;
+  }
 
   if (grid_res <= 64) {
     // Mode 1: Fast 64x64 ViT path (blazing fast, ideal for large objects like people, leaves)
@@ -1797,11 +3447,54 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     const float* img_c2 = img_values.data() + 2 * plane_size;
     int num_kernels = (int)exemplar_dense_kernels.size();
 
+    // Direct evaluation costs O(pixels x radius^2). For the small templates this mode
+    // is meant for -- grains, seeds and spores give radii of 6 to 15 -- it is cheap
+    // (0.4s or less, measured). It becomes the dominant stage only once the exemplar is
+    // large: at the radius cap of 48 it takes 5.3s, against 3.4s when the same six
+    // correlations are evaluated as products of spectra (1.57x, identical instances).
+    // The FFT path is therefore gated on the radius rather than used unconditionally:
+    // below the gate it would only add transform overhead. When it does run, the
+    // interior is already filled in and the loop below finishes the border frame,
+    // where sampling clamps and the two methods would not agree. If FFTW is
+    // unavailable the direct path still handles everything.
+    int fft_rad = 0;
+    for (int p = 0; p < num_kernels; ++p) {
+      fft_rad = std::max(fft_rad, exemplar_dense_kernels[p].radius);
+    }
+    int fft_min_radius = 20;
+    {
+      const char* ev = std::getenv("PLIMAN_ZNCC_FFT_MIN_RADIUS");
+      if (ev != NULL) {
+        long v = std::strtol(ev, NULL, 10);
+        if (v >= 0 && v <= 4096) fft_min_radius = (int)v;
+      }
+    }
+    bool fft_done = false;
+    if (num_kernels > 0 && fft_rad >= fft_min_radius) {
+      fft_done = dense_zncc_fft(img_c0, img_c1, img_c2, 1024, 1024,
+                                (unsigned long long)cur_img_key,
+                                exemplar_dense_kernels, vit_1024, vit_thresh,
+                                dense_out);
+    }
+
     #pragma omp parallel for schedule(dynamic, 16)
     for (int y = 0; y < 1024; ++y) {
       for (int x = 0; x < 1024; ++x) {
         float v_sim = vit_1024[(size_t)y * 1024 + x];
         if (v_sim < vit_thresh) continue;
+
+        // Interior pixels already carry their value when the FFT path ran.
+        if (fft_done) {
+          bool interior = true;
+          for (int p = 0; p < num_kernels; ++p) {
+            const int rr = exemplar_dense_kernels[p].radius;
+            if (!(x >= rr && x < 1024 - rr && y >= rr && y < 1024 - rr)) {
+              interior = false;
+              break;
+            }
+          }
+          if (interior) continue;
+        }
 
         float max_zncc = 0.0f;
         for (int p = 0; p < num_kernels; ++p) {
@@ -1814,24 +3507,45 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
           float sq0 = 0.0f, sq1 = 0.0f, sq2 = 0.0f;
 
           if (x >= rad && x < 1024 - rad && y >= rad && y < 1024 - rad) {
-            size_t center_idx = (size_t)y * 1024 + x;
-            for (size_t k = 0; k < num_k_entries; ++k) {
-              const ZnccKernelEntry& ke = dk.entries[k];
-              size_t idx = center_idx + (size_t)ke.dy * 1024 + ke.dx;
-              float i0 = img_c0[idx];
-              float i1 = img_c1[idx];
-              float i2 = img_c2[idx];
-              float w = ke.w;
-
-              dot += w * (i0 * ke.t_zero[0] + i1 * ke.t_zero[1] + i2 * ke.t_zero[2]);
-              s0 += w * i0;
-              s1 += w * i1;
-              s2 += w * i2;
-              sq0 += w * i0 * i0;
-              sq1 += w * i1 * i1;
-              sq2 += w * i2 * i2;
+            // Interior fast path. Walking the kernel as runs of consecutive dx turns
+            // the per-entry gather over a disk into contiguous streaming loads from
+            // both the image planes and the packed weight arrays, which is what the
+            // compiler needs to vectorize this loop. The weights carry w * t_zero
+            // premultiplied, so the dot product costs one multiply-add per channel.
+            const size_t center_idx = (size_t)y * 1024 + x;
+            const float* w_arr = dk.w_arr.data();
+            const float* wt_arr = dk.wt_arr.data();
+            const size_t n_spans = dk.spans.size();
+            for (size_t sp = 0; sp < n_spans; ++sp) {
+              const ZnccSpan& S = dk.spans[sp];
+              const size_t base = center_idx + (size_t)S.dy * 1024 + S.dx0;
+              const float* p0 = img_c0 + base;
+              const float* p1 = img_c1 + base;
+              const float* p2 = img_c2 + base;
+              const float* wp = w_arr + S.off;
+              const float* tp = wt_arr + S.off * 3;
+              const int len = S.len;
+              #pragma omp simd reduction(+:dot,s0,s1,s2,sq0,sq1,sq2)
+              for (int k = 0; k < len; ++k) {
+                const float i0 = p0[k];
+                const float i1 = p1[k];
+                const float i2 = p2[k];
+                const float w = wp[k];
+                dot += i0 * tp[3 * k] + i1 * tp[3 * k + 1] + i2 * tp[3 * k + 2];
+                const float wi0 = w * i0;
+                const float wi1 = w * i1;
+                const float wi2 = w * i2;
+                s0 += wi0;
+                s1 += wi1;
+                s2 += wi2;
+                sq0 += wi0 * i0;
+                sq1 += wi1 * i1;
+                sq2 += wi2 * i2;
+              }
             }
           } else {
+            // Border pixels need per-sample clamping, which breaks contiguity; they are
+            // a thin frame of the image, so the original entry walk is kept for them.
             for (size_t k = 0; k < num_k_entries; ++k) {
               const ZnccKernelEntry& ke = dk.entries[k];
               int px = std::max(0, std::min(1023, x + ke.dx));
@@ -1877,11 +3591,15 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     peak_grid = std::move(dense_out);
   }
 
+  float cell_size = 1024.0f / (float)grid_res;
+
   // 6. Detect Local Maxima (Peaks) on peak_grid
   struct CandPeak {
     int r;
     int k;
     float sim;
+    float px;
+    float py;
   };
   std::vector<CandPeak> cand_peaks;
 
@@ -1913,7 +3631,9 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
         if (!is_peak) break;
       }
       if (is_peak) {
-        cand_peaks.push_back({ r, k, cur_sim });
+        float px = ((float)k + 0.5f) * cell_size;
+        float py = ((float)r + 0.5f) * cell_size;
+        cand_peaks.push_back({ r, k, cur_sim, px, py });
       }
     }
   }
@@ -1923,35 +3643,74 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   });
 
   // Spatial NMS on candidate peaks (min_dist proportionally scaled to 1024-space)
-  float cell_size = 1024.0f / (float)grid_res;
   float min_dist_1024 = (float)(min_dist * 1024.0 / std::max(orig_w, orig_h));
   float grid_min_dist = min_dist_1024 / cell_size;
   if (grid_min_dist < 1.0f) grid_min_dist = 1.0f;
 
   std::vector<CandPeak> accepted_peaks;
-  if (precomputed_prototypes.isNull()) {
+  if (num_exemplars > 0) {
     int num_ex = (int)exemplar_x.size();
     for (int ex = 0; ex < num_ex; ++ex) {
+      float px = (float)(exemplar_x[ex] / orig_w * 1024.0);
+      float py = (float)(exemplar_y[ex] / orig_h * 1024.0);
       int ek = std::max(0, std::min(grid_res - 1, (int)std::round(exemplar_x[ex] / orig_w * (double)grid_res)));
       int er = std::max(0, std::min(grid_res - 1, (int)std::round(exemplar_y[ex] / orig_h * (double)grid_res)));
       float sim = peak_grid[(size_t)er * grid_res + ek];
-      accepted_peaks.push_back({ er, ek, std::max(1.0f, sim) });
+      accepted_peaks.push_back({ er, ek, std::max(1.0f, sim), px, py });
     }
   }
 
-  for (size_t i = 0; i < cand_peaks.size(); ++i) {
-    bool suppressed = false;
+  // Spatial NMS over candidate peaks. Comparing each candidate against every accepted
+  // peak is O(N_cand x N_accepted), which dominates on dense scenes (thousands of
+  // peaks). Bucket accepted peaks into a grid of cells of side grid_min_dist: any peak
+  // closer than grid_min_dist must lie in the same or an adjacent cell, so only the 3x3
+  // neighbourhood needs checking. Identical acceptance decisions, O(N) cost.
+  {
+    const float cell = (grid_min_dist > 1.0f) ? grid_min_dist : 1.0f;
+    const int n_cells = std::max(1, (int)std::ceil((double)grid_res / (double)cell) + 1);
+    std::map<int, std::vector<size_t> > buckets;
+    const float min_dist_sq = grid_min_dist * grid_min_dist;
+
+    auto bucket_key = [n_cells](int cr, int ck) { return cr * n_cells + ck; };
+
+    auto insert_peak = [&](size_t idx, int r, int k) {
+      int cr = std::min(n_cells - 1, std::max(0, (int)((float)r / cell)));
+      int ck = std::min(n_cells - 1, std::max(0, (int)((float)k / cell)));
+      buckets[bucket_key(cr, ck)].push_back(idx);
+    };
+
     for (size_t j = 0; j < accepted_peaks.size(); ++j) {
-      float dr = (float)(cand_peaks[i].r - accepted_peaks[j].r);
-      float dc = (float)(cand_peaks[i].k - accepted_peaks[j].k);
-      if (std::sqrt(dr * dr + dc * dc) < grid_min_dist) {
-        suppressed = true;
-        break;
-      }
+      insert_peak(j, accepted_peaks[j].r, accepted_peaks[j].k);
     }
-    if (!suppressed) {
-      accepted_peaks.push_back(cand_peaks[i]);
-      if (max_objects > 0 && (int)accepted_peaks.size() >= max_objects) break;
+
+    for (size_t i = 0; i < cand_peaks.size(); ++i) {
+      const int r = cand_peaks[i].r;
+      const int k = cand_peaks[i].k;
+      int cr = std::min(n_cells - 1, std::max(0, (int)((float)r / cell)));
+      int ck = std::min(n_cells - 1, std::max(0, (int)((float)k / cell)));
+
+      bool suppressed = false;
+      for (int dr_c = -1; dr_c <= 1 && !suppressed; ++dr_c) {
+        for (int dk_c = -1; dk_c <= 1 && !suppressed; ++dk_c) {
+          int nr = cr + dr_c, nk = ck + dk_c;
+          if (nr < 0 || nk < 0 || nr >= n_cells || nk >= n_cells) continue;
+          auto it_b = buckets.find(bucket_key(nr, nk));
+          if (it_b == buckets.end()) continue;
+          const std::vector<size_t>& cell_items = it_b->second;
+          for (size_t q = 0; q < cell_items.size(); ++q) {
+            const CandPeak& ap = accepted_peaks[cell_items[q]];
+            float dr = (float)(r - ap.r);
+            float dc = (float)(k - ap.k);
+            if (dr * dr + dc * dc < min_dist_sq) { suppressed = true; break; }
+          }
+        }
+      }
+
+      if (!suppressed) {
+        accepted_peaks.push_back(cand_peaks[i]);
+        insert_peak(accepted_peaks.size() - 1, r, k);
+        if (max_objects > 0 && (int)accepted_peaks.size() >= max_objects) break;
+      }
     }
   }
 
@@ -1972,167 +3731,292 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
     raw_instances[p].valid = false;
   }
 
-#if defined(_OPENMP)
-  int actual_omp_threads = (num_threads > 0) ? num_threads : omp_get_max_threads();
-  omp_set_num_threads(actual_omp_threads);
-#else
-  int actual_omp_threads = 1;
-#endif
+  // 7. Decode every accepted peak.
+  //
+  // The SAM 2.1 decoder accepts a prompt batch (`num_labels` is dynamic in the exported
+  // graph), so B prompts go out in ONE Run instead of one Run per peak. The former
+  // scheme pushed peaks through an OpenMP loop against a deliberately single-threaded
+  // decoder session: it paid the full per-call overhead N times and gave each call one
+  // core. Batching hands ORT one large GEMM per batch with the whole thread budget, and
+  // is what makes a GPU decoder session worthwhile at all (one submission per batch
+  // instead of N concurrent ones from many host threads).
+  //
+  // Mask selection and binarization are the former logic unchanged, applied to each
+  // slice of the batch, so the instances produced are identical.
 
-  #pragma omp parallel for num_threads(actual_omp_threads) schedule(dynamic)
-  for (int p = 0; p < num_peaks; ++p) {
-    float cand_px = (accepted_peaks[p].k + 0.5f) * cell_size;
-    float cand_py = (accepted_peaks[p].r + 0.5f) * cell_size;
-
-    float pt_coords[2] = { cand_px, cand_py };
-    float pt_label[1] = { 1.0f };
-
-    int64_t pt_shape[3] = { 1, 1, 2 };
-    int64_t lbl_shape[2] = { 1, 1 };
-
-    OrtValue* cand_pts_tensor = NULL;
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, pt_coords, 2 * sizeof(float),
-      pt_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &cand_pts_tensor
-    );
-
-    OrtValue* cand_lbl_tensor = NULL;
-    (void)ort->CreateTensorWithDataAsOrtValue(
-      memory_info, pt_label, 1 * sizeof(float),
-      lbl_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &cand_lbl_tensor
-    );
-
-    const OrtValue* cand_dec_in_values[] = {
-      enc_outputs[2], enc_outputs[0], enc_outputs[1],
-      cand_pts_tensor, cand_lbl_tensor, mask_input_tensor, has_mask_tensor
-    };
-
-    OrtValue* cand_dec_outputs[2] = { NULL, NULL };
-    OrtStatus* dec_status = ort->Run(
-      session_dec, run_options, dec_in_names, cand_dec_in_values, 7, dec_out_names, 2, cand_dec_outputs
-    );
-
-    if (dec_status == NULL) {
-      OrtTensorTypeAndShapeInfo* iou_shape_info = NULL;
-      (void)ort->GetTensorTypeAndShape(cand_dec_outputs[1], &iou_shape_info);
-      size_t iou_dims_count = 0;
-      (void)ort->GetDimensionsCount(iou_shape_info, &iou_dims_count);
-      std::vector<int64_t> iou_dims(iou_dims_count);
-      (void)ort->GetDimensions(iou_shape_info, iou_dims.data(), iou_dims_count);
-      int num_masks = (iou_dims_count >= 2) ? (int)iou_dims[1] : 1;
-
-      float* iou_data = NULL;
-      (void)ort->GetTensorMutableData(cand_dec_outputs[1], (void**)&iou_data);
-
-      float* mask_data = NULL;
-      (void)ort->GetTensorMutableData(cand_dec_outputs[0], (void**)&mask_data);
-
-      int best_idx = 0;
-      float best_score = -1e9f;
-      for (int m = 0; m < num_masks; ++m) {
-        size_t offset = (size_t)m * mask_h * mask_w;
-        int fg_c = 0;
-        float sum_r = 0.0f, sum_c = 0.0f;
-        for (int r = 0; r < mask_h; ++r) {
-          size_t roff = (size_t)r * mask_w;
-          for (int c = 0; c < mask_w; ++c) {
-            if (mask_data[offset + roff + c] > 0.0f) {
-              fg_c++;
-              sum_r += (float)r;
-              sum_c += (float)c;
-            }
-          }
-        }
-        float fg_ratio = (float)fg_c / (float)(mask_h * mask_w);
-        float score = iou_data[m];
-        if (fg_ratio > 0.80f) score -= 5.0f;
-
-        // Verify if prompt point is inside this candidate mask
-        int pr = (int)(cand_py / 4.0f);
-        int pc = (int)(cand_px / 4.0f);
-        pr = std::max(0, std::min(mask_h - 1, pr));
-        pc = std::max(0, std::min(mask_w - 1, pc));
-        bool pt_in_mask = (mask_data[offset + (size_t)pr * mask_w + pc] > 0.0f);
-        if (!pt_in_mask) score -= 3.0f;
-
-        // If mask is not empty, check compactness around prompt point
-        if (fg_c > 0) {
-          float cen_r = sum_r / (float)fg_c;
-          float cen_c = sum_c / (float)fg_c;
-          float dist_cen = std::sqrt((cen_r - (float)pr) * (cen_r - (float)pr) +
-                                     (cen_c - (float)pc) * (cen_c - (float)pc));
-          float r_approx = std::sqrt((float)fg_c / 3.14159f);
-          if (r_approx > 4.0f && dist_cen > r_approx * 1.5f) {
-            score -= 2.0f;
-          }
-        }
-
-        // Only penalize massive full-screen multi-object agglomerations, never small valid objects!
-        if (max_ex_area > 5.0f && fg_c > 0) {
-          if (fg_c > max_ex_area * 2.5f) {
-            float ratio = (float)fg_c / (max_ex_area * 2.5f);
-            score -= (ratio - 1.0f) * 2.0f;
-          }
-        }
-
-        if (score > best_score) {
-          best_score = score;
-          best_idx = m;
-        }
-      }
-
-      size_t slice_offset = (size_t)best_idx * mask_h * mask_w;
-      std::vector<uint8_t> bin_vec(mask_w * mask_h, 0);
-      int min_r = mask_h, max_r = -1, min_c = mask_w, max_c = -1;
-      int fg_total = 0;
-
-      // Direct logit thresholding: logit > 0.0f <=> sigmoid(logit) > 0.5
+  // Scores one decoded prompt and, if it survives, stores it in raw_instances[p].
+  // `mask_slice` points at this prompt's num_masks x 256 x 256 logits, `iou_slice` at
+  // its num_masks predicted IoUs.
+  auto process_prompt = [&](int p, const float* mask_slice, const float* iou_slice,
+                            int num_masks, float cand_px, float cand_py) {
+    int best_idx = 0;
+    float best_score = -1e9f;
+    for (int m = 0; m < num_masks; ++m) {
+      const size_t offset = (size_t)m * mask_h * mask_w;
+      int fg_c = 0;
+      float sum_r = 0.0f, sum_c = 0.0f;
       for (int r = 0; r < mask_h; ++r) {
-        size_t row_off = (size_t)r * mask_w;
+        const size_t roff = (size_t)r * mask_w;
         for (int c = 0; c < mask_w; ++c) {
-          float logit = mask_data[slice_offset + row_off + c];
-          if (logit > 0.0f) {
-            bin_vec[row_off + c] = 1;
-            fg_total++;
-            if (r < min_r) min_r = r;
-            if (r > max_r) max_r = r;
-            if (c < min_c) min_c = c;
-            if (c > max_c) max_c = c;
+          if (mask_slice[offset + roff + c] > 0.0f) {
+            fg_c++;
+            sum_r += (float)r;
+            sum_c += (float)c;
           }
         }
       }
+      float fg_ratio = (float)fg_c / (float)(mask_h * mask_w);
+      float score = iou_slice[m];
+      if (fg_ratio > 0.80f) score -= 5.0f;
 
-      int min_fg = std::max(2, std::min(10, (int)std::round(min_dist_1024 / 4.0f)));
-      if (fg_total >= min_fg && fg_total <= (int)(mask_h * mask_w * 0.85f)) {
-        double bx1 = (double)min_c / 256.0 * orig_w;
-        double by1 = (double)min_r / 256.0 * orig_h;
-        double bx2 = (double)(max_c + 1) / 256.0 * orig_w;
-        double by2 = (double)(max_r + 1) / 256.0 * orig_h;
+      // Verify if prompt point is inside this candidate mask
+      int pr = (int)(cand_py / 4.0f);
+      int pc = (int)(cand_px / 4.0f);
+      pr = std::max(0, std::min(mask_h - 1, pr));
+      pc = std::max(0, std::min(mask_w - 1, pc));
+      bool pt_in_mask = (mask_slice[offset + (size_t)pr * mask_w + pc] > 0.0f);
+      if (!pt_in_mask) score -= 3.0f;
 
-        raw_instances[p].x1 = bx1;
-        raw_instances[p].y1 = by1;
-        raw_instances[p].x2 = bx2;
-        raw_instances[p].y2 = by2;
-        raw_instances[p].sim_score = accepted_peaks[p].sim;
-        raw_instances[p].iou_pred = best_score;
-        raw_instances[p].bin_mask = std::move(bin_vec);
-        raw_instances[p].min_c = min_c;
-        raw_instances[p].max_c = max_c;
-        raw_instances[p].min_r = min_r;
-        raw_instances[p].max_r = max_r;
-        raw_instances[p].fg_count = fg_total;
-        raw_instances[p].valid = true;
+      // If mask is not empty, check compactness around prompt point
+      if (fg_c > 0) {
+        float cen_r = sum_r / (float)fg_c;
+        float cen_c = sum_c / (float)fg_c;
+        float dist_cen = std::sqrt((cen_r - (float)pr) * (cen_r - (float)pr) +
+                                   (cen_c - (float)pc) * (cen_c - (float)pc));
+        float r_approx = std::sqrt((float)fg_c / 3.14159f);
+        if (r_approx > 4.0f && dist_cen > r_approx * 1.5f) {
+          score -= 2.0f;
+        }
       }
 
-      ort->ReleaseTensorTypeAndShapeInfo(iou_shape_info);
-      ort->ReleaseValue(cand_dec_outputs[0]);
-      ort->ReleaseValue(cand_dec_outputs[1]);
-    } else {
-      ort->ReleaseStatus(dec_status);
+      // Only penalize massive full-screen multi-object agglomerations, never small valid objects!
+      if (max_ex_area > 5.0f && fg_c > 0) {
+        if (fg_c > max_ex_area * 2.5f) {
+          float ratio = (float)fg_c / (max_ex_area * 2.5f);
+          score -= (ratio - 1.0f) * 2.0f;
+        }
+      }
+
+      if (p < num_exemplars) {
+        score += 5.0f;
+      }
+
+      if (score > best_score) {
+        best_score = score;
+        best_idx = m;
+      }
     }
 
-    ort->ReleaseValue(cand_pts_tensor);
-    ort->ReleaseValue(cand_lbl_tensor);
+    const size_t slice_offset = (size_t)best_idx * mask_h * mask_w;
+    std::vector<uint8_t> bin_vec((size_t)mask_w * mask_h, 0);
+    int min_r = mask_h, max_r = -1, min_c = mask_w, max_c = -1;
+    int fg_total = 0;
+
+    // Direct logit thresholding: logit > 0.0f <=> sigmoid(logit) > 0.5
+    for (int r = 0; r < mask_h; ++r) {
+      const size_t row_off = (size_t)r * mask_w;
+      for (int c = 0; c < mask_w; ++c) {
+        if (mask_slice[slice_offset + row_off + c] > 0.0f) {
+          bin_vec[row_off + c] = 1;
+          fg_total++;
+          if (r < min_r) min_r = r;
+          if (r > max_r) max_r = r;
+          if (c < min_c) min_c = c;
+          if (c > max_c) max_c = c;
+        }
+      }
+    }
+
+    int min_fg = (p < num_exemplars) ? 1 : std::max(2, std::min(10, (int)std::round(min_dist_1024 / 4.0f)));
+    if (fg_total >= min_fg && fg_total <= (int)(mask_h * mask_w * 0.85f)) {
+      raw_instances[p].x1 = (double)min_c / 256.0 * orig_w;
+      raw_instances[p].y1 = (double)min_r / 256.0 * orig_h;
+      raw_instances[p].x2 = (double)(max_c + 1) / 256.0 * orig_w;
+      raw_instances[p].y2 = (double)(max_r + 1) / 256.0 * orig_h;
+      raw_instances[p].sim_score = accepted_peaks[p].sim;
+      raw_instances[p].iou_pred = best_score;
+      raw_instances[p].bin_mask = std::move(bin_vec);
+      raw_instances[p].min_c = min_c;
+      raw_instances[p].max_c = max_c;
+      raw_instances[p].min_r = min_r;
+      raw_instances[p].max_r = max_r;
+      raw_instances[p].fg_count = fg_total;
+      raw_instances[p].valid = true;
+    }
+  };
+
+  // Prompts per Run. Each prompt costs 3 x 256 x 256 floats of output (768 KB).
+  //
+  // Measured on an optimized build, 2448 x 2448 image yielding 176 peaks
+  // (GTX 1650 / 12-thread CPU). Instances were identical at every batch size:
+  //
+  //            batch=1   batch=8   batch=16   batch=32   batch=64
+  //   GPU       3.49s     2.76s      2.07s      1.92s      2.82s
+  //
+  // Batching pays off on the GPU because it amortizes submission latency, and falls
+  // back again at 64 where this card runs short of VRAM; 32 is the default there. On
+  // the CPU the decoder is small and the per-call overhead already low, so the
+  // OpenMP fan-out over peaks (8.05s here) beats any batched variant, and that is the
+  // path taken whenever the decoder session is on the CPU provider.
+  int dec_batch = dec_on_gpu ? 32 : 1;
+  {
+    const char* ev = std::getenv("PLIMAN_SAM_DECODER_BATCH");
+    if (ev != NULL) {
+      long v = std::strtol(ev, NULL, 10);
+      if (v >= 1 && v <= 256) dec_batch = (int)v;
+    }
+  }
+  if (dec_batch > num_peaks) dec_batch = std::max(1, num_peaks);
+
+  // CPU path: one prompt per Run, peaks fanned out across threads. Chosen whenever the
+  // decoder is on the CPU provider and no explicit batch size was requested.
+  const bool use_omp_peaks = (!dec_on_gpu && dec_batch == 1 && num_peaks > 1);
+
+#if defined(_OPENMP)
+  // num_threads(...) on the directive is sufficient. Calling omp_set_num_threads() here
+  // used to change the *process-wide* default, so one PerSAM call with threads = 2
+  // silently capped every other OpenMP region in the package for the rest of the
+  // R session.
+  const int peak_threads = (num_threads > 0) ? num_threads : omp_get_max_threads();
+#else
+  const int peak_threads = 1;
+#endif
+
+  if (use_omp_peaks) {
+    #pragma omp parallel for num_threads(peak_threads) schedule(dynamic)
+    for (int p = 0; p < num_peaks; ++p) {
+      float pt_coords[2] = { accepted_peaks[p].px, accepted_peaks[p].py };
+      float pt_label[1] = { 1.0f };
+      int64_t pt_shape[3] = { 1, 1, 2 };
+      int64_t lbl_shape[2] = { 1, 1 };
+
+      OrtValue* t_pts = NULL;
+      OrtValue* t_lbl = NULL;
+      (void)ort->CreateTensorWithDataAsOrtValue(memory_info, pt_coords, 2 * sizeof(float),
+        pt_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_pts);
+      (void)ort->CreateTensorWithDataAsOrtValue(memory_info, pt_label, sizeof(float),
+        lbl_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_lbl);
+
+      const OrtValue* s_in[] = {
+        enc_outputs[2], enc_outputs[0], enc_outputs[1],
+        t_pts, t_lbl, mask_input_tensor, has_mask_tensor
+      };
+      OrtValue* s_out[2] = { NULL, NULL };
+      OrtStatus* s_st = ort->Run(session_dec, run_options, dec_in_names, s_in, 7,
+                                 dec_out_names, 2, s_out);
+
+      if (s_st == NULL) {
+        OrtTensorTypeAndShapeInfo* iou_info = NULL;
+        (void)ort->GetTensorTypeAndShape(s_out[1], &iou_info);
+        size_t iou_nd = 0;
+        (void)ort->GetDimensionsCount(iou_info, &iou_nd);
+        std::vector<int64_t> iou_dims(iou_nd);
+        if (iou_nd > 0) (void)ort->GetDimensions(iou_info, iou_dims.data(), iou_nd);
+        const int num_masks = (iou_nd >= 2 && iou_dims[1] > 0) ? (int)iou_dims[1] : 3;
+        ort->ReleaseTensorTypeAndShapeInfo(iou_info);
+
+        float* iou_data = NULL;
+        float* mask_data = NULL;
+        (void)ort->GetTensorMutableData(s_out[1], (void**)&iou_data);
+        (void)ort->GetTensorMutableData(s_out[0], (void**)&mask_data);
+        if (iou_data != NULL && mask_data != NULL) {
+          process_prompt(p, mask_data, iou_data, num_masks,
+                         accepted_peaks[p].px, accepted_peaks[p].py);
+        }
+        ort->ReleaseValue(s_out[0]);
+        ort->ReleaseValue(s_out[1]);
+      } else {
+        ort->ReleaseStatus(s_st);
+      }
+      ort->ReleaseValue(t_pts);
+      ort->ReleaseValue(t_lbl);
+    }
+  }
+
+  std::vector<float> b_coords, b_labels, b_mask_in, b_has_mask;
+
+  // GPU decoder with more than one batch: bind the image features once (IoBinding).
+  std::unique_ptr<SamDecoderBinding> peak_binding;
+  if (!use_omp_peaks && dec_on_gpu && num_peaks > dec_batch) {
+    peak_binding.reset(new SamDecoderBinding(ort, session_dec, enc_outputs, memory_info));
+    if (!peak_binding->ok()) peak_binding.reset();
+  }
+
+  for (int start_p = 0; !use_omp_peaks && start_p < num_peaks; start_p += dec_batch) {
+    const int cur = std::min(dec_batch, num_peaks - start_p);
+
+    b_coords.assign((size_t)cur * 2, 0.0f);
+    b_labels.assign((size_t)cur, 1.0f);
+    b_mask_in.assign((size_t)cur * 256 * 256, 0.0f);
+    b_has_mask.assign((size_t)cur, 0.0f);
+    for (int k = 0; k < cur; ++k) {
+      b_coords[(size_t)k * 2 + 0] = accepted_peaks[start_p + k].px;
+      b_coords[(size_t)k * 2 + 1] = accepted_peaks[start_p + k].py;
+    }
+
+    int64_t pts_shape[3] = { (int64_t)cur, 1, 2 };
+    int64_t lbl_shape[2] = { (int64_t)cur, 1 };
+    int64_t mi_shape[4]  = { (int64_t)cur, 1, 256, 256 };
+    int64_t hm_shape[1]  = { (int64_t)cur };
+
+    OrtValue* t_pts = NULL;
+    OrtValue* t_lbl = NULL;
+    OrtValue* t_mi = NULL;
+    OrtValue* t_hm = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_coords.data(),
+      b_coords.size() * sizeof(float), pts_shape, 3, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_pts);
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_labels.data(),
+      b_labels.size() * sizeof(float), lbl_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_lbl);
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_mask_in.data(),
+      b_mask_in.size() * sizeof(float), mi_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_mi);
+    (void)ort->CreateTensorWithDataAsOrtValue(memory_info, b_has_mask.data(),
+      b_has_mask.size() * sizeof(float), hm_shape, 1, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &t_hm);
+
+    const OrtValue* b_in[] = {
+      enc_outputs[2], enc_outputs[0], enc_outputs[1], t_pts, t_lbl, t_mi, t_hm
+    };
+    OrtValue* b_out[2] = { NULL, NULL };
+    OrtStatus* b_st = peak_binding
+      ? peak_binding->run(run_options, t_pts, t_lbl, t_mi, t_hm, b_out)
+      : ort->Run(session_dec, run_options, dec_in_names, b_in, 7, dec_out_names, 2, b_out);
+
+    if (b_st == NULL) {
+      OrtTensorTypeAndShapeInfo* iou_info = NULL;
+      (void)ort->GetTensorTypeAndShape(b_out[1], &iou_info);
+      size_t iou_nd = 0;
+      (void)ort->GetDimensionsCount(iou_info, &iou_nd);
+      std::vector<int64_t> iou_dims(iou_nd);
+      if (iou_nd > 0) (void)ort->GetDimensions(iou_info, iou_dims.data(), iou_nd);
+      const int num_masks = (iou_nd >= 2 && iou_dims[1] > 0) ? (int)iou_dims[1] : 3;
+      ort->ReleaseTensorTypeAndShapeInfo(iou_info);
+
+      float* iou_data = NULL;
+      float* mask_data = NULL;
+      (void)ort->GetTensorMutableData(b_out[1], (void**)&iou_data);
+      (void)ort->GetTensorMutableData(b_out[0], (void**)&mask_data);
+
+      if (iou_data != NULL && mask_data != NULL) {
+        const size_t per_prompt = (size_t)num_masks * mask_h * mask_w;
+        for (int k = 0; k < cur; ++k) {
+          process_prompt(start_p + k,
+                         mask_data + (size_t)k * per_prompt,
+                         iou_data + (size_t)k * num_masks,
+                         num_masks,
+                         accepted_peaks[start_p + k].px,
+                         accepted_peaks[start_p + k].py);
+        }
+      }
+      ort->ReleaseValue(b_out[0]);
+      ort->ReleaseValue(b_out[1]);
+    } else {
+      // A failed batch leaves its peaks invalid, exactly as a failed single Run did.
+      ort->ReleaseStatus(b_st);
+    }
+
+    ort->ReleaseValue(t_pts);
+    ort->ReleaseValue(t_lbl);
+    ort->ReleaseValue(t_mi);
+    ort->ReleaseValue(t_hm);
   }
 
   // Collect valid instances on main thread
@@ -2234,29 +4118,45 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   Rcpp::NumericVector res_scores(num_final);
   Rcpp::IntegerMatrix combined_labels((int)orig_w, (int)orig_h);
 
-  for (int i = 0; i < num_final; ++i) {
-    res_boxes(i, 0) = kept_instances[i].x1;
-    res_boxes(i, 1) = kept_instances[i].y1;
-    res_boxes(i, 2) = kept_instances[i].x2;
-    res_boxes(i, 3) = kept_instances[i].y2;
-    res_scores[i]   = kept_instances[i].sim_score;
+  // Project the 256x256 instance masks onto the full-resolution label matrix. The
+  // row/column index of the mask depends only on y (resp. x), so both are precomputed
+  // once instead of running a double division and std::round per pixel: on a 24 MP
+  // image with many instances that inner expression was the whole cost of this stage.
+  {
+    const int ow_i = (int)orig_w;
+    const int oh_i = (int)orig_h;
+    std::vector<int> col_lut((size_t)std::max(0, ow_i));
+    std::vector<int> row_lut((size_t)std::max(0, oh_i));
+    for (int x = 0; x < ow_i; ++x) {
+      col_lut[x] = std::min(255, std::max(0, (int)std::round((x + 0.5) / orig_w * 256.0 - 0.5)));
+    }
+    for (int y = 0; y < oh_i; ++y) {
+      row_lut[y] = std::min(255, std::max(0, (int)std::round((y + 0.5) / orig_h * 256.0 - 0.5)));
+    }
+    int* lbl_ptr = INTEGER(combined_labels);
 
-    int inst_id = i + 1;
-    const auto& inst = kept_instances[i];
-    int bx1 = std::max(0, (int)std::floor(inst.x1));
-    int by1 = std::max(0, (int)std::floor(inst.y1));
-    int bx2 = std::min((int)orig_w - 1, (int)std::ceil(inst.x2));
-    int by2 = std::min((int)orig_h - 1, (int)std::ceil(inst.y2));
+    for (int i = 0; i < num_final; ++i) {
+      res_boxes(i, 0) = kept_instances[i].x1;
+      res_boxes(i, 1) = kept_instances[i].y1;
+      res_boxes(i, 2) = kept_instances[i].x2;
+      res_boxes(i, 3) = kept_instances[i].y2;
+      res_scores[i]   = kept_instances[i].sim_score;
 
-    for (int y = by1; y <= by2; ++y) {
-      int r = std::min(255, std::max(0, (int)std::round((y + 0.5) / orig_h * 256.0 - 0.5)));
-      size_t row_off = (size_t)r * 256;
-      for (int x = bx1; x <= bx2; ++x) {
-        int c = std::min(255, std::max(0, (int)std::round((x + 0.5) / orig_w * 256.0 - 0.5)));
-        if (inst.bin_mask[row_off + c]) {
-          if (combined_labels(x, y) == 0) {
-            combined_labels(x, y) = inst_id;
-          }
+      const int inst_id = i + 1;
+      const PersamInst& inst = kept_instances[i];
+      int bx1 = std::max(0, (int)std::floor(inst.x1));
+      int by1 = std::max(0, (int)std::floor(inst.y1));
+      int bx2 = std::min(ow_i - 1, (int)std::ceil(inst.x2));
+      int by2 = std::min(oh_i - 1, (int)std::ceil(inst.y2));
+      if (bx1 > bx2 || by1 > by2) continue;
+
+      const uint8_t* bm = inst.bin_mask.data();
+      for (int y = by1; y <= by2; ++y) {
+        const size_t row_off = (size_t)row_lut[y] * 256;
+        // combined_labels is [width, height] column-major, so column y is contiguous.
+        int* col = lbl_ptr + (size_t)y * ow_i;
+        for (int x = bx1; x <= bx2; ++x) {
+          if (bm[row_off + col_lut[x]] && col[x] == 0) col[x] = inst_id;
         }
       }
     }
@@ -2264,7 +4164,7 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
 
   // Cleanup
   ort->ReleaseRunOptions(run_options);
-  ort->ReleaseValue(input_img_tensor);
+  if (input_img_tensor) ort->ReleaseValue(input_img_tensor);
   ort->ReleaseValue(mask_input_tensor);
   ort->ReleaseValue(has_mask_tensor);
   for (int i = 0; i < 3; ++i) ort->ReleaseValue(enc_outputs[i]);
@@ -2278,9 +4178,38 @@ Rcpp::List run_sam2_persam_cpp(Rcpp::NumericVector tensor_vec,
   for (size_t i = 0; i < exemplar_prototypes_hr0.size(); ++i) {
     hr0_ret[i] = Rcpp::wrap(exemplar_prototypes_hr0[i]);
   }
+  // Serialize the dense ZNCC kernels so that feat_res = 1024 keeps working when these
+  // prototypes are carried to the next image (previously the kernels were discarded and
+  // the dense path silently returned an empty similarity map).
+  Rcpp::List dense_ret(exemplar_dense_kernels.size());
+  for (size_t i = 0; i < exemplar_dense_kernels.size(); ++i) {
+    const DenseExemplarKernel& dk = exemplar_dense_kernels[i];
+    const int n_ent = (int)dk.entries.size();
+    Rcpp::IntegerVector dxv(n_ent), dyv(n_ent);
+    Rcpp::NumericVector wv(n_ent);
+    Rcpp::NumericMatrix tz(n_ent, 3);
+    for (int k = 0; k < n_ent; ++k) {
+      dxv[k] = dk.entries[k].dx;
+      dyv[k] = dk.entries[k].dy;
+      wv[k]  = dk.entries[k].w;
+      tz(k, 0) = dk.entries[k].t_zero[0];
+      tz(k, 1) = dk.entries[k].t_zero[1];
+      tz(k, 2) = dk.entries[k].t_zero[2];
+    }
+    dense_ret[i] = Rcpp::List::create(
+      Rcpp::Named("dx") = dxv,
+      Rcpp::Named("dy") = dyv,
+      Rcpp::Named("w") = wv,
+      Rcpp::Named("t_zero") = tz,
+      Rcpp::Named("radius") = dk.radius,
+      Rcpp::Named("sum_w") = dk.sum_w,
+      Rcpp::Named("tmpl_std") = dk.tmpl_std
+    );
+  }
   ret_protos = Rcpp::List::create(
     Rcpp::Named("semantic") = sem_ret,
     Rcpp::Named("hr0") = hr0_ret,
+    Rcpp::Named("dense") = dense_ret,
     Rcpp::Named("avg_area") = avg_ex_area,
     Rcpp::Named("min_area") = min_ex_area,
     Rcpp::Named("max_area") = max_ex_area
@@ -2410,6 +4339,17 @@ static void get_session_io_names(const OrtApi* ort, OrtSession* session,
                                  std::vector<const char*>& in_names,
                                  std::vector<std::string>& out_names_str,
                                  std::vector<const char*>& out_names) {
+  auto it_meta = g_session_meta_by_ptr.find(session);
+  if (it_meta != g_session_meta_by_ptr.end() && it_meta->second != NULL) {
+    const SessionMeta& m = *it_meta->second;
+    in_names_str = m.in_names_str;
+    out_names_str = m.out_names_str;
+    in_names.resize(in_names_str.size());
+    out_names.resize(out_names_str.size());
+    for (size_t i = 0; i < in_names_str.size(); ++i) in_names[i] = in_names_str[i].c_str();
+    for (size_t i = 0; i < out_names_str.size(); ++i) out_names[i] = out_names_str[i].c_str();
+    return;
+  }
   OrtAllocator* allocator = NULL;
   (void)ort->GetAllocatorWithDefaultOptions(&allocator);
   size_t num_inputs = 0;
@@ -2459,17 +4399,39 @@ Rcpp::NumericMatrix run_depth_anything_cpp(
   std::vector<const char*> in_names, out_names;
   get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
 
-  int64_t in_shape[4] = {1, 3, in_h, in_w};
-  size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) {
-    input_vals[i] = (float)tensor_vec[i];
+  size_t in_dim_count = 4;
+  OrtTypeInfo* type_info = NULL;
+  if (ort->SessionGetInputTypeInfo(session, 0, &type_info) == NULL && type_info != NULL) {
+    const OrtTensorTypeAndShapeInfo* tensor_info = NULL;
+    if (ort->CastTypeInfoToTensorInfo(type_info, &tensor_info) == NULL && tensor_info != NULL) {
+      ort->GetDimensionsCount(tensor_info, &in_dim_count);
+    }
+    ort->ReleaseTypeInfo(type_info);
   }
+
+  int64_t in_shape[5];
+  size_t shape_len = (in_dim_count == 5) ? 5 : 4;
+  if (in_dim_count == 5) {
+    in_shape[0] = 1;
+    in_shape[1] = 1;
+    in_shape[2] = 3;
+    in_shape[3] = in_h;
+    in_shape[4] = in_w;
+  } else {
+    in_shape[0] = 1;
+    in_shape[1] = 3;
+    in_shape[2] = in_h;
+    in_shape[3] = in_w;
+  }
+
+  size_t total_floats = (size_t)(3 * in_h * in_w);
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
 
   OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, input_vals.data(), total_floats * sizeof(float),
-    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    in_shape, shape_len, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
   );
 
   OrtRunOptions* run_options = NULL;
@@ -2524,6 +4486,118 @@ Rcpp::NumericMatrix run_depth_anything_cpp(
 }
 
 // [[Rcpp::export]]
+Rcpp::IntegerMatrix run_yolo_sem_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    int orig_w,
+    int orig_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int64_t in_shape[4] = {1, 3, in_h, in_w};
+  size_t total_floats = (size_t)(3 * in_h * in_w);
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
+
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, input_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    ort->ReleaseRunOptions(run_options);
+    ort->ReleaseValue(in_tensor);
+    Rcpp::stop("YOLO Semantic Segmentation run failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  ONNXTensorElementDataType elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
+  (void)ort->GetTensorElementType(shape_info, &elem_type);
+  ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+  void* raw_out = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, &raw_out);
+
+  float pad_x = 0.0f;
+  float pad_y = 0.0f;
+  float gain = 1.0f;
+  bool has_lb = false;
+  if (tensor_vec.hasAttribute("pad_x") && tensor_vec.hasAttribute("pad_y") && tensor_vec.hasAttribute("gain")) {
+    pad_x = (float)Rcpp::as<double>(tensor_vec.attr("pad_x"));
+    pad_y = (float)Rcpp::as<double>(tensor_vec.attr("pad_y"));
+    gain = (float)Rcpp::as<double>(tensor_vec.attr("gain"));
+    has_lb = true;
+  }
+
+  Rcpp::IntegerMatrix sem_mat(orig_w, orig_h);
+
+  for (int oy = 0; oy < orig_h; ++oy) {
+    int sy;
+    if (has_lb) {
+      float sy_f = (float)oy * gain + pad_y;
+      sy = std::min(in_h - 1, std::max(0, (int)std::round(sy_f)));
+    } else {
+      sy = std::min(in_h - 1, std::max(0, (int)std::floor((oy + 0.5f) / (float)orig_h * (float)in_h)));
+    }
+    size_t row_offset = (size_t)sy * in_w;
+    for (int ox = 0; ox < orig_w; ++ox) {
+      int sx;
+      if (has_lb) {
+        float sx_f = (float)ox * gain + pad_x;
+        sx = std::min(in_w - 1, std::max(0, (int)std::round(sx_f)));
+      } else {
+        sx = std::min(in_w - 1, std::max(0, (int)std::floor((ox + 0.5f) / (float)orig_w * (float)in_w)));
+      }
+      size_t idx = row_offset + sx;
+      int cid = 0;
+      if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_UINT8) {
+        cid = (int)((uint8_t*)raw_out)[idx];
+      } else if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+        cid = (int)((int64_t*)raw_out)[idx];
+      } else if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32) {
+        cid = ((int32_t*)raw_out)[idx];
+      } else if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+        cid = (int)((float*)raw_out)[idx];
+      }
+      sem_mat(ox, oy) = cid;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  ort->ReleaseValue(in_tensor);
+  ort->ReleaseRunOptions(run_options);
+
+  return sem_mat;
+}
+
+// [[Rcpp::export]]
 Rcpp::List run_dinov2_cpp(
     Rcpp::NumericVector tensor_vec,
     int in_w,
@@ -2547,10 +4621,9 @@ Rcpp::List run_dinov2_cpp(
 
   int64_t in_shape[4] = {1, 3, in_h, in_w};
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) input_vals[i] = (float)tensor_vec[i];
-
-  OrtValue* in_tensor = NULL;
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
+OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, input_vals.data(), total_floats * sizeof(float),
     in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
@@ -2656,8 +4729,518 @@ Rcpp::List run_dinov2_cpp(
 }
 
 // [[Rcpp::export]]
+Rcpp::List get_onnx_model_io_shape_cpp(std::string model_path, std::string lib_path = "", int num_threads = 0, bool use_gpu = true, int device_id = -1) {
+  try {
+    int64_t cur_mtime = 0, cur_size = 0;
+    get_file_stat(model_path, cur_mtime, cur_size);
+
+    auto it_sh = g_io_shape_cache.find(model_path);
+    if (it_sh != g_io_shape_cache.end() && cur_mtime != 0 &&
+        it_sh->second.file_mtime == cur_mtime && it_sh->second.file_size == cur_size) {
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = it_sh->second.dynamic,
+        Rcpp::Named("expected_w") = it_sh->second.expected_w,
+        Rcpp::Named("expected_h") = it_sh->second.expected_h,
+        Rcpp::Named("batch_dynamic") = it_sh->second.batch_dynamic
+      );
+    }
+
+    const OrtApi* ort = get_ort_api(lib_path);
+    OrtSession* session = NULL;
+
+    // Reuse any already-cached session for this model_path without evicting it!
+    std::string prefix = model_path + "_th_";
+    for (const auto& pair : g_session_cache) {
+      if (pair.first.rfind(prefix, 0) == 0 && pair.second.session != NULL) {
+        if (cur_mtime == 0 || (pair.second.file_mtime == cur_mtime && pair.second.file_size == cur_size)) {
+          session = pair.second.session;
+          break;
+        }
+      }
+    }
+
+    if (session == NULL) {
+      CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+      session = cs.session;
+    }
+
+    // Session creation fills g_io_shape_cache from the cached session metadata.
+    auto it_sh2 = g_io_shape_cache.find(model_path);
+    if (it_sh2 != g_io_shape_cache.end()) {
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = it_sh2->second.dynamic,
+        Rcpp::Named("expected_w") = it_sh2->second.expected_w,
+        Rcpp::Named("expected_h") = it_sh2->second.expected_h,
+        Rcpp::Named("batch_dynamic") = it_sh2->second.batch_dynamic
+      );
+    }
+
+    OrtTypeInfo* type_info = NULL;
+    if (ort->SessionGetInputTypeInfo(session, 0, &type_info) != NULL || type_info == NULL) {
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = true,
+        Rcpp::Named("expected_w") = 640,
+        Rcpp::Named("expected_h") = 640
+      );
+    }
+
+    const OrtTensorTypeAndShapeInfo* tensor_info = NULL;
+    if (ort->CastTypeInfoToTensorInfo(type_info, &tensor_info) != NULL || tensor_info == NULL) {
+      ort->ReleaseTypeInfo(type_info);
+      return Rcpp::List::create(
+        Rcpp::Named("dynamic") = true,
+        Rcpp::Named("expected_w") = 640,
+        Rcpp::Named("expected_h") = 640
+      );
+    }
+
+    size_t num_dims = 0;
+    (void)ort->GetDimensionsCount(tensor_info, &num_dims);
+    std::vector<int64_t> dims(num_dims);
+    (void)ort->GetDimensions(tensor_info, dims.data(), num_dims);
+    ort->ReleaseTypeInfo(type_info);
+
+    bool is_dyn = true;
+    int exp_h = 640, exp_w = 640;
+    if (num_dims >= 4) {
+      if (dims[2] > 0 && dims[3] > 0) {
+        is_dyn = false;
+        exp_h = (int)dims[2];
+        exp_w = (int)dims[3];
+      }
+    }
+
+    CachedIOShape csh;
+    csh.dynamic = is_dyn;
+    csh.expected_w = exp_w;
+    csh.expected_h = exp_h;
+    csh.file_mtime = cur_mtime;
+    csh.file_size = cur_size;
+    g_io_shape_cache[model_path] = csh;
+
+    return Rcpp::List::create(
+      Rcpp::Named("dynamic") = is_dyn,
+      Rcpp::Named("expected_w") = exp_w,
+      Rcpp::Named("expected_h") = exp_h
+    );
+  } catch (...) {
+    return Rcpp::List::create(
+      Rcpp::Named("dynamic") = true,
+      Rcpp::Named("expected_w") = 640,
+      Rcpp::Named("expected_h") = 640
+    );
+  }
+}
+
+struct YoloHorizWeight {
+  int x0;
+  int x1_idx;
+  float dx0;
+  float dx1;
+};
+
+struct YoloPreprocCache {
+  int orig_w = 0;
+  int orig_h = 0;
+  int target_size = 0;
+  float gain = 0.0f;
+  int new_w = 0;
+  int new_h = 0;
+  float pad_x = 0.0f;
+  float pad_y = 0.0f;
+  int x1 = 0;
+  int y1 = 0;
+  std::vector<YoloHorizWeight> hw;
+};
+static YoloPreprocCache g_yolo_preproc_cache;
+
+static inline void invalidate_yolo_preproc_cache() {
+  g_yolo_preproc_cache.orig_w = 0;
+}
+
+static void preprocess_yolo_to_float_vec(
+    SEXP img_data,
+    int target_size,
+    std::vector<float>& out_float,
+    int& orig_w,
+    int& orig_h,
+    double& out_gain,
+    double& out_pad_x,
+    double& out_pad_y
+) {
+  SEXP dim_attr = Rf_getAttrib(img_data, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 2) {
+    Rcpp::stop("img_data must be a 2D or 3D array/matrix");
+  }
+
+  int num_dims = Rf_length(dim_attr);
+  int* dims_ptr = INTEGER(dim_attr);
+  int nch = 1;
+  bool is_ch_first = false;
+
+  if (num_dims == 2) {
+    orig_w = dims_ptr[0];
+    orig_h = dims_ptr[1];
+    nch = 1;
+  } else {
+    if (dims_ptr[0] == 3) {
+      is_ch_first = true;
+      nch = 3;
+      orig_w = dims_ptr[1];
+      orig_h = dims_ptr[2];
+    } else {
+      is_ch_first = false;
+      orig_w = dims_ptr[0];
+      orig_h = dims_ptr[1];
+      nch = dims_ptr[2];
+    }
+  }
+
+  bool is_raw_data = (TYPEOF(img_data) == RAWSXP);
+  const Rbyte* raw_ptr = is_raw_data ? RAW(img_data) : NULL;
+  const double* dbl_ptr = !is_raw_data ? REAL(img_data) : NULL;
+
+  float val_scale = 1.0f;
+  if (is_raw_data) {
+    val_scale = 1.0f / 255.0f;
+  } else {
+    size_t check_len = std::min((size_t)1000, (size_t)Rf_length(img_data));
+    double max_sample = 0.0;
+    for (size_t i = 0; i < check_len; ++i) {
+      if (dbl_ptr[i] > max_sample) max_sample = dbl_ptr[i];
+    }
+    if (max_sample > 1.5) val_scale = 1.0f / 255.0f;
+  }
+
+  float gain;
+  int new_w, new_h, x1, y1;
+  float pad_x, pad_y;
+
+  size_t plane_size = (size_t)target_size * target_size;
+  size_t total_floats = 3 * plane_size;
+
+  if (g_yolo_preproc_cache.orig_w == orig_w && g_yolo_preproc_cache.orig_h == orig_h &&
+      g_yolo_preproc_cache.target_size == target_size && out_float.size() == total_floats) {
+    gain = g_yolo_preproc_cache.gain;
+    new_w = g_yolo_preproc_cache.new_w;
+    new_h = g_yolo_preproc_cache.new_h;
+    pad_x = g_yolo_preproc_cache.pad_x;
+    pad_y = g_yolo_preproc_cache.pad_y;
+    x1 = g_yolo_preproc_cache.x1;
+    y1 = g_yolo_preproc_cache.y1;
+  } else {
+    gain = std::min((float)target_size / (float)orig_w, (float)target_size / (float)orig_h);
+    new_w = std::max(1, (int)std::round(orig_w * gain));
+    new_h = std::max(1, (int)std::round(orig_h * gain));
+    pad_x = ((float)target_size - (float)new_w) / 2.0f;
+    pad_y = ((float)target_size - (float)new_h) / 2.0f;
+    x1 = (int)std::floor(pad_x);
+    y1 = (int)std::floor(pad_y);
+
+    g_yolo_preproc_cache.orig_w = orig_w;
+    g_yolo_preproc_cache.orig_h = orig_h;
+    g_yolo_preproc_cache.target_size = target_size;
+    g_yolo_preproc_cache.gain = gain;
+    g_yolo_preproc_cache.new_w = new_w;
+    g_yolo_preproc_cache.new_h = new_h;
+    g_yolo_preproc_cache.pad_x = pad_x;
+    g_yolo_preproc_cache.pad_y = pad_y;
+    g_yolo_preproc_cache.x1 = x1;
+    g_yolo_preproc_cache.y1 = y1;
+
+    g_yolo_preproc_cache.hw.resize(new_w);
+    for (int x = 0; x < new_w; ++x) {
+      float src_x = ((float)x + 0.5f) / gain - 0.5f;
+      if (src_x < 0.0f) src_x = 0.0f;
+      if (src_x > (float)(orig_w - 1)) src_x = (float)(orig_w - 1);
+      int x0 = (int)std::floor(src_x);
+      int x1_idx = std::min(x0 + 1, orig_w - 1);
+      float dx = src_x - (float)x0;
+      g_yolo_preproc_cache.hw[x].x0 = x0;
+      g_yolo_preproc_cache.hw[x].x1_idx = x1_idx;
+      g_yolo_preproc_cache.hw[x].dx0 = 1.0f - dx;
+      g_yolo_preproc_cache.hw[x].dx1 = dx;
+    }
+
+    out_float.assign(total_floats, 114.0f / 255.0f);
+  }
+
+  out_gain = (double)gain;
+  out_pad_x = (double)pad_x;
+  out_pad_y = (double)pad_y;
+
+  float* out_ptr = out_float.data();
+  const auto& hw = g_yolo_preproc_cache.hw;
+
+  if (is_raw_data && is_ch_first) {
+    #pragma omp parallel for schedule(static) if(new_h > 30)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      if (src_y < 0.0f) src_y = 0.0f;
+      if (src_y > (float)(orig_h - 1)) src_y = (float)(orig_h - 1);
+      int y0 = (int)std::floor(src_y);
+      int y1_idx = std::min(y0 + 1, orig_h - 1);
+      float dy1 = src_y - (float)y0;
+      float dy0 = 1.0f - dy1;
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+      size_t row_stride = (size_t)3 * orig_w;
+      const Rbyte* row0 = raw_ptr + (size_t)y0 * row_stride;
+      const Rbyte* row1 = raw_ptr + (size_t)y1_idx * row_stride;
+
+      for (int x = 0; x < new_w; ++x) {
+        const auto& w = hw[x];
+        float w00 = w.dx0 * dy0;
+        float w10 = w.dx1 * dy0;
+        float w01 = w.dx0 * dy1;
+        float w11 = w.dx1 * dy1;
+        size_t off00 = (size_t)w.x0 * 3;
+        size_t off10 = (size_t)w.x1_idx * 3;
+        size_t dst_idx = dst_base + x;
+
+        for (int c = 0; c < 3; ++c) {
+          float p00 = (float)row0[off00 + c];
+          float p10 = (float)row0[off10 + c];
+          float p01 = (float)row1[off00 + c];
+          float p11 = (float)row1[off10 + c];
+          out_ptr[(size_t)c * plane_size + dst_idx] = (w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11) * val_scale;
+        }
+      }
+    }
+  } else if (is_raw_data && !is_ch_first) {
+    size_t plane_src = (size_t)orig_w * orig_h;
+    #pragma omp parallel for schedule(static) if(new_h > 30)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      if (src_y < 0.0f) src_y = 0.0f;
+      if (src_y > (float)(orig_h - 1)) src_y = (float)(orig_h - 1);
+      int y0 = (int)std::floor(src_y);
+      int y1_idx = std::min(y0 + 1, orig_h - 1);
+      float dy1 = src_y - (float)y0;
+      float dy0 = 1.0f - dy1;
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+
+      for (int x = 0; x < new_w; ++x) {
+        const auto& w = hw[x];
+        float w00 = w.dx0 * dy0;
+        float w10 = w.dx1 * dy0;
+        float w01 = w.dx0 * dy1;
+        float w11 = w.dx1 * dy1;
+        size_t idx00 = (size_t)w.x0 + (size_t)y0 * orig_w;
+        size_t idx10 = (size_t)w.x1_idx + (size_t)y0 * orig_w;
+        size_t idx01 = (size_t)w.x0 + (size_t)y1_idx * orig_w;
+        size_t idx11 = (size_t)w.x1_idx + (size_t)y1_idx * orig_w;
+        size_t dst_idx = dst_base + x;
+
+        for (int c = 0; c < 3; ++c) {
+          size_t c_off = (size_t)std::min(c, nch - 1) * plane_src;
+          float p00 = (float)raw_ptr[idx00 + c_off];
+          float p10 = (float)raw_ptr[idx10 + c_off];
+          float p01 = (float)raw_ptr[idx01 + c_off];
+          float p11 = (float)raw_ptr[idx11 + c_off];
+          out_ptr[(size_t)c * plane_size + dst_idx] = (w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11) * val_scale;
+        }
+      }
+    }
+  } else {
+    size_t plane_src = (size_t)orig_w * orig_h;
+    #pragma omp parallel for schedule(static) if(new_h > 30)
+    for (int y = 0; y < new_h; ++y) {
+      float src_y = ((float)y + 0.5f) / gain - 0.5f;
+      if (src_y < 0.0f) src_y = 0.0f;
+      if (src_y > (float)(orig_h - 1)) src_y = (float)(orig_h - 1);
+      int y0 = (int)std::floor(src_y);
+      int y1_idx = std::min(y0 + 1, orig_h - 1);
+      float dy1 = src_y - (float)y0;
+      float dy0 = 1.0f - dy1;
+
+      int dst_y = y1 + y;
+      size_t dst_base = (size_t)dst_y * target_size + x1;
+
+      for (int x = 0; x < new_w; ++x) {
+        const auto& w = hw[x];
+        float w00 = w.dx0 * dy0;
+        float w10 = w.dx1 * dy0;
+        float w01 = w.dx0 * dy1;
+        float w11 = w.dx1 * dy1;
+        size_t idx00 = (size_t)w.x0 + (size_t)y0 * orig_w;
+        size_t idx10 = (size_t)w.x1_idx + (size_t)y0 * orig_w;
+        size_t idx01 = (size_t)w.x0 + (size_t)y1_idx * orig_w;
+        size_t idx11 = (size_t)w.x1_idx + (size_t)y1_idx * orig_w;
+        size_t dst_idx = dst_base + x;
+
+        for (int c = 0; c < 3; ++c) {
+          size_t c_off = (size_t)std::min(c, nch - 1) * plane_src;
+          float p00 = (float)dbl_ptr[idx00 + c_off];
+          float p10 = (float)dbl_ptr[idx10 + c_off];
+          float p01 = (float)dbl_ptr[idx01 + c_off];
+          float p11 = (float)dbl_ptr[idx11 + c_off];
+          out_ptr[(size_t)c * plane_size + dst_idx] = (w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11) * val_scale;
+        }
+      }
+    }
+  }
+}
+
+static uint64_t raw_image_hash(SEXP img, size_t* nbytes, int dims_out[3]) {
+  const size_t n = (size_t)Rf_xlength(img);
+  if (nbytes) *nbytes = n;
+  SEXP d = Rf_getAttrib(img, R_DimSymbol);
+  dims_out[0] = dims_out[1] = dims_out[2] = 0;
+  if (d != R_NilValue) {
+    const int nd = std::min(3, Rf_length(d));
+    for (int k = 0; k < nd; ++k) dims_out[k] = INTEGER(d)[k];
+  }
+  return hash_bytes64(RAW(img), n);
+}
+
+// Starts inference of `img` (an interleaved [3, W, H] raw frame) in the background; see
+// the YoloPrefetch notes above. Returns FALSE, without starting anything, for inputs the
+// prefetch path does not cover (non-raw frames, models with extra inputs such as
+// YOLO-World text features); the caller then simply runs run_yolo_cpp() as usual.
+// [[Rcpp::export]]
+bool yolo_prefetch_cpp(SEXP img,
+                       std::string model_path,
+                       std::string lib_path,
+                       int num_threads = 0,
+                       bool use_gpu = false,
+                       int device_id = -1,
+                       int target_size = 640) {
+  yolo_prefetch_discard();
+  if (TYPEOF(img) != RAWSXP) return false;
+  SEXP dim_attr = Rf_getAttrib(img, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) != 3 || INTEGER(dim_attr)[0] != 3) return false;
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  if (cs.meta == NULL || cs.meta->in_names.size() != 1) return false;
+  SessionMeta* meta = cs.meta;
+
+  YoloPrefetch& pf = g_yolo_prefetch;
+  const int eff_ts = (target_size > 0) ? target_size : 640;
+  // Fresh buffer and preprocessing cache: the letterbox fast path in
+  // preprocess_yolo_to_float_vec() reuses padding already present in its output buffer,
+  // which is only valid for the buffer that cache was built with.
+  pf.input.clear();
+  invalidate_yolo_preproc_cache();
+  int ow = 0, oh = 0;
+  preprocess_yolo_to_float_vec(img, eff_ts, pf.input, ow, oh, pf.gain, pf.pad_x, pf.pad_y);
+  invalidate_yolo_preproc_cache();
+  pf.orig_w = ow;
+  pf.orig_h = oh;
+  pf.in_w = eff_ts;
+  pf.in_h = eff_ts;
+
+  const int64_t in_shape[4] = { 1, 3, pf.in_h, pf.in_w };
+  const size_t total = pf.input.size();
+  OrtStatus* st = NULL;
+  if (meta->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    float_vec_to_half(pf.input, pf.input_fp16);
+    st = ort->CreateTensorWithDataAsOrtValue(cs.mem_info, pf.input_fp16.data(), total * sizeof(uint16_t),
+                                             in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &pf.in_tensor);
+  } else if (meta->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+    st = ort->CreateTensorWithDataAsOrtValue(cs.mem_info, pf.input.data(), total * sizeof(float),
+                                             in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &pf.in_tensor);
+  } else {
+    return false;
+  }
+  if (st != NULL || pf.in_tensor == NULL) {
+    if (st) ort->ReleaseStatus(st);
+    pf.in_tensor = NULL;
+    return false;
+  }
+  (void)ort->CreateRunOptions(&pf.run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(pf.run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  pf.src_hash = raw_image_hash(img, &pf.src_bytes, pf.src_dims);
+  pf.model_path = model_path;
+  pf.num_threads = num_threads;
+  pf.use_gpu = use_gpu;
+  pf.device_id = device_id;
+  pf.target_size = eff_ts;
+  pf.session = cs.session;
+  pf.outputs.assign(meta->out_names.size(), (OrtValue*)NULL);
+  pf.status = NULL;
+  pf.active = true;
+  pf.n_submitted++;
+
+  // Everything the worker reads is owned by the slot or by the cached session metadata.
+  const char* const* in_names = meta->in_names.data();
+  const char* const* out_names = meta->out_names.data();
+  const size_t n_out = meta->out_names.size();
+  OrtSession* session = cs.session;
+  pf.worker = std::thread([ort, session, in_names, out_names, n_out]() {
+    YoloPrefetch& p = g_yolo_prefetch;
+    p.status = ort->Run(session, p.run_options, in_names, (const OrtValue* const*)&p.in_tensor, 1,
+                        out_names, n_out, p.outputs.data());
+  });
+  return true;
+}
+
+// Prefetch counters: submitted, used by run_yolo_cpp(), discarded (mismatch/flush).
+// [[Rcpp::export]]
+Rcpp::IntegerVector yolo_prefetch_stats_cpp() {
+  return Rcpp::IntegerVector::create(
+    Rcpp::Named("submitted") = (int)g_yolo_prefetch.n_submitted,
+    Rcpp::Named("used") = (int)g_yolo_prefetch.n_used,
+    Rcpp::Named("discarded") = (int)g_yolo_prefetch.n_discarded
+  );
+}
+
+// Waits for and drops any pending prefetch (end of a video loop, interrupts).
+// [[Rcpp::export]]
+void yolo_prefetch_cancel_cpp() {
+  yolo_prefetch_discard();
+}
+
+// Outputs computed by a caller for the next run_yolo_cpp() call: one slice of a batched
+// Run (run_yolo_tiles_cpp() tile batching). Set immediately before the call and consumed
+// by it, on the R thread, so there is no ambiguity about which call it belongs to.
+struct YoloInjected {
+  bool active = false;
+  std::vector<OrtValue*> outputs;   // views onto the batch outputs; released by the consumer
+  int64_t in_w = 0, in_h = 0;
+  int orig_w = 0, orig_h = 0;
+  double gain = 1.0, pad_x = 0.0, pad_y = 0.0;
+  size_t total_floats = 0;
+};
+static YoloInjected g_yolo_inject;
+
+// If the pending prefetch was made for exactly this request, waits for it and hands its
+// outputs, input tensor, run options and status over to the caller (who releases them).
+static bool yolo_prefetch_take(SEXP tensor_vec, const std::string& model_path, int num_threads,
+                               bool use_gpu, int device_id, int target_size, bool has_extra_inputs,
+                               YoloPrefetch** out) {
+  YoloPrefetch& pf = g_yolo_prefetch;
+  if (!pf.active) return false;
+  bool match = !has_extra_inputs && TYPEOF(tensor_vec) == RAWSXP &&
+               pf.model_path == model_path && pf.num_threads == num_threads &&
+               pf.use_gpu == use_gpu && pf.device_id == device_id &&
+               pf.target_size == ((target_size > 0) ? target_size : 640);
+  if (match) {
+    size_t nb = 0;
+    int dims[3];
+    const uint64_t h = raw_image_hash(tensor_vec, &nb, dims);
+    match = (h == pf.src_hash && nb == pf.src_bytes && dims[0] == pf.src_dims[0] &&
+             dims[1] == pf.src_dims[1] && dims[2] == pf.src_dims[2]);
+  }
+  if (!match) {
+    yolo_prefetch_discard();
+    return false;
+  }
+  yolo_prefetch_join();
+  pf.active = false;
+  pf.n_used++;
+  *out = &pf;
+  return true;
+}
+
+// [[Rcpp::export]]
 Rcpp::List run_yolo_cpp(
-    Rcpp::NumericVector tensor_vec,
+    SEXP tensor_vec,
     double orig_w,
     double orig_h,
     double conf_threshold = 0.25,
@@ -2669,29 +5252,155 @@ Rcpp::List run_yolo_cpp(
     int device_id = -1,
     bool need_masks = true,
     bool return_features = false,
-    Rcpp::Nullable<Rcpp::NumericVector> txt_feats = R_NilValue
+    Rcpp::Nullable<Rcpp::NumericVector> txt_feats = R_NilValue,
+    int target_size = 640,
+    int max_nms = 30000,
+    int max_det = 0,
+    bool filter_nested = false
 ) {
+  auto t_start_all = std::chrono::high_resolution_clock::now();
   const OrtApi* ort = get_ort_api(lib_path);
   CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
   OrtSession* session = cs.session;
   OrtMemoryInfo* memory_info = cs.mem_info;
 
+  const std::vector<const char*>* in_names_ptr = NULL;
+  const std::vector<const char*>* out_names_ptr = NULL;
   std::vector<std::string> in_names_str, out_names_str;
-  std::vector<const char*> in_names, out_names;
-  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+  std::vector<const char*> in_names_v, out_names_v;
+  if (cs.meta != NULL && !cs.meta->in_names.empty()) {
+    in_names_ptr = &cs.meta->in_names;
+    out_names_ptr = &cs.meta->out_names;
+  } else {
+    get_session_io_names(ort, session, in_names_str, in_names_v, out_names_str, out_names_v);
+    in_names_ptr = &in_names_v;
+    out_names_ptr = &out_names_v;
+  }
+  const std::vector<const char*>& in_names = *in_names_ptr;
+  const std::vector<const char*>& out_names = *out_names_ptr;
 
-  int64_t in_shape[4] = {1, 3, 640, 640};
-  size_t total_floats = 3 * 640 * 640;
-  std::vector<float> input_vals(total_floats);
-  const double* t_ptr = REAL(tensor_vec);
-  #pragma omp parallel for schedule(static) if(total_floats > 10000)
-  for (int i = 0; i < (int)total_floats; ++i) input_vals[i] = (float)t_ptr[i];
+  auto t_after_session = std::chrono::high_resolution_clock::now();
+
+  // Outputs already computed elsewhere for this exact input: a slice of a batched tile
+  // Run (injected by run_yolo_tiles_cpp) or a background Run started by
+  // yolo_prefetch_cpp(). Either way only post-processing remains.
+  YoloPrefetch* pf_take = NULL;
+  YoloInjected inj;
+  const bool used_inject = g_yolo_inject.active;
+  if (used_inject) {
+    inj = g_yolo_inject;
+    g_yolo_inject.active = false;
+    g_yolo_inject.outputs.clear();
+  }
+  const bool used_prefetch = used_inject ||
+    yolo_prefetch_take(tensor_vec, model_path, num_threads, use_gpu, device_id,
+                       target_size, in_names.size() != 1, &pf_take);
+
+  static std::vector<float> input_vals;
+  int64_t in_w = 640;
+  int64_t in_h = 640;
+  size_t total_floats = 0;
+  bool has_pre_gain = false;
+  double pre_gain = 1.0, pre_pad_x = 0.0, pre_pad_y = 0.0;
+
+  SEXP dim_attr = Rf_getAttrib(tensor_vec, R_DimSymbol);
+  SEXP ts_attr = Rf_getAttrib(tensor_vec, Rf_install("target_size"));
+  bool is_raw_image = (TYPEOF(tensor_vec) == RAWSXP) ||
+                      (dim_attr != R_NilValue && Rf_length(dim_attr) >= 2 && Rf_length(dim_attr) <= 3 && ts_attr == R_NilValue);
+
+  if (used_inject) {
+    if (orig_w <= 0) orig_w = (double)inj.orig_w;
+    if (orig_h <= 0) orig_h = (double)inj.orig_h;
+    in_w = inj.in_w;
+    in_h = inj.in_h;
+    total_floats = inj.total_floats;
+    has_pre_gain = true;
+    pre_gain = inj.gain;
+    pre_pad_x = inj.pad_x;
+    pre_pad_y = inj.pad_y;
+  } else if (used_prefetch) {
+    // same values preprocess_yolo_to_float_vec() produced for this frame at submit time
+    if (orig_w <= 0) orig_w = (double)pf_take->orig_w;
+    if (orig_h <= 0) orig_h = (double)pf_take->orig_h;
+    in_w = pf_take->in_w;
+    in_h = pf_take->in_h;
+    total_floats = pf_take->input.size();
+    has_pre_gain = true;
+    pre_gain = pf_take->gain;
+    pre_pad_x = pf_take->pad_x;
+    pre_pad_y = pf_take->pad_y;
+  } else if (is_raw_image) {
+    int ow_img = 0, oh_img = 0;
+    int eff_ts = (target_size > 0) ? target_size : 640;
+    preprocess_yolo_to_float_vec(tensor_vec, eff_ts, input_vals, ow_img, oh_img, pre_gain, pre_pad_x, pre_pad_y);
+    if (orig_w <= 0) orig_w = (double)ow_img;
+    if (orig_h <= 0) orig_h = (double)oh_img;
+    in_w = eff_ts;
+    in_h = eff_ts;
+    total_floats = input_vals.size();
+    has_pre_gain = true;
+  } else {
+    Rcpp::NumericVector tv(tensor_vec);
+    total_floats = tv.size();
+    if (tv.hasAttribute("target_size")) {
+      int ts = Rcpp::as<int>(tv.attr("target_size"));
+      in_w = ts;
+      in_h = ts;
+    } else if (tv.hasAttribute("dims")) {
+      Rcpp::IntegerVector d = tv.attr("dims");
+      if (d.size() >= 4) {
+        in_h = d[2];
+        in_w = d[3];
+      }
+    } else if (total_floats > 0) {
+      int64_t plane = (int64_t)(total_floats / 3);
+      int64_t side = (int64_t)std::round(std::sqrt((double)plane));
+      if (side * side == plane) {
+        in_w = side;
+        in_h = side;
+      }
+    }
+    if (tv.hasAttribute("gain") && tv.hasAttribute("pad_x") && tv.hasAttribute("pad_y")) {
+      pre_gain = Rcpp::as<double>(tv.attr("gain"));
+      pre_pad_x = Rcpp::as<double>(tv.attr("pad_x"));
+      pre_pad_y = Rcpp::as<double>(tv.attr("pad_y"));
+      has_pre_gain = true;
+    }
+    input_vals.resize(total_floats);
+    invalidate_yolo_preproc_cache();
+    const double* t_ptr = REAL(tv);
+    #pragma omp parallel for schedule(static) if(total_floats > 10000)
+    for (int i = 0; i < (int)total_floats; ++i) input_vals[i] = (float)t_ptr[i];
+  }
+  auto t_after_preproc = std::chrono::high_resolution_clock::now();
+  int64_t in_shape[4] = {1, 3, in_h, in_w};
+
+  ONNXTensorElementDataType in_elem_type = (cs.meta != NULL) ? cs.meta->in_elem_type : session_input_type(ort, session, 0);
 
   OrtValue* in_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, input_vals.data(), total_floats * sizeof(float),
-    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
-  );
+  std::vector<uint16_t> in_fp16;
+  if (used_inject) {
+    in_tensor = NULL;  // the batch input belongs to run_yolo_tiles_cpp()
+  } else if (used_prefetch) {
+    // ownership moves to this call (released at the end, as for a local tensor)
+    in_tensor = pf_take->in_tensor;
+    pf_take->in_tensor = NULL;
+  } else if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    in_fp16.resize(total_floats);
+    #pragma omp parallel for schedule(static) if(total_floats > 10000)
+    for (int i = 0; i < (int)total_floats; ++i) {
+      in_fp16[i] = float_to_half(input_vals[i]);
+    }
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_fp16.data(), total_floats * sizeof(uint16_t),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, input_vals.data(), total_floats * sizeof(float),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    );
+  }
 
   std::vector<const char*> run_in_names;
   std::vector<OrtValue*> run_in_tensors;
@@ -2722,10 +5431,27 @@ Rcpp::List run_yolo_cpp(
 
   size_t num_outputs = out_names.size();
   std::vector<OrtValue*> out_tensors(num_outputs, NULL);
-  OrtStatus* status = ort->Run(
-    session, run_options, run_in_names.data(), (const OrtValue* const*)run_in_tensors.data(),
-    run_in_tensors.size(), out_names.data(), num_outputs, out_tensors.data()
-  );
+  OrtStatus* status = NULL;
+  if (used_inject) {
+    for (size_t k = 0; k < num_outputs && k < inj.outputs.size(); ++k) out_tensors[k] = inj.outputs[k];
+    for (size_t k = num_outputs; k < inj.outputs.size(); ++k) if (inj.outputs[k]) ort->ReleaseValue(inj.outputs[k]);
+  } else if (used_prefetch) {
+    for (size_t k = 0; k < num_outputs && k < pf_take->outputs.size(); ++k) {
+      out_tensors[k] = pf_take->outputs[k];
+      pf_take->outputs[k] = NULL;
+    }
+    status = pf_take->status;
+    pf_take->status = NULL;
+    if (pf_take->run_options) ort->ReleaseRunOptions(pf_take->run_options);
+    pf_take->run_options = NULL;
+    pf_take->session = NULL;
+  } else {
+    status = ort->Run(
+      session, run_options, run_in_names.data(), (const OrtValue* const*)run_in_tensors.data(),
+      run_in_tensors.size(), out_names.data(), num_outputs, out_tensors.data()
+    );
+  }
+  auto t_after_run = std::chrono::high_resolution_clock::now();
 
   if (txt_tensor) ort->ReleaseValue(txt_tensor);
 
@@ -2734,6 +5460,11 @@ Rcpp::List run_yolo_cpp(
     ort->ReleaseStatus(status);
     ort->ReleaseRunOptions(run_options);
     ort->ReleaseValue(in_tensor);
+    if (msg.find("invalid dimensions for input") != std::string::npos) {
+      Rcpp::stop("YOLO run failed: The model has fixed static input dimensions.\n" + msg +
+                 "\nTo run at different resolutions (e.g. imgsz = " + std::to_string(in_w) +
+                 "), re-export the model with dynamic axes: yolo_export(model, dynamic = TRUE)");
+    }
     Rcpp::stop("YOLO run failed: " + msg);
   }
 
@@ -2743,7 +5474,14 @@ Rcpp::List run_yolo_cpp(
   (void)ort->GetDimensionsCount(shape_info0, &dims0_cnt);
   std::vector<int64_t> dims0(dims0_cnt);
   (void)ort->GetDimensions(shape_info0, dims0.data(), dims0_cnt);
+  ONNXTensorElementDataType out_elem_type0 = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  (void)ort->GetTensorElementType(shape_info0, &out_elem_type0);
   ort->ReleaseTensorTypeAndShapeInfo(shape_info0);
+
+  size_t total_out0 = 1;
+  for (size_t d = 0; d < dims0_cnt; ++d) {
+    if (dims0[d] > 0) total_out0 *= (size_t)dims0[d];
+  }
 
   bool is_end2end = false;
   int e2e_num_dets = 0;
@@ -2795,7 +5533,19 @@ Rcpp::List run_yolo_cpp(
   if (num_classes < 1) num_classes = 1;
 
   float* data0 = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  std::vector<float> data0_conv;
+  if (out_elem_type0 == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    const uint16_t* raw_fp16 = NULL;
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&raw_fp16);
+    data0_conv.resize(total_out0);
+    #pragma omp parallel for schedule(static) if(total_out0 > 10000)
+    for (int i = 0; i < (int)total_out0; ++i) {
+      data0_conv[i] = half_to_float(raw_fp16[i]);
+    }
+    data0 = data0_conv.data();
+  } else {
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  }
 
   struct YoloCand {
     float x1, y1, x2, y2;
@@ -2806,13 +5556,31 @@ Rcpp::List run_yolo_cpp(
     float angle = 0.0f;
     float x_corners[4] = {0};
     float y_corners[4] = {0};
+    int anchor = -1;
   };
   std::vector<YoloCand> candidates;
 
+  std::vector<float> data1_conv;
   if (is_nas) {
     int nas_anchors = (int)dims0[1];
     float* data1 = NULL;
-    (void)ort->GetTensorMutableData(out_tensors[1], (void**)&data1);
+    OrtTensorTypeAndShapeInfo* shape_info_nas = NULL;
+    (void)ort->GetTensorTypeAndShape(out_tensors[1], &shape_info_nas);
+    ONNXTensorElementDataType out_elem_type_nas = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    if (shape_info_nas) {
+      (void)ort->GetTensorElementType(shape_info_nas, &out_elem_type_nas);
+      ort->ReleaseTensorTypeAndShapeInfo(shape_info_nas);
+    }
+    if (out_elem_type_nas == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+      const uint16_t* raw_p16 = NULL;
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&raw_p16);
+      size_t total_out1 = (size_t)nas_anchors * (size_t)num_classes;
+      data1_conv.resize(total_out1);
+      for (size_t i = 0; i < total_out1; ++i) data1_conv[i] = half_to_float(raw_p16[i]);
+      data1 = data1_conv.data();
+    } else {
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&data1);
+    }
 
     for (int a = 0; a < nas_anchors; ++a) {
       float x1 = data0[(size_t)a * 4 + 0];
@@ -2873,135 +5641,261 @@ Rcpp::List run_yolo_cpp(
       }
     }
   } else {
-    for (int a = 0; a < num_anchors; ++a) {
+    // Pass 1: best class score per anchor.
+    // For the standard [1, nf, na] layout the class scores of one anchor are na floats
+    // apart, so a per-anchor inner loop over classes is cache-hostile. Instead walk each
+    // class row contiguously over blocks of anchors (class-major), keeping running
+    // maxima in two small per-anchor arrays. Ties resolve to the lowest class index,
+    // exactly like the original `s > max_s` scan with ascending c.
+    static std::vector<float> best_s_buf;
+    static std::vector<int> best_c_buf;
+    if ((int)best_s_buf.size() < num_anchors) {
+      best_s_buf.resize(num_anchors);
+      best_c_buf.resize(num_anchors);
+    }
+    std::fill(best_s_buf.begin(), best_s_buf.begin() + num_anchors, 0.0f);
+    std::fill(best_c_buf.begin(), best_c_buf.begin() + num_anchors, 0);
+    float* bs_ptr = best_s_buf.data();
+    int* bc_ptr = best_c_buf.data();
+    const int na = num_anchors;
+    const int nf = num_features;
+    if (is_pose) {
+      #pragma omp parallel for schedule(static) if(na > 4096)
+      for (int a = 0; a < na; ++a) {
+        bs_ptr[a] = !is_transposed ? data0[(size_t)4 * na + a] : data0[(size_t)a * nf + 4];
+      }
+    } else if (!is_transposed) {
+      const int block = 2048;
+      const int n_blocks = (na + block - 1) / block;
+      #pragma omp parallel for schedule(static) if((size_t)na * (size_t)num_classes > 200000)
+      for (int b = 0; b < n_blocks; ++b) {
+        int a0 = b * block;
+        int a1 = std::min(na, a0 + block);
+        for (int c = 0; c < num_classes; ++c) {
+          const float* row = data0 + (size_t)(4 + c) * na;
+          for (int a = a0; a < a1; ++a) {
+            float s = row[a];
+            if (s > bs_ptr[a]) {
+              bs_ptr[a] = s;
+              bc_ptr[a] = c;
+            }
+          }
+        }
+      }
+    } else {
+      #pragma omp parallel for schedule(static) if((size_t)na * (size_t)num_classes > 200000)
+      for (int a = 0; a < na; ++a) {
+        const float* row = data0 + (size_t)a * nf + 4;
+        float m = 0.0f;
+        int mc = 0;
+        for (int c = 0; c < num_classes; ++c) {
+          if (row[c] > m) {
+            m = row[c];
+            mc = c;
+          }
+        }
+        bs_ptr[a] = m;
+        bc_ptr[a] = mc;
+      }
+    }
+
+    // Pass 2: build candidates (boxes only) in anchor order; mask coefficients and
+    // keypoints are gathered after NMS for the kept detections only.
+    const float conf_f = (float)conf_threshold;
+    for (int a = 0; a < na; ++a) {
+      float max_s = bs_ptr[a];
+      if (!(max_s >= conf_f)) continue;
       float cx, cy, w, h;
       if (!is_transposed) {
-        cx = data0[(size_t)0 * num_anchors + a];
-        cy = data0[(size_t)1 * num_anchors + a];
-        w  = data0[(size_t)2 * num_anchors + a];
-        h  = data0[(size_t)3 * num_anchors + a];
+        cx = data0[(size_t)0 * na + a];
+        cy = data0[(size_t)1 * na + a];
+        w  = data0[(size_t)2 * na + a];
+        h  = data0[(size_t)3 * na + a];
       } else {
-        size_t anchor_offset = (size_t)a * num_features;
+        size_t anchor_offset = (size_t)a * nf;
         cx = data0[anchor_offset + 0];
         cy = data0[anchor_offset + 1];
         w  = data0[anchor_offset + 2];
         h  = data0[anchor_offset + 3];
       }
 
-      float max_s = 0.0f;
-      int best_cls = 0;
-      if (is_pose) {
-        max_s = !is_transposed ? data0[(size_t)4 * num_anchors + a] :
-                                 data0[(size_t)a * num_features + 4];
-        best_cls = 0;
+      YoloCand cand;
+      cand.score = max_s;
+      cand.class_id = is_pose ? 0 : bc_ptr[a];
+      cand.anchor = a;
+
+      if (is_obb) {
+        float angle = !is_transposed ? data0[(size_t)(4 + num_classes) * na + a] :
+                                       data0[(size_t)a * nf + 4 + num_classes];
+        cand.angle = angle;
+        float cos_val = std::cos(angle);
+        float sin_val = std::sin(angle);
+        float vec1_x = (w / 2.0f) * cos_val;
+        float vec1_y = (w / 2.0f) * sin_val;
+        float vec2_x = -(h / 2.0f) * sin_val;
+        float vec2_y = (h / 2.0f) * cos_val;
+
+        float pt1_x = cx + vec1_x + vec2_x; float pt1_y = cy + vec1_y + vec2_y;
+        float pt2_x = cx + vec1_x - vec2_x; float pt2_y = cy + vec1_y - vec2_y;
+        float pt3_x = cx - vec1_x - vec2_x; float pt3_y = cy - vec1_y - vec2_y;
+        float pt4_x = cx - vec1_x + vec2_x; float pt4_y = cy - vec1_y + vec2_y;
+
+        cand.x1 = std::min({pt1_x, pt2_x, pt3_x, pt4_x});
+        cand.y1 = std::min({pt1_y, pt2_y, pt3_y, pt4_y});
+        cand.x2 = std::max({pt1_x, pt2_x, pt3_x, pt4_x});
+        cand.y2 = std::max({pt1_y, pt2_y, pt3_y, pt4_y});
+        cand.x_corners[0] = pt1_x; cand.y_corners[0] = pt1_y;
+        cand.x_corners[1] = pt2_x; cand.y_corners[1] = pt2_y;
+        cand.x_corners[2] = pt3_x; cand.y_corners[2] = pt3_y;
+        cand.x_corners[3] = pt4_x; cand.y_corners[3] = pt4_y;
       } else {
-        for (int c = 0; c < num_classes; ++c) {
-          float s = !is_transposed ? data0[(size_t)(4 + c) * num_anchors + a] :
-                                     data0[(size_t)a * num_features + 4 + c];
-          if (s > max_s) {
-            max_s = s;
-            best_cls = c;
-          }
-        }
+        cand.x1 = cx - w / 2.0f;
+        cand.y1 = cy - h / 2.0f;
+        cand.x2 = cx + w / 2.0f;
+        cand.y2 = cy + h / 2.0f;
       }
-
-      if (max_s >= (float)conf_threshold) {
-        YoloCand cand;
-        cand.score = max_s;
-        cand.class_id = best_cls;
-
-        if (is_obb) {
-          float angle = !is_transposed ? data0[(size_t)(4 + num_classes) * num_anchors + a] :
-                                         data0[(size_t)a * num_features + 4 + num_classes];
-          cand.angle = angle;
-          float cos_val = std::cos(angle);
-          float sin_val = std::sin(angle);
-          float vec1_x = (w / 2.0f) * cos_val;
-          float vec1_y = (w / 2.0f) * sin_val;
-          float vec2_x = -(h / 2.0f) * sin_val;
-          float vec2_y = (h / 2.0f) * cos_val;
-
-          float pt1_x = cx + vec1_x + vec2_x; float pt1_y = cy + vec1_y + vec2_y;
-          float pt2_x = cx + vec1_x - vec2_x; float pt2_y = cy + vec1_y - vec2_y;
-          float pt3_x = cx - vec1_x - vec2_x; float pt3_y = cy - vec1_y - vec2_y;
-          float pt4_x = cx - vec1_x + vec2_x; float pt4_y = cy - vec1_y + vec2_y;
-
-          cand.x1 = std::min({pt1_x, pt2_x, pt3_x, pt4_x});
-          cand.y1 = std::min({pt1_y, pt2_y, pt3_y, pt4_y});
-          cand.x2 = std::max({pt1_x, pt2_x, pt3_x, pt4_x});
-          cand.y2 = std::max({pt1_y, pt2_y, pt3_y, pt4_y});
-          cand.x_corners[0] = pt1_x; cand.y_corners[0] = pt1_y;
-          cand.x_corners[1] = pt2_x; cand.y_corners[1] = pt2_y;
-          cand.x_corners[2] = pt3_x; cand.y_corners[2] = pt3_y;
-          cand.x_corners[3] = pt4_x; cand.y_corners[3] = pt4_y;
-        } else {
-          cand.x1 = cx - w / 2.0f;
-          cand.y1 = cy - h / 2.0f;
-          cand.x2 = cx + w / 2.0f;
-          cand.y2 = cy + h / 2.0f;
-        }
-
-        if (is_seg) {
-          cand.mask_coeffs.resize(num_mask_coeffs);
-          for (int m = 0; m < num_mask_coeffs; ++m) {
-            cand.mask_coeffs[m] = !is_transposed ? data0[(size_t)(4 + num_classes + m) * num_anchors + a] :
-                                                   data0[(size_t)a * num_features + 4 + num_classes + m];
-          }
-        }
-        if (is_pose) {
-          cand.keypoints.resize(51);
-          for (int k = 0; k < 51; ++k) {
-            cand.keypoints[k] = !is_transposed ? data0[(size_t)(5 + k) * num_anchors + a] :
-                                                 data0[(size_t)a * num_features + 5 + k];
-          }
-        }
-        candidates.push_back(cand);
-      }
+      candidates.push_back(cand);
     }
   }
 
-  std::sort(candidates.begin(), candidates.end(), [](const YoloCand& a, const YoloCand& b) {
+  // Score-descending order (stable, so ties keep anchor order and results are deterministic).
+  std::stable_sort(candidates.begin(), candidates.end(), [](const YoloCand& a, const YoloCand& b) {
     return a.score > b.score;
   });
+  if (max_nms > 0 && candidates.size() > (size_t)max_nms) {
+    candidates.resize((size_t)max_nms);
+  }
 
-  std::vector<bool> suppressed(candidates.size(), false);
+  // Class-bucketed greedy NMS. Suppression only happens within a class, so running the
+  // greedy pass per class (in global score order) is equivalent to the former global
+  // O(n^2) loop that skipped other classes, but compares far fewer pairs and can run
+  // classes in parallel.
   std::vector<YoloCand> kept;
+  {
+    const size_t nc_total = candidates.size();
+    std::vector<char> keep_flag(nc_total, 0);
+    static std::vector<std::vector<int> > by_class_vec;
+    if ((int)by_class_vec.size() < num_classes + 1) {
+      by_class_vec.resize(num_classes + 1);
+    }
+    for (size_t c = 0; c < by_class_vec.size(); ++c) by_class_vec[c].clear();
+    for (size_t i = 0; i < nc_total; ++i) {
+      int cid = candidates[i].class_id;
+      if (cid >= 0 && cid <= num_classes) by_class_vec[cid].push_back((int)i);
+    }
+    std::vector<std::vector<int>*> buckets;
+    buckets.reserve(num_classes);
+    for (int c = 0; c <= num_classes; ++c) {
+      if (!by_class_vec[c].empty()) buckets.push_back(&by_class_vec[c]);
+    }
+    const float iou_thr = (float)iou_threshold;
+    const int n_buckets = (int)buckets.size();
+    #pragma omp parallel for schedule(dynamic, 1) if(n_buckets > 1 && nc_total > 512)
+    for (int bi = 0; bi < n_buckets; ++bi) {
+      const std::vector<int>& idx = *buckets[bi];
+      const size_t m = idx.size();
+      std::vector<char> sup(m, 0);
+      std::vector<float> areas(m);
+      for (size_t q = 0; q < m; ++q) {
+        const YoloCand& c = candidates[idx[q]];
+        areas[q] = std::max(0.0f, c.x2 - c.x1) * std::max(0.0f, c.y2 - c.y1);
+      }
+      for (size_t q = 0; q < m; ++q) {
+        if (sup[q]) continue;
+        keep_flag[idx[q]] = 1;
+        const YoloCand& ci = candidates[idx[q]];
+        for (size_t r = q + 1; r < m; ++r) {
+          if (sup[r]) continue;
+          const YoloCand& cj = candidates[idx[r]];
+          float inter_w = std::max(0.0f, std::min(ci.x2, cj.x2) - std::max(ci.x1, cj.x1));
+          if (inter_w <= 0.0f) continue;
+          float inter_h = std::max(0.0f, std::min(ci.y2, cj.y2) - std::max(ci.y1, cj.y1));
+          float inter_area = inter_w * inter_h;
+          float union_area = areas[q] + areas[r] - inter_area;
+          float iou = (union_area > 0.0f) ? (inter_area / union_area) : 0.0f;
+          if (iou > iou_thr) sup[r] = 1;
+        }
+      }
+    }
+    for (size_t i = 0; i < nc_total; ++i) {
+      if (keep_flag[i]) {
+        kept.push_back(candidates[i]);
+        if (max_det > 0 && kept.size() >= (size_t)max_det) break;
+      }
+    }
+  }
+  auto t_after_nms = std::chrono::high_resolution_clock::now();
 
-  for (size_t i = 0; i < candidates.size(); ++i) {
-    if (suppressed[i]) continue;
-    kept.push_back(candidates[i]);
+  if (filter_nested && !need_masks && kept.size() > 1) {
+    int n_k = (int)kept.size();
+    std::vector<float> area(n_k);
+    std::vector<int> valid;
+    valid.reserve(n_k);
+    for (int j = 0; j < n_k; ++j) {
+      area[j] = std::max(0.0f, kept[j].x2 - kept[j].x1) * std::max(0.0f, kept[j].y2 - kept[j].y1);
+      if (kept[j].score >= 0.50f && area[j] > 0.0f) valid.push_back(j);
+    }
+    if (!valid.empty()) {
+      std::vector<char> k_fl(n_k, 1);
+      for (int i = 0; i < n_k; ++i) {
+        float ai = area[i];
+        if (ai <= 0.0f) continue;
+        for (size_t q = 0; q < valid.size(); ++q) {
+          int c = valid[q];
+          if (c == i) continue;
+          if (!(area[c] < ai * 0.70f)) continue;
+          if (!(kept[c].x2 > kept[i].x1 && kept[c].x1 < kept[i].x2 &&
+                kept[c].y2 > kept[i].y1 && kept[c].y1 < kept[i].y2)) continue;
+          float iw = std::min(kept[i].x2, kept[c].x2) - std::max(kept[i].x1, kept[c].x1);
+          float ih = std::min(kept[i].y2, kept[c].y2) - std::max(kept[i].y1, kept[c].y1);
+          float inter = std::max(0.0f, iw) * std::max(0.0f, ih);
+          if (inter / area[c] >= 0.85f) {
+            k_fl[i] = 0;
+            break;
+          }
+        }
+      }
+      std::vector<YoloCand> filtered;
+      filtered.reserve(n_k);
+      for (int i = 0; i < n_k; ++i) {
+        if (k_fl[i]) filtered.push_back(kept[i]);
+      }
+      kept.swap(filtered);
+    }
+  }
 
-    float area_i = std::max(0.0f, candidates[i].x2 - candidates[i].x1) *
-                   std::max(0.0f, candidates[i].y2 - candidates[i].y1);
-
-    for (size_t j = i + 1; j < candidates.size(); ++j) {
-      if (suppressed[j]) continue;
-      if (candidates[i].class_id != candidates[j].class_id) continue;
-
-      float inter_x1 = std::max(candidates[i].x1, candidates[j].x1);
-      float inter_y1 = std::max(candidates[i].y1, candidates[j].y1);
-      float inter_x2 = std::min(candidates[i].x2, candidates[j].x2);
-      float inter_y2 = std::min(candidates[i].y2, candidates[j].y2);
-
-      float inter_w = std::max(0.0f, inter_x2 - inter_x1);
-      float inter_h = std::max(0.0f, inter_y2 - inter_y1);
-      float inter_area = inter_w * inter_h;
-
-      float area_j = std::max(0.0f, candidates[j].x2 - candidates[j].x1) *
-                     std::max(0.0f, candidates[j].y2 - candidates[j].y1);
-
-      float union_area = area_i + area_j - inter_area;
-      float iou = (union_area > 0.0f) ? (inter_area / union_area) : 0.0f;
-
-      if (iou > (float)iou_threshold) {
-        suppressed[j] = true;
+  // Gather mask coefficients / keypoints for kept detections of the generic layout.
+  for (size_t i = 0; i < kept.size(); ++i) {
+    int a = kept[i].anchor;
+    if (a < 0) continue;
+    if (is_seg && kept[i].mask_coeffs.empty()) {
+      kept[i].mask_coeffs.resize(num_mask_coeffs);
+      for (int m = 0; m < num_mask_coeffs; ++m) {
+        kept[i].mask_coeffs[m] = !is_transposed ? data0[(size_t)(4 + num_classes + m) * num_anchors + a] :
+                                                  data0[(size_t)a * num_features + 4 + num_classes + m];
+      }
+    }
+    if (is_pose && kept[i].keypoints.empty()) {
+      kept[i].keypoints.resize(51);
+      for (int k = 0; k < 51; ++k) {
+        kept[i].keypoints[k] = !is_transposed ? data0[(size_t)(5 + k) * num_anchors + a] :
+                                                data0[(size_t)a * num_features + 5 + k];
       }
     }
   }
 
-  double gain = std::min(640.0 / orig_w, 640.0 / orig_h);
-  double pad_x = (640.0 - orig_w * gain) / 2.0;
-  double pad_y = (640.0 - orig_h * gain) / 2.0;
+  double gain = 1.0;
+  double pad_x = 0.0;
+  double pad_y = 0.0;
+  if (has_pre_gain) {
+    gain = pre_gain;
+    pad_x = pre_pad_x;
+    pad_y = pre_pad_y;
+  } else {
+    gain = std::min((double)in_w / orig_w, (double)in_h / orig_h);
+    pad_x = ((double)in_w - orig_w * gain) / 2.0;
+    pad_y = ((double)in_h - orig_h * gain) / 2.0;
+  }
 
   int num_kept = (int)kept.size();
   Rcpp::NumericMatrix boxes(num_kept, 4);
@@ -3061,6 +5955,7 @@ Rcpp::List run_yolo_cpp(
   int oh = (int)std::round(orig_h);
   Rcpp::IntegerMatrix labels;
   Rcpp::LogicalMatrix mask;
+  Rcpp::NumericMatrix seg_stats;
   Rcpp::NumericMatrix heatmap_mat;
   Rcpp::NumericMatrix energy_mat;
   Rcpp::NumericVector raw_proto;
@@ -3087,25 +5982,54 @@ Rcpp::List run_yolo_cpp(
     }
   }
 
-  if ((need_masks || return_features) && is_seg) {
-    if (need_masks && num_kept > 0) {
+  std::vector<float> proto_conv;
+  if (is_seg) {
+    seg_stats = Rcpp::NumericMatrix(num_kept, 8);
+    std::fill(seg_stats.begin(), seg_stats.end(), NA_REAL);
+    if (need_masks) {
       labels = Rcpp::IntegerMatrix(ow, oh);
-      mask = Rcpp::LogicalMatrix(ow, oh);
     }
-    float* proto_data = NULL;
-    (void)ort->GetTensorMutableData(out_tensors[1], (void**)&proto_data);
-    const size_t proto_plane = 160 * 160;
+
+    OrtTensorTypeAndShapeInfo* shape_info1 = NULL;
+    (void)ort->GetTensorTypeAndShape(out_tensors[1], &shape_info1);
+    size_t dims1_cnt = 0;
+    (void)ort->GetDimensionsCount(shape_info1, &dims1_cnt);
+    std::vector<int64_t> dims1(dims1_cnt);
+    (void)ort->GetDimensions(shape_info1, dims1.data(), dims1_cnt);
+    ONNXTensorElementDataType out_elem_type1 = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+    (void)ort->GetTensorElementType(shape_info1, &out_elem_type1);
+    ort->ReleaseTensorTypeAndShapeInfo(shape_info1);
+
+    int proto_h = (dims1_cnt >= 4) ? (int)dims1[2] : ((dims1_cnt >= 3) ? (int)dims1[1] : 160);
+    int proto_w = (dims1_cnt >= 4) ? (int)dims1[3] : ((dims1_cnt >= 3) ? (int)dims1[2] : 160);
+    const size_t proto_plane = (size_t)proto_w * proto_h;
     const size_t proto_total = 32 * proto_plane;
+    float scale_proto_y = (float)proto_h / (float)in_h;
+    float scale_proto_x = (float)proto_w / (float)in_w;
+
+    float* proto_data = NULL;
+    if (out_elem_type1 == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+      const uint16_t* raw_p16 = NULL;
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&raw_p16);
+      proto_conv.resize(proto_total);
+      #pragma omp parallel for schedule(static) if(proto_total > 10000)
+      for (int p = 0; p < (int)proto_total; ++p) {
+        proto_conv[p] = half_to_float(raw_p16[p]);
+      }
+      proto_data = proto_conv.data();
+    } else {
+      (void)ort->GetTensorMutableData(out_tensors[1], (void**)&proto_data);
+    }
 
     if (return_features) {
-      // 1. Raw Proto-Feature Tensor [160, 160, 32]
+      // 1. Raw Proto-Feature Tensor [proto_w, proto_h, 32]
       raw_proto = Rcpp::NumericVector(proto_total);
       double* rp_ptr = REAL(raw_proto);
       #pragma omp parallel for schedule(static) if(proto_total > 10000)
       for (int p = 0; p < (int)proto_total; ++p) {
         rp_ptr[p] = (double)proto_data[p];
       }
-      raw_proto.attr("dim") = Rcpp::IntegerVector::create(160, 160, 32);
+      raw_proto.attr("dim") = Rcpp::IntegerVector::create(proto_w, proto_h, 32);
 
       // 2. Convolutional Prototype Energy Map [ow, oh] (L2 norm across 32 channels)
       std::vector<float> proto_energy(proto_plane, 0.0f);
@@ -3126,26 +6050,26 @@ Rcpp::List run_yolo_cpp(
       #pragma omp parallel for schedule(dynamic, 16) if(oh > 100)
       for (int oy = 0; oy < oh; ++oy) {
         float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
-        float proto_y = (can_y * 0.25f) - 0.5f;
+        float proto_y = (can_y * scale_proto_y) - 0.5f;
         int y0 = (int)std::floor(proto_y);
         int y1 = y0 + 1;
         float wy = proto_y - (float)y0;
-        int cy0 = std::max(0, std::min(159, y0));
-        int cy1 = std::max(0, std::min(159, y1));
+        int cy0 = std::max(0, std::min(proto_h - 1, y0));
+        int cy1 = std::max(0, std::min(proto_h - 1, y1));
 
         for (int ox = 0; ox < ow; ++ox) {
           float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
-          float proto_x = (can_x * 0.25f) - 0.5f;
+          float proto_x = (can_x * scale_proto_x) - 0.5f;
           int x0 = (int)std::floor(proto_x);
           int x1 = x0 + 1;
           float wx = proto_x - (float)x0;
-          int cx0 = std::max(0, std::min(159, x0));
-          int cx1 = std::max(0, std::min(159, x1));
+          int cx0 = std::max(0, std::min(proto_w - 1, x0));
+          int cx1 = std::max(0, std::min(proto_w - 1, x1));
 
-          float e00 = proto_energy[(size_t)cy0 * 160 + cx0];
-          float e10 = proto_energy[(size_t)cy0 * 160 + cx1];
-          float e01 = proto_energy[(size_t)cy1 * 160 + cx0];
-          float e11 = proto_energy[(size_t)cy1 * 160 + cx1];
+          float e00 = proto_energy[(size_t)cy0 * proto_w + cx0];
+          float e10 = proto_energy[(size_t)cy0 * proto_w + cx1];
+          float e01 = proto_energy[(size_t)cy1 * proto_w + cx0];
+          float e11 = proto_energy[(size_t)cy1 * proto_w + cx1];
 
           float eval = (1.0f - wx) * (1.0f - wy) * e00 +
                        wx * (1.0f - wy) * e10 +
@@ -3161,6 +6085,24 @@ Rcpp::List run_yolo_cpp(
     }
 
     if (num_kept > 0) {
+      int* lbl_ptr = (need_masks && labels.size() > 0) ? INTEGER(labels) : NULL;
+      double* hm_ptr = (return_features && heatmap_mat.size() > 0) ? REAL(heatmap_mat) : NULL;
+      std::vector<float> inst_proto(proto_plane, 0.0f);
+      std::vector<std::pair<double, double>> bnd_pts;
+      bnd_pts.reserve(512);
+
+      double step_x = 1.0 / ((double)gain * (double)scale_proto_x);
+      double step_y = 1.0 / ((double)gain * (double)scale_proto_y);
+      double step_avg = 0.5 * (step_x + step_y);
+      double cell_area = step_x * step_y;
+
+      // Instances are decoded in parallel (each thread owns its prototype/boundary scratch).
+      // Overlapping pixels keep the label of the highest-scoring instance (kept[] is in
+      // descending score order, so the smallest label wins), written with an atomic min.
+      // With return_features the heatmap max-reduction keeps the loop serial over
+      // instances (rows are still parallel inside each instance).
+      const bool par_inst = !return_features && num_kept > 1;
+      #pragma omp parallel for schedule(dynamic, 1) if(par_inst) firstprivate(inst_proto, bnd_pts)
       for (int i = 0; i < num_kept; ++i) {
         if (kept[i].mask_coeffs.empty()) continue;
         int ox1 = std::max(0, (int)std::floor(boxes(i, 0)));
@@ -3169,56 +6111,191 @@ Rcpp::List run_yolo_cpp(
         int oy2 = std::min(oh - 1, (int)std::ceil(boxes(i, 3)));
         if (ox1 > ox2 || oy1 > oy2) continue;
 
-        // 1. Precompute linear combination of 32 prototype channels for instance i (160x160)
-        std::vector<float> inst_proto(proto_plane, 0.0f);
+        // Compute prototype space bounding box [px_min..px_max, py_min..py_max]
+        float px_start = ((((float)ox1 + 0.5f) * (float)gain + (float)pad_x) * scale_proto_x) - 0.5f;
+        float px_end   = ((((float)ox2 + 0.5f) * (float)gain + (float)pad_x) * scale_proto_x) - 0.5f;
+        float py_start = ((((float)oy1 + 0.5f) * (float)gain + (float)pad_y) * scale_proto_y) - 0.5f;
+        float py_end   = ((((float)oy2 + 0.5f) * (float)gain + (float)pad_y) * scale_proto_y) - 0.5f;
+        int px_min = std::max(0, std::min(proto_w - 1, (int)std::floor(px_start)));
+        int px_max = std::max(0, std::min(proto_w - 1, (int)std::floor(px_end) + 1));
+        int py_min = std::max(0, std::min(proto_h - 1, (int)std::floor(py_start)));
+        int py_max = std::max(0, std::min(proto_h - 1, (int)std::floor(py_end) + 1));
+
+        // Zero only the ROI in inst_proto
+        for (int py = py_min; py <= py_max; ++py) {
+          std::memset(inst_proto.data() + (size_t)py * proto_w + px_min, 0, (size_t)(px_max - px_min + 1) * sizeof(float));
+        }
+
+        // 1. Precompute linear combination of 32 prototype channels ONLY within box [px_min..px_max, py_min..py_max]
         for (int m = 0; m < 32; ++m) {
           float coeff = kept[i].mask_coeffs[m];
           if (std::abs(coeff) < 1e-7f) continue;
           const float* p_plane = proto_data + (size_t)m * proto_plane;
-          for (size_t p = 0; p < proto_plane; ++p) {
-            inst_proto[p] += coeff * p_plane[p];
+          for (int py = py_min; py <= py_max; ++py) {
+            float* dst_row = inst_proto.data() + (size_t)py * proto_w;
+            const float* src_row = p_plane + (size_t)py * proto_w;
+            #pragma omp simd
+            for (int px = px_min; px <= px_max; ++px) {
+              dst_row[px] += coeff * src_row[px];
+            }
           }
         }
 
-        // 2. High-resolution continuous bilinear interpolation on the original image grid
-        for (int oy = oy1; oy <= oy2; ++oy) {
-          float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
-          float proto_y = (can_y * 0.25f) - 0.5f;
-          int y0 = (int)std::floor(proto_y);
-          int y1 = y0 + 1;
-          float wy = proto_y - (float)y0;
-          int cy0 = std::max(0, std::min(159, y0));
-          int cy1 = std::max(0, std::min(159, y1));
+        // Fast O(ROI) morphological metrics directly from prototype mask
+        int fg_count = 0;
+        double sum_x = 0.0, sum_y = 0.0, sum_xx = 0.0, sum_yy = 0.0, sum_xy = 0.0;
+        double perim = 0.0;
+        bnd_pts.clear();
+        for (int py = py_min; py <= py_max; ++py) {
+          const float* r_cur = inst_proto.data() + (size_t)py * proto_w;
+          const float* r_up  = (py > py_min) ? (r_cur - proto_w) : NULL;
+          const float* r_dn  = (py < py_max) ? (r_cur + proto_w) : NULL;
+          double oy_c = (((double)py + 0.5) / (double)scale_proto_y - (double)pad_y) / (double)gain;
+          oy_c = std::max((double)oy1, std::min((double)oy2, oy_c));
 
-          for (int ox = ox1; ox <= ox2; ++ox) {
+          for (int px = px_min; px <= px_max; ++px) {
+            if (r_cur[px] > 0.0f) {
+              fg_count++;
+              double ox_c = (((double)px + 0.5) / (double)scale_proto_x - (double)pad_x) / (double)gain;
+              ox_c = std::max((double)ox1, std::min((double)ox2, ox_c));
+              sum_x += ox_c;
+              sum_y += oy_c;
+              sum_xx += ox_c * ox_c;
+              sum_yy += oy_c * oy_c;
+              sum_xy += ox_c * oy_c;
+
+              bool b_up = (!r_up || r_up[px] <= 0.0f);
+              bool b_dn = (!r_dn || r_dn[px] <= 0.0f);
+              bool b_lf = (px == px_min || r_cur[px - 1] <= 0.0f);
+              bool b_rt = (px == px_max || r_cur[px + 1] <= 0.0f);
+              if (b_up || b_dn || b_lf || b_rt) {
+                bnd_pts.push_back({ox_c, oy_c});
+                int n_exp = (int)b_up + (int)b_dn + (int)b_lf + (int)b_rt;
+                perim += step_avg * (0.75 + 0.20 * n_exp);
+              }
+            }
+          }
+        }
+
+        if (fg_count > 0) {
+          double n_d = (double)fg_count;
+          double area = n_d * cell_area;
+          double cx = sum_x / n_d;
+          double cy = sum_y / n_d;
+          double mu20 = (sum_xx / n_d) - cx * cx + (step_x * step_x) / 12.0;
+          double mu02 = (sum_yy / n_d) - cy * cy + (step_y * step_y) / 12.0;
+          double mu11 = (sum_xy / n_d) - cx * cy;
+          double common = std::sqrt((mu20 - mu02) * (mu20 - mu02) + 4.0 * mu11 * mu11);
+          double lambda1 = std::max(1e-9, 0.5 * (mu20 + mu02 + common));
+          double lambda2 = std::max(1e-9, 0.5 * (mu20 + mu02 - common));
+          double theta = 0.5 * std::atan2(2.0 * mu11, mu20 - mu02);
+          double cos_t = std::cos(theta);
+          double sin_t = std::sin(theta);
+
+          double min_maj = 1e18, max_maj = -1e18;
+          double min_min = 1e18, max_min = -1e18;
+          double r_sum = 0.0;
+          for (const auto& pt : bnd_pts) {
+            double dx = pt.first - cx;
+            double dy = pt.second - cy;
+            r_sum += std::sqrt(dx * dx + dy * dy);
+            double pmaj = dx * cos_t + dy * sin_t;
+            double pmin = -dx * sin_t + dy * cos_t;
+            if (pmaj < min_maj) min_maj = pmaj;
+            if (pmaj > max_maj) max_maj = pmaj;
+            if (pmin < min_min) min_min = pmin;
+            if (pmin > max_min) max_min = pmin;
+          }
+          double r_mean = bnd_pts.empty() ? 0.0 : (r_sum / (double)bnd_pts.size());
+          double len_val = bnd_pts.empty() ? step_avg : (max_maj - min_maj + step_avg);
+          double wid_val = bnd_pts.empty() ? step_avg : (max_min - min_min + step_avg);
+          if (len_val < wid_val) std::swap(len_val, wid_val);
+          double circ = (perim > 1e-6) ? std::min(1.0, (4.0 * 3.14159265358979323846 * area) / (perim * perim)) : NA_REAL;
+          double ecc  = (lambda1 > 1e-9) ? std::sqrt(std::max(0.0, 1.0 - lambda2 / lambda1)) : 0.0;
+          double ar   = (wid_val > 1e-6) ? (len_val / wid_val) : NA_REAL;
+
+          // Columns: 0=area, 1=perimeter, 2=radius_mean, 3=length, 4=width, 5=circularity, 6=eccentricity, 7=asp_ratio
+          seg_stats(i, 0) = area;
+          seg_stats(i, 1) = perim;
+          seg_stats(i, 2) = r_mean;
+          seg_stats(i, 3) = len_val;
+          seg_stats(i, 4) = wid_val;
+          seg_stats(i, 5) = circ;
+          seg_stats(i, 6) = ecc;
+          seg_stats(i, 7) = ar;
+        }
+
+        if (need_masks || return_features) {
+          // Precompute continuous bilinear x-sampling LUT for this bounding box
+          int span_x = ox2 - ox1 + 1;
+          std::vector<int> cx0_tab(span_x);
+          std::vector<int> cx1_tab(span_x);
+          std::vector<float> wx_tab(span_x);
+          for (int k = 0; k < span_x; ++k) {
+            int ox = ox1 + k;
             float can_x = ((float)ox + 0.5f) * (float)gain + (float)pad_x;
-            float proto_x = (can_x * 0.25f) - 0.5f;
+            float proto_x = (can_x * scale_proto_x) - 0.5f;
             int x0 = (int)std::floor(proto_x);
             int x1 = x0 + 1;
-            float wx = proto_x - (float)x0;
-            int cx0 = std::max(0, std::min(159, x0));
-            int cx1 = std::max(0, std::min(159, x1));
+            wx_tab[k] = proto_x - (float)x0;
+            cx0_tab[k] = std::max(0, std::min(proto_w - 1, x0));
+            cx1_tab[k] = std::max(0, std::min(proto_w - 1, x1));
+          }
 
-            float v00 = inst_proto[(size_t)cy0 * 160 + cx0];
-            float v10 = inst_proto[(size_t)cy0 * 160 + cx1];
-            float v01 = inst_proto[(size_t)cy1 * 160 + cx0];
-            float v11 = inst_proto[(size_t)cy1 * 160 + cx1];
+          int inst_label = i + 1;
+          float inst_score = kept[i].score;
 
-            float val = (1.0f - wx) * (1.0f - wy) * v00 +
-                        wx * (1.0f - wy) * v10 +
-                        (1.0f - wx) * wy * v01 +
-                        wx * wy * v11;
+          // 2. High-speed multi-threaded continuous bilinear interpolation on the original image grid
+          // Only parallelize rows when the enclosing per-instance loop is running
+          // serially. Both regions active at once oversubscribes the machine whenever
+          // OMP_MAX_ACTIVE_LEVELS > 1 (threads x threads workers for one image).
+          #pragma omp parallel for schedule(dynamic, 8) if(!par_inst && (oy2 - oy1 > 16))
+          for (int oy = oy1; oy <= oy2; ++oy) {
+            float can_y = ((float)oy + 0.5f) * (float)gain + (float)pad_y;
+            float proto_y = (can_y * scale_proto_y) - 0.5f;
+            int y0 = (int)std::floor(proto_y);
+            int y1 = y0 + 1;
+            float wy = proto_y - (float)y0;
+            int cy0 = std::max(0, std::min(proto_h - 1, y0));
+            int cy1 = std::max(0, std::min(proto_h - 1, y1));
 
-            if (need_masks && val > 0.0f) {
-              labels(ox, oy) = i + 1;
-              mask(ox, oy) = true;
-            }
+            const float* row0 = inst_proto.data() + (size_t)cy0 * proto_w;
+            const float* row1 = inst_proto.data() + (size_t)cy1 * proto_w;
+            float one_minus_wy = 1.0f - wy;
+            size_t row_offset = (size_t)oy * ow;
 
-            if (return_features) {
-              float prob = 1.0f / (1.0f + std::exp(-val));
-              double act = (double)(prob * kept[i].score);
-              if (act > heatmap_mat(ox, oy)) {
-                heatmap_mat(ox, oy) = act;
+            for (int k = 0; k < span_x; ++k) {
+              int ox = ox1 + k;
+              int cx0 = cx0_tab[k];
+              int cx1 = cx1_tab[k];
+              float wx = wx_tab[k];
+
+              float v00 = row0[cx0];
+              float v10 = row0[cx1];
+              float v01 = row1[cx0];
+              float v11 = row1[cx1];
+
+              float val = (1.0f - wx) * one_minus_wy * v00 +
+                          wx * one_minus_wy * v10 +
+                          (1.0f - wx) * wy * v01 +
+                          wx * wy * v11;
+
+              if (need_masks && lbl_ptr && val > 0.0f) {
+                int* cell = lbl_ptr + row_offset + ox;
+                int cur = __atomic_load_n(cell, __ATOMIC_RELAXED);
+                while ((cur == 0 || cur > inst_label) &&
+                       !__atomic_compare_exchange_n(cell, &cur, inst_label, true,
+                                                    __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+                }
+              }
+
+              if (return_features && hm_ptr) {
+                float prob = 1.0f / (1.0f + std::exp(-val));
+                double act = (double)(prob * inst_score);
+                size_t pixel_idx = row_offset + ox;
+                if (act > hm_ptr[pixel_idx]) {
+                  hm_ptr[pixel_idx] = act;
+                }
               }
             }
           }
@@ -3272,6 +6349,25 @@ Rcpp::List run_yolo_cpp(
   ort->ReleaseValue(in_tensor);
   ort->ReleaseRunOptions(run_options);
 
+  if (std::getenv("PLIMAN_YOLO_PROFILE") != NULL) {
+    auto t_after_all = std::chrono::high_resolution_clock::now();
+    double ms_sess = std::chrono::duration<double, std::milli>(t_after_session - t_start_all).count();
+    double ms_prep = std::chrono::duration<double, std::milli>(t_after_preproc - t_after_session).count();
+    double ms_run  = std::chrono::duration<double, std::milli>(t_after_run - t_after_preproc).count();
+    double ms_nms  = std::chrono::duration<double, std::milli>(t_after_nms - t_after_run).count();
+    double ms_post = std::chrono::duration<double, std::milli>(t_after_all - t_after_nms).count();
+    double ms_tot  = std::chrono::duration<double, std::milli>(t_after_all - t_start_all).count();
+    static int profile_cnt = 0;
+    static double tot_sess = 0, tot_prep = 0, tot_run = 0, tot_nms = 0, tot_post = 0, tot_all = 0;
+    profile_cnt++;
+    tot_sess += ms_sess; tot_prep += ms_prep; tot_run += ms_run; tot_nms += ms_nms; tot_post += ms_post; tot_all += ms_tot;
+    if (profile_cnt % 50 == 0) {
+      Rprintf("[YOLO Profiler %d frames] sess: %.2fms | prep: %.2fms | run: %.2fms | nms: %.2fms | post: %.2fms | TOT: %.2fms\n",
+              profile_cnt, tot_sess / profile_cnt, tot_prep / profile_cnt, tot_run / profile_cnt,
+              tot_nms / profile_cnt, tot_post / profile_cnt, tot_all / profile_cnt);
+    }
+  }
+
   return Rcpp::List::create(
     Rcpp::Named("boxes") = boxes,
     Rcpp::Named("scores") = scores,
@@ -3280,11 +6376,320 @@ Rcpp::List run_yolo_cpp(
     Rcpp::Named("corners") = is_obb ? Rcpp::wrap(corners_mat) : R_NilValue,
     Rcpp::Named("labels") = need_masks ? Rcpp::wrap(labels) : R_NilValue,
     Rcpp::Named("mask") = need_masks ? Rcpp::wrap(mask) : R_NilValue,
+    Rcpp::Named("seg_stats") = is_seg ? Rcpp::wrap(seg_stats) : R_NilValue,
+    Rcpp::Named("is_seg") = is_seg,
     Rcpp::Named("keypoints") = keypoints_mat,
     Rcpp::Named("heatmap") = return_features ? Rcpp::wrap(heatmap_mat) : R_NilValue,
     Rcpp::Named("feature_energy") = (return_features && is_seg) ? Rcpp::wrap(energy_mat) : R_NilValue,
     Rcpp::Named("feature_map") = (return_features && is_seg) ? Rcpp::wrap(raw_proto) : R_NilValue,
     Rcpp::Named("embeddings") = return_features ? Rcpp::wrap(embeddings_mat) : R_NilValue
+  );
+}
+
+// Crops a tile [x0, x0+cw) x [y0, y0+ch) from an image array without leaving C++.
+// Supports interleaved raw frames [3, W, H] (video buffers) and planar arrays
+// [W, H, C] / [W, H] stored as raw or double (pliman `image` data).
+static SEXP crop_image_tile(SEXP img, int x0, int y0, int cw, int ch) {
+  SEXP dim_attr = Rf_getAttrib(img, R_DimSymbol);
+  int nd = Rf_length(dim_attr);
+  const int* d = INTEGER(dim_attr);
+  bool interleaved = (nd == 3 && d[0] == 3 && TYPEOF(img) == RAWSXP);
+  int W = interleaved ? d[1] : d[0];
+  int H = interleaved ? d[2] : d[1];
+  int C = interleaved ? 3 : (nd >= 3 ? d[2] : 1);
+  (void)H;
+  SEXP out;
+  if (interleaved) {
+    out = PROTECT(Rf_allocVector(RAWSXP, (R_xlen_t)3 * cw * ch));
+    const Rbyte* src = RAW(img);
+    Rbyte* dst = RAW(out);
+    #pragma omp parallel for schedule(static) if((size_t)cw * ch > 65536)
+    for (int y = 0; y < ch; ++y) {
+      std::memcpy(dst + (size_t)y * 3 * cw, src + ((size_t)(y0 + y) * W + x0) * 3, (size_t)3 * cw);
+    }
+    SEXP od = PROTECT(Rf_allocVector(INTSXP, 3));
+    INTEGER(od)[0] = 3; INTEGER(od)[1] = cw; INTEGER(od)[2] = ch;
+    Rf_setAttrib(out, R_DimSymbol, od);
+    UNPROTECT(2);
+    return out;
+  }
+  bool is_raw = (TYPEOF(img) == RAWSXP);
+  out = PROTECT(Rf_allocVector(is_raw ? RAWSXP : REALSXP, (R_xlen_t)cw * ch * C));
+  const size_t src_plane = (size_t)W * (size_t)d[1];
+  const size_t dst_plane = (size_t)cw * ch;
+  for (int c = 0; c < C; ++c) {
+    #pragma omp parallel for schedule(static) if((size_t)cw * ch > 65536)
+    for (int y = 0; y < ch; ++y) {
+      size_t so = (size_t)c * src_plane + (size_t)(y0 + y) * W + x0;
+      size_t dof = (size_t)c * dst_plane + (size_t)y * cw;
+      if (is_raw) std::memcpy(RAW(out) + dof, RAW(img) + so, (size_t)cw);
+      else std::memcpy(REAL(out) + dof, REAL(img) + so, (size_t)cw * sizeof(double));
+    }
+  }
+  SEXP od = PROTECT(Rf_allocVector(INTSXP, nd >= 3 ? 3 : 2));
+  INTEGER(od)[0] = cw; INTEGER(od)[1] = ch;
+  if (nd >= 3) INTEGER(od)[2] = C;
+  Rf_setAttrib(out, R_DimSymbol, od);
+  UNPROTECT(2);
+  return out;
+}
+
+// [[Rcpp::export]]
+Rcpp::List run_yolo_tiles_cpp(
+    SEXP img,
+    Rcpp::IntegerVector tile_x,
+    Rcpp::IntegerVector tile_y,
+    int tile_w,
+    int tile_h,
+    double conf_threshold = 0.25,
+    double iou_threshold = 0.45,
+    std::string model_path = "",
+    std::string lib_path = "",
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1,
+    int target_size = 640,
+    bool include_full = false,
+    int full_target_size = 0,
+    int max_nms = 30000,
+    int max_det = 0
+) {
+  SEXP dim_attr = Rf_getAttrib(img, R_DimSymbol);
+  if (dim_attr == R_NilValue || Rf_length(dim_attr) < 2) {
+    Rcpp::stop("img must be a 2D/3D image array.");
+  }
+  if (TYPEOF(img) != RAWSXP && TYPEOF(img) != REALSXP) {
+    Rcpp::stop("img must be stored as raw or double.");
+  }
+  const int* d = INTEGER(dim_attr);
+  bool interleaved = (Rf_length(dim_attr) == 3 && d[0] == 3 && TYPEOF(img) == RAWSXP);
+  int W = interleaved ? d[1] : d[0];
+  int H = interleaved ? d[2] : d[1];
+  if (tile_x.size() != tile_y.size()) Rcpp::stop("tile_x and tile_y must have the same length.");
+
+  std::vector<double> bx1, by1, bx2, by2, bsc, bkp;
+  std::vector<int> bcls, btile;
+  int kp_cols = 0;
+  std::vector<int> ran_tiles;
+
+  auto collect = [&](Rcpp::List r, int tidx, double ox, double oy, double cw, double ch) {
+    Rcpp::NumericMatrix b = r["boxes"];
+    Rcpp::NumericVector sc = r["scores"];
+    Rcpp::IntegerVector ci = r["class_ids"];
+    Rcpp::NumericMatrix kp = r["keypoints"];
+    int n = b.nrow();
+    if (kp.ncol() > 0) kp_cols = kp.ncol();
+    for (int i = 0; i < n; ++i) {
+      bx1.push_back(std::max(0.0, std::min((double)W, b(i, 0) + ox)));
+      by1.push_back(std::max(0.0, std::min((double)H, b(i, 1) + oy)));
+      bx2.push_back(std::max(0.0, std::min((double)W, b(i, 2) + ox)));
+      by2.push_back(std::max(0.0, std::min((double)H, b(i, 3) + oy)));
+      bsc.push_back(sc[i]);
+      bcls.push_back(ci[i]);
+      btile.push_back(tidx);
+      if (kp.ncol() > 0 && kp.nrow() == n) {
+        for (int k = 0; k < kp.ncol(); ++k) {
+          double v = kp(i, k);
+          if (k % 3 == 0) v += ox;
+          else if (k % 3 == 1) v += oy;
+          bkp.push_back(v);
+        }
+      }
+    }
+    (void)cw; (void)ch;
+  };
+
+  if (include_full) {
+    int fts = (full_target_size > 0) ? full_target_size : target_size;
+    Rcpp::List r = run_yolo_cpp(img, (double)W, (double)H, conf_threshold, iou_threshold, model_path, lib_path,
+                                num_threads, use_gpu, device_id, false, false, R_NilValue, fts, max_nms, max_det);
+    collect(r, 0, 0.0, 0.0, W, H);
+  }
+
+  // Batched tile inference (OPTIMIZATION_PLAN 5.1). With a batch-dynamic export
+  // (yolo_export(dynamic = TRUE)), B tiles are letterboxed into one [B, 3, S, S] tensor
+  // and sent in a single Run; each tile's slice of the outputs is then handed to
+  // run_yolo_cpp() (g_yolo_inject) and post-processed by exactly the code the per-tile
+  // path uses. Default B is 8 under CUDA/TensorRT and 1 (off) elsewhere; override with
+  // PLIMAN_YOLO_TILE_BATCH. Measured with a batch-dynamic yolo26n on 24 tiles of a
+  // 3000 x 1688 image (GTX 1650 / i7, boxes equal within 2.4e-4 px for every B):
+  //              B=1      B=4      B=8      B=16
+  //   CUDA      0.42 s   0.36 s   0.35 s   0.35 s
+  //   DirectML  0.43 s   0.78 s   0.56 s   0.49 s
+  //   CPU       1.30 s   1.50 s   1.61 s   1.67 s
+  // The distributed YOLO models have a fixed batch of 1 and always take the per-tile path.
+  const int n_tiles = (int)tile_x.size();
+  int tile_batch = 1;
+  const OrtApi* ort_t = get_ort_api(lib_path);
+  CachedSession cs_t = get_or_create_cached_session(ort_t, model_path, num_threads, use_gpu, device_id);
+  const SessionMeta* meta_t = cs_t.meta;
+  if (meta_t != NULL && meta_t->batch_dynamic && meta_t->in_names.size() == 1 &&
+      (meta_t->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
+       meta_t->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16)) {
+    tile_batch = (meta_t->is_gpu && (meta_t->provider == "cuda" || meta_t->provider == "tensorrt")) ? 8 : 1;
+    const char* ev = std::getenv("PLIMAN_YOLO_TILE_BATCH");
+    if (ev != NULL) {
+      long v = std::strtol(ev, NULL, 10);
+      if (v >= 1 && v <= 64) tile_batch = (int)v;
+    }
+  }
+  const int S = (target_size > 0) ? target_size : 640;
+
+  // Per-tile synchronous inference (also the fallback of a failed batch).
+  auto run_tile_single = [&](int t) {
+    int x0 = std::max(0, std::min(W - 1, (int)tile_x[t]));
+    int y0 = std::max(0, std::min(H - 1, (int)tile_y[t]));
+    int cw = std::max(1, std::min(tile_w, W - x0));
+    int ch = std::max(1, std::min(tile_h, H - y0));
+    SEXP tile = PROTECT(crop_image_tile(img, x0, y0, cw, ch));
+    Rcpp::List r = run_yolo_cpp(tile, (double)cw, (double)ch, conf_threshold, iou_threshold, model_path, lib_path,
+                                num_threads, use_gpu, device_id, false, false, R_NilValue, target_size, max_nms, max_det);
+    UNPROTECT(1);
+    collect(r, t + 1, (double)x0, (double)y0, cw, ch);
+  };
+
+  for (int t0 = 0; t0 < n_tiles; ) {
+    const int b = std::min(tile_batch, n_tiles - t0);
+    if (b < 2) {
+      run_tile_single(t0);
+      ++t0;
+      if ((t0 & 7) == 0) Rcpp::checkUserInterrupt();
+      continue;
+    }
+
+    Rcpp::List tiles(b);  // keeps the crops protected
+    std::vector<int> tx0(b), ty0(b), tcw(b), tch(b), tow(b), toh(b);
+    std::vector<double> tgain(b), tpx(b), tpy(b);
+    const size_t per_in = (size_t)3 * S * S;
+    std::vector<float> batch_in((size_t)b * per_in);
+    std::vector<float> tmp;
+    for (int k = 0; k < b; ++k) {
+      const int t = t0 + k;
+      tx0[k] = std::max(0, std::min(W - 1, (int)tile_x[t]));
+      ty0[k] = std::max(0, std::min(H - 1, (int)tile_y[t]));
+      tcw[k] = std::max(1, std::min(tile_w, W - tx0[k]));
+      tch[k] = std::max(1, std::min(tile_h, H - ty0[k]));
+      tiles[k] = crop_image_tile(img, tx0[k], ty0[k], tcw[k], tch[k]);
+      // fresh buffer + cache: see the letterbox note in yolo_prefetch_cpp()
+      tmp.clear();
+      invalidate_yolo_preproc_cache();
+      preprocess_yolo_to_float_vec(tiles[k], S, tmp, tow[k], toh[k], tgain[k], tpx[k], tpy[k]);
+      std::memcpy(batch_in.data() + (size_t)k * per_in, tmp.data(), per_in * sizeof(float));
+    }
+    invalidate_yolo_preproc_cache();
+
+    const int64_t in_shape[4] = { (int64_t)b, 3, (int64_t)S, (int64_t)S };
+    OrtValue* in_t = NULL;
+    std::vector<uint16_t> batch_fp16;
+    if (meta_t->in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+      float_vec_to_half(batch_in, batch_fp16);
+      (void)ort_t->CreateTensorWithDataAsOrtValue(cs_t.mem_info, batch_fp16.data(), batch_fp16.size() * sizeof(uint16_t),
+                                                  in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_t);
+    } else {
+      (void)ort_t->CreateTensorWithDataAsOrtValue(cs_t.mem_info, batch_in.data(), batch_in.size() * sizeof(float),
+                                                  in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_t);
+    }
+    const size_t n_out = meta_t->out_names.size();
+    std::vector<OrtValue*> outs(n_out, (OrtValue*)NULL);
+    OrtStatus* st = (in_t == NULL) ? ort_t->CreateStatus(ORT_FAIL, "input") :
+      ort_t->Run(cs_t.session, NULL, meta_t->in_names.data(), (const OrtValue* const*)&in_t, 1,
+                 meta_t->out_names.data(), n_out, outs.data());
+
+    // Slice geometry of every output: [b, ...] -> b views of [1, ...].
+    bool sliceable = (st == NULL);
+    std::vector<std::vector<int64_t> > odims(n_out);
+    std::vector<ONNXTensorElementDataType> otype(n_out, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT);
+    std::vector<size_t> oper(n_out, 0);
+    for (size_t o = 0; sliceable && o < n_out; ++o) {
+      OrtTensorTypeAndShapeInfo* info = NULL;
+      if (outs[o] == NULL || ort_t->GetTensorTypeAndShape(outs[o], &info) != NULL || info == NULL) { sliceable = false; break; }
+      size_t nd = 0, cnt = 0;
+      (void)ort_t->GetDimensionsCount(info, &nd);
+      odims[o].assign(nd, 0);
+      if (nd > 0) (void)ort_t->GetDimensions(info, odims[o].data(), nd);
+      (void)ort_t->GetTensorElementType(info, &otype[o]);
+      (void)ort_t->GetTensorShapeElementCount(info, &cnt);
+      ort_t->ReleaseTensorTypeAndShapeInfo(info);
+      if (nd < 1 || odims[o][0] != b || cnt % (size_t)b != 0 ||
+          (otype[o] != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT && otype[o] != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16)) {
+        sliceable = false;
+        break;
+      }
+      oper[o] = cnt / (size_t)b;
+      odims[o][0] = 1;
+    }
+
+    if (!sliceable) {
+      // The batched Run failed or produced something we cannot slice: per-tile path.
+      if (st) ort_t->ReleaseStatus(st);
+      for (size_t o = 0; o < n_out; ++o) if (outs[o]) ort_t->ReleaseValue(outs[o]);
+      if (in_t) ort_t->ReleaseValue(in_t);
+      for (int k = 0; k < b; ++k) run_tile_single(t0 + k);
+      t0 += b;
+      Rcpp::checkUserInterrupt();
+      continue;
+    }
+
+    for (int k = 0; k < b; ++k) {
+      g_yolo_inject.outputs.assign(n_out, (OrtValue*)NULL);
+      for (size_t o = 0; o < n_out; ++o) {
+        const size_t esz = (otype[o] == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) ? 2 : 4;
+        void* base = NULL;
+        (void)ort_t->GetTensorMutableData(outs[o], &base);
+        (void)ort_t->CreateTensorWithDataAsOrtValue(cs_t.mem_info, (char*)base + (size_t)k * oper[o] * esz,
+                                                    oper[o] * esz, odims[o].data(), odims[o].size(),
+                                                    otype[o], &g_yolo_inject.outputs[o]);
+      }
+      g_yolo_inject.in_w = S;
+      g_yolo_inject.in_h = S;
+      g_yolo_inject.orig_w = tow[k];
+      g_yolo_inject.orig_h = toh[k];
+      g_yolo_inject.gain = tgain[k];
+      g_yolo_inject.pad_x = tpx[k];
+      g_yolo_inject.pad_y = tpy[k];
+      g_yolo_inject.total_floats = per_in;
+      g_yolo_inject.active = true;
+      try {
+        Rcpp::List r = run_yolo_cpp(tiles[k], (double)tcw[k], (double)tch[k], conf_threshold, iou_threshold,
+                                    model_path, lib_path, num_threads, use_gpu, device_id, false, false,
+                                    R_NilValue, target_size, max_nms, max_det);
+        collect(r, t0 + k + 1, (double)tx0[k], (double)ty0[k], tcw[k], tch[k]);
+      } catch (...) {
+        // never leave views that point into this batch for an unrelated later call
+        if (g_yolo_inject.active) {
+          for (size_t o = 0; o < g_yolo_inject.outputs.size(); ++o)
+            if (g_yolo_inject.outputs[o]) ort_t->ReleaseValue(g_yolo_inject.outputs[o]);
+          g_yolo_inject.outputs.clear();
+          g_yolo_inject.active = false;
+        }
+        for (size_t o = 0; o < n_out; ++o) if (outs[o]) ort_t->ReleaseValue(outs[o]);
+        ort_t->ReleaseValue(in_t);
+        throw;
+      }
+    }
+    for (size_t o = 0; o < n_out; ++o) if (outs[o]) ort_t->ReleaseValue(outs[o]);
+    ort_t->ReleaseValue(in_t);
+    t0 += b;
+    Rcpp::checkUserInterrupt();
+  }
+
+  int n = (int)bsc.size();
+  Rcpp::NumericMatrix boxes(n, 4);
+  for (int i = 0; i < n; ++i) {
+    boxes(i, 0) = bx1[i]; boxes(i, 1) = by1[i]; boxes(i, 2) = bx2[i]; boxes(i, 3) = by2[i];
+  }
+  Rcpp::NumericMatrix kpm(n, (kp_cols > 0 && (int)bkp.size() == n * kp_cols) ? kp_cols : 0);
+  if (kpm.ncol() > 0) {
+    for (int i = 0; i < n; ++i) for (int k = 0; k < kp_cols; ++k) kpm(i, k) = bkp[(size_t)i * kp_cols + k];
+  }
+  return Rcpp::List::create(
+    Rcpp::Named("boxes") = boxes,
+    Rcpp::Named("scores") = Rcpp::wrap(bsc),
+    Rcpp::Named("class_ids") = Rcpp::wrap(bcls),
+    Rcpp::Named("tile_index") = Rcpp::wrap(btile),
+    Rcpp::Named("keypoints") = kpm,
+    Rcpp::Named("is_seg") = false,
+    Rcpp::Named("n_tiles") = (int)tile_x.size()
   );
 }
 
@@ -3310,10 +6715,12 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   int64_t in_w = 224;
   OrtTypeInfo* in_ti = NULL;
   (void)ort->SessionGetInputTypeInfo(session, 0, &in_ti);
+  ONNXTensorElementDataType in_elem_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
   if (in_ti) {
     const OrtTensorTypeAndShapeInfo* in_si = NULL;
     (void)ort->CastTypeInfoToTensorInfo(in_ti, &in_si);
     if (in_si) {
+      (void)ort->GetTensorElementType(in_si, &in_elem_type);
       size_t in_dims_cnt = 0;
       (void)ort->GetDimensionsCount(in_si, &in_dims_cnt);
       if (in_dims_cnt >= 4) {
@@ -3328,15 +6735,23 @@ Rcpp::NumericVector run_yolo_cls_cpp(
 
   int64_t in_shape[4] = {1, 3, in_h, in_w};
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats, 0.0f);
-  size_t n_copy = std::min((size_t)tensor_vec.size(), total_floats);
-  for (size_t i = 0; i < n_copy; ++i) input_vals[i] = (float)tensor_vec[i];
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
 
   OrtValue* in_tensor = NULL;
-  (void)ort->CreateTensorWithDataAsOrtValue(
-    memory_info, input_vals.data(), total_floats * sizeof(float),
-    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
-  );
+  std::vector<uint16_t> in_fp16;
+  if (in_elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    float_vec_to_half(input_vals, in_fp16);
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_fp16.data(), total_floats * sizeof(uint16_t),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16, &in_tensor
+    );
+  } else {
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, input_vals.data(), total_floats * sizeof(float),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    );
+  }
 
   OrtRunOptions* run_options = NULL;
   (void)ort->CreateRunOptions(&run_options);
@@ -3363,7 +6778,14 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   (void)ort->GetDimensionsCount(shape_info0, &dims0_cnt);
   std::vector<int64_t> dims0(dims0_cnt);
   (void)ort->GetDimensions(shape_info0, dims0.data(), dims0_cnt);
+  ONNXTensorElementDataType out_elem_type0 = ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT;
+  (void)ort->GetTensorElementType(shape_info0, &out_elem_type0);
   ort->ReleaseTensorTypeAndShapeInfo(shape_info0);
+
+  size_t total_out0 = 1;
+  for (size_t d = 0; d < dims0_cnt; ++d) {
+    if (dims0[d] > 0) total_out0 *= (size_t)dims0[d];
+  }
 
   int num_classes = 1000;
   if (dims0_cnt == 2) {
@@ -3373,7 +6795,16 @@ Rcpp::NumericVector run_yolo_cls_cpp(
   }
 
   float* data0 = NULL;
-  (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  std::vector<float> data0_conv;
+  if (out_elem_type0 == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
+    const uint16_t* raw_p16 = NULL;
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&raw_p16);
+    data0_conv.resize(num_classes);
+    for (int c = 0; c < num_classes; ++c) data0_conv[c] = half_to_float(raw_p16[c]);
+    data0 = data0_conv.data();
+  } else {
+    (void)ort->GetTensorMutableData(out_tensors[0], (void**)&data0);
+  }
 
   float max_val = data0[0];
   for (int c = 1; c < num_classes; ++c) {
@@ -3421,10 +6852,9 @@ Rcpp::NumericVector run_clip_vision_cpp(
 
   int64_t in_shape[4] = {1, 3, in_h, in_w};
   size_t total_floats = (size_t)(3 * in_h * in_w);
-  std::vector<float> input_vals(total_floats);
-  for (size_t i = 0; i < total_floats; ++i) input_vals[i] = (float)tensor_vec[i];
-
-  OrtValue* in_tensor = NULL;
+  std::vector<float> input_vals;
+  sexp_to_float(tensor_vec, input_vals, total_floats);
+OrtValue* in_tensor = NULL;
   (void)ort->CreateTensorWithDataAsOrtValue(
     memory_info, input_vals.data(), total_floats * sizeof(float),
     in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
@@ -3671,8 +7101,7 @@ Rcpp::List run_stardist_cpp(
     // NCHW format: [1, C, H, W]
     int in_c = (total_floats == (size_t)in_h * in_w) ? 1 : 3;
     in_shape[0] = 1; in_shape[1] = in_c; in_shape[2] = in_h; in_shape[3] = in_w;
-    input_vals.resize(total_floats);
-    for (size_t i = 0; i < total_floats; ++i) input_vals[i] = (float)tensor_vec[i];
+    sexp_to_float(tensor_vec, input_vals, total_floats);
   }
 
   OrtValue* in_tensor = NULL;
@@ -3959,11 +7388,24 @@ Rcpp::NumericVector run_super_resolution_cpp(
   const double* tensor_data = tensor_vec.begin();
 
   if (in_w <= tile_size && in_h <= tile_size) {
-    int64_t shape[4] = {1, 3, in_h, in_w};
-    size_t floats = 3 * in_plane;
+    int pad_w = (in_w % 8 == 0) ? in_w : (in_w + 8 - (in_w % 8));
+    int pad_h = (in_h % 8 == 0) ? in_h : (in_h + 8 - (in_h % 8));
+    size_t pad_plane = (size_t)pad_h * pad_w;
+    size_t floats = 3 * pad_plane;
     std::vector<float> in_vals(floats);
-    for (size_t i = 0; i < floats; ++i) in_vals[i] = (float)tensor_data[i];
 
+    for (int c = 0; c < 3; ++c) {
+      for (int py = 0; py < pad_h; ++py) {
+        int src_y = std::min(py, in_h - 1);
+        for (int px = 0; px < pad_w; ++px) {
+          int src_x = std::min(px, in_w - 1);
+          in_vals[(size_t)c * pad_plane + (size_t)py * pad_w + px] =
+            (float)tensor_data[(size_t)c * in_plane + (size_t)src_y * in_w + src_x];
+        }
+      }
+    }
+
+    int64_t shape[4] = {1, 3, pad_h, pad_w};
     OrtValue* in_val = NULL;
     (void)ort->CreateTensorWithDataAsOrtValue(
       memory_info, in_vals.data(), floats * sizeof(float),
@@ -3973,10 +7415,38 @@ Rcpp::NumericVector run_super_resolution_cpp(
     OrtValue* out_val = NULL;
     OrtStatus* st = ort->Run(session, run_options, in_names.data(), (const OrtValue* const*)&in_val, 1, out_names.data(), 1, &out_val);
     if (st == NULL) {
+      OrtTensorTypeAndShapeInfo* shape_info = NULL;
+      (void)ort->GetTensorTypeAndShape(out_val, &shape_info);
+      size_t num_dims = 0;
+      (void)ort->GetDimensionsCount(shape_info, &num_dims);
+      std::vector<int64_t> out_dims(num_dims);
+      (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+      ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+      int pad_out_h = (int)out_dims[num_dims - 2];
+      int pad_out_w = (int)out_dims[num_dims - 1];
+      int actual_scale = pad_out_h / pad_h;
+      if (actual_scale <= 0) actual_scale = scale;
+
+      if (actual_scale != scale) {
+        scale = actual_scale;
+        out_w = in_w * scale;
+        out_h = in_h * scale;
+        out_plane = (size_t)out_h * out_w;
+        full_out.resize(3 * out_plane, 0.0f);
+      }
+
       float* out_f = NULL;
       (void)ort->GetTensorMutableData(out_val, (void**)&out_f);
-      for (size_t i = 0; i < 3 * out_plane; ++i) {
-        full_out[i] = std::max(0.0f, std::min(1.0f, out_f[i]));
+      size_t pad_out_plane = (size_t)pad_out_h * pad_out_w;
+
+      for (int c = 0; c < 3; ++c) {
+        for (int py = 0; py < out_h; ++py) {
+          for (int px = 0; px < out_w; ++px) {
+            float val = out_f[(size_t)c * pad_out_plane + (size_t)py * pad_out_w + px];
+            full_out[(size_t)c * out_plane + (size_t)py * out_w + px] = std::max(0.0f, std::min(1.0f, val));
+          }
+        }
       }
       ort->ReleaseValue(out_val);
     } else {
@@ -3990,9 +7460,11 @@ Rcpp::NumericVector run_super_resolution_cpp(
   } else {
     int step = tile_size - 2 * tile_pad;
     if (step < 16) step = 16;
+    bool scale_checked = false;
 
     for (int ty = 0; ty < in_h; ty += step) {
       for (int tx = 0; tx < in_w; tx += step) {
+        R_CheckUserInterrupt();
         int x1 = std::max(0, tx - tile_pad);
         int y1 = std::max(0, ty - tile_pad);
         int x2 = std::min(in_w, tx + step + tile_pad);
@@ -4000,21 +7472,25 @@ Rcpp::NumericVector run_super_resolution_cpp(
 
         int cur_w = x2 - x1;
         int cur_h = y2 - y1;
-        size_t cur_plane = (size_t)cur_w * cur_h;
 
-        int64_t cur_shape[4] = {1, 3, cur_h, cur_w};
-        size_t cur_floats = 3 * cur_plane;
+        int pad_w = (cur_w % 8 == 0) ? cur_w : (cur_w + 8 - (cur_w % 8));
+        int pad_h = (cur_h % 8 == 0) ? cur_h : (cur_h + 8 - (cur_h % 8));
+        size_t cur_pad_plane = (size_t)pad_w * pad_h;
+        size_t cur_floats = 3 * cur_pad_plane;
         std::vector<float> cur_in(cur_floats);
 
         for (int c = 0; c < 3; ++c) {
-          for (int py = 0; py < cur_h; ++py) {
-            for (int px = 0; px < cur_w; ++px) {
-              cur_in[(size_t)c * cur_plane + (size_t)py * cur_w + px] =
-                (float)tensor_data[(size_t)c * in_plane + (size_t)(y1 + py) * in_w + (x1 + px)];
+          for (int py = 0; py < pad_h; ++py) {
+            int src_y = y1 + std::min(py, cur_h - 1);
+            for (int px = 0; px < pad_w; ++px) {
+              int src_x = x1 + std::min(px, cur_w - 1);
+              cur_in[(size_t)c * cur_pad_plane + (size_t)py * pad_w + px] =
+                (float)tensor_data[(size_t)c * in_plane + (size_t)src_y * in_w + src_x];
             }
           }
         }
 
+        int64_t cur_shape[4] = {1, 3, pad_h, pad_w};
         OrtValue* in_val = NULL;
         (void)ort->CreateTensorWithDataAsOrtValue(
           memory_info, cur_in.data(), cur_floats * sizeof(float),
@@ -4024,12 +7500,37 @@ Rcpp::NumericVector run_super_resolution_cpp(
         OrtValue* out_val = NULL;
         OrtStatus* st = ort->Run(session, run_options, in_names.data(), (const OrtValue* const*)&in_val, 1, out_names.data(), 1, &out_val);
         if (st == NULL) {
+          OrtTensorTypeAndShapeInfo* shape_info = NULL;
+          (void)ort->GetTensorTypeAndShape(out_val, &shape_info);
+          size_t num_dims = 0;
+          (void)ort->GetDimensionsCount(shape_info, &num_dims);
+          std::vector<int64_t> out_dims(num_dims);
+          (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+          ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+          int pad_out_h = (int)out_dims[num_dims - 2];
+          int pad_out_w = (int)out_dims[num_dims - 1];
+          int actual_scale = pad_out_h / pad_h;
+          if (actual_scale <= 0) actual_scale = scale;
+
+          if (!scale_checked) {
+            scale_checked = true;
+            if (actual_scale != scale) {
+              scale = actual_scale;
+              out_w = in_w * scale;
+              out_h = in_h * scale;
+              out_plane = (size_t)out_h * out_w;
+              full_out.assign(3 * out_plane, 0.0f);
+              weight_map.assign(out_plane, 0.0f);
+            }
+          }
+
           float* out_f = NULL;
           (void)ort->GetTensorMutableData(out_val, (void**)&out_f);
 
           int cur_out_w = cur_w * scale;
           int cur_out_h = cur_h * scale;
-          size_t cur_out_plane = (size_t)cur_out_w * cur_out_h;
+          size_t cur_pad_out_plane = (size_t)pad_out_w * pad_out_h;
 
           int dst_x1 = x1 * scale;
           int dst_y1 = y1 * scale;
@@ -4056,17 +7557,21 @@ Rcpp::NumericVector run_super_resolution_cpp(
               if (w <= 0.0f) w = 1e-4f;
 
               size_t dst_idx = (size_t)gy * out_w + gx;
-              size_t src_idx = (size_t)py * cur_out_w + px;
+              size_t src_idx = (size_t)py * pad_out_w + px;
 
               weight_map[dst_idx] += w;
               for (int c = 0; c < 3; ++c) {
-                full_out[(size_t)c * out_plane + dst_idx] += w * out_f[(size_t)c * cur_out_plane + src_idx];
+                full_out[(size_t)c * out_plane + dst_idx] += w * out_f[(size_t)c * cur_pad_out_plane + src_idx];
               }
             }
           }
           ort->ReleaseValue(out_val);
         } else {
+          std::string msg = ort->GetErrorMessage(st);
           ort->ReleaseStatus(st);
+          ort->ReleaseValue(in_val);
+          ort->ReleaseRunOptions(run_options);
+          Rcpp::stop("Super resolution tile run failed: " + msg);
         }
         ort->ReleaseValue(in_val);
       }
@@ -4302,7 +7807,7 @@ Rcpp::NumericVector preprocess_yolo_cpp(
       const Rbyte* row1 = raw_ptr + (size_t)y1_idx * row_stride;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -4340,7 +7845,7 @@ Rcpp::NumericVector preprocess_yolo_cpp(
       size_t dst_base = (size_t)dst_y * target_size + x1;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -4381,7 +7886,7 @@ Rcpp::NumericVector preprocess_yolo_cpp(
       size_t dst_base = (size_t)dst_y * target_size + x1;
 
       for (int x = 0; x < new_w; ++x) {
-        const HorizWeight& w = hw[x];
+        const auto& w = hw[x];
         float w00 = w.dx0 * dy0;
         float w10 = w.dx1 * dy0;
         float w01 = w.dx0 * dy1;
@@ -4412,8 +7917,1217 @@ Rcpp::NumericVector preprocess_yolo_cpp(
   out_tensor.attr("pad_y") = pad_y;
   out_tensor.attr("orig_w") = orig_w;
   out_tensor.attr("orig_h") = orig_h;
+  out_tensor.attr("target_size") = target_size;
 
   return out_tensor;
 }
+
+#include <fstream>
+
+// ==============================================================================
+// 3D POINT CLOUD BACK-PROJECTION & SURFACE NORMALS
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::DataFrame generate_pointcloud_cpp(
+    Rcpp::NumericMatrix depth_mat,
+    Rcpp::NumericMatrix r_mat,
+    Rcpp::NumericMatrix g_mat,
+    Rcpp::NumericMatrix b_mat,
+    Rcpp::Nullable<Rcpp::NumericMatrix> mask_mat = R_NilValue,
+    double fov_deg = 60.0,
+    int subsample = 1,
+    bool invert_depth = true,
+    double z_min = 0.0,
+    double z_max = 1000.0,
+    bool estimate_normals = true
+) {
+  int w = depth_mat.nrow();
+  int h = depth_mat.ncol();
+  bool has_mask = mask_mat.isNotNull();
+  Rcpp::NumericMatrix mask;
+  if (has_mask) {
+    mask = Rcpp::as<Rcpp::NumericMatrix>(mask_mat);
+  }
+
+  int step = std::max(1, subsample);
+  double cx = (double)w / 2.0;
+  double cy = (double)h / 2.0;
+  #ifndef M_PI
+  #define M_PI 3.14159265358979323846
+  #endif
+  double fov_rad = fov_deg * M_PI / 180.0;
+  double f = ((double)std::max(w, h) / 2.0) / std::tan(fov_rad / 2.0);
+
+  std::vector<double> out_x, out_y, out_z, out_r, out_g, out_b;
+  std::vector<double> out_nx, out_ny, out_nz, out_angle;
+  std::vector<int> out_u, out_v;
+
+  size_t est_pts = (size_t)(w / step) * (size_t)(h / step);
+  out_x.reserve(est_pts);
+  out_y.reserve(est_pts);
+  out_z.reserve(est_pts);
+  out_r.reserve(est_pts);
+  out_g.reserve(est_pts);
+  out_b.reserve(est_pts);
+  if (estimate_normals) {
+    out_nx.reserve(est_pts);
+    out_ny.reserve(est_pts);
+    out_nz.reserve(est_pts);
+    out_angle.reserve(est_pts);
+  }
+  out_u.reserve(est_pts);
+  out_v.reserve(est_pts);
+
+  for (int y = 0; y < h; y += step) {
+    for (int x = 0; x < w; x += step) {
+      if (has_mask && mask(x, y) <= 0.5) {
+        continue;
+      }
+      double d = depth_mat(x, y);
+      if (std::isnan(d) || std::isinf(d)) continue;
+
+      double Z = invert_depth ? (1.0 / std::max(d, 1e-4)) : d;
+      if (Z < z_min || Z > z_max) continue;
+
+      double X = ((double)x + 0.5 - cx) * Z / f;
+      double Y = ((double)y + 0.5 - cy) * Z / f;
+
+      double R_val = std::max(0.0, std::min(1.0, (double)r_mat(x, y)));
+      double G_val = std::max(0.0, std::min(1.0, (double)g_mat(x, y)));
+      double B_val = std::max(0.0, std::min(1.0, (double)b_mat(x, y)));
+
+      out_x.push_back(X);
+      out_y.push_back(Y);
+      out_z.push_back(Z);
+      out_r.push_back(R_val);
+      out_g.push_back(G_val);
+      out_b.push_back(B_val);
+      out_u.push_back(x + 1);
+      out_v.push_back(y + 1);
+
+      if (estimate_normals) {
+        int xl = std::max(0, x - 1);
+        int xr = std::min(w - 1, x + 1);
+        int yu = std::max(0, y - 1);
+        int yd = std::min(h - 1, y + 1);
+
+        double dl = depth_mat(xl, y);
+        double dr = depth_mat(xr, y);
+        double du = depth_mat(x, yu);
+        double dd = depth_mat(x, yd);
+
+        double zl = invert_depth ? (1.0 / std::max(dl, 1e-4)) : dl;
+        double zr = invert_depth ? (1.0 / std::max(dr, 1e-4)) : dr;
+        double zu = invert_depth ? (1.0 / std::max(du, 1e-4)) : du;
+        double zd = invert_depth ? (1.0 / std::max(dd, 1e-4)) : dd;
+
+        double Xr = ((double)xr + 0.5 - cx) * zr / f;
+        double Yr = ((double)y  + 0.5 - cy) * zr / f;
+        double Xl = ((double)xl + 0.5 - cx) * zl / f;
+        double Yl = ((double)y  + 0.5 - cy) * zl / f;
+        double Tux = Xr - Xl;
+        double Tuy = Yr - Yl;
+        double Tuz = zr - zl;
+
+        double Xd = ((double)x + 0.5 - cx) * zd / f;
+        double Yd = ((double)yd + 0.5 - cy) * zd / f;
+        double Xu = ((double)x + 0.5 - cx) * zu / f;
+        double Yu = ((double)yu + 0.5 - cy) * zu / f;
+        double Tvx = Xd - Xu;
+        double Tvy = Yd - Yu;
+        double Tvz = zd - zu;
+
+        double Nx = Tuy * Tvz - Tuz * Tvy;
+        double Ny = Tuz * Tvx - Tux * Tvz;
+        double Nz = Tux * Tvy - Tuy * Tvx;
+        double L = std::sqrt(Nx * Nx + Ny * Ny + Nz * Nz);
+
+        double nx = 0.0, ny = 0.0, nz = -1.0;
+        double angle = 0.0;
+        if (L > 1e-7) {
+          nx = Nx / L;
+          ny = Ny / L;
+          nz = Nz / L;
+          if (nz > 0.0) {
+            nx = -nx;
+            ny = -ny;
+            nz = -nz;
+          }
+          double cos_val = std::abs(nz);
+          if (cos_val > 1.0) cos_val = 1.0;
+          angle = std::acos(cos_val) * 180.0 / M_PI;
+        }
+        out_nx.push_back(nx);
+        out_ny.push_back(ny);
+        out_nz.push_back(nz);
+        out_angle.push_back(angle);
+      }
+    }
+  }
+
+  if (estimate_normals) {
+    return Rcpp::DataFrame::create(
+      Rcpp::Named("x") = out_x,
+      Rcpp::Named("y") = out_y,
+      Rcpp::Named("z") = out_z,
+      Rcpp::Named("r") = out_r,
+      Rcpp::Named("g") = out_g,
+      Rcpp::Named("b") = out_b,
+      Rcpp::Named("nx") = out_nx,
+      Rcpp::Named("ny") = out_ny,
+      Rcpp::Named("nz") = out_nz,
+      Rcpp::Named("angle") = out_angle,
+      Rcpp::Named("u") = out_u,
+      Rcpp::Named("v") = out_v,
+      Rcpp::Named("stringsAsFactors") = false
+    );
+  } else {
+    return Rcpp::DataFrame::create(
+      Rcpp::Named("x") = out_x,
+      Rcpp::Named("y") = out_y,
+      Rcpp::Named("z") = out_z,
+      Rcpp::Named("r") = out_r,
+      Rcpp::Named("g") = out_g,
+      Rcpp::Named("b") = out_b,
+      Rcpp::Named("u") = out_u,
+      Rcpp::Named("v") = out_v,
+      Rcpp::Named("stringsAsFactors") = false
+    );
+  }
+}
+
+// [[Rcpp::export]]
+bool export_ply_cpp(
+    std::string file_path,
+    Rcpp::NumericVector x,
+    Rcpp::NumericVector y,
+    Rcpp::NumericVector z,
+    Rcpp::NumericVector r,
+    Rcpp::NumericVector g,
+    Rcpp::NumericVector b,
+    Rcpp::Nullable<Rcpp::NumericVector> nx = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> ny = R_NilValue,
+    Rcpp::Nullable<Rcpp::NumericVector> nz = R_NilValue,
+    bool binary = true
+) {
+  size_t n = (size_t)x.size();
+  bool has_normals = nx.isNotNull() && ny.isNotNull() && nz.isNotNull();
+  Rcpp::NumericVector n_x, n_y, n_z;
+  if (has_normals) {
+    n_x = Rcpp::as<Rcpp::NumericVector>(nx);
+    n_y = Rcpp::as<Rcpp::NumericVector>(ny);
+    n_z = Rcpp::as<Rcpp::NumericVector>(nz);
+  }
+
+  std::ofstream out;
+  if (binary) {
+    out.open(file_path.c_str(), std::ios::out | std::ios::binary);
+  } else {
+    out.open(file_path.c_str(), std::ios::out);
+  }
+  if (!out.is_open()) return false;
+
+  out << "ply\n";
+  if (binary) {
+    out << "format binary_little_endian 1.0\n";
+  } else {
+    out << "format ascii 1.0\n";
+  }
+  out << "comment Exported by pliman (Plant Image Analysis)\n";
+  out << "element vertex " << n << "\n";
+  out << "property float x\n";
+  out << "property float y\n";
+  out << "property float z\n";
+  out << "property uchar red\n";
+  out << "property uchar green\n";
+  out << "property uchar blue\n";
+  if (has_normals) {
+    out << "property float nx\n";
+    out << "property float ny\n";
+    out << "property float nz\n";
+  }
+  out << "end_header\n";
+
+  if (binary) {
+    for (size_t i = 0; i < n; ++i) {
+      float px = (float)x[i];
+      float py = (float)y[i];
+      float pz = (float)z[i];
+      uint8_t cr = (uint8_t)std::max(0, std::min(255, (int)std::round(r[i] * 255.0)));
+      uint8_t cg = (uint8_t)std::max(0, std::min(255, (int)std::round(g[i] * 255.0)));
+      uint8_t cb = (uint8_t)std::max(0, std::min(255, (int)std::round(b[i] * 255.0)));
+      out.write(reinterpret_cast<const char*>(&px), sizeof(float));
+      out.write(reinterpret_cast<const char*>(&py), sizeof(float));
+      out.write(reinterpret_cast<const char*>(&pz), sizeof(float));
+      out.write(reinterpret_cast<const char*>(&cr), sizeof(uint8_t));
+      out.write(reinterpret_cast<const char*>(&cg), sizeof(uint8_t));
+      out.write(reinterpret_cast<const char*>(&cb), sizeof(uint8_t));
+      if (has_normals) {
+        float pnx = (float)n_x[i];
+        float pny = (float)n_y[i];
+        float pnz = (float)n_z[i];
+        out.write(reinterpret_cast<const char*>(&pnx), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&pny), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&pnz), sizeof(float));
+      }
+    }
+  } else {
+    for (size_t i = 0; i < n; ++i) {
+      int cr = std::max(0, std::min(255, (int)std::round(r[i] * 255.0)));
+      int cg = std::max(0, std::min(255, (int)std::round(g[i] * 255.0)));
+      int cb = std::max(0, std::min(255, (int)std::round(b[i] * 255.0)));
+      out << x[i] << " " << y[i] << " " << z[i] << " "
+          << cr << " " << cg << " " << cb;
+      if (has_normals) {
+        out << " " << n_x[i] << " " << n_y[i] << " " << n_z[i];
+      }
+      out << "\n";
+    }
+  }
+  out.close();
+  return true;
+}
+
+// ==============================================================================
+// IMAGE RESTORATION (ZERO-DCE, NAFNET, RESTORMER)
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::NumericVector run_image_restore_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1,
+    int tile_size = 0,
+    int tile_pad = 16
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  size_t plane = (size_t)in_w * in_h;
+  size_t total_floats = 3 * plane;
+
+  if (tile_size <= 0 || (in_w <= tile_size && in_h <= tile_size)) {
+    int pad_w = (in_w % 32 == 0) ? in_w : (((in_w / 32) + 1) * 32);
+    int pad_h = (in_h % 32 == 0) ? in_h : (((in_h / 32) + 1) * 32);
+    size_t pad_plane = (size_t)pad_w * pad_h;
+    size_t pad_floats = 3 * pad_plane;
+
+    std::vector<float> in_vals(pad_floats, 0.0f);
+    for (int c = 0; c < 3; ++c) {
+      size_t c_src = (size_t)c * plane;
+      size_t c_dst = (size_t)c * pad_plane;
+      for (int y = 0; y < in_h; ++y) {
+        for (int x = 0; x < in_w; ++x) {
+          in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+        }
+        for (int x = in_w; x < pad_w; ++x) {
+          in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + (in_w - 1)];
+        }
+      }
+      for (int y = in_h; y < pad_h; ++y) {
+        for (int x = 0; x < pad_w; ++x) {
+          in_vals[c_dst + (size_t)y * pad_w + x] = in_vals[c_dst + (size_t)(in_h - 1) * pad_w + x];
+        }
+      }
+    }
+
+    int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+    OrtValue* in_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_vals.data(), pad_floats * sizeof(float),
+      in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+    );
+
+    OrtRunOptions* run_options = NULL;
+    (void)ort->CreateRunOptions(&run_options);
+    (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+    OrtValue* out_tensor = NULL;
+    OrtStatus* status = ort->Run(
+      session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+      1, out_names.data(), 1, &out_tensor
+    );
+    ort->ReleaseRunOptions(run_options);
+    ort->ReleaseValue(in_tensor);
+
+    if (status != NULL) {
+      std::string msg = ort->GetErrorMessage(status);
+      ort->ReleaseStatus(status);
+      Rcpp::stop("Image restoration inference failed: " + msg);
+    }
+
+    float* out_data = NULL;
+    (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+    Rcpp::NumericVector result(total_floats);
+    for (int c = 0; c < 3; ++c) {
+      size_t c_src = (size_t)c * pad_plane;
+      size_t c_dst = (size_t)c * plane;
+      for (int y = 0; y < in_h; ++y) {
+        for (int x = 0; x < in_w; ++x) {
+          float v = out_data[c_src + (size_t)y * pad_w + x];
+          if (v < 0.0f) v = 0.0f;
+          if (v > 1.0f) v = 1.0f;
+          result[c_dst + (size_t)y * in_w + x] = (double)v;
+        }
+      }
+    }
+    ort->ReleaseValue(out_tensor);
+    return result;
+  }
+
+  int step = tile_size - 2 * tile_pad;
+  if (step < 16) step = 16;
+  std::vector<float> full_out(total_floats, 0.0f);
+  std::vector<float> weight_map(plane, 0.0f);
+
+  for (int y = 0; y < in_h; y += step) {
+    for (int x = 0; x < in_w; x += step) {
+      int x1 = std::max(0, x - tile_pad);
+      int y1 = std::max(0, y - tile_pad);
+      int x2 = std::min(in_w, x + step + tile_pad);
+      int y2 = std::min(in_h, y + step + tile_pad);
+      int tw = x2 - x1;
+      int th = y2 - y1;
+
+      int pad_tw = (tw % 32 == 0) ? tw : (((tw / 32) + 1) * 32);
+      int pad_th = (th % 32 == 0) ? th : (((th / 32) + 1) * 32);
+      size_t pad_tile_plane = (size_t)pad_tw * pad_th;
+
+      std::vector<float> tile_in(3 * pad_tile_plane, 0.0f);
+      for (int c = 0; c < 3; ++c) {
+        size_t c_src = (size_t)c * plane;
+        size_t c_dst = (size_t)c * pad_tile_plane;
+        for (int ty = 0; ty < th; ++ty) {
+          for (int tx = 0; tx < tw; ++tx) {
+            tile_in[c_dst + (size_t)ty * pad_tw + tx] = (float)tensor_vec[c_src + (size_t)(y1 + ty) * in_w + (x1 + tx)];
+          }
+          for (int tx = tw; tx < pad_tw; ++tx) {
+            tile_in[c_dst + (size_t)ty * pad_tw + tx] = (float)tensor_vec[c_src + (size_t)(y1 + ty) * in_w + (x1 + tw - 1)];
+          }
+        }
+        for (int ty = th; ty < pad_th; ++ty) {
+          for (int tx = 0; tx < pad_tw; ++tx) {
+            tile_in[c_dst + (size_t)ty * pad_tw + tx] = tile_in[c_dst + (size_t)(th - 1) * pad_tw + tx];
+          }
+        }
+      }
+
+      int64_t tile_shape[4] = {1, 3, pad_th, pad_tw};
+      OrtValue* in_tensor = NULL;
+      (void)ort->CreateTensorWithDataAsOrtValue(
+        memory_info, tile_in.data(), 3 * pad_tile_plane * sizeof(float),
+        tile_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+      );
+
+      OrtRunOptions* run_options = NULL;
+      (void)ort->CreateRunOptions(&run_options);
+      (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+      OrtValue* out_tensor = NULL;
+      OrtStatus* status = ort->Run(
+        session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+        1, out_names.data(), 1, &out_tensor
+      );
+      ort->ReleaseRunOptions(run_options);
+      ort->ReleaseValue(in_tensor);
+
+      if (status != NULL) {
+        ort->ReleaseStatus(status);
+        continue;
+      }
+
+      float* out_data = NULL;
+      (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+      for (int ty = 0; ty < th; ++ty) {
+        float wy = 1.0f;
+        if (tile_pad > 0) {
+          if (ty < tile_pad && y1 > 0) wy = (float)ty / (float)tile_pad;
+          if (ty >= th - tile_pad && y2 < in_h) wy = (float)(th - 1 - ty) / (float)tile_pad;
+        }
+        for (int tx = 0; tx < tw; ++tx) {
+          float wx = 1.0f;
+          if (tile_pad > 0) {
+            if (tx < tile_pad && x1 > 0) wx = (float)tx / (float)tile_pad;
+            if (tx >= tw - tile_pad && x2 < in_w) wx = (float)(tw - 1 - tx) / (float)tile_pad;
+          }
+          float w = wx * wy;
+          if (w <= 0.0f) w = 1e-4f;
+
+          int gy = y1 + ty;
+          int gx = x1 + tx;
+          size_t g_idx = (size_t)gy * in_w + gx;
+          size_t t_idx = (size_t)ty * pad_tw + tx;
+
+          weight_map[g_idx] += w;
+          for (int c = 0; c < 3; ++c) {
+            full_out[(size_t)c * plane + g_idx] += w * out_data[(size_t)c * pad_tile_plane + t_idx];
+          }
+        }
+      }
+      ort->ReleaseValue(out_tensor);
+    }
+  }
+
+  Rcpp::NumericVector result(total_floats);
+  for (size_t i = 0; i < plane; ++i) {
+    float inv_w = (weight_map[i] > 1e-6f) ? (1.0f / weight_map[i]) : 1.0f;
+    for (int c = 0; c < 3; ++c) {
+      size_t idx = (size_t)c * plane + i;
+      float v = full_out[idx] * inv_w;
+      if (v < 0.0f) v = 0.0f;
+      if (v > 1.0f) v = 1.0f;
+      result[idx] = (double)v;
+    }
+  }
+  return result;
+}
+
+// ==============================================================================
+// DENSITY ESTIMATION & COUNTING (CSRNET / DM-COUNT)
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::NumericMatrix run_density_map_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int pad_w = (in_w % 8 == 0) ? in_w : (((in_w / 8) + 1) * 8);
+  int pad_h = (in_h % 8 == 0) ? in_h : (((in_h / 8) + 1) * 8);
+  size_t pad_plane = (size_t)pad_w * pad_h;
+  size_t total_floats = 3 * pad_plane;
+  size_t plane_src = (size_t)in_w * in_h;
+
+  std::vector<float> in_vals(total_floats, 0.0f);
+  for (int c = 0; c < 3; ++c) {
+    size_t c_src = (size_t)c * plane_src;
+    size_t c_dst = (size_t)c * pad_plane;
+    for (int y = 0; y < in_h; ++y) {
+      for (int x = 0; x < in_w; ++x) {
+        in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+      }
+    }
+  }
+
+  int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("Density map inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+
+  int out_h = (int)out_dims[num_dims - 2];
+  int out_w = (int)out_dims[num_dims - 1];
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix density(out_w, out_h);
+  for (int y = 0; y < out_h; ++y) {
+    for (int x = 0; x < out_w; ++x) {
+      float v = out_data[(size_t)y * out_w + x];
+      density(x, y) = (double)(v > 0.0f ? v : 0.0f);
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return density;
+}
+
+// ==============================================================================
+// FIELD OCR (DBNET TEXT DETECTOR & CRNN/SVTR RECOGNIZER)
+// ==============================================================================
+
+// [[Rcpp::export]]
+Rcpp::NumericMatrix run_ocr_det_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int pad_w = (in_w % 32 == 0) ? in_w : (((in_w / 32) + 1) * 32);
+  int pad_h = (in_h % 32 == 0) ? in_h : (((in_h / 32) + 1) * 32);
+  size_t pad_plane = (size_t)pad_w * pad_h;
+  size_t total_floats = 3 * pad_plane;
+  size_t plane_src = (size_t)in_w * in_h;
+
+  std::vector<float> in_vals(total_floats, 0.0f);
+  for (int c = 0; c < 3; ++c) {
+    size_t c_src = (size_t)c * plane_src;
+    size_t c_dst = (size_t)c * pad_plane;
+    for (int y = 0; y < in_h; ++y) {
+      for (int x = 0; x < in_w; ++x) {
+        in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+      }
+    }
+  }
+
+  int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("OCR text detection inference failed: " + msg);
+  }
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix prob_map(in_w, in_h);
+  for (int y = 0; y < in_h; ++y) {
+    for (int x = 0; x < in_w; ++x) {
+      float v = out_data[(size_t)y * pad_w + x];
+      prob_map(x, y) = (double)v;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return prob_map;
+}
+
+// [[Rcpp::export]]
+Rcpp::List run_craft_det_cpp(
+    Rcpp::NumericVector tensor_vec,
+    int in_w,
+    int in_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  int pad_w = (in_w % 32 == 0) ? in_w : (((in_w / 32) + 1) * 32);
+  int pad_h = (in_h % 32 == 0) ? in_h : (((in_h / 32) + 1) * 32);
+  size_t pad_plane = (size_t)pad_w * pad_h;
+  size_t total_floats = 3 * pad_plane;
+  size_t plane_src = (size_t)in_w * in_h;
+
+  std::vector<float> in_vals(total_floats, 0.0f);
+  for (int c = 0; c < 3; ++c) {
+    size_t c_src = (size_t)c * plane_src;
+    size_t c_dst = (size_t)c * pad_plane;
+    for (int y = 0; y < in_h; ++y) {
+      for (int x = 0; x < in_w; ++x) {
+        in_vals[c_dst + (size_t)y * pad_w + x] = (float)tensor_vec[c_src + (size_t)y * in_w + x];
+      }
+    }
+  }
+
+  int64_t in_shape[4] = {1, 3, pad_h, pad_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("CRAFT text detection inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+
+  int out_h = pad_h / 2;
+  int out_w = pad_w / 2;
+  bool is_nhwc = true;
+  if (num_dims == 4) {
+    if (out_dims[3] == 2) {
+      is_nhwc = true;
+      out_h = (int)out_dims[1];
+      out_w = (int)out_dims[2];
+    } else if (out_dims[1] == 2) {
+      is_nhwc = false;
+      out_h = (int)out_dims[2];
+      out_w = (int)out_dims[3];
+    }
+  }
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix text_map(in_w, in_h);
+  Rcpp::NumericMatrix link_map(in_w, in_h);
+
+  auto get_val = [&](int c, int px, int py) -> float {
+    if (px < 0) px = 0;
+    if (px >= out_w) px = out_w - 1;
+    if (py < 0) py = 0;
+    if (py >= out_h) py = out_h - 1;
+    if (is_nhwc) {
+      return out_data[((size_t)py * out_w + px) * 2 + c];
+    } else {
+      return out_data[(size_t)c * ((size_t)out_h * out_w) + (size_t)py * out_w + px];
+    }
+  };
+
+  for (int y = 0; y < in_h; ++y) {
+    float oy = (float)y * (float)out_h / (float)pad_h;
+    int y0 = (int)std::floor(oy);
+    int y1 = std::min(y0 + 1, out_h - 1);
+    float wy = oy - (float)y0;
+
+    for (int x = 0; x < in_w; ++x) {
+      float ox = (float)x * (float)out_w / (float)pad_w;
+      int x0 = (int)std::floor(ox);
+      int x1 = std::min(x0 + 1, out_w - 1);
+      float wx = ox - (float)x0;
+
+      // Bilinear interpolation for text (c=0)
+      float t00 = get_val(0, x0, y0);
+      float t10 = get_val(0, x1, y0);
+      float t01 = get_val(0, x0, y1);
+      float t11 = get_val(0, x1, y1);
+      float vt = (1.0f - wx) * (1.0f - wy) * t00 +
+                 wx * (1.0f - wy) * t10 +
+                 (1.0f - wx) * wy * t01 +
+                 wx * wy * t11;
+      text_map(x, y) = (double)vt;
+
+      // Bilinear interpolation for link (c=1)
+      float l00 = get_val(1, x0, y0);
+      float l10 = get_val(1, x1, y0);
+      float l01 = get_val(1, x0, y1);
+      float l11 = get_val(1, x1, y1);
+      float vl = (1.0f - wx) * (1.0f - wy) * l00 +
+                 wx * (1.0f - wy) * l10 +
+                 (1.0f - wx) * wy * l01 +
+                 wx * wy * l11;
+      link_map(x, y) = (double)vl;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+
+  return Rcpp::List::create(
+    Rcpp::Named("score_text") = text_map,
+    Rcpp::Named("score_link") = link_map
+  );
+}
+
+// [[Rcpp::export]]
+Rcpp::List run_ocr_rec_cpp(
+    Rcpp::NumericVector crops_vec,
+    int batch_size,
+    int crop_w,
+    int crop_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1,
+    Rcpp::Nullable<Rcpp::IntegerVector> allowed_ids = R_NilValue
+) {
+  if (batch_size <= 0) return Rcpp::List::create();
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  size_t total_floats = (size_t)batch_size * 3 * crop_h * crop_w;
+  std::vector<float> in_vals;
+  sexp_to_float(crops_vec, in_vals, total_floats);
+
+  int64_t in_shape[4] = {batch_size, 3, crop_h, crop_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("OCR text recognition inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+
+  int T = (int)out_dims[1];
+  int C = (int)out_dims[2];
+
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::List results(batch_size);
+
+  // Optional character allow-list (class indices; the CTC blank 0 is always allowed).
+  std::vector<char> allow_mask;
+  bool use_mask = false;
+  if (allowed_ids.isNotNull()) {
+    Rcpp::IntegerVector ai(allowed_ids.get());
+    allow_mask.assign(C, 0);
+    allow_mask[0] = 1;
+    for (int i = 0; i < ai.size(); ++i) {
+      if (ai[i] > 0 && ai[i] < C) allow_mask[ai[i]] = 1;
+    }
+    use_mask = true;
+  }
+
+  for (int b = 0; b < batch_size; ++b) {
+    size_t b_off = (size_t)b * T * C;
+    std::vector<int> char_ids;
+    std::vector<double> char_probs;
+    int prev_c = -1;
+
+    for (int t = 0; t < T; ++t) {
+      size_t t_off = b_off + (size_t)t * C;
+      int max_c = 0;
+      float max_val = out_data[t_off];
+      for (int c = 1; c < C; ++c) {
+        if (use_mask && !allow_mask[c]) continue;
+        float val = out_data[t_off + c];
+        if (val > max_val) {
+          max_val = val;
+          max_c = c;
+        }
+      }
+
+      float sum_val = 0.0f, sum_allowed = 0.0f;
+      for (int c = 0; c < C; ++c) {
+        float val = out_data[t_off + c];
+        sum_val += val;
+        if (!use_mask || allow_mask[c]) sum_allowed += val;
+      }
+      float prob = 0.0f;
+      if (std::abs(sum_val - 1.0f) < 0.1f) {
+        // Softmax outputs; with an allow-list, renormalise over the allowed classes.
+        prob = use_mask ? ((sum_allowed > 0.0f) ? (max_val / sum_allowed) : 0.0f) : max_val;
+      } else {
+        float sum_exp = 0.0f;
+        for (int c = 0; c < C; ++c) {
+          if (use_mask && !allow_mask[c]) continue;
+          sum_exp += std::exp(out_data[t_off + c] - max_val);
+        }
+        prob = (sum_exp > 0.0f) ? (1.0f / sum_exp) : 0.0f;
+      }
+
+      if (max_c != 0 && max_c != prev_c) {
+        char_ids.push_back(max_c);
+        char_probs.push_back((double)prob);
+      }
+      prev_c = max_c;
+    }
+
+    double mean_score = 0.0;
+    if (!char_probs.empty()) {
+      double sum_p = 0.0;
+      for (double p : char_probs) sum_p += p;
+      mean_score = sum_p / (double)char_probs.size();
+    }
+
+    results[b] = Rcpp::List::create(
+      Rcpp::Named("char_ids") = char_ids,
+      Rcpp::Named("char_probs") = char_probs,
+      Rcpp::Named("score") = mean_score
+    );
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return results;
+}
+
+// Batched image classifier for OCR helpers (e.g. PP-LCNet text-line orientation).
+// Input: NCHW tensor of `batch_size` crops of crop_h x crop_w. Output: batch_size x K
+// matrix of class probabilities (softmax applied when the model returns logits).
+// [[Rcpp::export]]
+Rcpp::NumericMatrix run_ocr_cls_cpp(
+    Rcpp::NumericVector crops_vec,
+    int batch_size,
+    int crop_w,
+    int crop_h,
+    std::string model_path,
+    std::string lib_path,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  if (batch_size <= 0) return Rcpp::NumericMatrix(0, 0);
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs = get_or_create_cached_session(ort, model_path, num_threads, use_gpu, device_id);
+  OrtSession* session = cs.session;
+  OrtMemoryInfo* memory_info = cs.mem_info;
+
+  std::vector<std::string> in_names_str, out_names_str;
+  std::vector<const char*> in_names, out_names;
+  get_session_io_names(ort, session, in_names_str, in_names, out_names_str, out_names);
+
+  size_t total_floats = (size_t)batch_size * 3 * crop_h * crop_w;
+  std::vector<float> in_vals;
+  sexp_to_float(crops_vec, in_vals, total_floats);
+
+  int64_t in_shape[4] = {batch_size, 3, crop_h, crop_w};
+  OrtValue* in_tensor = NULL;
+  (void)ort->CreateTensorWithDataAsOrtValue(
+    memory_info, in_vals.data(), total_floats * sizeof(float),
+    in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in_tensor
+  );
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  OrtValue* out_tensor = NULL;
+  OrtStatus* status = ort->Run(
+    session, run_options, in_names.data(), (const OrtValue* const*)&in_tensor,
+    1, out_names.data(), 1, &out_tensor
+  );
+  ort->ReleaseRunOptions(run_options);
+  ort->ReleaseValue(in_tensor);
+
+  if (status != NULL) {
+    std::string msg = ort->GetErrorMessage(status);
+    ort->ReleaseStatus(status);
+    Rcpp::stop("OCR classifier inference failed: " + msg);
+  }
+
+  OrtTensorTypeAndShapeInfo* shape_info = NULL;
+  (void)ort->GetTensorTypeAndShape(out_tensor, &shape_info);
+  size_t num_dims = 0;
+  (void)ort->GetDimensionsCount(shape_info, &num_dims);
+  std::vector<int64_t> out_dims(num_dims);
+  (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+  ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+  int K = (int)out_dims[num_dims - 1];
+  float* out_data = NULL;
+  (void)ort->GetTensorMutableData(out_tensor, (void**)&out_data);
+
+  Rcpp::NumericMatrix probs(batch_size, K);
+  for (int b = 0; b < batch_size; ++b) {
+    const float* row = out_data + (size_t)b * K;
+    float sum_val = 0.0f, max_val = row[0];
+    bool nonneg = true;
+    for (int k = 0; k < K; ++k) {
+      sum_val += row[k];
+      if (row[k] > max_val) max_val = row[k];
+      if (row[k] < 0.0f) nonneg = false;
+    }
+    if (nonneg && std::abs(sum_val - 1.0f) < 0.05f) {
+      for (int k = 0; k < K; ++k) probs(b, k) = row[k];
+    } else {
+      double se = 0.0;
+      for (int k = 0; k < K; ++k) se += std::exp((double)row[k] - max_val);
+      for (int k = 0; k < K; ++k) probs(b, k) = std::exp((double)row[k] - max_val) / se;
+    }
+  }
+
+  ort->ReleaseValue(out_tensor);
+  return probs;
+}
+
+// [[Rcpp::export]]
+Rcpp::List run_trocr_rec_cpp(
+    Rcpp::NumericVector crops_vec,
+    int batch_size,
+    std::string encoder_path,
+    std::string decoder_path,
+    std::string lib_path,
+    int max_length = 32,
+    int num_threads = 0,
+    bool use_gpu = false,
+    int device_id = -1
+) {
+  if (batch_size <= 0) return Rcpp::List::create();
+
+  const OrtApi* ort = get_ort_api(lib_path);
+  CachedSession cs_enc = get_or_create_cached_session(ort, encoder_path, num_threads, use_gpu, device_id);
+  CachedSession cs_dec = get_or_create_cached_session(ort, decoder_path, num_threads, use_gpu, device_id);
+  OrtSession* session_enc = cs_enc.session;
+  OrtSession* session_dec = cs_dec.session;
+  OrtMemoryInfo* memory_info = cs_enc.mem_info;
+
+  OrtRunOptions* run_options = NULL;
+  (void)ort->CreateRunOptions(&run_options);
+  (void)ort->RunOptionsSetRunLogSeverityLevel(run_options, ORT_LOGGING_LEVEL_ERROR);
+
+  size_t floats_per_crop = (size_t)3 * 384 * 384;
+  Rcpp::List results(batch_size);
+
+  const char* enc_in_names[] = {"pixel_values"};
+  const char* enc_out_names[] = {"last_hidden_state"};
+  const char* dec_in_names[] = {"input_ids", "encoder_hidden_states"};
+  const char* dec_out_names[] = {"logits"};
+
+  int64_t enc_in_shape[4] = {1, 3, 384, 384};
+
+  for (int b = 0; b < batch_size; ++b) {
+    size_t b_off = (size_t)b * floats_per_crop;
+    std::vector<float> in_vals(floats_per_crop);
+    for (size_t i = 0; i < floats_per_crop; ++i) {
+      in_vals[i] = (float)crops_vec[b_off + i];
+    }
+
+    OrtValue* enc_in_tensor = NULL;
+    (void)ort->CreateTensorWithDataAsOrtValue(
+      memory_info, in_vals.data(), floats_per_crop * sizeof(float),
+      enc_in_shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &enc_in_tensor
+    );
+
+    OrtValue* enc_out_tensor = NULL;
+    OrtStatus* st_enc = ort->Run(
+      session_enc, run_options, enc_in_names, (const OrtValue* const*)&enc_in_tensor,
+      1, enc_out_names, 1, &enc_out_tensor
+    );
+    ort->ReleaseValue(enc_in_tensor);
+
+    if (st_enc != NULL) {
+      std::string msg = ort->GetErrorMessage(st_enc);
+      ort->ReleaseStatus(st_enc);
+      ort->ReleaseRunOptions(run_options);
+      Rcpp::stop("TrOCR encoder inference failed: " + msg);
+    }
+
+    // Autoregressive token generation loop
+    std::vector<int64_t> current_ids = { 2 }; // decoder_start_token_id = 2 (</s>)
+    std::vector<int> generated_tokens;
+    std::vector<double> token_probs;
+
+    for (int step = 0; step < max_length; ++step) {
+      int64_t ids_shape[2] = {1, (int64_t)current_ids.size()};
+      OrtValue* ids_tensor = NULL;
+      (void)ort->CreateTensorWithDataAsOrtValue(
+        memory_info, current_ids.data(), current_ids.size() * sizeof(int64_t),
+        ids_shape, 2, ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, &ids_tensor
+      );
+
+      const OrtValue* dec_in_tensors[2] = {ids_tensor, enc_out_tensor};
+      OrtValue* dec_out_tensor = NULL;
+      OrtStatus* st_dec = ort->Run(
+        session_dec, run_options, dec_in_names, dec_in_tensors,
+        2, dec_out_names, 1, &dec_out_tensor
+      );
+      ort->ReleaseValue(ids_tensor);
+
+      if (st_dec != NULL) {
+        std::string msg = ort->GetErrorMessage(st_dec);
+        ort->ReleaseStatus(st_dec);
+        ort->ReleaseValue(enc_out_tensor);
+        ort->ReleaseRunOptions(run_options);
+        Rcpp::stop("TrOCR decoder inference failed: " + msg);
+      }
+
+      OrtTensorTypeAndShapeInfo* shape_info = NULL;
+      (void)ort->GetTensorTypeAndShape(dec_out_tensor, &shape_info);
+      size_t num_dims = 0;
+      (void)ort->GetDimensionsCount(shape_info, &num_dims);
+      std::vector<int64_t> out_dims(num_dims);
+      (void)ort->GetDimensions(shape_info, out_dims.data(), num_dims);
+      ort->ReleaseTensorTypeAndShapeInfo(shape_info);
+
+      int64_t V = (num_dims >= 3) ? out_dims[2] : 64044;
+      float* logits_data = NULL;
+      (void)ort->GetTensorMutableData(dec_out_tensor, (void**)&logits_data);
+
+      size_t last_offset = ((size_t)current_ids.size() - 1) * (size_t)V;
+
+      int best_id = 0;
+      float best_val = logits_data[last_offset];
+      for (int64_t v = 1; v < V; ++v) {
+        float val = logits_data[last_offset + (size_t)v];
+        if (val > best_val) {
+          best_val = val;
+          best_id = (int)v;
+        }
+      }
+
+      float sum_exp = 0.0f;
+      for (int64_t v = 0; v < V; ++v) {
+        sum_exp += std::exp(logits_data[last_offset + (size_t)v] - best_val);
+      }
+      double prob = (sum_exp > 0.0f) ? (1.0 / (double)sum_exp) : 0.0;
+
+      ort->ReleaseValue(dec_out_tensor);
+
+      // eos_token_id = 2
+      if (best_id == 2) {
+        break;
+      }
+      // bos = 0, pad = 1: append to context for next step, but do not record as visible character
+      if (best_id == 0 || best_id == 1) {
+        current_ids.push_back((int64_t)best_id);
+        continue;
+      }
+
+      current_ids.push_back((int64_t)best_id);
+      generated_tokens.push_back(best_id);
+      token_probs.push_back(prob);
+    }
+
+    ort->ReleaseValue(enc_out_tensor);
+
+    double mean_score = 0.0;
+    if (!token_probs.empty()) {
+      double sum_p = 0.0;
+      for (double p : token_probs) sum_p += p;
+      mean_score = sum_p / (double)token_probs.size();
+    }
+
+    results[b] = Rcpp::List::create(
+      Rcpp::Named("token_ids") = generated_tokens,
+      Rcpp::Named("token_probs") = token_probs,
+      Rcpp::Named("score") = mean_score
+    );
+  }
+
+  ort->ReleaseRunOptions(run_options);
+  return results;
+}
+
+// [[Rcpp::export]]
+void remap_labels_cpp(Rcpp::IntegerMatrix labels, Rcpp::IntegerVector keep_ids) {
+  int N = labels.nrow() * labels.ncol();
+  int* p = INTEGER(labels);
+  int max_keep = 0;
+  for (int i = 0; i < keep_ids.size(); ++i) {
+    if (keep_ids[i] > max_keep) max_keep = keep_ids[i];
+  }
+  std::vector<int> lut(max_keep + 1, 0);
+  for (int i = 0; i < keep_ids.size(); ++i) {
+    int id = keep_ids[i];
+    if (id > 0 && id <= max_keep) lut[id] = i + 1;
+  }
+  #pragma omp parallel for schedule(static) if(N > 50000)
+  for (int i = 0; i < N; ++i) {
+    int id = p[i];
+    if (id > 0) {
+      p[i] = (id <= max_keep) ? lut[id] : 0;
+    }
+  }
+}
+
+
 
 

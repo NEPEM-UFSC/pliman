@@ -216,7 +216,8 @@ numeric value is provided, this value will be used as a threshold.}
 \item{opening, closing, filter, erode, dilate}{\strong{Morphological operations (brush
 size)}, applied in hierarchical order.}
 
-\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.}
+\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.
+Defaults to \code{0.10} (i.e., 10\% of the mean area).}
 
 \item{lower_size, upper_size}{Lower and upper size limits for object filtering.}
 
@@ -301,7 +302,7 @@ This makes the inclusion ambiguous (i.e., an object can be included in more
 than one plot).
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 url <- "https://github.com/TiagoOlivoto/images/raw/master/pliman/rice_field/rice_ex.tif"
 mosaic <- mosaic_input(url)
@@ -317,5 +318,5 @@ res <-
                 map_individuals = TRUE)
 # map with individual results
 res$map_indiv
-}
+\dontshow{\}) # examplesIf}
 }

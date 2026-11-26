@@ -2,7 +2,8 @@
 % Please edit documentation in R/utils_neural.R
 \name{pliman_models_base_url}
 \alias{pliman_models_base_url}
-\title{Get Base URL for Pre-Trained Neural Models}
+\title{Get Base URL for Pre-Trained Neural Models
+Default Base URL for Pre-Trained Neural Models}
 \usage{
 pliman_models_base_url()
 }
@@ -10,6 +11,6 @@ pliman_models_base_url()
 Character URL string ending in a slash.
 }
 \description{
-Returns the base URL for downloading pre-trained ONNX models from GitHub Releases.
+Returns the base URL for downloading pre-trained neural models from Hugging Face.
 Can be customized globally via \code{options(pliman.models_base_url = "...")}.
 }

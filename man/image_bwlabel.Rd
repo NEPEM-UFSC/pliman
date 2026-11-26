@@ -19,9 +19,9 @@ It implements a highly optimized 2-pass Union-Find algorithm, providing
 lightning-fast execution even for massive images.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
   labels <- image_bwlabel(bin$B)
-}
+\dontshow{\}) # examplesIf}
 }

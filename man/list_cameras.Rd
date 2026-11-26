@@ -18,11 +18,11 @@ Scans and lists all video capture devices (webcams, USB cameras, capture cards)
 available on the system, indicating device IDs and native camera names.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   # List available cameras
   list_cameras()
 
   # View detailed resolutions and formats
   list_cameras(details = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

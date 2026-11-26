@@ -40,9 +40,9 @@ Computes L2-normalized 512-dimensional semantic embeddings for character strings
 using OpenAI's CLIP (ViT-B/32) text model directly via C++ ONNX Runtime.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   embs <- text_embed_dl(c("healthy soybean leaf", "asian rust lesion", "pest bite"))
   dim(embs) # 3 x 512
-}
+\dontshow{\}) # examplesIf}
 }

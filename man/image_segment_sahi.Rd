@@ -13,6 +13,12 @@ image_segment_sahi(
   overlap_width_ratio = 0.2,
   conf_threshold = 0.25,
   iou_threshold = 0.45,
+  match_metric = c("IOS", "IOU"),
+  postprocess_type = c("GREEDY_NMM", "NMS"),
+  match_threshold = 0.5,
+  classes = NULL,
+  agnostic_nms = FALSE,
+  seam_merging = TRUE,
   full_image_inference = TRUE,
   type = c("highlight", "segment", "mask"),
   col_background = "white",
@@ -20,10 +26,27 @@ image_segment_sahi(
   alpha = 0.4,
   border = NA,
   lwd = 1,
-  show_id = TRUE,
+  bbox = FALSE,
+  show_box = NULL,
+  show_point = FALSE,
+  point_size = 1.5,
+  point_pch = 16,
+  point_col = NULL,
+  mask = TRUE,
+  lower_size = NULL,
+  upper_size = NULL,
+  size_mode = c("relative", "absolute"),
+  cex = 1,
+  pad = 1,
+  show_text = TRUE,
+  show_conf = TRUE,
+  show_class = TRUE,
+  show_id = FALSE,
+  badge = TRUE,
   rainbow = TRUE,
   plot = TRUE,
   verbose = TRUE,
+  imgsz = NULL,
   ...
 )
 }
@@ -42,7 +65,24 @@ image_segment_sahi(
 
 \item{conf_threshold}{Numeric scalar between 0 and 1. Minimum detection confidence. Defaults to \code{0.25}.}
 
-\item{iou_threshold}{Numeric scalar between 0 and 1. IoU threshold for cross-slice NMS. Defaults to \code{0.45}.}
+\item{iou_threshold}{Numeric scalar between 0 and 1. Threshold for cross-slice matching. Defaults to \code{0.45}.}
+
+\item{match_metric}{Character. Overlap metric: \code{"IOS"} (Intersection over Smaller area, default)
+or \code{"IOU"} (Intersection over Union). \code{"IOS"} is strongly recommended for SAHI because it
+naturally merges fragments and sub-slices with larger parent detections.}
+
+\item{postprocess_type}{Character. Post-processing merge strategy: \code{"GREEDY_NMM"} (default, Non-Maximum Merging,
+unifying overlapping pieces into single encompassing boxes) or \code{"NMS"} (standard Non-Maximum Suppression).}
+
+\item{match_threshold}{Numeric scalar between 0 and 1. Threshold for merging candidates. Defaults to \code{0.50}.}
+
+\item{classes}{Optional character or integer vector of class names or IDs to keep (e.g., \code{"car"} or \code{c("car", "truck")}).
+Detections belonging to other classes are discarded before post-processing. Defaults to \code{NULL} (all classes kept).}
+
+\item{agnostic_nms}{Logical. If \code{TRUE}, bounding boxes and masks from different classes compete during post-processing suppression. Defaults to \code{FALSE}.}
+
+\item{seam_merging}{Logical. If \code{TRUE} (default), seamlessly detects and merges objects that have been
+sliced in half across tile cut boundaries.}
 
 \item{full_image_inference}{Logical. If \code{TRUE} (default), runs an additional detection pass on the
 resized full canvas to capture objects larger than individual slices.}
@@ -60,13 +100,59 @@ resized full canvas to capture objects larger than individual slices.}
 
 \item{lwd}{Numeric border line width. Defaults to \code{1}.}
 
-\item{show_id}{Logical. Display instance index number at centroid. Defaults to \code{TRUE}.}
+\item{bbox}{Logical. If \code{TRUE}, draws bounding boxes and class badges around segmented instances. Defaults to \code{FALSE}.}
+
+\item{show_box}{Logical. Explicitly control whether bounding boxes are drawn. Defaults to \code{NULL} (or value of \code{bbox}). Supported aliases: \code{box}, \code{boxes}, \code{show_boxes}.}
+
+\item{show_point}{Logical. If \code{TRUE}, draws points at the centroid of each segmented object. Defaults to \code{FALSE}. Supported aliases: \code{points}, \code{point}, \code{show_points}.}
+
+\item{point_size}{Numeric. Size (cex) of centroid points when \code{show_point = TRUE}. Defaults to \code{1.5}. Supported aliases: \code{marker_size}, \code{point_cex}.}
+
+\item{point_pch}{Integer. Symbol code for centroid points. Defaults to \code{16} (filled circle). Supported alias: \code{marker_pch}.}
+
+\item{point_col}{Color for centroid points. Defaults to \code{NULL} (uses matching instance color). Supported alias: \code{marker_col}.}
+
+\item{mask}{Logical. If \code{TRUE} (default), draws instance segmentation masks.}
+
+\item{lower_size}{Optional numeric value to filter out small detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+less than \code{lower_size} times the mean area of all candidate boxes are removed
+(e.g., \code{lower_size = 0.2} removes objects smaller than 20\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) below \code{lower_size} are removed.
+Defaults to \code{NULL} (no lower size filter).}
+
+\item{upper_size}{Optional numeric value to filter out abnormally large detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+greater than \code{upper_size} times the mean area of all candidate boxes are removed
+(e.g., \code{upper_size = 2.0} removes objects larger than 200\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) above \code{upper_size} are removed.
+Defaults to \code{NULL} (no upper size filter).}
+
+\item{size_mode}{Character string specifying how \code{lower_size} and \code{upper_size} are interpreted.
+\code{"relative"} (default) treats values as proportions/multiples of the mean bounding box area.
+\code{"absolute"} treats values as area in pixels.}
+
+\item{cex}{Numeric character expansion for labels and badges. Defaults to \code{1.0}.}
+
+\item{pad}{Numeric padding factor for badges. Defaults to \code{1.0}.}
+
+\item{show_text}{Logical. Display text labels on bounding boxes. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Display confidence score on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_class}{Logical. Display class name on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_id}{Logical. Display instance ID number. Defaults to \code{FALSE}.}
+
+\item{badge}{Logical. Display rounded badge background behind text labels. Defaults to \code{TRUE}.}
 
 \item{rainbow}{Logical. If \code{TRUE} (default), bounding boxes are rendered in rainbow colors.}
 
 \item{plot}{Logical. Display global detections overlaid on the full image. Defaults to \code{TRUE}.}
 
 \item{verbose}{Logical. Show progress bar and tile metrics. Defaults to \code{TRUE}.}
+
+\item{imgsz}{Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}). Default is \code{NULL}.}
 
 \item{...}{Additional arguments passed to \code{\link[=image_detect_dl]{image_detect_dl()}}.}
 }
@@ -76,5 +162,6 @@ A \code{data.frame} of detections with attached global contours, counts, and sum
 \description{
 Performs high-resolution sliding-window hyper inference for instance segmentation
 using \code{\link[=image_segment_dl]{image_segment_dl()}}. Slices large canvases, predicts masks per tile,
-shifts polygon contours to global coordinates, and applies cross-slice NMS.
+shifts polygon contours to global coordinates, and applies Greedy Non-Maximum Merging (Greedy NMM)
+with IOS and slice seam unification so objects cut across slice borders are cleanly assembled into complete objects.
 }

@@ -179,8 +179,7 @@
 #'  Computer Vision. 3rd ed. World Scientific.
 
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # A 2 x 2 square
 #' df <- draw_square(side = 2)
@@ -243,7 +242,6 @@
 #'
 #' plot_polygon(tri2, aspect_ratio = 1)
 #' poly_circularity_norm(tri2)
-#' }
 
 ## check a coordinate set of points
 poly_check <- function(x) {
@@ -358,7 +356,26 @@ conv_hull_unified <- function(x){
 # Compute the area of a polygon using shoelace formula
 # adapted from https://www.geeksforgeeks.org/area-of-a-polygon-with-given-n-ordered-vertices/
 poly_area <- function(x){
+  .check_poly_list(x)
   help_area(x)
+}
+
+# Lists of polygons must hold coordinate matrices only: an empty element (e.g.
+# from subsetting a contour list with a name that does not exist) would
+# otherwise reach the C++ helpers.
+.check_poly_list <- function(x, arg = "x") {
+  if (!is.list(x) || is.data.frame(x)) return(invisible(TRUE))
+  bad <- vapply(x, function(el) is.null(el) || !(is.matrix(el) || is.data.frame(el)), logical(1))
+  if (any(bad)) {
+    nm <- names(x)
+    ids <- if (!is.null(nm)) nm[bad] else which(bad)
+    ids[is.na(ids) | ids == ""] <- which(bad)[is.na(ids) | ids == ""]
+    cli::cli_abort(c(
+      "{.arg {arg}} has {sum(bad)} element{?s} that {?is not a/are not} coordinate matri{?x/ces}: {.val {ids}}.",
+      "i" = "Check that the selected names exist (e.g. {.code names(cont)})."
+    ))
+  }
+  invisible(TRUE)
 }
 
 
@@ -760,8 +777,8 @@ poly_measures <- function(x){
     if (nrow(res) == 0) {
       return(data.frame())
     }
-    res$id <- 1:nrow(res)
-    shape <- res[, c(ncol(res), 1:ncol(res) -1) ]
+    res$id <- valid
+    shape <- res[, c(ncol(res), 1:(ncol(res) - 1))]
     return(shape)
   } else{
     coord <- poly_check(x)
@@ -893,6 +910,7 @@ plot_polygon <- function(x,
                          xlim = NULL,
                          ylim = NULL,
                          ...){
+  if (inherits(x, "list") && length(x) > 0 && !inherits(x, "iefourier_lst") && !inherits(x[[1]], "list")) .check_poly_list(x)
   if (inherits(x, "list") | inherits(x, "iefourier_lst")) {
     if(isTRUE(merge)){
       if(inherits(x[[1]][[1]], "landmarks_regradi")){
@@ -1090,8 +1108,7 @@ plot_ellipse <- function(object,
 #'
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' cont <- contours[[2]]
 #' plot_polygon(cont |> conv_hull() |> poly_align())
 #' #  width below 5th, 25th, 50th, 75th, and 95th percentiles of the length
@@ -1101,7 +1118,6 @@ plot_ellipse <- function(object,
 #' # width along the height
 #' poly_width_at(cont, at = "height", plot = TRUE)
 #'
-#' }
 #'
 poly_width_at <- function(x,
                           at = c(0.05, 0.25, 0.5, 0.75, 0.95),
@@ -1182,8 +1198,7 @@ poly_width_at <- function(x,
 #' @return A numeric vector containing the row index, the minimum pixel index,
 #' the median pixel index, and the maximum pixel index.
 #' @importFrom stats median
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' leaf <- image_pliman("sev_leaf.jpg")
 #' bin <- image_binary(leaf, "NB")[[1]]
@@ -1198,7 +1213,6 @@ poly_width_at <- function(x,
 #' points(x = 248, y = 17, pch = 16, col = "red", cex = 2)
 #' points(x = 163, y = 100, pch = 16, col = "red", cex = 2)
 #' points(x = 333, y = 100, pch = 16, col = "red", cex = 2)
-#' }
 #'
 #'
 #' @export
@@ -1248,8 +1262,7 @@ pixel_index <- function(bin,
 #' base coordinates.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # a matrix of coordinates
 #' angls <- poly_apex_base_angle(contours[[2]])
@@ -1257,7 +1270,6 @@ pixel_index <- function(bin,
 #'
 #' # or a list of coordinates
 #' poly_apex_base_angle(contours)
-#' }
 poly_apex_base_angle <- function(x,
                                  percentiles = c(0.25, 0.75),
                                  invert = FALSE,
@@ -1346,8 +1358,7 @@ poly_apex_base_angle <- function(x,
 #'   perimeter. If `x` is a list of matrices, returns a numeric vector of
 #'   complexity values for each polygon.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' set.seed(20)
 #' shp <- efourier_shape(npoints = 1000)
@@ -1359,7 +1370,6 @@ poly_apex_base_angle <- function(x,
 #' smo <- poly_smooth(shp2, niter = 100, plot = FALSE)
 #' plot_contour(smo, col = "red")
 #' poly_pcv(shp2)
-#' }
 #'
 #' @export
 #'

@@ -67,9 +67,9 @@ Detects round, convex, and overlapping objects (e.g. seeds, cells, nuclei, spore
 by predicting radial star-convex polygons and object probability using StarDist.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("grains.png")
   res <- image_stardist_dl(img)
-}
+\dontshow{\}) # examplesIf}
 }

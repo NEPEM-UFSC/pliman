@@ -255,7 +255,7 @@ coordinates. See \code{\link[base:jitter]{base::jitter()}} for more details.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 # A 2 x 2 square
 df <- draw_square(side = 2)
@@ -318,7 +318,7 @@ tri2 <-
 
 plot_polygon(tri2, aspect_ratio = 1)
 poly_circularity_norm(tri2)
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Lee, Y., & Lim, W. (2017). Shoelace Formula: Connecting the Area of a

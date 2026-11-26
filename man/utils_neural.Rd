@@ -34,12 +34,6 @@ and background removal powered by pre-trained Deep Learning models in \strong{ON
 \item \strong{Architecture:} Meta AI Hiera-Tiny foundation vision transformer with promptable mask decoder.
 \item \strong{Best For:} Zero-shot foundation segmentation with point prompts (\code{pick_object = TRUE}), box prompts, or center point defaults.
 }
-\item \strong{\code{"sam3.1"} (Segment Anything 3.1 by Meta AI, alias \code{"sam3"})}:
-\itemize{
-\item \strong{Size:} ~868.1 MB | \strong{Input Resolution:} 1024 x 1024
-\item \strong{Architecture:} Meta AI Segment Anything 3.1 with real-time concept-driven segmentation.
-\item \strong{Best For:} Advanced foundation segmentation across diverse biological structures.
-}
 \item \strong{\code{"birefnet-lite"} (Bilateral Reference Network Lite)}:
 \itemize{
 \item \strong{Size:} ~213.6 MB | \strong{Input Resolution:} 1024 x 1024

@@ -5,7 +5,14 @@
 \alias{yolo_dataset_health}
 \title{Comprehensive YOLO Dataset Health Audit and Auto-Repair}
 \usage{
-yolo_dataset_audit(data, repair = FALSE, min_images = 10L, verbose = TRUE)
+yolo_dataset_audit(
+  data,
+  repair = FALSE,
+  min_images = 10L,
+  check_leakage = TRUE,
+  leak_threshold = 4L,
+  verbose = TRUE
+)
 }
 \arguments{
 \item{data}{A \code{yolo_dataset} object, \code{yolo_dataset_cls} object, or directory path.}
@@ -13,6 +20,10 @@ yolo_dataset_audit(data, repair = FALSE, min_images = 10L, verbose = TRUE)
 \item{repair}{Logical. If \code{TRUE}, automatically fixes detected issues in-place. Defaults to \code{FALSE}.}
 
 \item{min_images}{Integer threshold for warning if a class has few samples. Defaults to \code{10L}.}
+
+\item{check_leakage}{Logical. Whether to check for near-duplicate / leaky images across splits using perceptual hashing. Defaults to \code{TRUE}.}
+
+\item{leak_threshold}{Integer Hamming distance threshold for flagging near-duplicate images across splits. Defaults to \code{4L}.}
 
 \item{verbose}{Logical. Whether to display progress and diagnostic alerts. Defaults to \code{TRUE}.}
 }
@@ -37,6 +48,7 @@ and severe class imbalance.
 
 With \code{repair = TRUE}, it automatically repairs the dataset in-place:
 \itemize{
+\item Relocates misplaced label files when images are moved across splits (e.g. from train to val) to preserve annotations.
 \item Renames colliding images and review previews uniquely (\code{foo_jpg.jpg}, \code{foo_png.png}) and links existing \code{.txt} annotations to the best-matching file based on modification timestamps.
 \item Clamps out-of-bounds coordinates to \verb{[0, 1]}.
 \item Prunes zero-area bounding boxes.
@@ -48,7 +60,7 @@ The returned object wraps the audited dataset seamlessly so it can be chained
 directly with the pipe operator \verb{|>} into \code{yolo_train()} or \code{yolo_dataset_augment()}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Audit a YOLO dataset and automatically fix issues
@@ -56,7 +68,7 @@ ds_clean <- yolo_dataset_audit("dataset_cafe", repair = TRUE)
 
 # Pipe directly into training!
 ds_clean |> yolo_train(model = "yolo26n-seg", epochs = 50)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

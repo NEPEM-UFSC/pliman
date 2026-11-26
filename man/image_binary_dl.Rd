@@ -7,7 +7,7 @@
 image_binary_dl(
   img,
   model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0",
-    "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+    "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
   threshold = 0.5,
   fill_hull = TRUE,
   filter = 0,
@@ -63,8 +63,6 @@ Detects and segments specific concepts described in natural language (e.g., \cod
 visually similar to one or more user-clicked exemplar objects using Multi-Prototype Cosine Similarity Max-Pooling.
 \item \code{"sam2.1"} (or \code{"sam2"}): Meta AI Segment Anything 2.1 (Hiera-Tiny, ~120.2 MB, 1024x1024 input). Foundation vision transformer
 supporting point prompts, box prompts, or interactive clicking (\code{pick_object = TRUE}).
-\item \code{"sam3.1"} (or \code{"sam3"}): Meta AI Segment Anything 3.1 (~868.1 MB, 1024x1024 input). High-capacity concept-driven
-foundation segmentation model.
 }
 }}
 
@@ -126,7 +124,13 @@ which automatically detects and utilizes all available logical CPU cores on the 
 
 \item{engine}{Character specifying the backend execution engine: \code{"cpu"} (default) or \code{"gpu"}. On Windows,
 \code{"gpu"} utilizes Microsoft DirectML over DirectX 12 hardware (compatible with NVIDIA, AMD, and Intel GPUs
-without requiring CUDA toolkit installation).}
+without requiring CUDA toolkit installation). In \code{\link[=image_segment_dl]{image_segment_dl()}}, when \code{engine} is not given,
+Grounded-SAM and PerSAM use the GPU whenever a dedicated GPU is present (only integrated or absent GPUs
+default to the CPU). With \code{engine = "gpu"}, Grounded-SAM runs Grounding DINO on the GPU and SAM 2.1 on the
+GPU too, except on GPUs with less than 6 GB of memory, where SAM 2.1 runs on the CPU so that both models
+stay loaded (about 4x faster than the CPU alone and much faster than reloading the models for every image
+on a 4 GB card); force the SAM device with \code{options(pliman.gsam_sam_device = "gpu")} or \code{"cpu"}.
+Speed-ups depend on the GPU and driver.}
 
 \item{device_id}{Integer GPU device adapter index. Default is \code{-1}, which automatically selects the high-performance
 discrete GPU adapter with the maximum dedicated video memory (VRAM).}
@@ -152,7 +156,7 @@ foundation segmentation models (SAM 2.1 / SAM 3.1), zero-shot text-prompted inst
 and one-shot visual exemplar segmentation (PerSAM).
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
 
@@ -170,5 +174,5 @@ and one-shot visual exemplar segmentation (PerSAM).
 
   # One-shot visual exemplar segmentation (PerSAM)
   mask_exemplar <- image_binary_dl(img, model = "persam", prompt = c(150, 200))
-}
+\dontshow{\}) # examplesIf}
 }

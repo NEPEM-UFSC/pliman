@@ -20,14 +20,19 @@ yolo_fewshot_fit(
   engine = c("gpu", "cpu"),
   device_id = -1,
   rainbow = TRUE,
+  show_class = TRUE,
+  show_conf = TRUE,
+  badge = TRUE,
+  interactive = base::interactive(),
   plot = TRUE,
-  verbose = TRUE
+  verbose = TRUE,
+  ...
 )
 }
 \arguments{
 \item{img}{An \code{image} object, file path, or matrix.}
 
-\item{points}{Optional $(x, y)$ coordinates of exemplar points. If \code{NULL} (default),
+\item{points, sample}{Optional $(x, y)$ coordinates of exemplar points. If \code{NULL} (default),
 an interactive plotting window opens for the user to click on 3–5 representative objects.}
 
 \item{label}{Character vector naming the target class(es). Can be a single class (e.g., \code{"bean"}, \code{"leaf"}, \code{"seed"}, \code{"tora"})
@@ -43,13 +48,15 @@ or uses the respective elements from \code{points} if a list is provided.}
 \item{radius}{Optional estimated radius in pixels for target objects. If \code{NULL} (default),
 automatically detected from exemplar edge gradients.}
 
-\item{min_dist}{Minimum distance in pixels between detected instances. Defaults to \code{16}.}
+\item{min_dist}{Minimum distance in pixels between detected instances. Defaults to \code{12}.}
 
 \item{min_area}{Minimum object area in pixels. If \code{NULL} (default), automatically calibrated
 from the exemplar scale (\code{0.20 * median_exemplar_area}) to filter out background noise.}
 
 \item{max_area}{Maximum object area in pixels. If \code{NULL} (default), automatically calibrated
 (\code{3.80 * median_exemplar_area}).}
+
+\item{max_objects}{Maximum number of instances to detect. Defaults to \code{NULL} (no limit).}
 
 \item{method}{Segmentation method: \code{"sam"} (or \code{"persam"}, Meta Segment Anything 2.1 via ONNX)
 or \code{"adaptive"} (fast color-texture morphology). Defaults to \code{"sam"}.}
@@ -58,11 +65,21 @@ or \code{"adaptive"} (fast color-texture morphology). Defaults to \code{"sam"}.}
 
 \item{device_id}{GPU device ID if \code{engine = "gpu"}. Defaults to \code{-1}.}
 
-\item{rainbow}{Logical. If \code{TRUE} (default), plots instances in distinct rainbow colors..}
+\item{rainbow}{Logical. If \code{TRUE} (default), plots instances in distinct rainbow colors.}
+
+\item{show_class}{Logical. Whether to display class name on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges. Defaults to \code{TRUE}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels. Defaults to \code{TRUE}.}
+
+\item{interactive}{Logical. Whether to enable interactive review and refinement after exemplar segmentation (allows adding missed objects, removing false positives, adjusting threshold, or resampling). Defaults to \code{interactive()}.}
 
 \item{plot}{Logical. Display the detection and segmentation overlay. Defaults to \code{TRUE}.}
 
 \item{verbose}{Logical. Show progress messages. Defaults to \code{TRUE}.}
+
+\item{...}{Additional arguments passed to downstream methods or aliases (e.g., \code{show_labels}, \code{show_scores}, \code{label_box}).}
 }
 \value{
 An object of class \code{yolo_fewshot_model} containing exemplar signatures,
@@ -83,16 +100,13 @@ The resulting model object (\code{yolo_fewshot_model}) can be inspected, plotted
 propagated to hundreds of unannotated images in a folder using \code{\link[=yolo_dataset_autolabel]{yolo_dataset_autolabel()}}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Fit exemplar model on reference photo (clicks or supplied coordinates)
-modelo_tora <- yolo_fewshot_fit("toras/toras22.png", label = "tora", task = "segment", method = "sam")
-
-# 2. Inspect segmentation overlay on reference photo
-plot(modelo_tora)
-
-# 3. Auto-label entire directory of 300 photos into a YOLO dataset
-ds <- yolo_dataset_autolabel("toras_raw/", model = modelo_tora, output_dir = "dataset_toras_yolo")
-}
+yolo_fewshot_fit("img.jpg",
+                 label = "tora",
+                 task = "segment",
+                 method = "sam")
+\dontshow{\}) # examplesIf}
 }
