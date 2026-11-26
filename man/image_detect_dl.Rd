@@ -8,27 +8,38 @@ image_detect_dl(
   img,
   model = "yolo26n",
   conf_threshold = 0.25,
-  iou_threshold = 0.45,
+  iou_threshold = 0.4,
+  classes = NULL,
   labels = NULL,
   col = NULL,
   rainbow = TRUE,
   lwd = 2,
-  cex = 1,
-  pad = 1,
+  cex = 1.5,
+  pad = 0,
+  bbox = TRUE,
   show_text = TRUE,
   show_conf = TRUE,
   show_class = TRUE,
   show_id = FALSE,
+  show_point = FALSE,
+  show_box = NULL,
+  point_size = 1,
+  point_pch = 16,
+  point_col = NULL,
   badge = TRUE,
+  badge_pad = 1,
   return_features = FALSE,
   feature_model = c("yolo", "clip-vit-b32", "dinov2"),
   plot_features = FALSE,
+  filter_nested = FALSE,
   threads = 0,
   engine = c("gpu", "cpu"),
   device_id = -1,
   verbose = TRUE,
   plot = TRUE,
   dir = pliman_model_dir(),
+  imgsz = NULL,
+  max_det = 0,
   ...
 )
 }
@@ -40,7 +51,9 @@ Options include \code{"yolo26n"}, \code{"yolo26s"}, \code{"yolo26m"}, \code{"yol
 
 \item{conf_threshold}{Minimum confidence score for candidate boxes (default 0.25).}
 
-\item{iou_threshold}{IoU threshold for Non-Maximum Suppression (default 0.45).}
+\item{iou_threshold}{IoU threshold for Non-Maximum Suppression (default 0.40).}
+
+\item{classes}{Optional character or numeric vector of target classes to keep (e.g., \code{"ship"} or \code{c("ship", "large vehicle")}). All other detected classes are filtered out. Defaults to \code{NULL} (keep all).}
 
 \item{labels}{Optional character vector of class names (defaults to standard 80 COCO classes).}
 
@@ -51,11 +64,14 @@ If \code{FALSE} (the default), objects of the same class share the exact same co
 
 \item{lwd}{Line width for bounding boxes (default 2).}
 
-\item{cex}{Size factor for label text (default \code{1.0}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
+\item{cex}{Size factor for label text (default \code{1.5}). Use smaller values (e.g., \code{cex = 0.2} or \code{0.5})
 to reduce text size for dense scenes or many objects.}
 
-\item{pad}{Padding multiplier controlling the area/background badge size around label text (default \code{1.0}).
-Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad = 0} or smaller values for a compact area.}
+\item{pad}{Padding added to expand bounding boxes around detected objects (default \code{0}).
+Can be an absolute number of pixels (e.g., \code{pad = 10}), a relative expansion fraction when
+between 0 and 1 (e.g., \code{pad = 0.05} for 5\% margin), or a length-2 vector \code{c(pad_x, pad_y)}.}
+
+\item{bbox}{Logical. Whether to draw bounding boxes (default \code{TRUE}).}
 
 \item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
 
@@ -65,8 +81,21 @@ Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad
 
 \item{show_id}{Logical. Whether to display object IDs (\verb{#1}, \verb{#2}, ...) in labels (default \code{FALSE}).}
 
+\item{show_point}{Logical. Whether to show a point at the centroid of each detected object. Defaults to \code{FALSE}.}
+
+\item{show_box}{Logical. Whether to draw bounding boxes. Defaults to \code{NULL} (TRUE unless \code{show_point = TRUE} and all text displays are \code{FALSE}).}
+
+\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1}.}
+
+\item{point_pch}{Integer. Plotting symbol (\code{pch}) for the centroid point. Defaults to \code{16} (filled circle).}
+
+\item{point_col}{Character. Color of the centroid point. Defaults to \code{NULL} (matches the object color / rainbow).}
+
 \item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
 If \code{FALSE}, only the text is drawn directly.}
+
+\item{badge_pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).
+Use \code{badge_pad = 0} for a badge fitting tightly to the text.}
 
 \item{return_features}{Logical. If \code{TRUE}, extracts deep feature representations for detected
 bounding boxes and the global image. Attaches \code{"features"} (an \eqn{N \times D} matrix of per-object
@@ -78,6 +107,9 @@ Options are \code{"clip-vit-b32"} (default, OpenAI CLIP ViT-B/32 producing 512-D
 \code{"dinov2"} (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).}
 
 \item{plot_features}{Logical. If \code{TRUE} and \code{return_features = TRUE}, visualizes the dense spatial PCA feature map. Defaults to \code{FALSE}.}
+
+\item{filter_nested}{Logical. If \code{TRUE}, removes larger container bounding boxes
+that enclose smaller boxes of the same class. Defaults to \code{FALSE}.}
 
 \item{threads}{Number of CPU threads (default 0 for auto-tuning).}
 
@@ -91,23 +123,51 @@ Options are \code{"clip-vit-b32"} (default, OpenAI CLIP ViT-B/32 producing 512-D
 
 \item{dir}{Model directory (default \code{pliman_model_dir()}).}
 
+\item{imgsz}{Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), pliman automatically inspects the ONNX model metadata for native training
+resolution and falls back to \code{640} if unspecified. Useful when running models exported with dynamic resolution.}
+
+\item{max_det}{Integer. Maximum number of detections kept after non-maximum suppression
+(highest scores first). \code{0} (default) keeps all detections, which is the right
+choice for dense scenes such as seed or grain counting.}
+
 \item{...}{Additional arguments passed to \code{\link[graphics:plot]{graphics::plot()}}.}
 }
 \value{
 A data frame containing detected bounding boxes (\code{id}, \code{xmin}, \code{ymin}, \code{xmax}, \code{ymax}, \code{label}, \code{score}),
 with \code{summary} and \code{counts} stored as attributes. If \code{return_features = TRUE}, \code{features} (an \eqn{N \times D} matrix)
 and \code{feature_map} (dense spatial PCA \code{Image}) are also attached as attributes.
+When \code{img} is a list or a character vector with several file paths, a list of such
+results is returned.
 }
 \description{
 Performs real-time object detection using YOLO26 (or custom YOLO ONNX models)
 with bounding box regression and End-to-End detection.
 }
+\section{Performance}{
+
+ONNX sessions are cached for the R session (see \code{\link[=pliman_session_info]{pliman_session_info()}}), so only the
+first call pays model loading and, on GPU, DirectML compilation. For many images:
+\itemize{
+\item use \code{plot = FALSE} and \code{verbose = FALSE} (drawing a full-resolution raster
+often costs more than the inference itself);
+\item prefer \code{\link[=image_detect_dl_batch]{image_detect_dl_batch()}}, which resolves the model once, can run in
+parallel and, with persistent workers from \code{\link[=pliman_daemons]{pliman_daemons()}}, keeps models loaded
+between calls;
+\item choose \code{imgsz} deliberately: cost grows roughly with its square;
+\item \code{engine = "gpu"} gains depend on the GPU. FP16 models (\code{\link[=yolo_export_fp16]{yolo_export_fp16()}})
+are faster only on GPUs with native half-precision throughput (e.g. NVIDIA Tensor
+Cores); on other GPUs and on CPU the casting overhead can make them slower.
+}
+Use \code{\link[=yolo_benchmark]{yolo_benchmark()}} to measure inference speed on your hardware.
+}
+
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("objects.png")
   boxes <- image_detect_dl(img)
   # Rainbow coloring per box:
   boxes_rb <- image_detect_dl(img, rainbow = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

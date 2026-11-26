@@ -8,7 +8,7 @@ pliman_download_onnx(
   version = "1.20.1",
   dir = pliman_onnx_dir(),
   force = FALSE,
-  engine = c("gpu", "cpu")
+  engine = c("gpu", "cpu", "cuda")
 )
 }
 \arguments{
@@ -18,8 +18,12 @@ pliman_download_onnx(
 
 \item{force}{Logical. If \code{TRUE}, forces re-download even if already present (default \code{FALSE}).}
 
-\item{engine}{Execution engine: \code{"cpu"} (default) or \code{"gpu"}. When \code{"gpu"} on Windows,
-downloads and configures \code{onnxruntime-directml.dll} and \code{DirectML.dll} from Microsoft's NuGet CDN.}
+\item{engine}{Execution engine: \code{"gpu"} (default), \code{"cpu"} or \code{"cuda"}. When \code{"gpu"} on Windows,
+downloads and configures \code{onnxruntime-directml.dll} and \code{DirectML.dll} from Microsoft's NuGet CDN.
+\code{"cuda"} downloads the official CUDA/TensorRT build of ONNX Runtime (Windows and
+Linux x64) into \code{file.path(dir, "cuda")}; it is used after
+\code{pliman_gpu_provider("cuda")} and needs the NVIDIA CUDA 12 / cuDNN 9 libraries
+(see \code{\link[=pliman_gpu_provider]{pliman_gpu_provider()}}).}
 }
 \value{
 A character string with the path to the installed shared library.
@@ -36,8 +40,8 @@ downloads the pre-compiled CPU binary (~15-60 MB), extracts the shared library
 places it in \code{pliman}'s binary directory, and configures the environment.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   pliman_download_onnx()
   pliman_download_onnx(engine = "gpu")
-}
+\dontshow{\}) # examplesIf}
 }

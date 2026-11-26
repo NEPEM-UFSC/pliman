@@ -44,7 +44,7 @@ surviving class IDs contiguously from 0 to K-1, updates \code{data.yaml}, and op
 cleans or preserves images that now have zero annotations (as background negatives).
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Focus exclusively on 2 classes from a 10-class dataset
@@ -53,5 +53,5 @@ ds_focused <- yolo_dataset_filter(
   keep_classes = c("ferrugem", "mancha_angular"),
   out_dir      = "dataset_doencas"
 )
-}
+\dontshow{\}) # examplesIf}
 }

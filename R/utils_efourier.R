@@ -36,8 +36,7 @@
 #' \doi{10.1016/0146-664X(82)90034-X}
 #'
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' leaf1 <- contours[[4]]
 #' plot_polygon(leaf1)
@@ -59,7 +58,6 @@
 #' # Use only the first one for simplicity
 #' plot_polygon(contours[[1]] |> poly_align() |> poly_center())
 #' efourier_inv(ef2[[1]]) |> plot_contour(col = "red", lwd = 4)
-#' }
 efourier <- function(x,
                      nharm = 10,
                      align = FALSE,
@@ -158,15 +156,13 @@ efourier <- function(x,
 #' @references Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,
 #' Springer 316 pp.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' plot_polygon(contours, aspect_ratio = 1)
 #' # without alignment
 #' ef <- efourier(contours, nharm = 10, align = FALSE)
 #' ief <- efourier_inv(ef)
 #' plot_contour(ief, col = "red", lwd = 2)
-#' }
 efourier_inv <- function(x,
                          nharm = NULL,
                          a0 = NULL,
@@ -244,8 +240,7 @@ efourier_inv <- function(x,
 #' If `x` is an object of class `efourier_lst`, a list will be returned.
 #' @importFrom graphics legend
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' ef <-
 #'   contours[[1]] |>
@@ -260,7 +255,6 @@ efourier_inv <- function(x,
 #' efourier_error(ef,
 #'                nharm = c(1, 4, 20),
 #'                type = "deviations")
-#' }
 efourier_error <- function(x,
                            nharm = NULL,
                            type = c("error", "outline", "deviations"),
@@ -423,8 +417,7 @@ efourier_error <- function(x,
 #' @references Claude, J. (2008) \emph{Morphometrics with R}, Use R! series,
 #' Springer 316 pp.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' leaf1 <- contours[[4]]
 #' plot_polygon(leaf1)
@@ -437,7 +430,6 @@ efourier_error <- function(x,
 #'
 #' efn <- efourier_norm(ef)
 #' efourier_coefs(efn)
-#' }
 
 efourier_norm <- function(x, start = FALSE) {
   if (inherits(x, "efourier_lst")) {
@@ -510,8 +502,7 @@ efourier_norm <- function(x, start = FALSE) {
 #' @return A `data.frame` object
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # a list of objects
@@ -521,7 +512,6 @@ efourier_norm <- function(x, start = FALSE) {
 #' efourier(contours[[4]]) |>
 #'   efourier_norm() |>
 #'   efourier_coefs()
-#' }
 efourier_coefs <- function(x){
   if(!inherits(x, c("nefourier_lst", "efourier_lst", "efourier", "nefourier"))){
     cli::cli_abort("{.arg x} must be an object computed with {.fun efourier()} or {.fun efourier_norm()}.")
@@ -617,11 +607,9 @@ efourier_coefs <- function(x){
 #' Springer 316 pp.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' pw <- efourier(contours) |> efourier_power()
-#' }
 #'
 efourier_power <- function(x,
                            first = TRUE,
@@ -743,8 +731,7 @@ efourier_power <- function(x,
 #' @importFrom stats rnorm
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # approximation of the third leaf's perimeter
 #' # 4 harmonics
@@ -754,7 +741,6 @@ efourier_power <- function(x,
 #'                bn = c(-113.88, 21.90, -0.31, -6.14),
 #'                cn = c(-147.51, -20.89, 0.66, -14.06),
 #'                dn = c(-0.48, 2.36, -4.36, 3.03))
-#' }
 efourier_shape <- function(an = NULL,
                            bn = NULL,
                            cn = NULL,

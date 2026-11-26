@@ -253,22 +253,22 @@ df_conv <-
 # plot the objects
 palette(c("red","blue","green"))
 with(df_cont,
-     plot(V1, V2, 
+     plot(x, y, 
           cex = 0.5,
           col = object,
           xlab = NA,
           ylab = NA,
           axes = F))
 with(subset(df_conv, object == 1),
-     polygon(V1, V2, 
+     polygon(x, y, 
              col = rgb(1, 0, 0, 0.2),
              border = NA))
 with(subset(df_conv, object == 2),
-     polygon(V1, V2, 
+     polygon(x, y, 
              col = rgb(0, 0, 1, 0.2),
              border = NA))
 with(subset(df_conv, object == 3),
-     polygon(V1, V2, 
+     polygon(x, y, 
              col = rgb(0, 1, 0, 0.2),
              border = NA))
 
@@ -277,10 +277,10 @@ with(subset(df_conv, object == 3),
 Or do the same with `ggplot2`
 ```{r eval=FALSE}
 library(ggplot2)
-ggplot(df_cont, aes(V1, V2, group = object)) +
+ggplot(df_cont, aes(x, y, group = object)) +
   geom_polygon(aes(fill = object)) +
   geom_polygon(data = df_conv,
-               aes(V1, V2, fill = object),
+               aes(x, y, fill = object),
                alpha = 0.3) +
   theme_void() +
   theme(legend.position = "bottom")

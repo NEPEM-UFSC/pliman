@@ -113,6 +113,10 @@ compute_single_index_cpp <- function(img_sexp, ind, r = 1L, g = 2L, b = 3L, re =
     .Call(`_pliman_compute_single_index_cpp`, img_sexp, ind, r, g, b, re, nir, swir, storage)
 }
 
+object_index_means_cpp <- function(img_sexp, labels_sexp, formulas, valid_ids, bare_band) {
+    .Call(`_pliman_object_index_means_cpp`, img_sexp, labels_sexp, formulas, valid_ids, bare_band)
+}
+
 help_area <- function(coord) {
     .Call(`_pliman_help_area`, coord)
 }
@@ -297,6 +301,57 @@ color_labels_cpp <- function(labels_sexp) {
     .Call(`_pliman_color_labels_cpp`, labels_sexp)
 }
 
+#' Compute SHA-256 Checksum of a File
+#'
+#' Streams the file in 64 KB binary chunks and computes the cryptographic SHA-256
+#' checksum with zero external dependencies.
+#'
+#' @param file_path Character string. Path to the file.
+#' @return Character string containing the 64-character lowercase hexadecimal hash.
+#' @export
+rcpp_sha256_file <- function(file_path) {
+    .Call(`_pliman_rcpp_sha256_file`, file_path)
+}
+
+#' Compute SHA-256 Checksum of Raw Bytes or String
+#'
+#' @param bytes Raw vector of bytes to hash.
+#' @return Character string containing the 64-character lowercase hexadecimal hash.
+#' @export
+rcpp_sha256 <- function(bytes) {
+    .Call(`_pliman_rcpp_sha256`, bytes)
+}
+
+#' Encode Raw Bytes to Base64
+#'
+#' @param bytes Raw vector of bytes.
+#' @return Base64-encoded character string.
+#' @export
+rcpp_base64_encode <- function(bytes) {
+    .Call(`_pliman_rcpp_base64_encode`, bytes)
+}
+
+#' Encode File Directly to Base64
+#'
+#' Reads a binary or text file and returns its Base64-encoded string directly,
+#' without requiring external packages like \code{base64enc}.
+#'
+#' @param file_path Character string. Path to the file.
+#' @return Base64-encoded character string.
+#' @export
+rcpp_base64_encode_file <- function(file_path) {
+    .Call(`_pliman_rcpp_base64_encode_file`, file_path)
+}
+
+#' Decode Base64 String to Raw Bytes
+#'
+#' @param text Base64-encoded character string.
+#' @return Raw vector of decoded bytes.
+#' @export
+rcpp_base64_decode <- function(text) {
+    .Call(`_pliman_rcpp_base64_decode`, text)
+}
+
 detect_veins_cpp <- function(R_sexp, G_sexp, B_sexp, labels_sexp, sigma1 = 0.75, sigma2 = 3.75, threshold = -1.0, channel = 0L, erode_size = -1L, rel_erode = 0.01, thinning = FALSE, return_map = FALSE) {
     .Call(`_pliman_detect_veins_cpp`, R_sexp, G_sexp, B_sexp, labels_sexp, sigma1, sigma2, threshold, channel, erode_size, rel_erode, thinning, return_map)
 }
@@ -328,6 +383,153 @@ cpp_extract_raster <- function(values, n_row, n_col, n_lyr, bbox_raster, geoms_r
 
 gaussian_blur_cpp <- function(img_sexp, sigma) {
     .Call(`_pliman_gaussian_blur_cpp`, img_sexp, sigma)
+}
+
+image_brightness_cpp <- function(img_sexp, factor, offset) {
+    .Call(`_pliman_image_brightness_cpp`, img_sexp, factor, offset)
+}
+
+image_noise_cpp <- function(img_sexp, type, mean, sd, p, seed) {
+    .Call(`_pliman_image_noise_cpp`, img_sexp, type, mean, sd, p, seed)
+}
+
+#' @title Forward 3D Gaussian Splatting Rasterizer
+#' @name cpp_gs_render
+#' @description
+#' High-speed tile-based forward rasterization with EWA covariance projection,
+#' Spherical Harmonics color evaluation, depth sorting, and alpha-blending with early stopping.
+#' @param camera List containing camera extrinsics (R, t) and intrinsics (fx, fy, cx, cy, width, height).
+#' @param gaussians List containing 3D Gaussian parameters (positions, scales_log, quaternions, opacities_logit, sh_coeffs).
+#' @param sh_degree Integer. Maximum Spherical Harmonics degree (0, 1, or 2). Defaults to 0.
+#' @param bg_r Double. Red background color (0 to 1). Defaults to 0.0.
+#' @param bg_g Double. Green background color (0 to 1). Defaults to 0.0.
+#' @param bg_b Double. Blue background color (0 to 1). Defaults to 0.0.
+#' @param return_depth Logical. If TRUE, returns the 2D depth buffer. Defaults to TRUE.
+#' @return A List containing rendered RGB image, alpha transmittance map, and splat cache.
+#' @export
+cpp_gs_render <- function(camera, gaussians, sh_degree = 0L, bg_r = 0.0, bg_g = 0.0, bg_b = 0.0, return_depth = TRUE) {
+    .Call(`_pliman_cpp_gs_render`, camera, gaussians, sh_degree, bg_r, bg_g, bg_b, return_depth)
+}
+
+#' @title Propagate 2D SAM Masks to 3D Gaussian Splats
+#' @name cpp_gs_segment_sam
+#' @description
+#' Projects 2D instance segmentation masks (e.g. from SAM 2.1 or SAM 3.1)
+#' onto 3D Gaussians via transmittance-weighted ray-splat correspondence.
+#' @param camera List camera specification.
+#' @param gaussians List of 3D Gaussians.
+#' @param mask 2D IntegerMatrix of binary mask (0 = background, 1 = target leaf/organ).
+#' @param class_id Integer. Semantic class ID to assign.
+#' @param score_threshold Double. Minimum confidence score to update. Defaults to 0.3.
+#' @return A List with updated semantic IDs, scores, and per-splat weights.
+#' @export
+cpp_gs_segment_sam <- function(camera, gaussians, mask, class_id = 1L, score_threshold = 0.3) {
+    .Call(`_pliman_cpp_gs_segment_sam`, camera, gaussians, mask, class_id, score_threshold)
+}
+
+#' @title 3D Plant Biometrics from Gaussian Splats
+#' @name cpp_gs_measure
+#' @description
+#' Computes real 3D phenotypic metrics (surface area, volume, leaf angles, dimensions)
+#' from 3D Gaussian Splats, with optional filtering by semantic class (e.g. leaf only).
+#' @param positions N x 3 NumericMatrix of Gaussian positions.
+#' @param scales_log N x 3 NumericMatrix of log-scales.
+#' @param quaternions N x 4 NumericMatrix of rotation quaternions.
+#' @param semantic_ids IntegerVector of semantic class IDs.
+#' @param target_class Integer. Target class ID to measure (-1 = measure all). Defaults to -1.
+#' @return A List containing 3D surface area, bounding dimensions, and insertion angles.
+#' @export
+cpp_gs_measure <- function(positions, scales_log, quaternions, semantic_ids, target_class = -1L) {
+    .Call(`_pliman_cpp_gs_measure`, positions, scales_log, quaternions, semantic_ids, target_class)
+}
+
+#' @title Adaptive Densification and Pruning for 3D Gaussian Splats
+#' @name cpp_gs_densify
+#' @description
+#' Implements split, clone, and prune operations based on view-space positional
+#' gradients and scale thresholds to densify under-reconstructed geometry and prune artifacts.
+#' @param gaussians List of 3D Gaussians.
+#' @param grad_2d_norm NumericVector of accumulated 2D view-space positional gradient norms.
+#' @param grad_threshold Double. Gradient threshold to trigger densification. Defaults to 0.0002.
+#' @param scale_threshold Double. Scale threshold distinguishing split from clone. Defaults to 0.01.
+#' @param min_opacity Double. Minimum opacity threshold for pruning. Defaults to 0.05.
+#' @param max_scale Double. Maximum world scale for pruning. Defaults to 0.5.
+#' @param max_gaussians Integer. Maximum allowable number of Gaussians. Defaults to 200000.
+#' @return An updated List of 3D Gaussians.
+#' @export
+cpp_gs_densify <- function(gaussians, grad_2d_norm, grad_threshold = 0.0002, scale_threshold = 0.01, min_opacity = 0.05, max_scale = 0.5, max_gaussians = 200000L) {
+    .Call(`_pliman_cpp_gs_densify`, gaussians, grad_2d_norm, grad_threshold, scale_threshold, min_opacity, max_scale, max_gaussians)
+}
+
+#' @title High-Speed Binary and ASCII PLY Point Cloud Parser
+#' @name cpp_gs_read_ply
+#' @description
+#' Reads 3D point coordinates (X, Y, Z) and RGB vertex colors from PLY files
+#' exported by Agisoft Metashape, COLMAP, CloudCompare, or LiDAR scanners.
+#' @param file_path String path to the .ply file.
+#' @return A List containing 'positions' (N x 3 NumericMatrix), 'colors' (N x 3 NumericMatrix), and 'num_vertices'.
+#' @export
+cpp_gs_read_ply <- function(file_path) {
+    .Call(`_pliman_cpp_gs_read_ply`, file_path)
+}
+
+#' @title Differentiable 3D Gaussian Splatting Training Step
+#' @name cpp_gs_train_step
+#' @description
+#' Executes forward tile rasterization, photometric L1 loss, the exact analytical
+#' backward pass of Kerbl et al. (2023) (alpha compositing -> 2D conic/mean ->
+#' EWA projection -> 3D covariance -> scales and rotation quaternions) and Adam
+#' parameter updates for positions, log-scales, quaternions, opacity logits and
+#' base colors (SH band 0).
+#' @param camera List of camera parameters.
+#' @param gaussians List of current 3D Gaussian parameters.
+#' @param target_img NumericVector representing the W x H x 3 target image (x fastest).
+#' @param adam_m List of first Adam moments (pos, scale, opac, sh and optionally rot).
+#' @param adam_v List of second Adam moments (pos, scale, opac, sh and optionally rot).
+#' @param iter Integer. Current iteration number.
+#' @param lr_pos Double. Learning rate for 3D positions. Defaults to 0.00016.
+#' @param lr_scale Double. Learning rate for log-scales. Defaults to 0.005.
+#' @param lr_opac Double. Learning rate for opacity logit. Defaults to 0.05.
+#' @param lr_sh Double. Learning rate for colors / spherical harmonics. Defaults to 0.0025.
+#' @param lr_rot Double. Learning rate for rotation quaternions. Defaults to 0.001.
+#' @param bg_r,bg_g,bg_b Background color used for compositing. Defaults to black.
+#' @return A List with updated gaussians, adam_m, adam_v, loss, grad_2d_norm
+#'   (screen-space NDC gradient norm per Gaussian) and visible (logical).
+#' @export
+cpp_gs_train_step <- function(camera, gaussians, target_img, adam_m, adam_v, iter = 1L, lr_pos = 0.00016, lr_scale = 0.005, lr_opac = 0.05, lr_sh = 0.0025, lr_rot = 0.001, bg_r = 0.0, bg_g = 0.0, bg_b = 0.0) {
+    .Call(`_pliman_cpp_gs_train_step`, camera, gaussians, target_img, adam_m, adam_v, iter, lr_pos, lr_scale, lr_opac, lr_sh, lr_rot, bg_r, bg_g, bg_b)
+}
+
+#' @title Statistical and Radius Outlier Removal (SOR / ROR) for 3D Point Clouds
+#' @name cpp_gs_filter_outliers
+#' @description
+#' High-speed native C++ Spatial Kd-Tree implementation of Statistical Outlier Removal (SOR)
+#' and Radius Outlier Removal (ROR). Filters out sparse, floating airborne noise and background
+#' artifacts from 3D point clouds without any external library dependencies.
+#' @param points N x 3 NumericMatrix of 3D coordinates.
+#' @param k Integer. Number of nearest neighbors to evaluate (default 20).
+#' @param std_ratio Double. Standard deviation multiplier threshold (default 1.0).
+#' @param radius Double. Optional radius for spherical density filtering (0 = disabled).
+#' @param min_neighbors Integer. Minimum neighbors inside radius (0 = disabled).
+#' @return A List containing 'keep' (LogicalVector), 'mean_dists' (NumericVector),
+#'   'cutoff' (double), 'global_mean' (double), 'global_sd' (double), 'num_kept' (int), and 'num_removed' (int).
+#' @export
+cpp_gs_filter_outliers <- function(points, k = 20L, std_ratio = 1.0, radius = 0.0, min_neighbors = 0L) {
+    .Call(`_pliman_cpp_gs_filter_outliers`, points, k, std_ratio, radius, min_neighbors)
+}
+
+#' @title Fast 3D k-Nearest Neighbors Query
+#' @name cpp_gs_knn
+#' @description
+#' High-speed native Kd-Tree k-nearest neighbors search in 3D Euclidean space.
+#' Completely replaces external packages like RANN with 100% native C++ code.
+#' @param points N x 3 NumericMatrix of reference point coordinates.
+#' @param queries M x 3 NumericMatrix of query coordinates (or NULL to query 'points' against itself).
+#' @param k Integer. Number of nearest neighbors.
+#' @return A List containing 'indices' (M x k IntegerMatrix, 1-based) and 'dists' (M x k NumericMatrix).
+#' @export
+cpp_gs_knn <- function(points, queries = NULL, k = 10L) {
+    .Call(`_pliman_cpp_gs_knn`, points, queries, k)
 }
 
 haralick_features_cpp <- function(labels, ref_sexp, nc = 32L) {
@@ -383,16 +585,24 @@ read_image_cpp <- function(filename) {
     .Call(`_pliman_read_image_cpp`, filename)
 }
 
+preprocess_yolo_file_cpp <- function(filename, target_size = 640L, interpolation = "bilinear") {
+    .Call(`_pliman_preprocess_yolo_file_cpp`, filename, target_size, interpolation)
+}
+
+rgb_buffer_to_image_cpp <- function(raw_buf, w, h) {
+    .Call(`_pliman_rgb_buffer_to_image_cpp`, raw_buf, w, h)
+}
+
+image_to_rgb_buffer_cpp <- function(img) {
+    .Call(`_pliman_image_to_rgb_buffer_cpp`, img)
+}
+
 write_image_cpp <- function(img_sexp, filename, quality = 95L) {
     .Call(`_pliman_write_image_cpp`, img_sexp, filename, quality)
 }
 
-preprocess_yolo_file_cpp <- function(filename, target_size = 640L) {
-    .Call(`_pliman_preprocess_yolo_file_cpp`, filename, target_size)
-}
-
-draw_yolo_detections_bgr_cpp <- function(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd = 2L, hud_text = "", font_scale = 1.0, keypoints = NULL, kpt_threshold = 0.3, kpt_radius = 4L, draw_skeleton = TRUE, draw_boxes = TRUE, track_ids = NULL, flash = NULL, history_x = NULL, history_y = NULL, roi = NULL, roi_label = "", count_line = NULL, count_line_label = "", counted = NULL, hide_outside_roi = TRUE, hide_counted = TRUE, flash_counted = TRUE, show_text = TRUE, show_conf = TRUE, show_class = TRUE, show_id = FALSE, badge = TRUE, pad_scale = 1.0, mask_labels = NULL, mask_alpha = 0.4, mask_offset_x = 0L, mask_offset_y = 0L, draw_masks = TRUE, mask_ids = NULL, hud_pos = "top-right", hud_layout = "vertical") {
-    .Call(`_pliman_draw_yolo_detections_bgr_cpp`, bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, badge, pad_scale, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout)
+draw_yolo_detections_bgr_cpp <- function(bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd = 2L, hud_text = "", font_scale = 1.0, keypoints = NULL, kpt_threshold = 0.3, kpt_radius = 4L, draw_skeleton = TRUE, draw_boxes = TRUE, track_ids = NULL, flash = NULL, history_x = NULL, history_y = NULL, roi = NULL, roi_label = "", roi_alpha = 0.3, count_line = NULL, count_line_label = "", counted = NULL, hide_outside_roi = TRUE, hide_counted = TRUE, flash_counted = TRUE, show_text = TRUE, show_conf = TRUE, show_class = TRUE, show_id = FALSE, badge = TRUE, pad_scale = 1.0, mask_labels = NULL, mask_alpha = 0.4, mask_offset_x = 0L, mask_offset_y = 0L, draw_masks = TRUE, mask_ids = NULL, hud_pos = "top-right", hud_layout = "vertical", font_scale_hud = -1.0, font_scale_roi = 1, detailed_telemetry = FALSE, sparkline = NULL, mask_shift_x = NULL, mask_shift_y = NULL, show_point = FALSE, point_radius = 4L, point_col = "") {
+    .Call(`_pliman_draw_yolo_detections_bgr_cpp`, bm, xmin, ymin, xmax, ymax, labels, scores, colors, lwd, hud_text, font_scale, keypoints, kpt_threshold, kpt_radius, draw_skeleton, draw_boxes, track_ids, flash, history_x, history_y, roi, roi_label, roi_alpha, count_line, count_line_label, counted, hide_outside_roi, hide_counted, flash_counted, show_text, show_conf, show_class, show_id, badge, pad_scale, mask_labels, mask_alpha, mask_offset_x, mask_offset_y, draw_masks, mask_ids, hud_pos, hud_layout, font_scale_hud, font_scale_roi, detailed_telemetry, sparkline, mask_shift_x, mask_shift_y, show_point, point_radius, point_col)
 }
 
 crop_bgr_cpp <- function(bm, x1, y1, x2, y2) {
@@ -411,6 +621,38 @@ load_frame_bgr_cpp <- function(filename) {
     .Call(`_pliman_load_frame_bgr_cpp`, filename)
 }
 
+adjust_frame_color_cpp <- function(bm, saturation = 1.0, contrast = 1.0) {
+    .Call(`_pliman_adjust_frame_color_cpp`, bm, saturation, contrast)
+}
+
+image_blur_cpp <- function(img_sexp, max_size = 640L) {
+    .Call(`_pliman_image_blur_cpp`, img_sexp, max_size)
+}
+
+images_blur_cpp <- function(files, max_size = 640L) {
+    .Call(`_pliman_images_blur_cpp`, files, max_size)
+}
+
+convert_frames_to_jpg_cpp <- function(src_files, dst_files, quality = 95L, remove_src = TRUE) {
+    .Call(`_pliman_convert_frames_to_jpg_cpp`, src_files, dst_files, quality, remove_src)
+}
+
+update_video_heatmap_cpp <- function(heatmap, xmin, ymin, xmax, ymax, scores, decay = 0.98, draw_on_bm = FALSE, bm = NULL, alpha = 0.40) {
+    invisible(.Call(`_pliman_update_video_heatmap_cpp`, heatmap, xmin, ymin, xmax, ymax, scores, decay, draw_on_bm, bm, alpha))
+}
+
+perspective_matrix_cpp <- function(W, H, theta_x, theta_y, theta_z, scale = 1.0, focal_fac = 1.0, keep_size = TRUE) {
+    .Call(`_pliman_perspective_matrix_cpp`, W, H, theta_x, theta_y, theta_z, scale, focal_fac, keep_size)
+}
+
+image_warp_perspective_cpp <- function(img_sexp, Minv_mat, oW, oH, bg_color) {
+    .Call(`_pliman_image_warp_perspective_cpp`, img_sexp, Minv_mat, oW, oH, bg_color)
+}
+
+image_perspective_cpp <- function(img_sexp, theta_x, theta_y, theta_z, scale, focal_fac, bg_color, keep_size) {
+    .Call(`_pliman_image_perspective_cpp`, img_sexp, theta_x, theta_y, theta_z, scale, focal_fac, bg_color, keep_size)
+}
+
 image_hreflect_cpp <- function(img_sexp) {
     .Call(`_pliman_image_hreflect_cpp`, img_sexp)
 }
@@ -421,6 +663,14 @@ image_vreflect_cpp <- function(img_sexp) {
 
 image_resize_cpp <- function(img_sexp, out_w, out_h, filter = 0L) {
     .Call(`_pliman_image_resize_cpp`, img_sexp, out_w, out_h, filter)
+}
+
+resize_roi_bilinear_cpp <- function(mat, out_w, out_h, x0, y0, rw, rh) {
+    .Call(`_pliman_resize_roi_bilinear_cpp`, mat, out_w, out_h, x0, y0, rw, rh)
+}
+
+preprocess_nchw_cpp <- function(mat, target_size, mean, std_, letterbox = FALSE) {
+    .Call(`_pliman_preprocess_nchw_cpp`, mat, target_size, mean, std_, letterbox)
 }
 
 image_rotate_cpp <- function(img_sexp, angle_deg, bg_color) {
@@ -437,10 +687,6 @@ compute_index_means_cpp <- function(idx_mat, labels_sexp, valid_ids) {
 
 rgb_to_hsb_cpp <- function(R_sexp, G_sexp, B_sexp) {
     .Call(`_pliman_rgb_to_hsb_cpp`, R_sexp, G_sexp, B_sexp)
-}
-
-detect_line_segments <- function(image_sexp, X, Y, scale = 0.8, sigma_scale = 0.6, quant = 2.0, ang_th = 22.5, log_eps = 0.0, density_th = 0.7, n_bins = 1024L, need_to_union = 0L, union_ang_th = 7, union_use_NFA = 0L, union_log_eps = 0.0, length_threshold = 5, dist_threshold = 5) {
-    .Call(`_pliman_detect_line_segments`, image_sexp, X, Y, scale, sigma_scale, quant, ang_th, log_eps, density_th, n_bins, need_to_union, union_ang_th, union_use_NFA, union_log_eps, length_threshold, dist_threshold)
 }
 
 median_filter_cpp <- function(img_sexp, nrow, ncol, nch, radius) {
@@ -510,7 +756,7 @@ erosao_conservativa <- function(img, raio_erosao = 3L, raio_dilatacao = 3L, form
 #'
 #' @param img Grayscale index matrix.
 #' @param radius Neighbourhood radius for median sampling (default = 5).
-#' @param has_white_bg Unused — background class is detected automatically.
+#' @param has_white_bg Unused - background class is detected automatically.
 #' @return Corrected grayscale matrix.
 #' @export
 remove_reflection_cpp <- function(img, radius = 5L, has_white_bg = TRUE) {
@@ -581,8 +827,68 @@ split_video_native_cpp <- function(video_path, output_dir, prefix = "frame_", di
     .Call(`_pliman_split_video_native_cpp`, video_path, output_dir, prefix, digits, format, quality, target_fps, target_n, verbose, callback)
 }
 
+has_native_video_reader_cpp <- function() {
+    .Call(`_pliman_has_native_video_reader_cpp`)
+}
+
+open_native_video_reader_cpp <- function(video_path) {
+    .Call(`_pliman_open_native_video_reader_cpp`, video_path)
+}
+
+get_video_reader_info_cpp <- function(reader_ptr) {
+    .Call(`_pliman_get_video_reader_info_cpp`, reader_ptr)
+}
+
+start_native_video_prefetch_cpp <- function(reader_ptr, target_fps = 0.0, start_time = 0.0, end_time = 0.0) {
+    .Call(`_pliman_start_native_video_prefetch_cpp`, reader_ptr, target_fps, start_time, end_time)
+}
+
+get_video_reader_timestamp_cpp <- function(reader_ptr) {
+    .Call(`_pliman_get_video_reader_timestamp_cpp`, reader_ptr)
+}
+
+read_native_video_frame_cpp <- function(reader_ptr, out_bm) {
+    .Call(`_pliman_read_native_video_frame_cpp`, reader_ptr, out_bm)
+}
+
+extract_native_frame_to_image_cpp <- function(reader_ptr, target_frame) {
+    .Call(`_pliman_extract_native_frame_to_image_cpp`, reader_ptr, target_frame)
+}
+
+close_native_video_reader_cpp <- function(reader_ptr) {
+    .Call(`_pliman_close_native_video_reader_cpp`, reader_ptr)
+}
+
+has_native_video_writer_cpp <- function() {
+    .Call(`_pliman_has_native_video_writer_cpp`)
+}
+
+open_native_video_writer_cpp <- function(video_path, width, height, fps = 30.0, bitrate = 0L) {
+    .Call(`_pliman_open_native_video_writer_cpp`, video_path, width, height, fps, bitrate)
+}
+
+write_native_video_frame_cpp <- function(writer_ptr, bm) {
+    .Call(`_pliman_write_native_video_frame_cpp`, writer_ptr, bm)
+}
+
+close_native_video_writer_cpp <- function(writer_ptr) {
+    .Call(`_pliman_close_native_video_writer_cpp`, writer_ptr)
+}
+
 extract_contours_cpp <- function(labels) {
     .Call(`_pliman_extract_contours_cpp`, labels)
+}
+
+ocr_warp_crops_cpp <- function(img, quads, out_h, out_w, pad_w, mean, std, bgr = TRUE, scale = 1.0, pad_value = 0.0) {
+    .Call(`_pliman_ocr_warp_crops_cpp`, img, quads, out_h, out_w, pad_w, mean, std, bgr, scale, pad_value)
+}
+
+ocr_components_cpp <- function(labels, score, n_labels, vertical_ratio = 3.0, snap_deg = 2.0) {
+    .Call(`_pliman_ocr_components_cpp`, labels, score, n_labels, vertical_ratio, snap_deg)
+}
+
+pliman_vram_usage_cpp <- function(device_id = -1L) {
+    .Call(`_pliman_pliman_vram_usage_cpp`, device_id)
 }
 
 pliman_gpu_info_cpp <- function() {
@@ -591,6 +897,38 @@ pliman_gpu_info_cpp <- function() {
 
 clear_onnx_sessions_cpp <- function() {
     invisible(.Call(`_pliman_clear_onnx_sessions_cpp`))
+}
+
+onnx_evict_session_cpp <- function(model_path) {
+    .Call(`_pliman_onnx_evict_session_cpp`, model_path)
+}
+
+onnx_clear_encoder_cache_cpp <- function() {
+    invisible(.Call(`_pliman_onnx_clear_encoder_cache_cpp`))
+}
+
+pliman_zncc_fft_stats_cpp <- function() {
+    .Call(`_pliman_pliman_zncc_fft_stats_cpp`)
+}
+
+pliman_omp_max_threads_cpp <- function() {
+    .Call(`_pliman_pliman_omp_max_threads_cpp`)
+}
+
+onnx_set_max_sessions_cpp <- function(n = 0L) {
+    .Call(`_pliman_onnx_set_max_sessions_cpp`, n)
+}
+
+onnx_session_info_cpp <- function() {
+    .Call(`_pliman_onnx_session_info_cpp`)
+}
+
+onnx_available_providers_cpp <- function(lib_path) {
+    .Call(`_pliman_onnx_available_providers_cpp`, lib_path)
+}
+
+onnx_api_version_cpp <- function() {
+    .Call(`_pliman_onnx_api_version_cpp`)
 }
 
 run_onnx_inference_cpp <- function(tensor_vec, tensor_dims, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
@@ -605,8 +943,8 @@ run_grounding_dino_cpp <- function(pixel_values, input_ids, token_type_ids, atte
     .Call(`_pliman_run_grounding_dino_cpp`, pixel_values, input_ids, token_type_ids, attention_mask, model_path, lib_path, box_threshold, text_threshold, iou_threshold, num_threads, use_gpu, device_id)
 }
 
-run_sam2_instances_cpp <- function(tensor_vec, boxes, orig_w, orig_h, encoder_path, decoder_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
-    .Call(`_pliman_run_sam2_instances_cpp`, tensor_vec, boxes, orig_w, orig_h, encoder_path, decoder_path, lib_path, num_threads, use_gpu, device_id)
+run_sam2_instances_cpp <- function(tensor_vec, boxes, orig_w, orig_h, encoder_path, decoder_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L, batch_size = 64L) {
+    .Call(`_pliman_run_sam2_instances_cpp`, tensor_vec, boxes, orig_w, orig_h, encoder_path, decoder_path, lib_path, num_threads, use_gpu, device_id, batch_size)
 }
 
 run_sam2_persam_cpp <- function(tensor_vec, exemplar_x, exemplar_y, orig_w, orig_h, encoder_path, decoder_path, lib_path, sim_threshold = 0.5, min_dist = 16.0, iou_threshold = 0.5, max_objects = 200L, feat_res = 256L, num_threads = 0L, use_gpu = FALSE, device_id = -1L, precomputed_prototypes = NULL) {
@@ -621,12 +959,36 @@ run_depth_anything_cpp <- function(tensor_vec, in_w, in_h, orig_w, orig_h, model
     .Call(`_pliman_run_depth_anything_cpp`, tensor_vec, in_w, in_h, orig_w, orig_h, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
+run_yolo_sem_cpp <- function(tensor_vec, in_w, in_h, orig_w, orig_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_yolo_sem_cpp`, tensor_vec, in_w, in_h, orig_w, orig_h, model_path, lib_path, num_threads, use_gpu, device_id)
+}
+
 run_dinov2_cpp <- function(tensor_vec, in_w, in_h, patch_size = 14L, return_pca = TRUE, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
     .Call(`_pliman_run_dinov2_cpp`, tensor_vec, in_w, in_h, patch_size, return_pca, model_path, lib_path, num_threads, use_gpu, device_id)
 }
 
-run_yolo_cpp <- function(tensor_vec, orig_w, orig_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, need_masks = TRUE, return_features = FALSE, txt_feats = NULL) {
-    .Call(`_pliman_run_yolo_cpp`, tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats)
+get_onnx_model_io_shape_cpp <- function(model_path, lib_path = "", num_threads = 0L, use_gpu = TRUE, device_id = -1L) {
+    .Call(`_pliman_get_onnx_model_io_shape_cpp`, model_path, lib_path, num_threads, use_gpu, device_id)
+}
+
+yolo_prefetch_cpp <- function(img, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L, target_size = 640L) {
+    .Call(`_pliman_yolo_prefetch_cpp`, img, model_path, lib_path, num_threads, use_gpu, device_id, target_size)
+}
+
+yolo_prefetch_stats_cpp <- function() {
+    .Call(`_pliman_yolo_prefetch_stats_cpp`)
+}
+
+yolo_prefetch_cancel_cpp <- function() {
+    invisible(.Call(`_pliman_yolo_prefetch_cancel_cpp`))
+}
+
+run_yolo_cpp <- function(tensor_vec, orig_w, orig_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, need_masks = TRUE, return_features = FALSE, txt_feats = NULL, target_size = 640L, max_nms = 30000L, max_det = 0L, filter_nested = FALSE) {
+    .Call(`_pliman_run_yolo_cpp`, tensor_vec, orig_w, orig_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, need_masks, return_features, txt_feats, target_size, max_nms, max_det, filter_nested)
+}
+
+run_yolo_tiles_cpp <- function(img, tile_x, tile_y, tile_w, tile_h, conf_threshold = 0.25, iou_threshold = 0.45, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L, target_size = 640L, include_full = FALSE, full_target_size = 0L, max_nms = 30000L, max_det = 0L) {
+    .Call(`_pliman_run_yolo_tiles_cpp`, img, tile_x, tile_y, tile_w, tile_h, conf_threshold, iou_threshold, model_path, lib_path, num_threads, use_gpu, device_id, target_size, include_full, full_target_size, max_nms, max_det)
 }
 
 run_yolo_cls_cpp <- function(tensor_vec, model_path = "", lib_path = "", num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
@@ -657,6 +1019,46 @@ preprocess_yolo_cpp <- function(img_data, target_size = 640L) {
     .Call(`_pliman_preprocess_yolo_cpp`, img_data, target_size)
 }
 
+generate_pointcloud_cpp <- function(depth_mat, r_mat, g_mat, b_mat, mask_mat = NULL, fov_deg = 60.0, subsample = 1L, invert_depth = TRUE, z_min = 0.0, z_max = 1000.0, estimate_normals = TRUE) {
+    .Call(`_pliman_generate_pointcloud_cpp`, depth_mat, r_mat, g_mat, b_mat, mask_mat, fov_deg, subsample, invert_depth, z_min, z_max, estimate_normals)
+}
+
+export_ply_cpp <- function(file_path, x, y, z, r, g, b, nx = NULL, ny = NULL, nz = NULL, binary = TRUE) {
+    .Call(`_pliman_export_ply_cpp`, file_path, x, y, z, r, g, b, nx, ny, nz, binary)
+}
+
+run_image_restore_cpp <- function(tensor_vec, in_w, in_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L, tile_size = 0L, tile_pad = 16L) {
+    .Call(`_pliman_run_image_restore_cpp`, tensor_vec, in_w, in_h, model_path, lib_path, num_threads, use_gpu, device_id, tile_size, tile_pad)
+}
+
+run_density_map_cpp <- function(tensor_vec, in_w, in_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_density_map_cpp`, tensor_vec, in_w, in_h, model_path, lib_path, num_threads, use_gpu, device_id)
+}
+
+run_ocr_det_cpp <- function(tensor_vec, in_w, in_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_ocr_det_cpp`, tensor_vec, in_w, in_h, model_path, lib_path, num_threads, use_gpu, device_id)
+}
+
+run_craft_det_cpp <- function(tensor_vec, in_w, in_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_craft_det_cpp`, tensor_vec, in_w, in_h, model_path, lib_path, num_threads, use_gpu, device_id)
+}
+
+run_ocr_rec_cpp <- function(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L, allowed_ids = NULL) {
+    .Call(`_pliman_run_ocr_rec_cpp`, crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id, allowed_ids)
+}
+
+run_ocr_cls_cpp <- function(crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_ocr_cls_cpp`, crops_vec, batch_size, crop_w, crop_h, model_path, lib_path, num_threads, use_gpu, device_id)
+}
+
+run_trocr_rec_cpp <- function(crops_vec, batch_size, encoder_path, decoder_path, lib_path, max_length = 32L, num_threads = 0L, use_gpu = FALSE, device_id = -1L) {
+    .Call(`_pliman_run_trocr_rec_cpp`, crops_vec, batch_size, encoder_path, decoder_path, lib_path, max_length, num_threads, use_gpu, device_id)
+}
+
+remap_labels_cpp <- function(labels, keep_ids) {
+    invisible(.Call(`_pliman_remap_labels_cpp`, labels, keep_ids))
+}
+
 canny_edge_detector <- function(image, X, Y, s = 2, low_thr = 3, high_thr = 10, accGrad = FALSE) {
     .Call(`_pliman_canny_edge_detector`, image, X, Y, s, low_thr, high_thr, accGrad)
 }
@@ -669,8 +1071,40 @@ analyze_root_system_cpp <- function(binary_mat, pixel_size = 1.0, prune_length_p
     .Call(`_pliman_analyze_root_system_cpp`, binary_mat, pixel_size, prune_length_px, cluster_radius_px, crown_x_in, crown_y_in, num_classes, diameter_bins, n_depth_slices, max_order, gravitropic_alpha, closing_rad, fill_size, rad_fac, dissolve_cycles)
 }
 
-update_tracker_cpp <- function(xmin, ymin, xmax, ymax, labels, scores, state, count_line = NULL, roi = NULL, max_dist = 120.0, min_iou = 0.25, max_lost = 15L, max_history = 30L) {
-    .Call(`_pliman_update_tracker_cpp`, xmin, ymin, xmax, ymax, labels, scores, state, count_line, roi, max_dist, min_iou, max_lost, max_history)
+update_tracker_cpp <- function(xmin, ymin, xmax, ymax, labels, scores, state, count_line = NULL, roi = NULL, max_dist = 120.0, min_iou = 0.25, max_lost = 15L, max_history = 30L, current_time = -1.0, frame_w = 0L, frame_h = 0L, class_ids = NULL, mask_ids = NULL, interpolate_box = TRUE, interpolate_mask = TRUE, min_hits = 1L) {
+    .Call(`_pliman_update_tracker_cpp`, xmin, ymin, xmax, ymax, labels, scores, state, count_line, roi, max_dist, min_iou, max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids, interpolate_box, interpolate_mask, min_hits)
+}
+
+tracker_create_cpp <- function() {
+    .Call(`_pliman_tracker_create_cpp`)
+}
+
+tracker_update_cpp <- function(tracker, xmin, ymin, xmax, ymax, labels, scores, count_line = NULL, roi = NULL, max_dist = 120.0, min_iou = 0.25, max_lost = 15L, max_history = 30L, current_time = -1.0, frame_w = 0L, frame_h = 0L, class_ids = NULL, mask_ids = NULL, interpolate_box = TRUE, interpolate_mask = TRUE, min_hits = 1L) {
+    .Call(`_pliman_tracker_update_cpp`, tracker, xmin, ymin, xmax, ymax, labels, scores, count_line, roi, max_dist, min_iou, max_lost, max_history, current_time, frame_w, frame_h, class_ids, mask_ids, interpolate_box, interpolate_mask, min_hits)
+}
+
+tracker_velocities_cpp <- function(tracker) {
+    .Call(`_pliman_tracker_velocities_cpp`, tracker)
+}
+
+tracker_n_tracks_cpp <- function(tracker) {
+    .Call(`_pliman_tracker_n_tracks_cpp`, tracker)
+}
+
+tracker_export_state_cpp <- function(tracker) {
+    .Call(`_pliman_tracker_export_state_cpp`, tracker)
+}
+
+tracker_import_state_cpp <- function(tracker, state, min_hits = 1L) {
+    invisible(.Call(`_pliman_tracker_import_state_cpp`, tracker, state, min_hits))
+}
+
+tracker_reset_cpp <- function(tracker) {
+    invisible(.Call(`_pliman_tracker_reset_cpp`, tracker))
+}
+
+filter_nested_boxes_cpp <- function(boxes, scores, class_ids = NULL, containment_thresh = 0.85, max_area_ratio = 0.70, conf_floor = 0.50, group = NULL) {
+    .Call(`_pliman_filter_nested_boxes_cpp`, boxes, scores, class_ids, containment_thresh, max_area_ratio, conf_floor, group)
 }
 
 watershed_cpp <- function(img_r, tolerance = 1.0, ext = 1L) {
@@ -679,5 +1113,63 @@ watershed_cpp <- function(img_r, tolerance = 1.0, ext = 1L) {
 
 help_dist_transform <- function(bin) {
     .Call(`_pliman_help_dist_transform`, bin)
+}
+
+parse_yolo_labels_cpp <- function(lbl_files, img_files, stems, splits, ptypes, classes, split_keys, max_anomalies = 500L, num_threads = 0L) {
+    .Call(`_pliman_parse_yolo_labels_cpp`, lbl_files, img_files, stems, splits, ptypes, classes, split_keys, max_anomalies, num_threads)
+}
+
+parallel_copy_files_cpp <- function(src_files, dest_files, copy = TRUE, num_threads = 0L) {
+    .Call(`_pliman_parallel_copy_files_cpp`, src_files, dest_files, copy, num_threads)
+}
+
+parallel_remap_labels_cpp <- function(src_files, dest_files, class_map, num_threads = 0L) {
+    .Call(`_pliman_parallel_remap_labels_cpp`, src_files, dest_files, class_map, num_threads)
+}
+
+fast_dir_size_cpp <- function(dir_path) {
+    .Call(`_pliman_fast_dir_size_cpp`, dir_path)
+}
+
+fast_image_dimensions_cpp <- function(img_files) {
+    .Call(`_pliman_fast_image_dimensions_cpp`, img_files)
+}
+
+image_scramble_cpp <- function(img_sexp, grid_r = 8L, grid_c = 8L, rotate_tiles = TRUE, flip_tiles = TRUE, mode = "grid", swap_prob = 0.5, shuffle_pixels = FALSE, seed = 42L) {
+    .Call(`_pliman_image_scramble_cpp`, img_sexp, grid_r, grid_c, rotate_tiles, flip_tiles, mode, swap_prob, shuffle_pixels, seed)
+}
+
+fast_count_yolo_objects_cpp <- function(lbl_files, num_threads = 0L) {
+    .Call(`_pliman_fast_count_yolo_objects_cpp`, lbl_files, num_threads)
+}
+
+fast_audit_yolo_labels_cpp <- function(lbl_files, n_classes = 0L, repair = FALSE, num_threads = 0L) {
+    .Call(`_pliman_fast_audit_yolo_labels_cpp`, lbl_files, n_classes, repair, num_threads)
+}
+
+fast_coco_eval_cpp <- function(pred_img_id, pred_cls_id, pred_score, pred_x1, pred_y1, pred_x2, pred_y2, gt_img_id, gt_cls_id, gt_x1, gt_y1, gt_x2, gt_y2, num_images, num_classes, iou_thresholds, eval_iou_th = 0.50) {
+    .Call(`_pliman_fast_coco_eval_cpp`, pred_img_id, pred_cls_id, pred_score, pred_x1, pred_y1, pred_x2, pred_y2, gt_img_id, gt_cls_id, gt_x1, gt_y1, gt_x2, gt_y2, num_images, num_classes, iou_thresholds, eval_iou_th)
+}
+
+fast_dhash_leakage_cpp <- function(img_files, splits, max_distance = 4L, num_threads = 0L) {
+    .Call(`_pliman_fast_dhash_leakage_cpp`, img_files, splits, max_distance, num_threads)
+}
+
+#' @keywords internal
+#' @noRd
+crop_tile_cpp <- function(img, x1, y1, tile_w, tile_h, bg_val) {
+    .Call(`_pliman_crop_tile_cpp`, img, x1, y1, tile_w, tile_h, bg_val)
+}
+
+#' @keywords internal
+#' @noRd
+clip_yolo_boxes_cpp <- function(boxes, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio = 0.50, mode = 0L, min_box_size = 2.0) {
+    .Call(`_pliman_clip_yolo_boxes_cpp`, boxes, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio, mode, min_box_size)
+}
+
+#' @keywords internal
+#' @noRd
+clip_yolo_polygons_cpp <- function(polygons, class_ids, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio = 0.50, mode = 0L, max_vertices = 32L) {
+    .Call(`_pliman_clip_yolo_polygons_cpp`, polygons, class_ids, tile_x1, tile_y1, tile_x2, tile_y2, tile_w, tile_h, min_area_ratio, mode, max_vertices)
 }
 

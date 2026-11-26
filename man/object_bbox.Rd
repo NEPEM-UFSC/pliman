@@ -18,7 +18,7 @@ list with \code{x_min}, \code{y_min}, \code{x_max}, and \code{y_max} values.
 This function calculates the bounding boxes for a given list of contours.
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 contours <- list(
   matrix(c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
            110, 120, 130, 140, 150, 160, 170, 180, 190, 200),
@@ -26,6 +26,5 @@ contours <- list(
 )
 bbox_list <- object_bbox(contours)
 print(bbox_list)
-}
-
+\dontshow{\}) # examplesIf}
 }

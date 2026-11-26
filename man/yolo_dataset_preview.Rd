@@ -7,19 +7,36 @@
 yolo_dataset_preview(
   dir = "yolo_dataset",
   split = c("train", "val", "test"),
-  pattern = NULL,
+  show_bbox = TRUE,
+  show_polygon = TRUE,
+  show_points = FALSE,
+  show_labels = TRUE,
+  bbox = show_bbox,
+  polygon = show_polygon,
+  points = show_points,
+  labels = show_labels,
   n = 4L,
-  random = TRUE,
+  which = NULL,
+  images = NULL,
+  only_augmented = NULL,
+  only_original = NULL,
+  pattern = NULL,
+  random = is.null(which) && is.null(images),
   seed = NULL,
   mfrow = NULL,
   rainbow = TRUE,
   col = NULL,
   lwd = 1.5,
   fill = NULL,
-  show_labels = TRUE,
   label_bg = FALSE,
   cex = 0.6,
-  title = TRUE
+  title = TRUE,
+  save = FALSE,
+  file_name = NULL,
+  width = NULL,
+  height = NULL,
+  dpi = 300,
+  ...
 )
 }
 \arguments{
@@ -27,13 +44,37 @@ yolo_dataset_preview(
 
 \item{split}{Character. The subset to preview: \code{"train"} (default), \code{"val"}, or \code{"test"}.}
 
+\item{show_bbox}{Logical. Whether to draw bounding boxes and annotations. Defaults to \code{TRUE}. Supported alias: \code{bbox}.}
+
+\item{show_polygon}{Logical. For segmentation datasets, whether to draw polygons. Defaults to \code{TRUE}. Supported alias: \code{polygon}.}
+
+\item{show_points}{Logical. If \code{TRUE}, draws points at the centroid of each bounding box or polygon using the same color as the box. Defaults to \code{FALSE}. Supported alias: \code{points}.}
+
+\item{show_labels}{Logical. If \code{TRUE} (default), displays class name labels. Supported aliases: \code{labels}, \code{show_class}.}
+
+\item{bbox, polygon, points, labels}{Backward-compatible aliases for \code{show_bbox}, \code{show_polygon}, \code{show_points}, and \code{show_labels}.}
+
+\item{n}{Integer. Number of sample images to preview. Defaults to \code{4L}. Supported aliases: \code{n_images}, \code{num_images}.}
+
+\item{which}{Optional integer vector of image indices (e.g. \code{1:4}) or character vector of
+image names or stems (e.g. \code{c("img_3_aug1", "img_553_aug2")}) to plot specific images.}
+
+\item{images}{Alias for \code{which}.}
+
+\item{only_augmented}{Logical. If \code{TRUE}, only previews augmented images (containing \verb{_aug}).
+Defaults to \code{TRUE} if \code{dir} is an augmented dataset (\code{yolo_dataset_aug}), and \code{FALSE} otherwise.}
+
+\item{only_original}{Logical. If \code{TRUE}, only previews original pristine images (excluding synthetic
+augmentations \verb{_aug[0-9]+}, synthetic backgrounds \code{synth_bg_}, external backgrounds \code{bg_}, and scrambled backgrounds \code{scramble_}).
+Defaults to \code{FALSE} (or \code{NULL}).}
+
 \item{pattern}{Optional regex pattern to filter specific image names (e.g. \code{"toras5\\\\.png"}). Defaults to \code{NULL}.}
 
-\item{n}{Integer. Number of sample images to preview. Defaults to \code{4L}.}
-
-\item{random}{Logical. If \code{TRUE} (default), samples random images from the split. If \code{FALSE}, picks the first \code{n} images.}
+\item{random}{Logical. If \code{TRUE} (default when \code{which} is \code{NULL}), samples random images from the split. If \code{FALSE}, picks the first \code{n} images.}
 
 \item{seed}{Optional integer seed for reproducible random selection.}
+
+\item{mfrow}{Numeric vector of length 2 giving \code{c(rows, cols)} for the multi-panel layout.}
 
 \item{rainbow}{Logical. If \code{TRUE} (default), assigns distinct rainbow colors to each object within the image (matching review previews). If \code{FALSE}, colors are assigned by class.}
 
@@ -43,13 +84,23 @@ yolo_dataset_preview(
 
 \item{fill}{Fill color for polygons with transparency (e.g. \code{"#00FF6633"}). If \code{NULL}, no fill.}
 
-\item{show_labels}{Logical. If \code{TRUE} (default), displays class name labels.}
-
 \item{label_bg}{Logical. If \code{TRUE}, draws a subtle background badge behind each label. If \code{FALSE} (default), draws clean, discreet text matching review previews without blocking objects.}
 
 \item{cex}{Numeric. Text size for class name labels. Defaults to \code{0.6}.}
 
 \item{title}{Logical or character. If \code{TRUE} (default), displays panel titles with filename and object count.}
+
+\item{save}{Logical. If \code{TRUE}, saves the generated plot to a file. Defaults to \code{FALSE}.}
+
+\item{file_name}{Optional character string. Custom file name or path to save the plot (e.g. \code{"dataset_preview.png"}).}
+
+\item{width}{Numeric. Width of the output plot. If \verb{<= 50}, interpreted as inches; if \verb{> 50}, interpreted as pixels. Defaults to \code{max(7, nc * 3.5)}.}
+
+\item{height}{Numeric. Height of the output plot. If \verb{<= 50}, interpreted as inches; if \verb{> 50}, interpreted as pixels. Defaults to \code{max(6, nr * 3.5)}.}
+
+\item{dpi}{Numeric. Resolution in dots per inch (DPI) for raster formats (PNG, JPEG, TIFF). Defaults to \code{300}.}
+
+\item{...}{Additional arguments.}
 }
 \value{
 An invisible list of the sampled image file paths.
@@ -60,9 +111,10 @@ dataset directory and displays them in a multi-panel grid with overlaid segmenta
 or bounding boxes. By default, randomly samples \code{n} images from the requested split.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 dataset <- yolo_dataset_export(img, dir = "dataset_cafe", model = "persam")
 yolo_dataset_preview(dataset, n = 4, random = TRUE)
 plot(dataset, n = 6)
-}
+plot(dataset, n = 4, save = TRUE, file_name = "preview.png")
+\dontshow{\}) # examplesIf}
 }

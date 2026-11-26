@@ -1,5 +1,47 @@
 # utils_neural.R - Pre-trained Deep Learning Segmentation and Background Removal for pliman
-#
+# ==============================================================================
+# SECTION 1: MODEL MANAGEMENT & DIRECTORY MANAGEMENT
+# ==============================================================================
+
+#' Model Directory Management for pliman Deep Learning Models
+#'
+#' Gets or sets the local directory where pre-trained ONNX models are stored.
+#' Defaults to the standard R user data directory:
+#' `tools::R_user_dir("pliman", which = "data")/models`.
+#'
+#' @param dir Optional character string specifying a custom directory path.
+#'   If provided, creates the directory if it does not exist.
+#' @return A character string with the normalized absolute path to the model directory.
+#' @export
+#' @examples
+#' pliman_model_dir()
+pliman_model_dir <- function(dir = NULL) {
+  if (!is.null(dir)) {
+    if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE) &&
+        identical(dir, .onnx_meta_cache$default_model_dir)) {
+      return(dir)
+    }
+    dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+    if (!dir.exists(dir)) {
+      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+    }
+    return(dir)
+  }
+
+  if (exists("default_model_dir", envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_dir <- .onnx_meta_cache$default_model_dir
+    if (dir.exists(cached_dir)) return(cached_dir)
+  }
+
+  default_dir <- file.path(tools::R_user_dir("pliman", which = "data"), "models")
+  default_dir <- normalizePath(default_dir, winslash = "/", mustWork = FALSE)
+  if (!dir.exists(default_dir)) {
+    dir.create(default_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  .onnx_meta_cache$default_model_dir <- default_dir
+  return(default_dir)
+}
+.onnx_meta_cache <- new.env(parent = emptyenv())
 # ==============================================================================
 # DEEP LEARNING ARCHITECTURE & ONNX RUNTIME DOCUMENTATION
 # ==============================================================================
@@ -31,12 +73,6 @@
 #'   * **Size:** ~120.2 MB (Encoder + Decoder) | **Input Resolution:** 1024 x 1024
 #'   * **Architecture:** Meta AI Hiera-Tiny foundation vision transformer with promptable mask decoder.
 #'   * **Best For:** Zero-shot foundation segmentation with point prompts (`pick_object = TRUE`), box prompts, or center point defaults.
-#'
-#' * **`"sam3.1"` (Segment Anything 3.1 by Meta AI, alias `"sam3"`)**:
-#'   * **Size:** ~868.1 MB | **Input Resolution:** 1024 x 1024
-#'   * **Architecture:** Meta AI Segment Anything 3.1 with real-time concept-driven segmentation.
-#'   * **Best For:** Advanced foundation segmentation across diverse biological structures.
-#'
 #' * **`"birefnet-lite"` (Bilateral Reference Network Lite)**:
 #'   * **Size:** ~213.6 MB | **Input Resolution:** 1024 x 1024
 #'   * **Architecture:** Bilateral Reference Network for High-Resolution Dichotomous Image Segmentation (BiRefNet Lite).
@@ -109,274 +145,150 @@
 #' ```
 NULL
 
-# ==============================================================================
-# SECTION 1: MODEL MANAGEMENT & DIRECTORY MANAGEMENT
-# ==============================================================================
 
-#' Model Directory Management for pliman Deep Learning Models
-#'
-#' Gets or sets the local directory where pre-trained ONNX models are stored.
-#' Defaults to the standard R user data directory:
-#' `tools::R_user_dir("pliman", which = "data")/models`.
-#'
-#' @param dir Optional character string specifying a custom directory path.
-#'   If provided, creates the directory if it does not exist.
-#' @return A character string with the normalized absolute path to the model directory.
-#' @export
-#' @examples
-#' pliman_model_dir()
-pliman_model_dir <- function(dir = NULL) {
-  if (!is.null(dir)) {
-    dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
-    if (!dir.exists(dir)) {
-      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+
+# Internal helper to find an installed or local model file before hitting the network
+.find_local_model <- function(m, dir = pliman_model_dir(), verbose = FALSE) {
+  if (is.null(m) || !is.character(m) || length(m) == 0L || !nzchar(m[1])) return(NULL)
+  m_str <- m[1]
+  if (grepl("^https?://", m_str)) return(NULL)
+  dir <- pliman_model_dir(dir)
+
+  cache_key <- paste0("local_model::", dir, "::", m_str)
+  if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_path <- get(cache_key, envir = .onnx_meta_cache, inherits = FALSE)
+    if (!is.null(cached_path) && file.exists(cached_path)) {
+      return(cached_path)
     }
-    return(dir)
   }
 
-  default_dir <- file.path(tools::R_user_dir("pliman", which = "data"), "models")
-  default_dir <- normalizePath(default_dir, winslash = "/", mustWork = FALSE)
-  if (!dir.exists(default_dir)) {
-    dir.create(default_dir, recursive = TRUE, showWarnings = FALSE)
+  .cache_and_return <- function(res_path) {
+    if (!is.null(res_path)) {
+      assign(cache_key, res_path, envir = .onnx_meta_cache)
+    }
+    res_path
   }
-  return(default_dir)
+
+  # 1. Exact path or relative path exists on disk
+  if (file.exists(m_str) && !dir.exists(m_str)) {
+    finfo <- file.info(m_str)
+    if (!is.na(finfo$size) && finfo$size > 1000) {
+      return(.cache_and_return(normalizePath(m_str, winslash = "/")))
+    }
+  }
+
+  # 2. Exact match inside dir
+  in_dir <- file.path(dir, m_str)
+  if (file.exists(in_dir) && !dir.exists(in_dir)) {
+    finfo <- file.info(in_dir)
+    if (!is.na(finfo$size) && finfo$size > 1000) {
+      return(.cache_and_return(normalizePath(in_dir, winslash = "/")))
+    }
+  }
+
+  # 3. Direct extension append (.onnx or .pt), including resolved alias
+  m_resolved <- .resolve_model_name(m_str)
+  cand_bases <- unique(c(m_str, m_resolved))
+  for (cb in cand_bases) {
+    for (ext in c(".onnx", ".pt")) {
+      cand <- file.path(dir, paste0(cb, ext))
+      if (file.exists(cand) && !dir.exists(cand)) {
+        finfo <- file.info(cand)
+        if (!is.na(finfo$size) && finfo$size > 1000) {
+          return(.cache_and_return(normalizePath(cand, winslash = "/")))
+        }
+      }
+    }
+  }
+
+  if (!dir.exists(dir)) return(NULL)
+  # Names that already failed to resolve against this (unchanged) directory skip the
+  # listing / plural / fuzzy-matching cascade below.
+  if (.local_model_miss(dir, m_str)) return(NULL)
+  local_files <- .cached_model_listing(dir)
+  if (length(local_files) == 0L) {
+    .local_model_miss(dir, m_str, set = TRUE)
+    return(NULL)
+  }
+
+  m_clean <- sub("\\.(onnx|pt)$", "", basename(m_resolved), ignore.case = TRUE)
+  files_clean <- sub("\\.(onnx|pt)$", "", local_files, ignore.case = TRUE)
+
+  # Helper to choose best candidate (prefer non-int8 unless requested, prefer .onnx)
+  .pick_best <- function(cands) {
+    if (!grepl("_int8", m_clean, ignore.case = TRUE) && any(!grepl("_int8", cands))) {
+      cands <- cands[!grepl("_int8", cands)]
+    }
+    ord <- order(grepl("\\.onnx$", cands, ignore.case = TRUE), decreasing = TRUE)
+    best_file <- cands[ord[1]]
+    .cache_and_return(normalizePath(file.path(dir, best_file), winslash = "/"))
+  }
+
+  # 4. Case-insensitive exact match
+  idx <- which(tolower(local_files) == tolower(m_str) | tolower(files_clean) == tolower(m_clean))
+  if (length(idx) > 0L) {
+    return(.pick_best(local_files[idx]))
+  }
+
+  # Official YOLO-family variants (e.g. 'yolo26x-seg', 'yolo11n', 'yolov8s-pose') differ
+  # from each other by a single size letter (n/s/m/l/x) or task suffix. Fuzzy, prefix or
+  # plural matching would silently swap one variant for another (e.g. 'yolo26x-seg' ->
+  # 'yolo26s-seg'), preventing the requested model from being downloaded. For these names
+  # only the exact matches above are accepted.
+  # PP-OCR files differ only by short task tokens (e.g. '*_mobile_det' vs '*_mobile_rec'),
+  # so fuzzy matching could load a detector as a recognizer. Exact matches only.
+  if (grepl("^yolov?[0-9]+[nsmlx]([-_.].*)?$", m_clean, ignore.case = TRUE) ||
+      grepl("pp-?ocrv[0-9]|textline_ori", m_clean, ignore.case = TRUE)) {
+    .local_model_miss(dir, m_str, set = TRUE)
+    return(NULL)
+  }
+
+  # 5. Singular / Plural variations (e.g. capsula <-> capsulas)
+  cand_stems <- unique(c(
+    sub("^([a-zA-Z0-9]+)_", "\\1s_", m_clean),
+    sub("^([a-zA-Z0-9]+)s_", "\\1_", m_clean),
+    paste0(m_clean, "s"),
+    sub("s$", "", m_clean)
+  ))
+  cand_stems <- cand_stems[cand_stems != m_clean]
+  for (cs in cand_stems) {
+    idx <- which(tolower(files_clean) == tolower(cs))
+    if (length(idx) > 0L) {
+      return(.pick_best(local_files[idx]))
+    }
+  }
+
+  # 6. Prefix / substring match (e.g. 'capsulas' or 'capsula' -> 'capsulas_det.onnx')
+  idx_prefix <- which(startsWith(tolower(files_clean), tolower(m_clean)) | startsWith(tolower(files_clean), tolower(sub("s$", "", m_clean))))
+  if (length(idx_prefix) > 0L) {
+    return(.pick_best(local_files[idx_prefix]))
+  }
+
+  # 7. Fuzzy Levenshtein match (max distance 2 or relative <= 0.35)
+  dists <- as.vector(utils::adist(tolower(m_clean), tolower(files_clean)))
+  min_d <- min(dists)
+  if (min_d <= 2L && (min_d / max(1L, nchar(m_clean))) <= 0.35) {
+    return(.pick_best(local_files[which(dists == min_d)]))
+  }
+
+  .local_model_miss(dir, m_str, set = TRUE)
+  return(NULL)
 }
 
 # Internal helper to resolve user-friendly model aliases
 .resolve_model_name <- function(model) {
-  aliases <- c(
-    "rmbg"                   = "rmbg-1.4",
-    "bria"                   = "rmbg-1.4",
-    "bria-rmbg"              = "rmbg-1.4",
-    "bria_rmbg"              = "rmbg-1.4",
-    "rmbg1.4"                = "rmbg-1.4",
-    "rmbg_1.4"               = "rmbg-1.4",
-    "rmbg2"                  = "rmbg-2.0",
-    "rmbg-2"                 = "rmbg-2.0",
-    "rmbg_2.0"               = "rmbg-2.0",
-    "rmbg2.0"                = "rmbg-2.0",
-    "bria-rmbg-2.0"          = "rmbg-2.0",
-    "birefnet"               = "birefnet-lite",
-    "birefnet_lite"          = "birefnet-lite",
-    "without_bg"             = "withoutbg",
-    "without-bg"             = "withoutbg",
-    "withoutbg-open-weights" = "withoutbg",
-    "u2net_p"                = "u2netp",
-    "ben"                    = "ben2",
-    "ben2"                   = "ben2",
-    "ben-2"                  = "ben2",
-    "boundary-aware"         = "ben2",
-    "boundary_aware"         = "ben2",
-    "boundary-aware-extraction-network" = "ben2",
-    "sam"                    = "sam2.1",
-    "sam2"                   = "sam2.1",
-    "sam-2"                  = "sam2.1",
-    "sam2.1"                 = "sam2.1",
-    "sam-2.1"                = "sam2.1",
-    "sam3"                   = "sam3.1",
-    "sam-3"                  = "sam3.1",
-    "sam3.1"                 = "sam3.1",
-    "sam-3.1"                = "sam3.1",
-    "segment-anything"       = "sam2.1",
-    "segment_anything"       = "sam2.1",
-    "segmentanything"        = "sam2.1",
-    "grounded-sam"           = "grounded-sam",
-    "grounded_sam"           = "grounded-sam",
-    "groundedsam"            = "grounded-sam",
-    "grounding-dino"         = "grounded-sam",
-    "grounding_dino"         = "grounded-sam",
-    "groundingdino"          = "grounded-sam",
-    "persam"                 = "persam",
-    "per-sam"                = "persam",
-    "persam2"                = "persam",
-    "persam2.1"              = "persam",
-    "depth-anything"         = "depth-anything-v2",
-    "depthanything"          = "depth-anything-v2",
-    "depth_anything"         = "depth-anything-v2",
-    "depth-anything-v2"      = "depth-anything-v2",
-    "depthanythingv2"        = "depth-anything-v2",
-    "depth_anything_v2"      = "depth-anything-v2",
-    "depth"                  = "depth-anything-v2",
-    "dinov2"                 = "dinov2",
-    "dino-v2"                = "dinov2",
-    "dino_v2"                = "dinov2",
-    "dino"                   = "dinov2",
-    # YOLO Object Detection
-    "yolo"                   = "yolo26n",
-    "yolo26"                 = "yolo26n",
-    "yolo-26"                = "yolo26n",
-    "yolo26n"                = "yolo26n",
-    "yolo-26n"               = "yolo26n",
-    "yolo26s"                = "yolo26s",
-    "yolo-26s"               = "yolo26s",
-    "yolo26m"                = "yolo26m",
-    "yolo-26m"               = "yolo26m",
-    "yolo26l"                = "yolo26l",
-    "yolo-26l"               = "yolo26l",
-    "yolo26x"                = "yolo26x",
-    "yolo-26x"               = "yolo26x",
-    "yolo11"                 = "yolo26n",
-    "yolo-11"                = "yolo26n",
-    "yolo11n"                = "yolo26n",
-    "yolo-11n"               = "yolo26n",
-    "yolov8"                 = "yolo26n",
-    "yolo8"                  = "yolo26n",
-
-    # YOLO Instance Segmentation
-    "yolo-seg"               = "yolo26n-seg",
-    "yoloseg"                = "yolo26n-seg",
-    "yolo26-seg"             = "yolo26n-seg",
-    "yolo-26-seg"            = "yolo26n-seg",
-    "yolo26n-seg"            = "yolo26n-seg",
-    "yolo26s-seg"            = "yolo26s-seg",
-    "yolo26m-seg"            = "yolo26m-seg",
-    "yolo26l-seg"            = "yolo26l-seg",
-    "yolo26x-seg"            = "yolo26x-seg",
-    "yolo11-seg"             = "yolo26n-seg",
-    "yolo11n-seg"            = "yolo26n-seg",
-
-    # YOLO Pose Estimation
-    "yolo-pose"              = "yolo26n-pose",
-    "yolopose"               = "yolo26n-pose",
-    "yolo26-pose"            = "yolo26n-pose",
-    "yolo-26-pose"           = "yolo26n-pose",
-    "yolo26n-pose"           = "yolo26n-pose",
-    "yolo26s-pose"           = "yolo26s-pose",
-    "yolo26m-pose"           = "yolo26m-pose",
-    "yolo26l-pose"           = "yolo26l-pose",
-    "yolo26x-pose"           = "yolo26x-pose",
-
-    # YOLO Classification
-    "yolo-cls"               = "yolo26n-cls",
-    "yolocls"                = "yolo26n-cls",
-    "yolo26-cls"             = "yolo26n-cls",
-    "yolo-26-cls"            = "yolo26n-cls",
-    "yolo26n-cls"            = "yolo26n-cls",
-    "yolo26s-cls"            = "yolo26s-cls",
-    "yolo26m-cls"            = "yolo26m-cls",
-    "yolo26l-cls"            = "yolo26l-cls",
-    "yolo26x-cls"            = "yolo26x-cls",
-    "yolo-26n-cls"           = "yolo26n-cls",
-    "yolo-26s-cls"           = "yolo26s-cls",
-    "yolo-26m-cls"           = "yolo26m-cls",
-    "yolo-26l-cls"           = "yolo26l-cls",
-    "yolo-26x-cls"           = "yolo26x-cls",
-    "yolo11-cls"             = "yolo26n-cls",
-    "yolo11n-cls"            = "yolo26n-cls",
-    "yolo11s-cls"            = "yolo26s-cls",
-    "yolo11m-cls"            = "yolo26m-cls",
-    "yolo11l-cls"            = "yolo26l-cls",
-    "yolo11x-cls"            = "yolo26x-cls",
-    "yolo-11-cls"            = "yolo26n-cls",
-    "yolo-11n-cls"           = "yolo26n-cls",
-    "yolo-11s-cls"           = "yolo26s-cls",
-    "yolo-11m-cls"           = "yolo26m-cls",
-    "yolo-11l-cls"           = "yolo26l-cls",
-    "yolo-11x-cls"           = "yolo26x-cls",
-    "yolov8-cls"             = "yolo26n-cls",
-    "yolov8n-cls"            = "yolo26n-cls",
-    "yolov8s-cls"            = "yolo26s-cls",
-    "yolov8m-cls"            = "yolo26m-cls",
-    "yolov8l-cls"            = "yolo26l-cls",
-    "yolov8x-cls"            = "yolo26x-cls",
-    "yolo8-cls"              = "yolo26n-cls",
-    "yolo8n-cls"             = "yolo26n-cls",
-    "yolo8s-cls"             = "yolo26s-cls",
-    "yolo8m-cls"             = "yolo26m-cls",
-    "yolo8l-cls"             = "yolo26l-cls",
-    "yolo8x-cls"             = "yolo26x-cls",
-    "stardist"               = "stardist",
-    "star-dist"              = "stardist",
-    "stardist-dsb2018"       = "stardist",
-    "star_dist"              = "stardist",
-    "realesrgan"             = "realesrgan-compact",
-    "real-esrgan"            = "realesrgan-compact",
-    "realesrgan-compact"     = "realesrgan-compact",
-    "real_esrgan"            = "realesrgan-compact",
-    "superres"               = "realesrgan-compact",
-    "super-res"              = "realesrgan-compact",
-    "clip"                   = "clip-vit-b32",
-    "clip-vit-b32"           = "clip-vit-b32",
-    "clip-b32"               = "clip-vit-b32",
-    "clip-vit-base"          = "clip-vit-b32",
-    "clip_vit_b32"           = "clip-vit-b32",
-    "yolo-world"             = "yolov8s-worldv2",
-    "yoloworld"              = "yolov8s-worldv2",
-    "yolo-world-v2"          = "yolov8s-worldv2",
-    "yolov8s-world"          = "yolov8s-worldv2",
-    "yolov8sworld"           = "yolov8s-worldv2",
-    "yolov8s-worldv2"        = "yolov8s-worldv2",
-    "yolov8m-world"          = "yolov8m-worldv2",
-    "yolov8mworld"           = "yolov8m-worldv2",
-    "yolov8m-worldv2"        = "yolov8m-worldv2",
-    "yolov8l-world"          = "yolov8l-worldv2",
-    "yolov8lworld"           = "yolov8l-worldv2",
-    "yolov8l-worldv2"        = "yolov8l-worldv2",
-    "yolov8x-world"          = "yolov8x-worldv2",
-    "yolov8xworld"           = "yolov8x-worldv2",
-    "yolov8x-worldv2"        = "yolov8x-worldv2",
-    "yolo-nas-s"             = "yolo_nas_s",
-    "yolonas-s"              = "yolo_nas_s",
-    "yolonas_s"              = "yolo_nas_s",
-    "yolo_nas_s"             = "yolo_nas_s",
-    "yolo-nas-l"             = "yolo_nas_l",
-    "yolonas-l"              = "yolo_nas_l",
-    "yolonas_l"              = "yolo_nas_l",
-    "yolo_nas_l"             = "yolo_nas_l",
-    "yolo-nas"               = "yolo_nas_s",
-    "yolonas"                = "yolo_nas_s",
-    # YOLO Oriented Bounding Box (OBB)
-    "yolo-obb"               = "yolo26n-obb",
-    "yoloobb"                = "yolo26n-obb",
-    "yolo26-obb"             = "yolo26n-obb",
-    "yolo-26-obb"            = "yolo26n-obb",
-    "yolo26n-obb"            = "yolo26n-obb",
-    "yolo-26n-obb"           = "yolo26n-obb",
-    "yolo26s-obb"            = "yolo26s-obb",
-    "yolo-26s-obb"           = "yolo26s-obb",
-    "yolo26m-obb"            = "yolo26m-obb",
-    "yolo-26m-obb"           = "yolo26m-obb",
-    "yolo26l-obb"            = "yolo26l-obb",
-    "yolo-26l-obb"           = "yolo26l-obb",
-    "yolo26x-obb"            = "yolo26x-obb",
-    "yolo-26x-obb"           = "yolo26x-obb",
-    "yolo11-obb"             = "yolo26n-obb",
-    "yolo-11-obb"            = "yolo26n-obb",
-    "yolo11n-obb"            = "yolo26n-obb",
-    "yolo-11n-obb"           = "yolo26n-obb",
-    "yolo11s-obb"            = "yolo26s-obb",
-    "yolo-11s-obb"           = "yolo26s-obb",
-    "yolo11m-obb"            = "yolo26m-obb",
-    "yolo-11m-obb"           = "yolo26m-obb",
-    "yolo11l-obb"            = "yolo26l-obb",
-    "yolo-11l-obb"           = "yolo26l-obb",
-    "yolo11x-obb"            = "yolo26x-obb",
-    "yolo-11x-obb"           = "yolo26x-obb",
-    "yolov8-obb"             = "yolo26n-obb",
-    "yolo8-obb"              = "yolo26n-obb",
-    "yolov8n-obb"            = "yolo26n-obb",
-    "yolo8n-obb"             = "yolo26n-obb",
-    "yolov8s-obb"            = "yolo26s-obb",
-    "yolo8s-obb"             = "yolo26s-obb",
-    "yolov8m-obb"            = "yolo26m-obb",
-    "yolo8m-obb"             = "yolo26m-obb",
-    "yolov8l-obb"            = "yolo26l-obb",
-    "yolo8l-obb"             = "yolo26l-obb",
-    "yolov8x-obb"            = "yolo26x-obb",
-    "yolo8x-obb"             = "yolo26x-obb",
-    "sd-turbo"               = "sd-turbo",
-    "sdturbo"                = "sd-turbo",
-    "sd_turbo"               = "sd-turbo",
-    "lcm"                    = "sd-turbo",
-    "ifcnn"                  = "ifcnn",
-    "ifcnn-max"              = "ifcnn",
-    "ifcnn_max"              = "ifcnn",
-    "mfif"                   = "ifcnn",
-    "focus-stack"            = "ifcnn"
-  )
+  # The alias table lives at package level (`.model_aliases`, R/utils_dl_cache.R) so it is
+  # built once at load time instead of on every call (this helper runs several times per
+  # inference call).
+  aliases <- .model_aliases
   vapply(model, function(m) {
     ml <- tolower(m)
-    if (ml %in% names(aliases)) aliases[[ml]] else m
+    hit <- aliases[ml]
+    if (!is.na(hit)) return(unname(hit))
+    ml_norm <- sub("^yolov(11|26)", "yolo\\1", ml)
+    hit <- aliases[ml_norm]
+    if (!is.na(hit)) return(unname(hit))
+    m
   }, character(1), USE.NAMES = FALSE)
 }
 
@@ -397,12 +309,23 @@ pliman_model_dir <- function(dir = NULL) {
   "small vehicle", "helicopter", "roundabout", "soccer ball field", "swimming pool"
 )
 
+.cityscapes_classes <- c(
+  "road", "sidewalk", "building", "wall", "fence", "pole", "traffic light",
+  "traffic sign", "vegetation", "terrain", "sky", "person", "rider", "car",
+  "truck", "bus", "train", "motorcycle", "bicycle"
+)
+
 # Helper to automatically extract embedded class names from ONNX model metadata
 .get_onnx_classes <- function(model_file) {
   if (is.null(model_file) || !file.exists(model_file)) return(NULL)
   tryCatch({
-    sz <- file.info(model_file)$size
+    sz <- file.size(model_file)
     if (is.na(sz) || sz < 1024) return(NULL)
+    cache_key <- paste0("classes::", model_file, "::", sz)
+    if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+      return(get(cache_key, envir = .onnx_meta_cache, inherits = FALSE))
+    }
+
     read_sz <- min(sz, 262144L)
     con <- file(model_file, "rb")
     seek(con, max(0, sz - read_sz))
@@ -411,6 +334,7 @@ pliman_model_dir <- function(dir = NULL) {
 
     txt <- rawToChar(chunk[chunk >= 32 & chunk <= 126])
     pos <- regexpr("names[^{]*\\{([^}]+)\\}", txt)
+    res <- NULL
     if (pos > 0) {
       match_full <- substr(txt, pos, pos + attr(pos, "match.length") - 1)
       inner <- sub("^[^{]*\\{", "", match_full)
@@ -422,14 +346,51 @@ pliman_model_dir <- function(dir = NULL) {
         class_names <- sub("^\\d+\\s*:\\s*['\"]", "", matched_tokens, perl = TRUE)
         class_names <- sub("['\"]\\s*$", "", class_names, perl = TRUE)
         ord <- order(indices)
-        return(class_names[ord])
+        res <- class_names[ord]
       }
     }
-    NULL
+    assign(cache_key, res, envir = .onnx_meta_cache)
+    res
   }, error = function(e) NULL)
 }
+
+.get_onnx_imgsz <- function(model_file) {
+  if (is.null(model_file) || !file.exists(model_file)) return(NULL)
+  tryCatch({
+    sz <- as.numeric(file.size(model_file)[1])
+    if (is.na(sz) || sz < 1024) return(NULL)
+    cache_key <- paste0("imgsz::", model_file, "::", sz)
+    if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+      return(get(cache_key, envir = .onnx_meta_cache, inherits = FALSE))
+    }
+
+    read_sz <- as.integer(min(sz, 262144L))
+    con <- file(model_file, "rb")
+    seek(con, as.integer(max(0, sz - read_sz)))
+    chunk <- readBin(con, "raw", n = read_sz)
+    close(con)
+
+    txt <- rawToChar(chunk[chunk >= 32 & chunk <= 126])
+    m <- regexec("imgsz\\s*\\[?\\s*(\\d+)", txt)
+    matches <- regmatches(txt, m)[[1]]
+    res <- NULL
+    if (length(matches) >= 2) {
+      val <- as.integer(matches[2])
+      if (!is.na(val) && val > 0L) res <- val
+    }
+    assign(cache_key, res, envir = .onnx_meta_cache)
+    res
+  }, error = function(e) NULL)
+}
+
 # Helper to map colors by object class/label or rainbow per instance (persistent by ID when available)
-.get_class_palette <- function(labels = NULL, n = length(labels), user_col = NULL, default_col = "#00CC66", rainbow = TRUE, ids = NULL) {
+.get_class_palette <- function(labels = NULL,
+                               n = length(labels),
+                               user_col = NULL,
+                               default_col = "#00CC66",
+                               rainbow = TRUE,
+                               ids = NULL,
+                               target_classes = NULL) {
   if ((is.null(labels) || length(labels) == 0L) && n <= 0L) {
     return(character(0))
   }
@@ -461,15 +422,10 @@ pliman_model_dir <- function(dir = NULL) {
 
     if (!is.null(ids) && length(ids) == length(chr_labels)) {
       id_num <- suppressWarnings(as.integer(ids))
-      cols <- vapply(seq_along(id_num), function(idx) {
-        val <- id_num[idx]
-        if (!is.na(val) && val > 0L) {
-          pool[((val - 1L) %% n_pool) + 1L]
-        } else {
-          pool[((idx - 1L) %% n_pool) + 1L]
-        }
-      }, character(1))
-      return(cols)
+      valid_id <- !is.na(id_num) & id_num > 0L
+      pos <- seq_along(id_num)
+      if (any(valid_id)) pos[valid_id] <- id_num[valid_id]
+      return(pool[((pos - 1L) %% n_pool) + 1L])
     }
 
     n_inst <- length(chr_labels)
@@ -483,8 +439,28 @@ pliman_model_dir <- function(dir = NULL) {
   u_labels <- unique(chr_labels)
   n_cls <- length(u_labels)
 
-  if (!is.null(user_col)) {
-    if (length(user_col) == 1L) {
+  if (!is.null(user_col) && length(user_col) > 0L) {
+    if (!is.null(names(user_col)) && any(names(user_col) %in% chr_labels)) {
+      cls_map <- character(n_cls)
+      names(cls_map) <- u_labels
+      for (lbl in u_labels) {
+        cls_map[lbl] <- if (lbl %in% names(user_col)) user_col[[lbl]] else default_col
+      }
+    } else if (!is.null(target_classes) && length(target_classes) > 0L) {
+      t_classes <- as.character(target_classes)
+      t_cols <- rep_len(user_col, length(t_classes))
+      cls_map <- stats::setNames(t_cols, t_classes)
+      for (lbl in u_labels) {
+        if (!lbl %in% names(cls_map)) {
+          match_idx <- which(tolower(t_classes) == tolower(lbl))
+          if (length(match_idx) > 0L) {
+            cls_map[lbl] <- t_cols[match_idx[1]]
+          } else {
+            cls_map[lbl] <- default_col
+          }
+        }
+      }
+    } else if (length(user_col) == 1L) {
       cls_map <- stats::setNames(rep(user_col, n_cls), u_labels)
     } else {
       cls_map <- stats::setNames(rep_len(user_col, n_cls), u_labels)
@@ -621,40 +597,112 @@ pliman_model_dir <- function(dir = NULL) {
 )
 
 #' Get Base URL for Pre-Trained Neural Models
+#' Default Base URL for Pre-Trained Neural Models
 #'
-#' Returns the base URL for downloading pre-trained ONNX models from GitHub Releases.
+#' Returns the base URL for downloading pre-trained neural models from Hugging Face.
 #' Can be customized globally via \code{options(pliman.models_base_url = "...")}.
 #'
 #' @return Character URL string ending in a slash.
 #' @export
 pliman_models_base_url <- function() {
-  getOption("pliman.models_base_url", "https://github.com/NEPEM-UFSC/models/releases/download/v1.0.0/")
+  getOption("pliman.models_base_url", "https://huggingface.co/datasets/NEPEM-UFSC/dl_models/resolve/main/")
 }
 
-# Internal helper for robust downloads with SSL error recovery
-.download_url_robust <- function(url, dest_file, min_size = 1000) {
+# Internal helper for robust downloads with SSL error recovery and cli progress bar
+.download_url_robust <- function(url, dest_file, min_size = 1000, progress = TRUE, total_bytes = NA) {
   dl_success <- FALSE
   if (requireNamespace("curl", quietly = TRUE)) {
     h <- curl::new_handle()
+    pb <- NULL
+    bar_env <- environment()
+    first_tick <- TRUE
+
+    if (isTRUE(progress)) {
+      old_cli_opt <- options(
+        cli.progress_handlers_only = "cli",
+        cli.progress_show_after = 0,
+        cli.progress_clear = FALSE
+      )
+      on.exit(options(old_cli_opt), add = TRUE)
+
+      pb <- tryCatch(
+        cli::cli_progress_bar(
+          name = paste0("Downloading ", basename(dest_file)),
+          total = if (!is.null(total_bytes) && !is.na(total_bytes) && total_bytes > 0) total_bytes else NA,
+          type = "download",
+          clear = FALSE,
+          .auto_close = FALSE,
+          .envir = bar_env
+        ),
+        error = function(e) NULL
+      )
+      if (!is.null(pb)) {
+        curl::handle_setopt(h, noprogress = FALSE, xferinfofunction = function(down, up) {
+          tot <- down[[1]]
+          now <- down[[2]]
+          if (now > 0) {
+            is_first <- first_tick
+            if (is_first) first_tick <<- FALSE
+            tryCatch({
+              cli::cli_progress_update(
+                total = if (tot > 0) tot else NA,
+                set = now,
+                id = pb,
+                force = is_first,
+                .envir = bar_env
+              )
+              utils::flush.console()
+            }, error = function(e) NULL)
+          }
+          TRUE
+        })
+      }
+    }
+
     tryCatch({
-      curl::curl_download(url, destfile = dest_file, quiet = FALSE, mode = "wb", handle = h)
+      curl::curl_download(url, destfile = dest_file, quiet = !isTRUE(progress), mode = "wb", handle = h)
       dl_success <- file.exists(dest_file) && file.info(dest_file)$size >= min_size
     }, error = function(e) {
       if (grepl("certificate|schannel|SEC_E|SSL", e$message, ignore.case = TRUE)) {
         cli::cli_alert_warning("SSL handshake failed ({e$message}). Retrying with SSL verification bypass...")
         h_insecure <- curl::new_handle()
         curl::handle_setopt(h_insecure, ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
+        if (!is.null(pb)) {
+          curl::handle_setopt(h_insecure, noprogress = FALSE, xferinfofunction = function(down, up) {
+            tot <- down[[1]]
+            now <- down[[2]]
+            if (now > 0) {
+              tryCatch({
+                cli::cli_progress_update(
+                  total = if (tot > 0) tot else NA,
+                  set = now,
+                  id = pb,
+                  .envir = bar_env
+                )
+                utils::flush.console()
+              }, error = function(e) NULL)
+            }
+            TRUE
+          })
+        }
         tryCatch({
-          curl::curl_download(url, destfile = dest_file, quiet = FALSE, mode = "wb", handle = h_insecure)
+          curl::curl_download(url, destfile = dest_file, quiet = !isTRUE(progress), mode = "wb", handle = h_insecure)
           dl_success <<- file.exists(dest_file) && file.info(dest_file)$size >= min_size
         }, error = function(e2) NULL)
+      }
+    }, finally = {
+      if (!is.null(pb)) {
+        tryCatch({
+          cli::cli_progress_done(id = pb, .envir = bar_env)
+          utils::flush.console()
+        }, error = function(e) NULL)
       }
     })
   }
 
   if (!dl_success) {
     tryCatch({
-      utils::download.file(url, destfile = dest_file, mode = "wb", quiet = FALSE)
+      utils::download.file(url, destfile = dest_file, mode = "wb", quiet = TRUE)
       dl_success <- file.exists(dest_file) && file.info(dest_file)$size >= min_size
     }, error = function(e) NULL)
   }
@@ -668,9 +716,9 @@ pliman_models_base_url <- function() {
 
 .pliman_assets_cache <- new.env(parent = emptyenv())
 
-# Internal helper to query GitHub release assets with local disk & memory cache
+# Internal helper to query Hugging Face dataset & model repository assets with local disk & memory cache
 .fetch_github_release_assets <- function(refresh = FALSE, dir = pliman_model_dir()) {
-  cache_file <- file.path(dir, ".github_assets_cache.rds")
+  cache_file <- file.path(dir, ".hf_assets_cache.rds")
 
   # 1. In-memory session cache (valid for 12 hours)
   if (!isTRUE(refresh) && exists("assets", envir = .pliman_assets_cache)) {
@@ -680,13 +728,17 @@ pliman_models_base_url <- function() {
     }
   }
 
-  # 2. Disk cache (valid for 24 hours)
+  # 2. Disk cache (valid for 24 hours, ignoring stale entries that point YOLO26 .pt to NEPEM)
   if (!isTRUE(refresh) && file.exists(cache_file)) {
     f_info <- file.info(cache_file)
     age_hours <- as.numeric(difftime(Sys.time(), f_info$mtime, units = "hours"))
     if (!is.na(age_hours) && age_hours < 24) {
       cached_data <- tryCatch(readRDS(cache_file), error = function(e) NULL)
-      if (is.data.frame(cached_data) && nrow(cached_data) > 0) {
+      has_stale_nepem_pt <- is.data.frame(cached_data) && any(
+        grepl("^yolo26.*\\.pt$", cached_data$name, ignore.case = TRUE) &
+        grepl("NEPEM-UFSC", cached_data$browser_download_url, ignore.case = TRUE)
+      )
+      if (is.data.frame(cached_data) && nrow(cached_data) > 0 && !has_stale_nepem_pt) {
         assign("assets", cached_data, envir = .pliman_assets_cache)
         assign("time", Sys.time(), envir = .pliman_assets_cache)
         return(cached_data)
@@ -694,31 +746,66 @@ pliman_models_base_url <- function() {
     }
   }
 
-  # 3. Query GitHub API
-  api_url <- "https://api.github.com/repos/NEPEM-UFSC/models/releases/tags/v1.0.0"
+  # 3. Query Hugging Face Tree APIs (NEPEM-UFSC dl_models + Ultralytics YOLO26)
+  api_nepem <- "https://huggingface.co/api/datasets/NEPEM-UFSC/dl_models/tree/main"
+  api_ultra <- "https://huggingface.co/api/models/Ultralytics/YOLO26/tree/main"
+  base_url <- pliman_models_base_url()
+  ultra_base <- "https://huggingface.co/Ultralytics/YOLO26/resolve/main/"
   assets_df <- NULL
 
-  if (requireNamespace("jsonlite", quietly = TRUE)) {
-    raw_res <- tryCatch({
+  .fetch_tree <- function(endpoint) {
+    tryCatch({
       if (requireNamespace("curl", quietly = TRUE)) {
         h <- curl::new_handle("useragent" = "pliman-R-package")
-        con <- curl::curl(api_url, handle = h)
+        con <- curl::curl(endpoint, handle = h)
         on.exit(tryCatch(close(con), error = function(e) NULL), add = TRUE)
         jsonlite::fromJSON(con)
       } else {
-        jsonlite::fromJSON(api_url)
+        jsonlite::fromJSON(endpoint)
       }
     }, error = function(e) NULL)
+  }
 
-    if (is.list(raw_res) && !is.null(raw_res$assets) && is.data.frame(raw_res$assets)) {
-      raw_assets <- raw_res$assets
-      valid_rows <- grepl("\\.(onnx|pt)$", raw_assets$name, ignore.case = TRUE)
-      if (any(valid_rows)) {
-        filtered <- raw_assets[valid_rows, c("name", "size", "browser_download_url")]
-        filtered$size_mb <- round(as.numeric(filtered$size) / (1024 * 1024), 1)
-        filtered$model <- tools::file_path_sans_ext(filtered$name)
-        assets_df <- filtered
+  if (requireNamespace("jsonlite", quietly = TRUE)) {
+    raw_nepem <- .fetch_tree(api_nepem)
+    raw_ultra <- .fetch_tree(api_ultra)
+    df_list <- list()
+
+    if (is.data.frame(raw_nepem) && "path" %in% names(raw_nepem)) {
+      # NEPEM repo hosts ONNX models and custom non-yolo assets; all YOLO .pt come from Ultralytics
+      valid_nepem <- grepl("\\.onnx$", raw_nepem$path, ignore.case = TRUE) |
+        (grepl("\\.pt$", raw_nepem$path, ignore.case = TRUE) & !grepl("^yolo", raw_nepem$path, ignore.case = TRUE))
+      if (any(valid_nepem)) {
+        fnepem <- raw_nepem[valid_nepem, ]
+        df_list[[length(df_list) + 1]] <- data.frame(
+          name = fnepem$path,
+          size = as.numeric(fnepem$size),
+          browser_download_url = paste0(base_url, fnepem$path),
+          size_mb = round(as.numeric(fnepem$size) / (1024 * 1024), 1),
+          model = tools::file_path_sans_ext(fnepem$path),
+          stringsAsFactors = FALSE
+        )
       }
+    }
+
+    if (is.data.frame(raw_ultra) && "path" %in% names(raw_ultra)) {
+      valid_ultra <- grepl("\\.pt$", raw_ultra$path, ignore.case = TRUE)
+      if (any(valid_ultra)) {
+        fultra <- raw_ultra[valid_ultra, ]
+        df_list[[length(df_list) + 1]] <- data.frame(
+          name = fultra$path,
+          size = as.numeric(fultra$size),
+          browser_download_url = paste0(ultra_base, fultra$path),
+          size_mb = round(as.numeric(fultra$size) / (1024 * 1024), 1),
+          model = tools::file_path_sans_ext(fultra$path),
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+
+    if (length(df_list) > 0) {
+      combined <- do.call(rbind, df_list)
+      assets_df <- combined[!duplicated(combined$name), ]
     }
   }
 
@@ -749,25 +836,24 @@ pliman_models_base_url <- function() {
     stringsAsFactors = FALSE
   )
 }
+.fetch_hf_assets <- .fetch_github_release_assets
 
 #' List Available Pre-Trained Neural Models
 #'
 #' Lists all supported background removal, object detection, segmentation, and classification models,
 #' their disk sizes, input resolutions, descriptions, local download status, and models dynamically
-#' discovered from GitHub release assets.
+#' discovered from the Hugging Face repository.
 #'
 #' @param dir Directory where models are stored (default: `pliman_model_dir()`).
-#' @param refresh Logical. If `TRUE`, forces re-fetching the asset catalog from GitHub releases (default `FALSE`).
+#' @param refresh Logical. If `TRUE`, forces re-fetching the asset catalog from Hugging Face (default `FALSE`).
 #' @return A data frame containing model metadata and local availability.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' pliman_available_models()
 #' pliman_available_models(refresh = TRUE)
-#' }
 pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
   base_url <- pliman_models_base_url()
-  hf_yolo_url <- "https://huggingface.co/zwh20081/yolo26-onnx/resolve/main/"
+  hf_yolo_url <- base_url
   models_info <- list(
     list(
       name = "u2netp",
@@ -840,14 +926,6 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       input_size = 1024,
       filename = "sam2.1.encoder.onnx",
       url = paste0(base_url, "sam2.1.encoder.onnx")
-    ),
-    list(
-      name = "sam3.1",
-      description = "Segment Anything Model 3.1 (Meta AI): Concept-driven foundation segmentation (1024x1024)",
-      size_mb = 868.1,
-      input_size = 1024,
-      filename = "sam3.1.onnx",
-      url = paste0(base_url, "sam3.1.onnx")
     ),
     list(
       name = "ben2",
@@ -1065,12 +1143,52 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       url = paste0(base_url, "stardist-dsb2018.onnx")
     ),
     list(
-      name = "realesrgan-compact",
-      description = "Real-ESRGAN Compact: Fast 4x generative super-resolution with edge preservation",
-      size_mb = 16.7,
+      name = "SAFMN4x",
+      description = "PureScale 4x SAFMN: Spatially-Adaptive Feature Modulation Network for high-detail 4x super-resolution",
+      size_mb = 23.2,
       input_size = 256,
-      filename = "realesrgan-compact.onnx",
-      url = paste0(base_url, "realesrgan-compact.onnx")
+      filename = "SAFMN4x.onnx",
+      url = paste0(base_url, "SAFMN4x.onnx")
+    ),
+    list(
+      name = "SAFMN2x",
+      description = "PureScale 2x SAFMN: Spatially-Adaptive Feature Modulation Network for fast, artifact-free 2x super-resolution",
+      size_mb = 23.0,
+      input_size = 256,
+      filename = "SAFMN2x.onnx",
+      url = paste0(base_url, "SAFMN2x.onnx")
+    ),
+    list(
+      name = "SAFMN2x_sharper",
+      description = "PureScale 2x SAFMN Sharper: Edge-enhanced and sharpened 2x super-resolution",
+      size_mb = 23.0,
+      input_size = 256,
+      filename = "SAFMN2x_sharper.onnx",
+      url = paste0(base_url, "SAFMN2x_sharper.onnx")
+    ),
+    list(
+      name = "realesrgan_x2_full",
+      description = "Real-ESRGAN Full 2x: High-fidelity photorealistic 2x super-resolution (RRDBNet, 67 MB)",
+      size_mb = 67.1,
+      input_size = 256,
+      filename = "realesrgan_x2_full.onnx",
+      url = "https://huggingface.co/SceneWorks/real-esrgan-onnx/resolve/main/real_esrgan_x2.onnx?download=true"
+    ),
+    list(
+      name = "realesrgan_x4_full",
+      description = "Real-ESRGAN Full 4x: High-fidelity photorealistic 4x super-resolution (RRDBNet, 67 MB)",
+      size_mb = 67.1,
+      input_size = 256,
+      filename = "realesrgan_x4_full.onnx",
+      url = "https://huggingface.co/SceneWorks/real-esrgan-onnx/resolve/main/real_esrgan_x4.onnx?download=true"
+    ),
+    list(
+      name = "realesrgan",
+      description = "Real-ESRGAN Compact: Ultra-fast 4x lightweight super-resolution (SRVGG, 4.8 MB)",
+      size_mb = 4.9,
+      input_size = 256,
+      filename = "realesrgan.onnx",
+      url = paste0(base_url, "realesrgan.onnx")
     ),
     list(
       name = "clip-vit-b32",
@@ -1118,7 +1236,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 46.6,
       input_size = 640,
       filename = "yolo_nas_s.onnx",
-      url = "https://github.com/CVHub520/X-AnyLabeling/releases/download/v0.1.0/yolo_nas_s.onnx"
+      url = paste0(base_url, "yolo_nas_s.onnx")
     ),
     list(
       name = "yolo_nas_l",
@@ -1126,7 +1244,7 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       size_mb = 160.4,
       input_size = 640,
       filename = "yolo_nas_l.onnx",
-      url = "https://github.com/CVHub520/X-AnyLabeling/releases/download/v0.1.0/yolo_nas_l.onnx"
+      url = paste0(base_url, "yolo_nas_l.onnx")
     ),
     # YOLO26 Oriented Bounding Box (Ultralytics)
     list(
@@ -1176,6 +1294,159 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
       input_size = "dynamic",
       filename = "ifcnn.onnx",
       url = paste0(base_url, "ifcnn.onnx")
+    ),
+    list(
+      name = "ppocr_det",
+      description = "PP-OCRv4 Mobile Detector: Ultra-lightweight scene text detection (DBNet MobileNetV3)",
+      size_mb = 4.7,
+      input_size = "dynamic",
+      filename = "ch_PP-OCRv4_det.onnx",
+      url = paste0(base_url, "ch_PP-OCRv4_det.onnx")
+    ),
+    list(
+      name = "ppocr_det_server",
+      description = "PP-OCRv4 Server Detector: High-accuracy deep scene text detection (DBNet ResNet/DPH, 113 MB)",
+      size_mb = 113.2,
+      input_size = "dynamic",
+      filename = "ch_PP-OCRv4_det_server.onnx",
+      url = paste0(base_url, "ch_PP-OCRv4_det_server.onnx")
+    ),
+    list(
+      name = "craft",
+      description = "CRAFT: Character Region Awareness for Text Detection (Clova AI / CVPR, VGG-16, 80 MB)",
+      size_mb = 80.4,
+      input_size = "dynamic",
+      filename = "craft.onnx",
+      url = paste0(base_url, "craft.onnx")
+    ),
+    list(
+      name = "trocr_encoder",
+      description = "TrOCR Small Encoder: DeiT Vision Transformer for handwriting recognition (384x384, 23 MB)",
+      size_mb = 23.1,
+      input_size = "384x384",
+      filename = "trocr_encoder.onnx",
+      url = paste0(base_url, "trocr_encoder.onnx")
+    ),
+    list(
+      name = "trocr_decoder",
+      description = "TrOCR Small Decoder: Autoregressive RoBERTa decoder for handwriting generation (40 MB)",
+      size_mb = 40.5,
+      input_size = "autoregressive",
+      filename = "trocr_decoder.onnx",
+      url = paste0(base_url, "trocr_decoder.onnx")
+    ),
+    list(
+      name = "trocr_vocab",
+      description = "TrOCR Small Vocabulary: Tokenizer dictionary for text decoding (0.35 MB)",
+      size_mb = 0.35,
+      input_size = "tokens",
+      filename = "trocr_vocab.rds",
+      url = paste0(base_url, "trocr_vocab.rds")
+    ),
+    list(
+      name = "trocr_encoder_lat",
+      description = "TrOCR Latin Encoder: DeiT Vision Transformer for Latin/Portuguese handwriting recognition (384x384, 87 MB)",
+      size_mb = 87.5,
+      input_size = "384x384",
+      filename = "trocr_encoder_lat.onnx",
+      url = paste0(base_url, "trocr_encoder_lat.onnx")
+    ),
+    list(
+      name = "trocr_decoder_lat",
+      description = "TrOCR Latin Decoder: Autoregressive RoBERTa decoder for Latin/Portuguese handwriting generation (158 MB)",
+      size_mb = 158.8,
+      input_size = "autoregressive",
+      filename = "trocr_decoder_lat.onnx",
+      url = paste0(base_url, "trocr_decoder_lat.onnx")
+    ),
+    list(
+      name = "trocr_vocab_lat",
+      description = "TrOCR Latin Vocabulary: Tokenizer dictionary for Latin/Portuguese text decoding (0.35 MB)",
+      size_mb = 0.35,
+      input_size = "tokens",
+      filename = "trocr_vocab_lat.rds",
+      url = paste0(base_url, "trocr_vocab_lat.rds")
+    ),
+    list(
+      name = "ppocr_rec",
+      description = "PP-OCRv4 Text Recognition: Compact SVTR text recognition model (48x320, 10 MB)",
+      size_mb = 10.8,
+      input_size = "48x320",
+      filename = "ch_PP-OCRv4_rec.onnx",
+      url = paste0(base_url, "ch_PP-OCRv4_rec.onnx")
+    ),
+    # PP-OCRv5 (PaddleOCR 3.0): official PaddlePaddle ONNX exports, mirrored at `base_url`
+    list(
+      name = "ppocrv5_det",
+      description = "PP-OCRv5 Mobile Detector: DBNet text detection for printed and handwritten text (4.8 MB)",
+      size_mb = 4.8,
+      input_size = "dynamic",
+      filename = "PP-OCRv5_mobile_det.onnx",
+      url = paste0(base_url, "PP-OCRv5_mobile_det.onnx")
+    ),
+    list(
+      name = "ppocrv5_det_server",
+      description = "PP-OCRv5 Server Detector: High-accuracy DBNet text detection incl. handwriting (88 MB)",
+      size_mb = 88.1,
+      input_size = "dynamic",
+      filename = "PP-OCRv5_server_det.onnx",
+      url = paste0(base_url, "PP-OCRv5_server_det.onnx")
+    ),
+    list(
+      name = "ppocrv5_rec",
+      description = "PP-OCRv5 Mobile Recognition: printed + handwritten Chinese/English/Latin text (16.5 MB)",
+      size_mb = 16.5,
+      input_size = "48xW",
+      filename = "PP-OCRv5_mobile_rec.onnx",
+      url = paste0(base_url, "PP-OCRv5_mobile_rec.onnx")
+    ),
+    list(
+      name = "ppocrv5_rec_server",
+      description = "PP-OCRv5 Server Recognition: high-accuracy printed + handwritten text recognition (84.5 MB)",
+      size_mb = 84.5,
+      input_size = "48xW",
+      filename = "PP-OCRv5_server_rec.onnx",
+      url = paste0(base_url, "PP-OCRv5_server_rec.onnx")
+    ),
+    list(
+      name = "ppocrv5_rec_latin",
+      description = "PP-OCRv5 Latin Recognition: Latin-script languages with diacritics, e.g. Portuguese (8 MB)",
+      size_mb = 8.0,
+      input_size = "48xW",
+      filename = "latin_PP-OCRv5_mobile_rec.onnx",
+      url = paste0(base_url, "latin_PP-OCRv5_mobile_rec.onnx")
+    ),
+    list(
+      name = "ppocr_textline_ori",
+      description = "PP-LCNet x0.25 Text-line Orientation: 0/180 degree classifier for OCR crops (1 MB)",
+      size_mb = 1.0,
+      input_size = "80x160",
+      filename = "PP-LCNet_x0_25_textline_ori.onnx",
+      url = paste0(base_url, "PP-LCNet_x0_25_textline_ori.onnx")
+    ),
+    list(
+      name = "ppocr_dict",
+      description = "PP-OCRv4 Character Dictionary: CTC character table for ppocr_rec (0.03 MB)",
+      size_mb = 0.03,
+      input_size = "tokens",
+      filename = "ppocr_dict.txt",
+      url = paste0(base_url, "ppocr_dict.txt")
+    ),
+    list(
+      name = "ppocrv5_dict",
+      description = "PP-OCRv5 Character Dictionary: CTC character table for ppocrv5_rec / ppocrv5_rec_server (0.07 MB)",
+      size_mb = 0.07,
+      input_size = "tokens",
+      filename = "ppocrv5_dict.txt",
+      url = paste0(base_url, "ppocrv5_dict.txt")
+    ),
+    list(
+      name = "ppocrv5_latin_dict",
+      description = "PP-OCRv5 Latin Character Dictionary: CTC character table for ppocrv5_rec_latin (0.003 MB)",
+      size_mb = 0.003,
+      input_size = "tokens",
+      filename = "ppocrv5_latin_dict.txt",
+      url = paste0(base_url, "ppocrv5_latin_dict.txt")
     )
   )
 
@@ -1195,6 +1466,8 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 
         desc <- if (grepl("[-_]cls", a_name, ignore.case = TRUE)) {
           paste0("YOLO Classification Model: Real-time image classification (", a_name, ")")
+        } else if (grepl("[-_]sem", a_name, ignore.case = TRUE)) {
+          paste0("YOLO Semantic Segmentation Model: Dense pixel-level scene parsing (", a_name, ")")
         } else if (grepl("[-_]seg", a_name, ignore.case = TRUE)) {
           paste0("YOLO Instance Segmentation Model: Real-time mask segmentation (", a_name, ")")
         } else if (grepl("[-_]pose", a_name, ignore.case = TRUE)) {
@@ -1209,7 +1482,9 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
           paste0("Pre-trained neural model asset (", a_name, ")")
         }
 
-        inp_size <- if (grepl("obb|ifcnn", a_name, ignore.case = TRUE)) "dynamic" else 640
+        inp_size <- if (grepl("obb|ifcnn", a_name, ignore.case = TRUE)) "dynamic"
+                    else if (grepl("[-_]sem", a_name, ignore.case = TRUE)) 1024
+                    else 640
 
         models_info[[length(models_info) + 1]] <- list(
           name = clean_name,
@@ -1220,6 +1495,33 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
           url = a_url
         )
       }
+    }
+  }
+
+  # Include custom local models present in dir
+  if (dir.exists(dir)) {
+    local_files <- list.files(dir, pattern = "\\.(onnx|pt)$", ignore.case = TRUE, full.names = FALSE)
+    known_filenames <- tolower(vapply(models_info, function(m) m$filename, character(1)))
+    custom_files <- local_files[!tolower(local_files) %in% known_filenames &
+                                !grepl("(curltmp|download|cache)", local_files, ignore.case = TRUE)]
+    for (cf in custom_files) {
+      cf_path <- file.path(dir, cf)
+      f_size <- tryCatch(round(file.info(cf_path)$size / (1024^2), 1), error = function(e) 0)
+      c_model <- sub("\\.(onnx|pt)$", "", cf, ignore.case = TRUE)
+      c_task <- if (grepl("[-_]cls", cf, ignore.case = TRUE)) "Classification"
+                else if (grepl("[-_]sem", cf, ignore.case = TRUE)) "Semantic Segmentation"
+                else if (grepl("[-_]seg", cf, ignore.case = TRUE)) "Instance Segmentation"
+                else if (grepl("[-_]obb", cf, ignore.case = TRUE)) "Oriented Bounding Box"
+                else if (grepl("[-_]pose", cf, ignore.case = TRUE)) "Pose Estimation"
+                else "Object Detection / Segmentation"
+      models_info[[length(models_info) + 1]] <- list(
+        name = c_model,
+        description = paste0("Local custom model (", c_task, ")"),
+        size_mb = f_size,
+        input_size = "dynamic",
+        filename = cf,
+        url = ""
+      )
     }
   }
 
@@ -1254,10 +1556,10 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 #' @param dir Directory to save the model files (default: `pliman_model_dir()`).
 #' @param force Logical. If `TRUE`, forces re-download even if the file exists (default `FALSE`).
 #' @param refresh Logical. If `TRUE`, forces re-fetching the GitHub release asset catalog (default `FALSE`).
+#' @param verbose Logical. If `TRUE`, returns the progress of instalation.
 #' @return A character vector with the absolute path(s) to the downloaded model file(s).
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   # Download a single model
 #'   pliman_download_model("u2netp")
 #'
@@ -1266,12 +1568,18 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 #'
 #'   # Download all models at once
 #'   pliman_download_model("all")
-#' }
 pliman_download_model <- function(model = "u2netp",
                                   dir = pliman_model_dir(),
                                   force = FALSE,
-                                  refresh = FALSE) {
+                                  refresh = FALSE,
+                                  verbose = TRUE) {
   dir <- pliman_model_dir(dir)
+  # Fast path: resolved paths are cached for the session, so inference helpers that call
+  # this on every image return without touching the model catalogue.
+  if (!isTRUE(force) && !isTRUE(refresh) && is.character(model)) {
+    hit <- .dl_path_cache_get(dir, model)
+    if (!is.null(hit)) return(hit)
+  }
   if (!dir.exists(dir)) dir.create(dir, recursive = TRUE, showWarnings = FALSE)
 
   old_timeout <- getOption("timeout")
@@ -1279,6 +1587,18 @@ pliman_download_model <- function(model = "u2netp",
   options(timeout = max(600, old_timeout))
 
   download_single <- function(m) {
+    if (tolower(m) %in% c("trocr", "trocr_small", "trocr-small")) {
+      enc <- download_single("trocr_encoder")
+      dec <- download_single("trocr_decoder")
+      voc <- download_single("trocr_vocab")
+      return(c(encoder = enc, decoder = dec, vocab = voc))
+    }
+    if (tolower(m) %in% c("trocr_lat", "trocr_small_lat", "trocr-small-lat", "trocr_latin")) {
+      enc <- download_single("trocr_encoder_lat")
+      dec <- download_single("trocr_decoder_lat")
+      voc <- download_single("trocr_vocab_lat")
+      return(c(encoder = enc, decoder = dec, vocab = voc))
+    }
     # CASE 1: Direct URL download
     if (grepl("^https?://", m)) {
       clean_url <- sub("[?#].*$", "", m)
@@ -1296,22 +1616,22 @@ pliman_download_model <- function(model = "u2netp",
         if (file.exists(dest_file)) unlink(dest_file)
         stop("Failed to download model from URL: ", m)
       }
-      cli::cli_alert_success("Model {.file {fname}} successfully downloaded!")
-      return(normalizePath(dest_file, winslash = "/"))
+      dest_norm <- normalizePath(dest_file, winslash = "/")
+      cli::cli_alert_success("Model {.file {fname}} successfully downloaded to {.path {dest_norm}}")
     }
 
-    # CASE 2: Local file already exists
-    if (file.exists(m)) {
-      return(normalizePath(m, winslash = "/"))
-    }
-    if (file.exists(file.path(dir, m))) {
-      return(normalizePath(file.path(dir, m), winslash = "/"))
-    }
-    if (file.exists(file.path(dir, paste0(m, ".onnx")))) {
-      return(normalizePath(file.path(dir, paste0(m, ".onnx")), winslash = "/"))
-    }
-    if (file.exists(file.path(dir, paste0(m, ".pt")))) {
-      return(normalizePath(file.path(dir, paste0(m, ".pt")), winslash = "/"))
+    # CASE 2: Local file already exists (exact, alias, plural/singular, or fuzzy)
+    if (!isTRUE(force)) {
+      local_path <- .find_local_model(m, dir = dir)
+      if (is.null(local_path)) {
+        resolved_alias <- .resolve_model_name(m)
+        if (resolved_alias != m) {
+          local_path <- .find_local_model(resolved_alias, dir = dir)
+        }
+      }
+      if (!is.null(local_path)) {
+        return(local_path)
+      }
     }
 
     # CASE 3: Model lookup in catalog
@@ -1337,7 +1657,7 @@ pliman_download_model <- function(model = "u2netp",
 
     base_url <- pliman_models_base_url()
 
-    # CASE 4: Direct probe on GitHub releases
+    # CASE 4: Direct probe on Hugging Face repository
     if (length(match_idx) == 0) {
       candidate_fnames <- unique(c(
         m,
@@ -1351,13 +1671,22 @@ pliman_download_model <- function(model = "u2netp",
 
       downloaded_probe <- NULL
       for (cand in candidate_fnames) {
-        probe_url <- paste0(base_url, cand)
+        probe_url <- if (grepl("^yolo26.*\\.pt$", cand, ignore.case = TRUE)) {
+          paste0("https://huggingface.co/Ultralytics/YOLO26/resolve/main/", cand)
+        } else {
+          paste0(base_url, cand)
+        }
         probe_dest <- file.path(dir, cand)
-        cli::cli_alert_info("Probing GitHub release asset {.val {cand}} at {.url {probe_url}}...")
-        ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000)
+        if (isTRUE(verbose)) {
+          cli::cli_alert_info("Probing repository asset {.val {cand}} at {.url {probe_url}}...")
+        }
+        ok_probe <- .download_url_robust(probe_url, probe_dest, min_size = 1000, progress = FALSE)
         if (ok_probe && file.exists(probe_dest) && file.info(probe_dest)$size > 1000) {
-          cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully!")
-          downloaded_probe <- probe_dest
+          dest_norm <- normalizePath(probe_dest, winslash = "/")
+          if (isTRUE(verbose)) {
+            cli::cli_alert_success("Model asset {.file {cand}} found and downloaded successfully to {.path {dest_norm}}")
+          }
+          downloaded_probe <- dest_norm
           break
         } else {
           if (file.exists(probe_dest)) unlink(probe_dest)
@@ -1370,7 +1699,7 @@ pliman_download_model <- function(model = "u2netp",
 
       valid_options <- unique(c(models_df$model, models_df$filename))
       stop("Unknown model(s): '", m, "'.\n",
-           "Could not find model locally, in catalog, or as an asset on GitHub releases (NEPEM-UFSC/models).\n",
+           "Could not find model locally, in catalog, or as an asset on Hugging Face (NEPEM-UFSC/dl_models).\n",
            "Valid available options are: 'all', ",
            paste(paste0("'", utils::head(valid_options, 35), "'"), collapse = ", "),
            if (length(valid_options) > 35) paste0(", ... (", length(valid_options) - 35, " more)") else "")
@@ -1394,8 +1723,9 @@ pliman_download_model <- function(model = "u2netp",
       if (!ok_enc || !ok_dec) {
         stop("Failed to download SAM 2.1 model. Please check your internet connection.")
       }
-      cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded!")
-      return(normalizePath(enc_file, winslash = "/"))
+      dest_norm <- normalizePath(enc_file, winslash = "/")
+      cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded to {.path {dest_norm}}")
+      invisible(dest_norm)
     }
 
     if (actual_model %in% c("grounded-sam", "grounding-dino")) {
@@ -1413,8 +1743,9 @@ pliman_download_model <- function(model = "u2netp",
       if (!ok_dino || !ok_vocab) {
         stop("Failed to download Grounding DINO model/vocab. Please check your internet connection.")
       }
-      cli::cli_alert_success("Grounding DINO model and vocab successfully downloaded!")
-      return(normalizePath(model_file, winslash = "/"))
+      dest_norm <- normalizePath(model_file, winslash = "/")
+      cli::cli_alert_success("Grounding DINO model and vocab successfully downloaded to {.path {dest_norm}}")
+      invisible(dest_norm)
     }
 
     if (actual_model %in% c("clip", "clip-vit-b32", "clip-vit-base-patch32")) {
@@ -1440,8 +1771,9 @@ pliman_download_model <- function(model = "u2netp",
       if (!ok_vis || !ok_txt || !ok_vocab || !ok_merges) {
         stop("Failed to download CLIP models/tokenizer. Please check your internet connection.")
       }
-      cli::cli_alert_success("CLIP ViT-B/32 successfully downloaded!")
-      return(normalizePath(vis_file, winslash = "/"))
+      dest_norm <- normalizePath(vis_file, winslash = "/")
+      cli::cli_alert_success("CLIP ViT-B/32 successfully downloaded to {.path {dest_norm}}")
+      invisible(dest_norm)
     }
 
     if (grepl("world", actual_model)) {
@@ -1455,18 +1787,23 @@ pliman_download_model <- function(model = "u2netp",
         return(normalizePath(world_file, winslash = "/"))
       }
       size_disp <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) paste0(" (", row$size_mb[1], " MB)") else ""
-      cli::cli_alert_info("Downloading YOLO-World weights{size_disp} to {.path {dir}}...")
+      exp_bytes <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) row$size_mb[1] * 1024 * 1024 else NA
       world_url <- if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
         row$url[1]
       } else {
-        paste0("https://github.com/ultralytics/assets/releases/download/v8.2.0/", world_pt_name)
+        paste0(base_url, world_pt_name)
       }
-      ok_world <- .download_url_robust(world_url, world_file, min_size = 15000000)
+      ok_world <- .download_url_robust(world_url, world_file, min_size = 15000000, progress = TRUE, total_bytes = exp_bytes)
+      if (!ok_world) {
+        ultra_url <- paste0("https://github.com/ultralytics/assets/releases/download/v8.2.0/", world_pt_name)
+        ok_world <- .download_url_robust(ultra_url, world_file, min_size = 15000000, progress = TRUE, total_bytes = exp_bytes)
+      }
       if (!ok_world) {
         stop("Failed to download YOLO-World model. Please check your internet connection.")
       }
-      cli::cli_alert_success("YOLO-World successfully downloaded!")
-      return(normalizePath(world_file, winslash = "/"))
+      dest_norm <- normalizePath(world_file, winslash = "/")
+      cli::cli_alert_success("YOLO-World successfully downloaded to {.path {dest_norm}}")
+      invisible(dest_norm)
     }
 
     filename <- if (!is.null(row$filename) && length(row$filename) > 0 && !is.na(row$filename[1]) && nzchar(row$filename[1])) {
@@ -1480,7 +1817,9 @@ pliman_download_model <- function(model = "u2netp",
       return(normalizePath(dest_file, winslash = "/"))
     }
 
-    url <- if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
+    url <- if (grepl("^yolo26.*\\.pt$", filename, ignore.case = TRUE)) {
+      paste0("https://huggingface.co/Ultralytics/YOLO26/resolve/main/", filename)
+    } else if (!is.null(row$url) && length(row$url) > 0 && !is.na(row$url[1]) && nzchar(row$url[1])) {
       row$url[1]
     } else {
       paste0(base_url, filename)
@@ -1489,15 +1828,24 @@ pliman_download_model <- function(model = "u2netp",
     size_disp <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) paste0(" (", row$size_mb[1], " MB)") else ""
     cli::cli_alert_info("Downloading model {.val {actual_model}}{size_disp} to {.path {dir}}...")
 
-    dl_success <- .download_url_robust(url, dest_file, min_size = 1000)
+    exp_bytes <- if (!is.null(row$size_mb) && length(row$size_mb) > 0 && !is.na(row$size_mb[1])) row$size_mb[1] * 1024 * 1024 else NA
+    dl_success <- .download_url_robust(url, dest_file, min_size = 1000, progress = TRUE, total_bytes = exp_bytes)
+
+    if (!isTRUE(dl_success) && grepl("^yolo26.*\\.pt$", filename, ignore.case = TRUE)) {
+      ultra_gh_file <- sub("^yolo26", "yolo11", filename, ignore.case = TRUE)
+      ultra_gh_url <- paste0("https://github.com/ultralytics/assets/releases/download/v8.4.0/", ultra_gh_file)
+      cli::cli_alert_warning("Download from Ultralytics Hugging Face failed. Retrying with GitHub assets fallback ({.url {ultra_gh_url}})...")
+      dl_success <- .download_url_robust(ultra_gh_url, dest_file, min_size = 1000, progress = TRUE, total_bytes = exp_bytes)
+    }
 
     if (!isTRUE(dl_success) || !file.exists(dest_file) || file.info(dest_file)$size < 1000) {
       if (file.exists(dest_file)) unlink(dest_file)
       stop("Failed to download model ", actual_model, ". Please check your internet connection (e.g., Wi-Fi captive portal login).")
     }
 
-    cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded!")
-    return(normalizePath(dest_file, winslash = "/"))
+    dest_norm <- normalizePath(dest_file, winslash = "/")
+    cli::cli_alert_success("Model {.val {actual_model}} successfully downloaded to {.path {dest_norm}}")
+    invisible(dest_norm)
   }
 
   if (identical(model, "all") || ("all" %in% model)) {
@@ -1505,12 +1853,218 @@ pliman_download_model <- function(model = "u2netp",
     model <- unique(models_df$model)
   }
 
+  model_key <- model
   res <- vapply(model, download_single, character(1), USE.NAMES = FALSE)
+  .dl_path_cache_set(dir, model_key, res)
   if (length(res) == 1L) {
     return(res[1])
   }
   return(res)
 }
+
+#' Remove Installed Pre-Trained Neural Models
+#'
+#' Deletes locally downloaded neural network models (.onnx, .pt) and associated
+#' auxiliary files from the pliman models directory to free up disk space.
+#'
+#' @param model Character vector naming the model(s) or file(s) to remove (e.g., \code{"ben2"},
+#'   \code{"yolo26n"}, \code{"yolo26n.pt"}), or \code{"all"} to remove all downloaded models.
+#' @param pattern Optional regular expression pattern to match installed model filenames
+#'   (e.g., \code{"^yolo26"}, \code{"seg"}, \code{"\\.pt$"}).
+#' @param dir Directory where models are stored (default: \code{pliman_model_dir()}).
+#' @param force Logical. If \code{TRUE}, skips confirmation prompt when removing all models. Default \code{FALSE}.
+#' @param verbose Logical. If \code{TRUE} (default), displays informative messages about deleted files.
+#' @return Invisibly returns a character vector of deleted file paths.
+#' @export
+#' @examplesIf interactive()
+#'   # Remove a specific model
+#'   pliman_remove_model("yolo26n")
+#'
+#'   # Remove a specific weights file
+#'   pliman_remove_model("yolo26n.pt")
+#'
+#'   # Remove multiple models
+#'   pliman_remove_model(c("u2netp", "birefnet-lite"))
+#'
+#'   # Remove all models matching a pattern
+#'   pliman_remove_model(pattern = "^yolo26")
+#'
+#'   # Remove all installed models
+#'   pliman_remove_model("all", force = TRUE)
+pliman_remove_model <- function(model = NULL,
+                                pattern = NULL,
+                                dir = pliman_model_dir(),
+                                force = FALSE,
+                                verbose = TRUE) {
+  if ((is.null(model) || length(model) == 0L) && (is.null(pattern) || !nzchar(pattern[1]))) {
+    cli::cli_abort("Please specify either {.arg model} (e.g., {.val 'u2netp'}, {.val 'yolo26n.pt'}, or {.val 'all'}) or a {.arg pattern}.")
+  }
+
+  dir <- normalizePath(dir, winslash = "/", mustWork = FALSE)
+  if (!dir.exists(dir)) {
+    if (isTRUE(verbose)) cli::cli_alert_info("Directory {.path {dir}} does not exist. Nothing to remove.")
+    return(invisible(character(0)))
+  }
+
+  # CASE 1: Remove all installed models
+  if (!is.null(model) && (identical(model, "all") || ("all" %in% model))) {
+    if (interactive() && !isTRUE(force)) {
+      ans <- utils::askYesNo(paste0("Are you sure you want to delete ALL downloaded models in '", dir, "'?"), default = FALSE)
+      if (!isTRUE(ans)) {
+        if (isTRUE(verbose)) cli::cli_alert_info("Operation cancelled.")
+        return(invisible(character(0)))
+      }
+    }
+
+    all_files <- list.files(
+      dir,
+      pattern = "\\.(onnx|pt|onnx\\.curltmp|pt\\.curltmp|txt|json)$",
+      full.names = TRUE,
+      ignore.case = TRUE
+    )
+    # Preserve internal cache files
+    all_files <- all_files[!basename(all_files) %in% c(".hf_assets_cache.rds", ".github_assets_cache.rds")]
+
+    if (length(all_files) == 0L) {
+      if (isTRUE(verbose)) cli::cli_alert_info("No model files found in {.path {dir}}.")
+      return(invisible(character(0)))
+    }
+
+    total_bytes <- sum(file.info(all_files)$size, na.rm = TRUE)
+    unlink(all_files, force = TRUE)
+    freed_mb <- round(total_bytes / (1024 * 1024), 1)
+    if (isTRUE(verbose)) {
+      cli::cli_alert_success("Removed {length(all_files)} model file(s) freeing {freed_mb} MB from {.path {dir}}.")
+    }
+    return(invisible(all_files))
+  }
+
+  # CASE 2: Remove by regex pattern
+  if (!is.null(pattern) && nzchar(pattern[1])) {
+    p_files <- list.files(
+      dir,
+      pattern = pattern[1],
+      full.names = TRUE,
+      ignore.case = TRUE
+    )
+    # Exclude internal cache files
+    p_files <- p_files[!basename(p_files) %in% c(".hf_assets_cache.rds", ".github_assets_cache.rds")]
+
+    if (length(p_files) == 0L) {
+      if (isTRUE(verbose)) cli::cli_alert_info("No model files matching pattern {.val {pattern[1]}} found in {.path {dir}}.")
+      return(invisible(character(0)))
+    }
+
+    total_bytes <- sum(file.info(p_files)$size, na.rm = TRUE)
+    unlink(p_files, force = TRUE)
+    freed_mb <- round(total_bytes / (1024 * 1024), 1)
+    if (isTRUE(verbose)) {
+      cli::cli_alert_success("Removed {length(p_files)} file(s) matching pattern {.val {pattern[1]}} freeing {freed_mb} MB.")
+      for (pf in basename(p_files)) {
+        cli::cli_alert_info(" - Removed {.file {pf}}")
+      }
+    }
+    return(invisible(p_files))
+  }
+
+  # CASE 3: Remove specific models by name
+  models_df <- tryCatch(pliman_available_models(dir = dir), error = function(e) NULL)
+  deleted_files <- character(0)
+  freed_bytes <- 0
+
+  for (m in model) {
+    # If m is directly an existing file path, handle it immediately
+    existing_matches <- character(0)
+    if (is.character(m) && length(m) == 1L && file.exists(m) && !dir.exists(m)) {
+      norm_m <- normalizePath(m, winslash = "/", mustWork = FALSE)
+      existing_matches <- unique(c(existing_matches, norm_m))
+      tmp_p <- paste0(norm_m, ".curltmp")
+      if (file.exists(tmp_p)) {
+        existing_matches <- unique(c(existing_matches, tmp_p))
+      }
+    }
+
+    m_base <- basename(m)
+    resolved_m <- .resolve_model_name(m_base)
+    candidate_files <- character(0)
+
+    # Composite models with multiple auxiliary assets
+    if (resolved_m %in% c("sam2.1", "persam", "per-sam")) {
+      candidate_files <- c("sam2.1.encoder.onnx", "sam2.1.decoder.onnx")
+    } else if (resolved_m %in% c("grounded-sam", "grounding-dino")) {
+      candidate_files <- c("groundingdino-tiny.onnx", "vocab.txt")
+    } else if (resolved_m %in% c("clip", "clip-vit-b32", "clip-vit-base-patch32")) {
+      candidate_files <- c(
+        "clip-vit-b32-vision.onnx", "clip-vit-b32-text.onnx",
+        "clip_vocab.json", "clip_merges.txt", "vision_model_quantized.onnx"
+      )
+    } else {
+      # Specific filename or stem
+      candidate_files <- unique(c(
+        m,
+        m_base,
+        resolved_m,
+        paste0(m_base, ".onnx"),
+        paste0(m_base, ".pt"),
+        paste0(m_base, ".engine"),
+        paste0(resolved_m, ".onnx"),
+        paste0(resolved_m, ".pt"),
+        paste0(resolved_m, ".engine")
+      ))
+
+      if (!is.null(models_df)) {
+        match_idx <- which(
+          models_df$model == resolved_m |
+          models_df$filename == resolved_m |
+          models_df$model == m_base |
+          models_df$filename == m_base
+        )
+        if (length(match_idx) > 0) {
+          candidate_files <- unique(c(candidate_files, models_df$filename[match_idx]))
+        }
+      }
+    }
+
+    # Match files present on disk
+    for (cf in candidate_files) {
+      target_p <- if (file.exists(cf)) normalizePath(cf, winslash = "/", mustWork = FALSE) else file.path(dir, cf)
+      if (file.exists(target_p)) {
+        existing_matches <- unique(c(existing_matches, target_p))
+      }
+      tmp_p <- paste0(target_p, ".curltmp")
+      if (file.exists(tmp_p)) {
+        existing_matches <- unique(c(existing_matches, tmp_p))
+      }
+    }
+
+    if (length(existing_matches) == 0L) {
+      if (isTRUE(verbose)) {
+        cli::cli_alert_warning("Model {.val {m}} is not installed in {.path {dir}}.")
+      }
+    } else {
+      f_sizes <- file.info(existing_matches)$size
+      total_m_bytes <- sum(f_sizes, na.rm = TRUE)
+      unlink(existing_matches, force = TRUE)
+      freed_bytes <- freed_bytes + total_m_bytes
+      deleted_files <- c(deleted_files, existing_matches)
+      if (isTRUE(verbose)) {
+        m_mb <- round(total_m_bytes / (1024 * 1024), 1)
+        cli::cli_alert_success("Model {.val {m}} ({m_mb} MB) removed ({paste(basename(existing_matches), collapse = ', ')}).")
+      }
+    }
+  }
+
+  if (isTRUE(verbose) && length(deleted_files) > 0 && length(model) > 1) {
+    total_freed_mb <- round(freed_bytes / (1024 * 1024), 1)
+    cli::cli_alert_info("Total disk space freed: {total_freed_mb} MB.")
+  }
+
+  invisible(deleted_files)
+}
+
+#' @rdname pliman_remove_model
+#' @export
+pliman_delete_model <- pliman_remove_model
 
 # ==============================================================================
 # SECTION 2: ENVIRONMENT CONFIGURATION & DIRECT ONNX RUNTIME DOWNLOADER
@@ -1536,11 +2090,17 @@ pliman_onnx_dir <- function(dir = NULL) {
     return(dir)
   }
 
+  if (exists("default_onnx_dir", envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_dir <- .onnx_meta_cache$default_onnx_dir
+    if (dir.exists(cached_dir)) return(cached_dir)
+  }
+
   default_dir <- file.path(tools::R_user_dir("pliman", which = "data"), "bin")
   default_dir <- normalizePath(default_dir, winslash = "/", mustWork = FALSE)
   if (!dir.exists(default_dir)) {
     dir.create(default_dir, recursive = TRUE, showWarnings = FALSE)
   }
+  .onnx_meta_cache$default_onnx_dir <- default_dir
   return(default_dir)
 }
 
@@ -1558,23 +2118,29 @@ pliman_onnx_dir <- function(dir = NULL) {
 #' @param version Character string with the ONNX Runtime release version (default `"1.20.1"`).
 #' @param dir Directory to store the library (default: `pliman_onnx_dir()`).
 #' @param force Logical. If `TRUE`, forces re-download even if already present (default `FALSE`).
-#' @param engine Execution engine: `"cpu"` (default) or `"gpu"`. When `"gpu"` on Windows,
+#' @param engine Execution engine: `"gpu"` (default), `"cpu"` or `"cuda"`. When `"gpu"` on Windows,
 #'   downloads and configures `onnxruntime-directml.dll` and `DirectML.dll` from Microsoft's NuGet CDN.
+#'   `"cuda"` downloads the official CUDA/TensorRT build of ONNX Runtime (Windows and
+#'   Linux x64) into `file.path(dir, "cuda")`; it is used after
+#'   `pliman_gpu_provider("cuda")` and needs the NVIDIA CUDA 12 / cuDNN 9 libraries
+#'   (see [pliman_gpu_provider()]).
 #' @return A character string with the path to the installed shared library.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   pliman_download_onnx()
 #'   pliman_download_onnx(engine = "gpu")
-#' }
 pliman_download_onnx <- function(version = "1.20.1",
                                  dir = pliman_onnx_dir(),
                                  force = FALSE,
-                                 engine = c("gpu", "cpu")) {
+                                 engine = c("gpu", "cpu", "cuda")) {
   engine <- match.arg(engine)
   os <- tolower(Sys.info()[["sysname"]])
 
   if (!dir.exists(dir)) dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+
+  if (engine == "cuda") {
+    return(.download_onnx_cuda(version = version, dir = dir, force = force))
+  }
 
   if (engine == "gpu") {
     if (os != "windows") {
@@ -1656,9 +2222,9 @@ pliman_download_onnx <- function(version = "1.20.1",
   options(timeout = max(600, old_timeout))
 
   if (requireNamespace("curl", quietly = TRUE)) {
-    curl::curl_download(url, destfile = temp_archive, quiet = FALSE, mode = "wb")
+    curl::curl_download(url, destfile = temp_archive, quiet = TRUE, mode = "wb")
   } else {
-    utils::download.file(url, destfile = temp_archive, mode = "wb", quiet = FALSE)
+    utils::download.file(url, destfile = temp_archive, mode = "wb", quiet = TRUE)
   }
 
   if (!file.exists(temp_archive) || file.info(temp_archive)$size < 100000) {
@@ -1707,21 +2273,20 @@ pliman_download_onnx <- function(version = "1.20.1",
 #'
 #' @param version Character string with the ONNX Runtime release version (default `"1.20.1"`).
 #' @param force Logical. If `TRUE`, forces re-download even if already present (default `FALSE`).
-#' @param engine Execution engine: `"cpu"` (default) or `"gpu"`.
+#' @param engine Execution engine: `"gpu"` (default, DirectML on Windows), `"cpu"`, or
+#'   `"cuda"` (CUDA/TensorRT build; activate with [pliman_gpu_provider()]).
 #' @return A character string with the path to the installed shared library.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   onnx_install()
 #'   onnx_install(engine = "gpu")
-#' }
-onnx_install <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu")) {
+onnx_install <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu", "cuda")) {
   pliman_download_onnx(version = version, force = force, engine = engine)
 }
 
 #' @rdname onnx_install
 #' @export
-pliman_install_onnx <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu")) {
+pliman_install_onnx <- function(version = "1.20.1", force = FALSE, engine = c("gpu", "cpu", "cuda")) {
   onnx_install(version = version, force = force, engine = engine)
 }
 
@@ -1736,18 +2301,31 @@ pliman_install_onnx <- function(version = "1.20.1", force = FALSE, engine = c("g
 #' @export
 pliman_onnx_lib_path <- function(engine = c("gpu", "cpu")) {
   engine <- match.arg(engine)
+  # PLIMAN_ONNX_LIB, or the CUDA build when pliman_gpu_provider("cuda"/"tensorrt")
+  override <- .onnx_lib_override()
+  if (!is.null(override)) return(override)
+  cache_key <- paste0("onnx_lib_path::", engine)
+  if (exists(cache_key, envir = .onnx_meta_cache, inherits = FALSE)) {
+    cached_p <- get(cache_key, envir = .onnx_meta_cache, inherits = FALSE)
+    if (!is.null(cached_p) && file.exists(cached_p)) return(cached_p)
+  }
+
   os <- tolower(Sys.info()[["sysname"]])
 
   if (os == "windows") {
     p_gpu <- file.path(pliman_onnx_dir(), "onnxruntime-directml.dll")
     if (file.exists(p_gpu)) {
-      return(normalizePath(p_gpu, winslash = "/"))
+      res <- normalizePath(p_gpu, winslash = "/")
+      assign(cache_key, res, envir = .onnx_meta_cache)
+      return(res)
     }
     if (engine == "gpu") {
       return(NULL)
     }
   } else if (engine == "gpu") {
-    cli::cli_alert_warning("DirectML GPU acceleration is only supported on Windows (DirectX 12). Falling back to 'cpu'.")
+    if (!tolower(Sys.getenv("PLIMAN_GPU_PROVIDER", "auto")) %in% c("coreml", "openvino")) {
+      cli::cli_alert_warning("DirectML GPU acceleration is only supported on Windows (DirectX 12). Falling back to 'cpu'.")
+    }
     engine <- "cpu"
   }
 
@@ -1759,7 +2337,11 @@ pliman_onnx_lib_path <- function(engine = c("gpu", "cpu")) {
   )
 
   p1 <- file.path(pliman_onnx_dir(), lib_name)
-  if (file.exists(p1)) return(normalizePath(p1, winslash = "/"))
+  if (file.exists(p1)) {
+    res <- normalizePath(p1, winslash = "/")
+    assign(cache_key, res, envir = .onnx_meta_cache)
+    return(res)
+  }
 
   ort_root <- Sys.getenv("ORT_ROOT", "")
   if (nzchar(ort_root)) {
@@ -1787,10 +2369,8 @@ pliman_onnx_library_path <- function(engine = c("gpu", "cpu")) {
 #'
 #' @return A data frame containing information on detected GPU adapters, or a message if no GPU is available.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   pliman_gpu_info()
-#' }
 pliman_gpu_info <- function() {
   info <- pliman_gpu_info_cpp()
   if (!isTRUE(info$available) || length(info$device_id) == 0) {
@@ -1824,96 +2404,307 @@ pliman_gpu_info <- function() {
   invisible(df)
 }
 
-#' Configure Complete Deep Learning Environment for pliman (100% Native C++)
+#' Setup Complete ONNX Deep Learning Environment and Pre-trained Models
 #'
 #' Sets up the entire zero-Python, zero-external-package Deep Learning environment
 #' in a single call with interactive CLI feedback.
 #'
 #' This function:
-#' 1. Creates and verifies the local model directory (`tools::R_user_dir("pliman", "data")/models`).
-#' 2. Downloads and verifies the official Microsoft ONNX Runtime C++ shared library directly.
-#' 3. Downloads the specified pre-trained models (`u2netp` and `isnet-general-use` by default).
-#' 4. Runs a self-test inference using the native C++ engine to confirm 100% operational status.
+#' 1. Inspects graphics hardware (DirectX 12 / DirectML GPU and CUDA adapters)
+#'    and displays adapter names and VRAM.
+#' 2. Downloads and verifies official Microsoft ONNX Runtime C++ shared libraries
+#'    (DirectML GPU binaries on Windows, and CPU binaries across all operating systems).
+#' 3. Pre-downloads the essential foundation models (`"u2netp"` for salient segmentation,
+#'    `"yolo26s"` for object detection, and `"dinov2"` for vision foundation embeddings).
+#' 4. Runs native C++ self-test inference on all installed models to confirm 100% operational status.
+#' 5. Provides immediate, copy-paste ready examples to run [image_detect_dl()],
+#'    [image_segment_dl()], and [image_remove_bg()].
 #'
-#' @param models Character vector of models to pre-download. Defaults to `"u2netp"`.
-#'   Pass `"all"` to download all 5 models, or `NULL` to only configure the engine without downloading models.
+#' @param models Character vector of models to pre-download. Defaults to `c("u2netp", "yolo26s", "dinov2")`.
+#'   You can also specify `"all"` to download all standard models, or `NULL` to only configure the runtime engine.
 #' @param dir Directory to store models (default: `pliman_model_dir()`).
 #' @param force Logical. Force re-download and re-configuration even if already present (default `FALSE`).
-#' @param engine Execution engine: `"cpu"` (default) or `"gpu"`.
-#' @return Logical `TRUE` invisibly on success.
+#' @param engine Execution engine: `"auto"` (default), `"gpu"`, or `"cpu"`. When `"auto"`,
+#'   automatically detects compatible GPU hardware and configures GPU acceleration.
+#' @param test Logical. If `TRUE` (default), runs quick native C++ self-test inferences to ensure
+#'   all downloaded models are operational.
+#' @param verbose Logical. Whether to print formatted CLI messages (default `TRUE`).
+#' @return A list containing `engine`, `gpu_info`, `has_gpu`, `installed_models`, and `test_status` invisibly.
 #' @export
-#' @examples
-#' \dontrun{
-#'   pliman_configure_dl()
-#'   pliman_configure_dl(engine = "gpu")
-#' }
-pliman_configure_dl <- function(models = "u2netp",
-                                dir = pliman_model_dir(),
-                                force = FALSE,
-                                engine = c("gpu", "cpu")) {
+#' @rdname onnx_setup
+#' @examplesIf interactive()
+#'   onnx_setup()
+#'   onnx_setup(engine = "cpu")
+onnx_setup <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                       dir = pliman_model_dir(),
+                       force = FALSE,
+                       engine = c("auto", "gpu", "cpu"),
+                       test = TRUE,
+                       verbose = TRUE) {
   engine <- match.arg(engine)
   old_timeout <- getOption("timeout")
   on.exit(options(timeout = old_timeout), add = TRUE)
   options(timeout = max(600, old_timeout))
 
-  cli::cli_h1("Configuring pliman Deep Learning Environment (100% Native C++)")
+  os <- tolower(Sys.info()[["sysname"]])
 
-  # 1. Check and configure model directory
-  cli::cli_h2("1. Model Storage Directory")
+  if (isTRUE(verbose)) {
+    cli::cli_h1("Configuring pliman ONNX Deep Learning Environment")
+  }
+
+  # 1. Model Storage Directory
+  if (isTRUE(verbose)) cli::cli_h2("1. Model Storage Directory")
   model_path <- pliman_model_dir(dir)
-  cli::cli_alert_success("Model directory: {.path {model_path}}")
+  if (!dir.exists(model_path)) dir.create(model_path, recursive = TRUE, showWarnings = FALSE)
+  if (isTRUE(verbose)) cli::cli_alert_success("Model directory: {.path {model_path}}")
 
-  # 2. Check and configure ONNX Runtime C++ engine directly
-  cli::cli_h2("2. Microsoft ONNX Runtime C++ Engine (Zero-Package Native)")
-  lib_path <- onnx_install(force = force, engine = engine)
-  cli::cli_alert_success("ONNX Runtime C++ library verified: {.path {lib_path}}")
+  # 2. Hardware & GPU Acceleration Inspection
+  if (isTRUE(verbose)) cli::cli_h2("2. Hardware & GPU Acceleration Inspection")
+  gpu_df <- NULL
+  has_gpu <- FALSE
+  selected_engine <- "cpu"
 
-  # 3. Download Requested Models
-  if (!is.null(models)) {
-    cli::cli_h2("3. Pre-trained Neural Models")
+  gpu_raw <- tryCatch(pliman_gpu_info_cpp(), error = function(e) list(available = FALSE))
+  if (isTRUE(gpu_raw$available) && length(gpu_raw$device_id) > 0) {
+    has_gpu <- TRUE
+    gpu_df <- data.frame(
+      device_id = gpu_raw$device_id,
+      name = gpu_raw$name,
+      vram_mb = round(gpu_raw$vram_mb, 1),
+      is_dedicated = gpu_raw$is_dedicated,
+      is_default = (gpu_raw$device_id == gpu_raw$default_device_id),
+      stringsAsFactors = FALSE
+    )
+    if (isTRUE(verbose)) {
+      for (i in seq_len(nrow(gpu_df))) {
+        prefix <- if (gpu_df$is_default[i]) "* (Default) " else "  "
+        type_str <- if (gpu_df$is_dedicated[i]) "Dedicated" else "Integrated"
+        cli::cli_alert_info("{prefix}[Device {gpu_df$device_id[i]}] {gpu_df$name[i]} ({type_str}, {gpu_df$vram_mb[i]} MB VRAM)")
+      }
+    }
+  } else {
+    nv_info <- tryCatch(.detect_nvidia_gpu(), error = function(e) list(has_gpu = FALSE))
+    if (isTRUE(nv_info$has_gpu)) {
+      has_gpu <- TRUE
+      if (isTRUE(verbose)) {
+        cli::cli_alert_info("NVIDIA GPU detected: {.strong {nv_info$name}} (Driver: {nv_info$driver})")
+      }
+    } else if (isTRUE(verbose)) {
+      cli::cli_alert_info("No dedicated DirectX 12 / DirectML GPU detected. CPU engine will be used.")
+    }
+  }
+
+  # Determine target engine
+  if (engine == "auto") {
+    selected_engine <- if (has_gpu && os == "windows") "gpu" else "cpu"
+  } else if (engine == "gpu") {
+    if (os == "windows") {
+      selected_engine <- "gpu"
+    } else {
+      if (isTRUE(verbose)) {
+        cli::cli_alert_warning("DirectML GPU acceleration is supported on Windows (DirectX 12). Using CPU engine on {os}.")
+      }
+      selected_engine <- "cpu"
+    }
+  } else {
+    selected_engine <- "cpu"
+  }
+
+  # 3. Microsoft ONNX Runtime C++ Engine
+  if (isTRUE(verbose)) cli::cli_h2("3. Microsoft ONNX Runtime C++ Engine (Zero-Python)")
+  lib_cpu <- onnx_install(force = force, engine = "cpu")
+  if (isTRUE(verbose)) cli::cli_alert_success("ONNX Runtime CPU library verified: {.path {lib_cpu}}")
+
+  lib_gpu <- NULL
+  if (os == "windows") {
+    tryCatch({
+      lib_gpu <- onnx_install(force = force, engine = "gpu")
+      if (isTRUE(verbose)) cli::cli_alert_success("ONNX Runtime DirectML (GPU) library verified: {.path {lib_gpu}}")
+    }, error = function(e) {
+      if (isTRUE(verbose)) cli::cli_alert_warning("DirectML library download skipped or failed: {e$message}")
+    })
+  }
+
+  if (isTRUE(verbose)) {
+    active_tag <- if (selected_engine == "gpu") "GPU (DirectML) [ACTIVE]" else "CPU [ACTIVE]"
+    cli::cli_alert_info("Active default engine: {.strong {active_tag}}")
+  }
+
+  # 4. Download Core Pre-trained Models
+  installed_files <- character()
+  if (!is.null(models) && length(models) > 0) {
+    if (isTRUE(verbose)) cli::cli_h2("4. Pre-trained Foundation Models")
+
     if (identical(models, "all")) {
-      models <- c("u2netp", "isnet-general-use", "rmbg-1.4", "silueta", "u2net")
+      models <- c("u2netp", "yolo26s", "dinov2", "isnet-general-use", "rmbg-1.4", "silueta", "u2net")
     }
 
-    for (m in models) {
+    # Normalize aliases: "dino" -> "dinov2"
+    norm_models <- unique(vapply(models, function(m) {
+      m_low <- tolower(trimws(m))
+      if (m_low %in% c("dino", "dino-v2", "dino_v2")) "dinov2" else m
+    }, character(1)))
+
+    model_descriptions <- list(
+      "u2netp" = "Salient object segmentation & background removal (4.6 MB)",
+      "yolo26s" = "Real-time general object detection & counting (36.5 MB, 80 COCO classes)",
+      "dinov2" = "Foundation vision transformer patch embeddings & semantic maps (85.2 MB)"
+    )
+
+    for (m in norm_models) {
       tryCatch({
-        pliman_download_model(model = m, dir = model_path, force = force)
+        desc <- model_descriptions[[tolower(m)]]
+        if (is.null(desc)) desc <- "Pre-trained neural model"
+        if (isTRUE(verbose)) cli::cli_alert_info("Verifying model {.val {m}} ({desc})...")
+        m_file <- pliman_download_model(model = m, dir = model_path, force = force, verbose = FALSE)
+        installed_files[m] <- m_file
+        if (isTRUE(verbose)) cli::cli_alert_success("Model {.val {m}} is ready: {.file {basename(m_file)}}")
       }, error = function(e) {
-        cli::cli_alert_danger("Failed to download model {.val {m}}: {e$message}")
+        if (isTRUE(verbose)) cli::cli_alert_danger("Failed to prepare model {.val {m}}: {e$message}")
       })
     }
   }
 
-  # 4. Perform a quick verification test
-  cli::cli_h2("4. Verification & Self-Test")
-  test_model <- if ("u2netp" %in% models) "u2netp" else models[1]
-  test_file <- file.path(model_path, paste0(test_model, ".onnx"))
+  # 5. Verification & Self-Test
+  test_status <- list()
+  if (isTRUE(test)) {
+    if (isTRUE(verbose)) cli::cli_h2("5. System Verification & Native Self-Test")
+    test_eng <- selected_engine
 
-  if (file.exists(test_file)) {
-    cli::cli_alert_info("Running self-test with {.val {test_model}} in native C++...")
-    test_ok <- tryCatch({
-      dummy_tensor <- numeric(1 * 3 * 320 * 320)
-      attr(dummy_tensor, "dims") <- as.integer(c(1, 3, 320, 320))
-      res <- .run_onnx_inference(dummy_tensor, test_file, target_size = 320, engine = engine)
-      if (is.matrix(res) && nrow(res) == 320 && ncol(res) == 320) {
-        TRUE
-      } else {
-        FALSE
+    # Test u2netp if installed
+    u2_file <- file.path(model_path, "u2netp.onnx")
+    if (file.exists(u2_file)) {
+      if (isTRUE(verbose)) cli::cli_alert_info("Testing segmentation pipeline ({.val u2netp}) [{toupper(test_eng)}]...")
+      u2_ok <- tryCatch({
+        dummy_u2 <- numeric(1 * 3 * 320 * 320)
+        attr(dummy_u2, "dims") <- as.integer(c(1, 3, 320, 320))
+        res <- .run_onnx_inference(dummy_u2, u2_file, target_size = 320, engine = test_eng)
+        is.matrix(res) && nrow(res) == 320 && ncol(res) == 320
+      }, error = function(e) FALSE)
+      test_status$u2netp <- u2_ok
+      if (isTRUE(verbose)) {
+        if (u2_ok) {
+          cli::cli_alert_success("Segmentation engine operational ({.val u2netp}).")
+        } else {
+          cli::cli_alert_warning("Segmentation self-test returned unexpected output.")
+        }
       }
-    }, error = function(e) {
-      cli::cli_alert_warning("Self-test error: {e$message}")
-      FALSE
-    })
+    }
 
-    if (test_ok) {
-      cli::cli_alert_success("Self-test passed! Native C++ neural inference is working at full speed.")
+    # Test yolo26s if installed
+    yolo_file <- file.path(model_path, "yolo26s.onnx")
+    if (file.exists(yolo_file)) {
+      if (isTRUE(verbose)) cli::cli_alert_info("Testing detection pipeline ({.val yolo26s}) [{toupper(test_eng)}]...")
+      yolo_ok <- tryCatch({
+        dummy_yolo <- numeric(1 * 3 * 640 * 640)
+        res_yolo <- run_yolo_cpp(
+          dummy_yolo, 640L, 640L,
+          conf_threshold = 0.5, iou_threshold = 0.5,
+          model_path = yolo_file,
+          lib_path = pliman_onnx_lib_path(engine = test_eng),
+          num_threads = 0L,
+          use_gpu = (test_eng == "gpu"),
+          device_id = -1L,
+          need_masks = FALSE
+        )
+        is.list(res_yolo)
+      }, error = function(e) FALSE)
+      test_status$yolo26s <- yolo_ok
+      if (isTRUE(verbose)) {
+        if (yolo_ok) {
+          cli::cli_alert_success("Object detection engine operational ({.val yolo26s}).")
+        } else {
+          cli::cli_alert_warning("Detection self-test returned unexpected output.")
+        }
+      }
+    }
+
+    # Test dinov2 if installed
+    dino_file <- file.path(model_path, "dinov2-vits14.onnx")
+    if (file.exists(dino_file)) {
+      if (isTRUE(verbose)) cli::cli_alert_info("Testing foundation features pipeline ({.val dinov2}) [{toupper(test_eng)}]...")
+      dino_ok <- tryCatch({
+        dummy_dino <- numeric(1 * 3 * 518 * 518)
+        res_dino <- run_dinov2_cpp(
+          dummy_dino, 518L, 518L,
+          patch_size = 14L, return_pca = FALSE,
+          model_path = dino_file,
+          lib_path = pliman_onnx_lib_path(engine = test_eng),
+          num_threads = 0L,
+          use_gpu = (test_eng == "gpu"),
+          device_id = -1L
+        )
+        is.list(res_dino) && length(res_dino$cls_token) == 384L
+      }, error = function(e) FALSE)
+      test_status$dinov2 <- dino_ok
+      if (isTRUE(verbose)) {
+        if (dino_ok) {
+          cli::cli_alert_success("Foundation features engine operational ({.val dinov2}).")
+        } else {
+          cli::cli_alert_warning("Foundation features self-test returned unexpected output.")
+        }
+      }
     }
   }
 
-  cli::cli_h2("Configuration Complete!")
-  cli::cli_alert_info("You can now run: {.code mask <- image_binary_dl(img, model = 'u2netp')}")
-  cli::cli_alert_info("Or remove background: {.code img_tb <- image_remove_bg_dl(img, model = 'u2netp')}")
-  return(invisible(TRUE))
+  if (isTRUE(verbose)) {
+    cli::cli_h1("Configuration Complete! Environment Ready for Inference")
+    cli::cli_alert_success("All components configured and verified successfully.")
+    cli::cli_alert_info("You can now run directly:")
+    cat("\n")
+    cli::cli_code(paste0(
+      "# 1. Object Detection and Counting:\n",
+      "det <- image_detect_dl(img, model = 'yolo26s')\n\n",
+      "# 2. Object Segmentation:\n",
+      "seg <- image_segment_dl(img, model = 'u2netp')\n\n",
+      "# 3. Salient Background Removal:\n",
+      "nobg <- image_remove_bg(img, model = 'u2netp')\n\n",
+      "# 4. Vision Transformer Feature Maps:\n",
+      "feat <- image_features_dl(img, model = 'dinov2')"
+    ))
+    cat("\n")
+  }
+
+  invisible(list(
+    engine = selected_engine,
+    gpu_info = gpu_df,
+    has_gpu = has_gpu,
+    installed_models = installed_files,
+    test_status = test_status
+  ))
+}
+
+#' @rdname onnx_setup
+#' @export
+pliman_configure_dl <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                                dir = pliman_model_dir(),
+                                force = FALSE,
+                                engine = c("auto", "gpu", "cpu"),
+                                test = TRUE,
+                                verbose = TRUE) {
+  onnx_setup(models = models, dir = dir, force = force, engine = engine, test = test, verbose = verbose)
+}
+
+#' @rdname onnx_setup
+#' @export
+pliman_setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                              dir = pliman_model_dir(),
+                              force = FALSE,
+                              engine = c("auto", "gpu", "cpu"),
+                              test = TRUE,
+                              verbose = TRUE) {
+  onnx_setup(models = models, dir = dir, force = force, engine = engine, test = test, verbose = verbose)
+}
+
+#' @rdname onnx_setup
+#' @export
+setup_onnx <- function(models = c("u2netp", "yolo26s", "dinov2"),
+                       dir = pliman_model_dir(),
+                       force = FALSE,
+                       engine = c("auto", "gpu", "cpu"),
+                       test = TRUE,
+                       verbose = TRUE) {
+  onnx_setup(models = models, dir = dir, force = force, engine = engine, test = test, verbose = verbose)
 }
 
 # ==============================================================================
@@ -1929,12 +2720,68 @@ pliman_configure_dl <- function(models = "u2netp",
 }
 
 # Fast polygon decimation for screen display (preserves full resolution in returned contours)
-.decimate_poly <- function(p, max_pts = 2500L) {
+.decimate_poly <- function(p, max_pts = 800L) {
   n <- nrow(p)
   if (n <= max_pts) return(p)
   step <- ceiling(n / max_pts)
   idx <- c(seq(1L, n, by = step), 1L)
   p[idx, , drop = FALSE]
+}
+
+# Batched polygon highlight rendering grouped by color for fast graphics output
+.plot_highlight_polygons <- function(conts, pal, alpha = 0.7, border = NA, lwd = 1,
+                                     bbox = FALSE, max_pts = 800L) {
+  n_c <- length(conts)
+  if (n_c == 0L) return(invisible(NULL))
+
+  is_mat <- vapply(conts, function(p) is.matrix(p) && nrow(p) >= 3L, logical(1))
+  if (any(is_mat)) {
+    valid_idx <- which(is_mat)
+    pal_v <- pal[valid_idx]
+    u_cols <- unique(pal_v)
+    rgb_mat <- tryCatch(grDevices::col2rgb(u_cols) / 255.0, error = function(e) NULL)
+    if (is.null(rgb_mat)) {
+      poly_cols <- rep(grDevices::rgb(0, 1, 0, alpha = alpha), length(u_cols))
+    } else {
+      poly_cols <- grDevices::rgb(rgb_mat[1L, ], rgb_mat[2L, ], rgb_mat[3L, ], alpha = alpha)
+    }
+    names(poly_cols) <- u_cols
+
+    groups <- split(valid_idx, pal_v)
+    for (g_col in names(groups)) {
+      g_idx <- groups[[g_col]]
+      cur_border <- if (is.na(border)) NA else g_col
+      if (length(g_idx) == 1L) {
+        p_plot <- .decimate_poly(conts[[g_idx]], max_pts = max_pts)
+        graphics::polygon(p_plot[, 1], p_plot[, 2], col = poly_cols[[g_col]], border = cur_border, lwd = lwd)
+      } else {
+        px_list <- vector("list", length(g_idx))
+        py_list <- vector("list", length(g_idx))
+        for (j in seq_along(g_idx)) {
+          p_plot <- .decimate_poly(conts[[g_idx[j]]], max_pts = max_pts)
+          px_list[[j]] <- c(p_plot[, 1], NA_real_)
+          py_list[[j]] <- c(p_plot[, 2], NA_real_)
+        }
+        graphics::polygon(unlist(px_list, use.names = FALSE),
+                          unlist(py_list, use.names = FALSE),
+                          col = poly_cols[[g_col]], border = cur_border, lwd = lwd)
+      }
+    }
+  }
+
+  if (isTRUE(bbox)) {
+    box_idx <- which(vapply(conts, function(p) is.matrix(p) && nrow(p) >= 1L, logical(1)))
+    if (length(box_idx) > 0L) {
+      b_mat <- vapply(box_idx, function(ci) {
+        p <- conts[[ci]]
+        c(min(p[, 1]), min(p[, 2]), max(p[, 1]), max(p[, 2]))
+      }, numeric(4))
+      graphics::rect(xleft = b_mat[1L, ], ybottom = b_mat[2L, ],
+                     xright = b_mat[3L, ], ytop = b_mat[4L, ],
+                     border = pal[box_idx], lwd = lwd)
+    }
+  }
+  invisible(NULL)
 }
 
 .preprocess_nchw <- function(mat,
@@ -1946,6 +2793,16 @@ pliman_configure_dl <- function(models = "u2netp",
   orig_w <- dims[1]
   orig_h <- dims[2]
   nch <- if (length(dims) >= 3) dims[3] else 1
+
+  # Fast path: single C++ pass (same numerics as the R code below, without the ~10
+  # full-resolution double copies). The R implementation is kept as a fallback.
+  if ((nch == 1 || nch >= 3) && (is.raw(mat) || is.double(mat) || is.integer(mat))) {
+    fast <- tryCatch(
+      preprocess_nchw_cpp(mat, as.integer(target_size), as.numeric(mean), as.numeric(std), isTRUE(letterbox)),
+      error = function(e) NULL
+    )
+    if (!is.null(fast)) return(fast)
+  }
 
   # Extract R, G, B normalized [0, 1]
   if (is.raw(mat)) {
@@ -2034,7 +2891,9 @@ pliman_configure_dl <- function(models = "u2netp",
   if (is.null(tensor_dims)) {
     tensor_dims <- as.integer(c(1, 3, target_size, target_size))
   }
-  tensor_vec <- as.numeric(tensor)
+  # `tensor` is already a plain double vector; as.numeric() would copy it (25 MB for a
+  # 1024x1024x3 tensor) only to drop the dims attribute, which the C++ side ignores.
+  tensor_vec <- tensor
 
   pred_mat <- run_onnx_inference_cpp(
     tensor_vec = tensor_vec,
@@ -2066,9 +2925,17 @@ pliman_configure_dl <- function(models = "u2netp",
                              exemplar = FALSE,
                              threads = 0,
                              engine = c("gpu", "cpu"),
+                             sam_device = c("auto", "gpu", "cpu"),
                              device_id = -1,
                              verbose = TRUE,
                              dir = pliman_model_dir()) {
+  if (grepl("^sam-?3", tolower(model[1]))) {
+    cli::cli_abort(c(
+      "SAM 3 / 3.1 is not supported.",
+      "x" = "SAM 3.1 does not provide an interactive ONNX prompt decoder (point/box prompt mask generator).",
+      "i" = "Please use {.val 'sam2.1'} (or {.val 'persam'} / {.val 'grounded-sam'})."
+    ))
+  }
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
   model <- .resolve_model_name(model[1])
@@ -2089,6 +2956,7 @@ pliman_configure_dl <- function(models = "u2netp",
       threshold = threshold,
       threads = threads,
       engine = engine,
+      sam_device = sam_device,
       device_id = device_id,
       fill_hull = fill_hull,
       filter = filter,
@@ -2156,7 +3024,7 @@ pliman_configure_dl <- function(models = "u2netp",
 
     # Ensure SAM models are downloaded
     model_file <- pliman_download_model(model = model, dir = dir)
-    enc_path <- file.path(dir, "sam2.1.encoder.onnx")
+    enc_path <- .resolve_sam_encoder(dir, use_gpu)
     dec_path <- file.path(dir, "sam2.1.decoder.onnx")
 
     # SAM uses standard ImageNet normalization and 1024x1024
@@ -2205,7 +3073,7 @@ pliman_configure_dl <- function(models = "u2netp",
     }
 
     pred_raw <- run_sam2_inference_cpp(
-      tensor_vec = as.numeric(tensor),
+      tensor_vec = tensor,
       points_x = pts_x,
       points_y = pts_y,
       point_labels = pts_lbl,
@@ -2240,9 +3108,7 @@ pliman_configure_dl <- function(models = "u2netp",
       std_val <- c(1, 1, 1)
       use_letterbox <- TRUE
     } else {
-      models_df <- pliman_available_models(dir = dir)
-      row <- models_df[models_df$model == model, ]
-      target_size <- if (nrow(row) > 0) as.integer(strsplit(as.character(row$input_size), "x")[[1]][1]) else 320L
+      target_size <- .dl_input_size(model, dir = dir, default = 320L)
       mean_val <- c(0.485, 0.456, 0.406)
       std_val <- c(0.229, 0.224, 0.225)
       use_letterbox <- FALSE
@@ -2347,15 +3213,17 @@ pliman_configure_dl <- function(models = "u2netp",
   if (min_area <= 0) {
     lbls <- bwlabel_cpp(mask)
     if (max(lbls) > 0) {
-      tbl <- table(lbls[lbls > 0])
-      largest_id <- as.integer(names(which.max(tbl)))
+      # tabulate() on the integer labels instead of table(): no factor conversion of
+      # the full-resolution vector (same result: first label with the largest count)
+      tbl <- tabulate(lbls[lbls > 0])
+      largest_id <- which.max(tbl)
       mask <- (lbls == largest_id)
     }
   } else {
     lbls <- bwlabel_cpp(mask)
     if (max(lbls) > 0) {
-      tbl <- table(lbls[lbls > 0])
-      keep_ids <- as.integer(names(tbl[tbl >= min_area]))
+      tbl <- tabulate(lbls[lbls > 0])
+      keep_ids <- which(tbl >= min_area)
       mask <- matrix(lbls %in% keep_ids, nrow = orig_w, ncol = orig_h)
     }
   }
@@ -2412,8 +3280,6 @@ pliman_configure_dl <- function(models = "u2netp",
 #'       visually similar to one or more user-clicked exemplar objects using Multi-Prototype Cosine Similarity Max-Pooling.
 #'     - `"sam2.1"` (or `"sam2"`): Meta AI Segment Anything 2.1 (Hiera-Tiny, ~120.2 MB, 1024x1024 input). Foundation vision transformer
 #'       supporting point prompts, box prompts, or interactive clicking (`pick_object = TRUE`).
-#'     - `"sam3.1"` (or `"sam3"`): Meta AI Segment Anything 3.1 (~868.1 MB, 1024x1024 input). High-capacity concept-driven
-#'       foundation segmentation model.
 #' @param threshold Numeric value in `[0, 1]` specifying the cutoff threshold applied to the model's
 #'   continuous probability/logit output map. Default is `0.5`. Increasing this threshold (e.g., `0.7`) makes
 #'   segmentation more conservative (avoiding background noise), whereas decreasing it (e.g., `0.3`) includes
@@ -2457,7 +3323,13 @@ pliman_configure_dl <- function(models = "u2netp",
 #'   which automatically detects and utilizes all available logical CPU cores on the system.
 #' @param engine Character specifying the backend execution engine: `"cpu"` (default) or `"gpu"`. On Windows,
 #'   `"gpu"` utilizes Microsoft DirectML over DirectX 12 hardware (compatible with NVIDIA, AMD, and Intel GPUs
-#'   without requiring CUDA toolkit installation).
+#'   without requiring CUDA toolkit installation). In [image_segment_dl()], when `engine` is not given,
+#'   Grounded-SAM and PerSAM use the GPU whenever a dedicated GPU is present (only integrated or absent GPUs
+#'   default to the CPU). With `engine = "gpu"`, Grounded-SAM runs Grounding DINO on the GPU and SAM 2.1 on the
+#'   GPU too, except on GPUs with less than 6 GB of memory, where SAM 2.1 runs on the CPU so that both models
+#'   stay loaded (about 4x faster than the CPU alone and much faster than reloading the models for every image
+#'   on a 4 GB card); force the SAM device with `options(pliman.gsam_sam_device = "gpu")` or `"cpu"`.
+#'   Speed-ups depend on the GPU and driver.
 #' @param device_id Integer GPU device adapter index. Default is `-1`, which automatically selects the high-performance
 #'   discrete GPU adapter with the maximum dedicated video memory (VRAM).
 #' @param verbose Logical. If `TRUE` (default), displays step-by-step progress feedback and timing indicators
@@ -2470,8 +3342,7 @@ pliman_configure_dl <- function(models = "u2netp",
 #' @return A binary `image` object (Grayscale, values 0 and 1) or a list of binary `image` objects.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'
@@ -2489,9 +3360,8 @@ pliman_configure_dl <- function(models = "u2netp",
 #'
 #'   # One-shot visual exemplar segmentation (PerSAM)
 #'   mask_exemplar <- image_binary_dl(img, model = "persam", prompt = c(150, 200))
-#' }
 image_binary_dl <- function(img,
-                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                             threshold = 0.5,
                             fill_hull = TRUE,
                             filter = 0,
@@ -2581,8 +3451,7 @@ image_binary_dl <- function(img,
 #' @return An `image` object (4-channel RGBA if `transparent = TRUE`, 3-channel RGB otherwise) or a list of images.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'
@@ -2603,9 +3472,8 @@ image_binary_dl <- function(img,
 #'
 #'   # Extract instances matching a visual exemplar click (PerSAM)
 #'   img_exemplar <- image_remove_bg_dl(img, model = "persam", prompt = c(120, 150))
-#' }
 image_remove_bg_dl <- function(img,
-                               model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                               model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                                threshold = 0.5,
                                fill_hull = TRUE,
                                filter = 0,
@@ -2744,76 +3612,96 @@ image_remove_bg_dl <- function(img,
     vocab_env <- get(vocab_path, envir = .pliman_vocab_cache)
   }
 
-  if (length(text) > 1) {
-    text <- paste(trimws(text), collapse = " and ")
+  # Parse distinct target classes/categories from text
+  if (is.character(text) && length(text) > 1) {
+    target_classes <- trimws(text)
+  } else {
+    raw_str <- as.character(text)[1]
+    if (grepl("\\.", raw_str)) {
+      raw_parts <- strsplit(raw_str, "\\s*\\.\\s*")[[1]]
+      target_classes <- trimws(raw_parts)
+    } else if (grepl("[,;]", raw_str)) {
+      raw_parts <- strsplit(raw_str, "[,;]+")[[1]]
+      target_classes <- trimws(raw_parts)
+    } else {
+      target_classes <- trimws(raw_str)
+    }
   }
-  text_clean <- tolower(trimws(text))
-  # Support commas, semicolons, and normalize delimiters into natural conjunctions
-  text_clean <- gsub("[,;]+", " and ", text_clean)
-  # Normalize internal periods between class names (e.g. "people . book ." -> "people and book .")
-  text_clean <- gsub("\\s*\\.\\s*(?=[a-zA-Z0-9])", " and ", text_clean, perl = TRUE)
-  # Collapse redundant 'and's or spaces
-  text_clean <- gsub("\\b(and\\s*)+", "and ", text_clean)
-  text_clean <- gsub("\\s+", " ", text_clean)
-  text_clean <- trimws(text_clean)
-  # Ensure clean trailing period expected by Grounding DINO
-  text_clean <- gsub("\\s*\\.*$", " .", text_clean)
-  if (!grepl("\\.$", text_clean)) {
-    text_clean <- paste0(text_clean, " .")
-  }
-
-  # Insert spaces around punctuation
-  text_spaced <- gsub("([[:punct:]])", " \\1 ", text_clean)
-  words <- strsplit(text_spaced, "\\s+")[[1]]
-  words <- words[nzchar(words)]
+  target_classes <- target_classes[nzchar(target_classes)]
+  if (length(target_classes) == 0) target_classes <- "object"
 
   token_ids <- 101L # [CLS]
   token_words <- "[CLS]"
+  token_classes <- NA_character_
   unk_id <- 100L
 
-  for (w in words) {
-    start <- 1L
-    w_len <- nchar(w)
-    cur_ids <- integer(0)
-    is_unk <- FALSE
+  for (i in seq_along(target_classes)) {
+    cls <- target_classes[i]
+    if (i > 1L) {
+      token_ids <- c(token_ids, 1998L) # 'and'
+      token_words <- c(token_words, "and")
+      token_classes <- c(token_classes, NA_character_)
+    }
+    cls_clean <- tolower(trimws(cls))
+    cls_clean <- gsub("([[:punct:]])", " \\1 ", cls_clean)
+    words <- strsplit(cls_clean, "\\s+")[[1]]
+    words <- words[nzchar(words) & words != "."]
+    if (length(words) == 0) next
 
-    while (start <= w_len) {
-      end <- w_len
-      found_sub <- FALSE
-      while (start <= end) {
-        sub <- substr(w, start, end)
-        if (start > 1L) sub <- paste0("##", sub)
-        if (exists(sub, envir = vocab_env, inherits = FALSE)) {
-          cur_ids <- c(cur_ids, as.integer(get(sub, envir = vocab_env)))
-          start <- end + 1L
-          found_sub <- TRUE
+    for (w in words) {
+      start <- 1L
+      w_len <- nchar(w)
+      cur_ids <- integer(0)
+      is_unk <- FALSE
+
+      while (start <= w_len) {
+        end <- w_len
+        found_sub <- FALSE
+        while (start <= end) {
+          sub <- substr(w, start, end)
+          if (start > 1L) sub <- paste0("##", sub)
+          if (exists(sub, envir = vocab_env, inherits = FALSE)) {
+            cur_ids <- c(cur_ids, as.integer(get(sub, envir = vocab_env)))
+            start <- end + 1L
+            found_sub <- TRUE
+            break
+          }
+          end <- end - 1L
+        }
+        if (!found_sub) {
+          is_unk <- TRUE
           break
         }
-        end <- end - 1L
       }
-      if (!found_sub) {
-        is_unk <- TRUE
-        break
-      }
-    }
 
-    if (is_unk) {
-      token_ids <- c(token_ids, unk_id)
-      token_words <- c(token_words, w)
-    } else {
-      token_ids <- c(token_ids, cur_ids)
-      token_words <- c(token_words, rep(w, length(cur_ids)))
+      if (is_unk) {
+        token_ids <- c(token_ids, unk_id)
+        token_words <- c(token_words, w)
+        token_classes <- c(token_classes, cls)
+      } else {
+        token_ids <- c(token_ids, cur_ids)
+        token_words <- c(token_words, rep(w, length(cur_ids)))
+        token_classes <- c(token_classes, rep(cls, length(cur_ids)))
+      }
     }
   }
 
+  # Separator period and [SEP] expected by Grounding DINO
+  token_ids <- c(token_ids, 1012L) # '.'
+  token_words <- c(token_words, ".")
+  token_classes <- c(token_classes, NA_character_)
+
   token_ids <- c(token_ids, 102L) # [SEP]
   token_words <- c(token_words, "[SEP]")
+  token_classes <- c(token_classes, NA_character_)
 
   return(list(
     input_ids = token_ids,
     attention_mask = rep(1L, length(token_ids)),
     token_type_ids = rep(0L, length(token_ids)),
-    token_words = token_words
+    token_words = token_words,
+    token_classes = token_classes,
+    target_classes = target_classes
   ))
 }
 
@@ -2842,26 +3730,154 @@ image_remove_bg_dl <- function(img,
   rbind(arc_tr, arc_tl, arc_bl, arc_br)
 }
 
+# Helper to expand/pad bounding boxes
+.apply_box_padding <- function(boxes, pad = 0, orig_w = NULL, orig_h = NULL) {
+  if (is.null(boxes) || !is.data.frame(boxes) || nrow(boxes) == 0L) return(boxes)
+  if (isTRUE(attr(boxes, "padded"))) return(boxes)
+  if (is.null(pad) || (length(pad) == 1L && pad == 0)) return(boxes)
+
+  pad_x <- as.numeric(pad[1])
+  pad_y <- if (length(pad) >= 2L) as.numeric(pad[2]) else pad_x
+  if (is.na(pad_x)) pad_x <- 0
+  if (is.na(pad_y)) pad_y <- 0
+  if (pad_x == 0 && pad_y == 0) return(boxes)
+
+  is_obb <- all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(boxes))
+
+  if (all(c("xmin", "ymin", "xmax", "ymax") %in% names(boxes))) {
+    w <- boxes$xmax - boxes$xmin
+    h <- boxes$ymax - boxes$ymin
+
+    px_x <- if (abs(pad_x) > 0 && abs(pad_x) < 1) w * pad_x else pad_x
+    px_y <- if (abs(pad_y) > 0 && abs(pad_y) < 1) h * pad_y else pad_y
+
+    new_xmin <- boxes$xmin - px_x
+    new_xmax <- boxes$xmax + px_x
+    new_ymin <- boxes$ymin - px_y
+    new_ymax <- boxes$ymax + px_y
+
+    if (!is.null(orig_w) && is.finite(orig_w) && orig_w > 0) {
+      new_xmin <- pmax(1, pmin(orig_w, new_xmin))
+      new_xmax <- pmax(1, pmin(orig_w, new_xmax))
+    }
+    if (!is.null(orig_h) && is.finite(orig_h) && orig_h > 0) {
+      new_ymin <- pmax(1, pmin(orig_h, new_ymin))
+      new_ymax <- pmax(1, pmin(orig_h, new_ymax))
+    }
+
+    boxes$xmin <- pmin(new_xmin, new_xmax - 1)
+    boxes$xmax <- pmax(new_xmax, new_xmin + 1)
+    boxes$ymin <- pmin(new_ymin, new_ymax - 1)
+    boxes$ymax <- pmax(new_ymax, new_ymin + 1)
+
+    if ("cx" %in% names(boxes)) boxes$cx <- round((boxes$xmin + boxes$xmax) / 2, 1)
+    if ("cy" %in% names(boxes)) boxes$cy <- round((boxes$ymin + boxes$ymax) / 2, 1)
+    if ("area" %in% names(boxes)) boxes$area <- round((boxes$xmax - boxes$xmin) * (boxes$ymax - boxes$ymin), 1)
+  }
+
+  if (is_obb) {
+    for (i in seq_len(nrow(boxes))) {
+      cx <- (boxes$x1[i] + boxes$x2[i] + boxes$x3[i] + boxes$x4[i]) / 4
+      cy <- (boxes$y1[i] + boxes$y2[i] + boxes$y3[i] + boxes$y4[i]) / 4
+      for (c_idx in 1:4) {
+        xn <- paste0("x", c_idx)
+        yn <- paste0("y", c_idx)
+        dx <- boxes[[xn]][i] - cx
+        dy <- boxes[[yn]][i] - cy
+        dist <- sqrt(dx^2 + dy^2)
+        if (dist > 0) {
+          scale_x <- if (abs(pad_x) > 0 && abs(pad_x) < 1) (1 + pad_x) else (dist + pad_x) / dist
+          scale_y <- if (abs(pad_y) > 0 && abs(pad_y) < 1) (1 + pad_y) else (dist + pad_y) / dist
+          boxes[[xn]][i] <- cx + dx * scale_x
+          boxes[[yn]][i] <- cy + dy * scale_y
+          if (!is.null(orig_w) && is.finite(orig_w) && orig_w > 0) boxes[[xn]][i] <- max(1, min(orig_w, boxes[[xn]][i]))
+          if (!is.null(orig_h) && is.finite(orig_h) && orig_h > 0) boxes[[yn]][i] <- max(1, min(orig_h, boxes[[yn]][i]))
+        }
+      }
+    }
+    if ("area" %in% names(boxes)) {
+      boxes <- .add_box_geometry(boxes, update_cx = FALSE)
+    }
+  }
+
+  attr(boxes, "padded") <- TRUE
+  boxes
+}
+
+# Compute bounding box centroids (cx, cy) and area in R (handles AABB and OBB)
+.add_box_geometry <- function(boxes, update_cx = TRUE) {
+  if (!is.data.frame(boxes)) return(boxes)
+  if (nrow(boxes) == 0L) {
+    if (isTRUE(update_cx)) {
+      if (!"cx" %in% names(boxes)) boxes$cx <- numeric(0)
+      if (!"cy" %in% names(boxes)) boxes$cy <- numeric(0)
+    }
+    if (!"area" %in% names(boxes)) boxes$area <- numeric(0)
+    return(boxes)
+  }
+  if (all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(boxes))) {
+    if (isTRUE(update_cx)) {
+      boxes$cx <- round((boxes$x1 + boxes$x2 + boxes$x3 + boxes$x4) / 4, 1)
+      boxes$cy <- round((boxes$y1 + boxes$y2 + boxes$y3 + boxes$y4) / 4, 1)
+    }
+    # Shoelace formula for oriented quadrilateral area
+    boxes$area <- round(
+      0.5 * abs(
+        (boxes$x1 * boxes$y2 - boxes$y1 * boxes$x2) +
+        (boxes$x2 * boxes$y3 - boxes$y2 * boxes$x3) +
+        (boxes$x3 * boxes$y4 - boxes$y3 * boxes$x4) +
+        (boxes$x4 * boxes$y1 - boxes$y4 * boxes$x1)
+      ),
+      1
+    )
+  } else if (all(c("xmin", "xmax", "ymin", "ymax") %in% names(boxes))) {
+    if (isTRUE(update_cx)) {
+      boxes$cx <- round((boxes$xmin + boxes$xmax) / 2, 1)
+      boxes$cy <- round((boxes$ymin + boxes$ymax) / 2, 1)
+    }
+    boxes$area <- round(pmax(0, boxes$xmax - boxes$xmin) * pmax(0, boxes$ymax - boxes$ymin), 1)
+  }
+  boxes
+}
+
 # Helper to draw YOLO-style bounding boxes with class label and confidence score
 .plot_yolo_bboxes <- function(boxes,
                               palette_colors,
                               lwd = 2,
                               cex = 1.0,
-                              pad = 1.0,
+                              pad = 0,
                               show_text = TRUE,
                               show_conf = TRUE,
                               show_class = TRUE,
                               show_id = FALSE,
+                              show_box = NULL,
+                              show_point = FALSE,
+                              point_size = 1,
+                              point_pch = 16,
+                              point_col = NULL,
                               badge = TRUE,
-                              cex_scale = NULL) {
+                              cex_scale = NULL,
+                              badge_pad = 1.0) {
   if (is.null(boxes) || !is.data.frame(boxes) || nrow(boxes) == 0) return(invisible(NULL))
+
+  if (!is.null(pad) && any(pad != 0)) {
+    u_tmp <- graphics::par("usr")
+    max_w <- max(u_tmp[1], u_tmp[2])
+    max_h <- max(u_tmp[3], u_tmp[4])
+    boxes <- .apply_box_padding(boxes, pad = pad, orig_w = max_w, orig_h = max_h)
+  }
+
+  if (is.null(show_box)) {
+    show_box <- !(isTRUE(show_point) && !isTRUE(show_text) && !isTRUE(show_conf) && !isTRUE(show_class))
+  }
 
   if (!is.null(cex_scale)) {
     cex <- cex_scale
   }
 
-  pad_mult_x <- if (length(pad) >= 1 && is.numeric(pad)) max(0, pad[1]) else 1.0
-  pad_mult_y <- if (length(pad) >= 2 && is.numeric(pad)) max(0, pad[2]) else pad_mult_x
+  badge_pad_val <- if (!is.null(badge_pad)) badge_pad else 1.0
+  pad_mult_x <- if (length(badge_pad_val) >= 1 && is.numeric(badge_pad_val)) max(0, badge_pad_val[1]) else 1.0
+  pad_mult_y <- if (length(badge_pad_val) >= 2 && is.numeric(badge_pad_val)) max(0, badge_pad_val[2]) else pad_mult_x
 
   u <- graphics::par("usr")
   img_h <- abs(u[3] - u[4])
@@ -2883,11 +3899,36 @@ image_remove_bg_dl <- function(img,
     }
     x1 <- bx$xmin; y1 <- bx$ymin; x2 <- bx$xmax; y2 <- bx$ymax
 
-    # Draw box outline (rotated polygon for OBB, rectangle for standard)
-    if (all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(bx))) {
-      graphics::polygon(x = c(bx$x1, bx$x2, bx$x3, bx$x4), y = c(bx$y1, bx$y2, bx$y3, bx$y4), border = k_col, lwd = lwd)
+    # Determine centroid for point plotting
+    is_obb <- all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(bx))
+    cx <- if ("cx" %in% names(bx) && !is.na(bx$cx)) {
+      as.numeric(bx$cx)
+    } else if (is_obb) {
+      (bx$x1 + bx$x2 + bx$x3 + bx$x4) / 4
     } else {
-      graphics::rect(xleft = x1, ybottom = y1, xright = x2, ytop = y2, border = k_col, lwd = lwd)
+      (x1 + x2) / 2
+    }
+    cy <- if ("cy" %in% names(bx) && !is.na(bx$cy)) {
+      as.numeric(bx$cy)
+    } else if (is_obb) {
+      (bx$y1 + bx$y2 + bx$y3 + bx$y4) / 4
+    } else {
+      (y1 + y2) / 2
+    }
+
+    # Draw box outline (rotated polygon for OBB, rectangle for standard)
+    if (isTRUE(show_box)) {
+      if (is_obb) {
+        graphics::polygon(x = c(bx$x1, bx$x2, bx$x3, bx$x4), y = c(bx$y1, bx$y2, bx$y3, bx$y4), border = k_col, lwd = lwd)
+      } else {
+        graphics::rect(xleft = x1, ybottom = y1, xright = x2, ytop = y2, border = k_col, lwd = lwd)
+      }
+    }
+
+    # Draw centroid point
+    if (isTRUE(show_point) && is.finite(cx) && is.finite(cy)) {
+      col_pt <- if (!is.null(point_col)) point_col else k_col
+      graphics::points(cx, cy, col = col_pt, pch = point_pch, cex = point_size)
     }
 
     if (!draw_text) next
@@ -2910,61 +3951,98 @@ image_remove_bg_dl <- function(img,
     th <- abs(graphics::strheight("Ag", units = "user", cex = cex_val, font = 2))
     if (th <= 0) th <- abs(graphics::strheight(lbl_txt, units = "user", cex = cex_val, font = 2))
 
-    # Calculate character-proportional width to prevent oversized badges across different devices/DPI
-    chars <- strsplit(lbl_txt, "")[[1]]
-    char_weights <- vapply(chars, function(ch) {
-      if (ch %in% c(" ", ".", ",", ":", ";", "!", "|", "'", "\"", "`", "(", ")", "[", "]", "{", "}", "/", "\\", "-")) {
-        0.28
-      } else if (ch %in% c("i", "l", "t", "r", "f", "j", "I", "1")) {
-        0.35
-      } else if (ch %in% c("#", "@", "%", "&", "m", "w", "M", "W")) {
-        0.75
-      } else if (grepl("[A-Z]", ch)) {
-        0.60
-      } else if (grepl("[0-9]", ch)) {
-        0.54
-      } else {
-        0.50
-      }
-    }, numeric(1))
-    approx_tw <- sum(char_weights) * th
-
-    # Snug fit: adapt tightly to text width without oversized trailing background
-    tw <- if (raw_tw > 0 && approx_tw > 0) min(raw_tw, approx_tw * 1.08) else max(raw_tw, approx_tw)
-    pad_x <- th * 0.18 * pad_mult_x
-    pad_y <- th * 0.12 * pad_mult_y
-
-    badge_w <- tw + 5 * pad_x
-    badge_h <- th + 2 * pad_y
-
-    outside <- (y1 - badge_h) >= min(u[3], u[4])
-    by0 <- if (outside) y1 - badge_h else y1
-    by1 <- if (outside) y1 else y1 + badge_h
-    bx0 <- x1
-    bx1 <- x1 + badge_w
-
-    # Ensure badge does not overflow right canvas boundary
-    x_max_plot <- max(u[1], u[2])
-    if (bx1 > x_max_plot) {
-      shift <- bx1 - x_max_plot
-      bx0 <- max(min(u[1], u[2]), bx0 - shift)
-      bx1 <- bx0 + badge_w
+    # Accurate text width using graphics::strwidth with fallback
+    tw <- if (raw_tw > 0) raw_tw else abs(graphics::strwidth(lbl_txt, units = "user", cex = cex_val))
+    if (tw <= 0) {
+      tw <- nchar(lbl_txt) * th * 0.55
     }
+
+    pad_x <- th * 0.25 * pad_mult_x
+    pad_y <- th * 0.15 * pad_mult_y
+
+    badge_w <- tw + 2 * pad_x
+    badge_h <- th + 2 * pad_y
 
     # Text contrast color (black on bright badges, white on dark badges)
     rgb_vals <- tryCatch(grDevices::col2rgb(k_col)[, 1] / 255.0, error = function(e) c(0, 1, 0))
     lum <- 0.299 * rgb_vals[1] + 0.587 * rgb_vals[2] + 0.114 * rgb_vals[3]
     txt_col <- if (lum > 0.55) "#111111" else "#ffffff"
 
-    if (isTRUE(badge)) {
-      # YOLO rounded badge tag
-      r_val <- min(badge_h * 0.28, max(0, 3 * pad_mult_y))
-      pts <- .rounded_rect_pts(bx0, by0, bx1, by1, r = r_val)
-      graphics::polygon(pts[, 1], pts[, 2], col = k_col, border = NA)
-      graphics::text(bx0 + pad_x, (by0 + by1) / 2, labels = lbl_txt, col = txt_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+    if (is_obb) {
+      p1 <- c(bx$x1, bx$y1)
+      p2 <- c(bx$x2, bx$y2)
+      p3 <- c(bx$x3, bx$y3)
+      p4 <- c(bx$x4, bx$y4)
+      cx <- (p1[1] + p2[1] + p3[1] + p4[1]) / 4
+      cy <- (p1[2] + p2[2] + p3[2] + p4[2]) / 4
+
+      # Find top edge (edge with lowest average y in canvas space)
+      edges <- list(list(p1, p2), list(p2, p3), list(p3, p4), list(p4, p1))
+      avg_ys <- vapply(edges, function(e) (e[[1]][2] + e[[2]][2]) / 2, numeric(1))
+      top_e <- edges[[which.min(avg_ys)]]
+
+      p_start <- top_e[[1]]
+      p_end <- top_e[[2]]
+      dx <- p_end[1] - p_start[1]
+      dy <- p_end[2] - p_start[2]
+      if (dx < 0) {
+        dx <- -dx; dy <- -dy
+        tmp <- p_start; p_start <- p_end; p_end <- tmp
+      }
+
+      e_len <- sqrt(dx^2 + dy^2)
+      ux <- if (e_len > 0) dx / e_len else 1.0
+      uy <- if (e_len > 0) dy / e_len else 0.0
+
+      # Normal pointing outside box (away from center)
+      vx <- -uy; vy <- ux
+      mid_pt <- (p_start + p_end) / 2
+      to_c <- c(cx - mid_pt[1], cy - mid_pt[2])
+      if ((vx * to_c[1] + vy * to_c[2]) > 0) {
+        vx <- -vx; vy <- -vy
+      }
+
+      ang_deg <- atan2(dy, dx) * 180 / pi
+      srt_val <- -ang_deg
+
+      b0 <- p_start + 1.5 * c(vx, vy)
+      b1 <- b0 + badge_w * c(ux, uy)
+      b2 <- b1 + badge_h * c(vx, vy)
+      b3 <- b0 + badge_h * c(vx, vy)
+
+      if (isTRUE(badge)) {
+        graphics::polygon(c(b0[1], b1[1], b2[1], b3[1]), c(b0[2], b1[2], b2[2], b3[2]), col = k_col, border = NA)
+        t_center <- (b0 + b1 + b2 + b3) / 4
+        graphics::text(t_center[1], t_center[2], labels = lbl_txt, col = txt_col, font = 2, srt = srt_val, adj = c(0.5, 0.5), cex = cex_val)
+      } else {
+        t_pos <- p_start + (badge_h / 2) * c(vx, vy) + pad_x * c(ux, uy)
+        graphics::text(t_pos[1], t_pos[2], labels = lbl_txt, col = k_col, font = 2, srt = srt_val, adj = c(0, 0.5), cex = cex_val)
+      }
     } else {
-      # Draw text directly without badge background
-      graphics::text(bx0, (by0 + by1) / 2, labels = lbl_txt, col = k_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+      outside <- (y1 - badge_h) >= min(u[3], u[4])
+      by0 <- if (outside) y1 - badge_h else y1
+      by1 <- if (outside) y1 else y1 + badge_h
+      bx0 <- x1
+      bx1 <- x1 + badge_w
+
+      # Ensure badge does not overflow right canvas boundary
+      x_max_plot <- max(u[1], u[2])
+      if (bx1 > x_max_plot) {
+        shift <- bx1 - x_max_plot
+        bx0 <- max(min(u[1], u[2]), bx0 - shift)
+        bx1 <- bx0 + badge_w
+      }
+
+      if (isTRUE(badge)) {
+        # YOLO rounded badge tag
+        r_val <- min(badge_h * 0.28, max(0, 3 * pad_mult_y))
+        pts <- .rounded_rect_pts(bx0, by0, bx1, by1, r = r_val)
+        graphics::polygon(pts[, 1], pts[, 2], col = k_col, border = NA)
+        graphics::text(bx0 + pad_x, (by0 + by1) / 2, labels = lbl_txt, col = txt_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+      } else {
+        # Draw text directly without badge background
+        graphics::text(bx0, (by0 + by1) / 2, labels = lbl_txt, col = k_col, font = 2, adj = c(0, 0.5), cex = cex_val)
+      }
     }
   }
 }
@@ -3110,8 +4188,11 @@ image_remove_bg_dl <- function(img,
                               box_threshold = 0.25,
                               text_threshold = 0.25,
                               iou_threshold = 0.5,
+                              filter_nested = TRUE,
                               threads = 0,
                               engine = c("gpu", "cpu"),
+                              sam_device = c("auto", "gpu", "cpu"),
+                              engine_specified = FALSE,
                               device_id = -1,
                               fill_hull = TRUE,
                               filter = 0,
@@ -3125,6 +4206,7 @@ image_remove_bg_dl <- function(img,
                               verbose = TRUE,
                               dir = pliman_model_dir()) {
   engine <- match.arg(engine)
+  sam_device <- match.arg(sam_device)
   use_gpu <- (engine == "gpu")
   dir <- pliman_model_dir(dir)
   lib_file <- pliman_onnx_lib_path(engine = engine)
@@ -3139,9 +4221,11 @@ image_remove_bg_dl <- function(img,
     pliman_download_model("sam2.1", dir = dir)
   }
 
-  dino_model <- file.path(dir, "groundingdino-tiny.onnx")
+  # INT8 by default; an FP16 variant on CUDA/TensorRT or when chosen explicitly
+  # (see .resolve_dino_model() in utils_dl_providers.R)
+  dino_model <- .resolve_dino_model(dir, use_gpu)
   vocab_file <- file.path(dir, "vocab.txt")
-  sam_enc <- file.path(dir, "sam2.1.encoder.onnx")
+  sam_enc <- .resolve_sam_encoder(dir, use_gpu)
   sam_dec <- file.path(dir, "sam2.1.decoder.onnx")
 
   dims <- dim(mat)
@@ -3173,7 +4257,7 @@ image_remove_bg_dl <- function(img,
   }
 
   dino_res <- run_grounding_dino_cpp(
-    pixel_values = as.numeric(dino_tensor),
+    pixel_values = dino_tensor,
     input_ids = as.integer(tok$input_ids),
     token_type_ids = as.integer(tok$token_type_ids),
     attention_mask = as.integer(tok$attention_mask),
@@ -3210,23 +4294,56 @@ image_remove_bg_dl <- function(img,
   boxes_px[, 3] <- pmin(as.double(orig_w), raw_boxes[, 3] * orig_w)
   boxes_px[, 4] <- pmin(as.double(orig_h), raw_boxes[, 4] * orig_h)
 
-  # Map token indices to labels (avoiding conjunctions or punctuation)
+  # Map token indices to full target class labels
   labels_str <- character(num_boxes)
-  stop_tokens <- c("[cls]", "[sep]", "and", ".", ",", ";")
+  stop_tokens <- c("[cls]", "[sep]")
   for (i in seq_len(num_boxes)) {
     t_idx <- dino_res$token_indices[i] + 1L
+    cls_cand <- if (t_idx >= 1 && t_idx <= length(tok$token_classes)) tok$token_classes[t_idx] else NA_character_
     w_cand <- if (t_idx >= 1 && t_idx <= length(tok$token_words)) tok$token_words[t_idx] else ""
-    if (tolower(w_cand) %in% stop_tokens || !nzchar(w_cand)) {
-      dists <- abs(seq_along(tok$token_words) - t_idx)
-      valid_mask <- !(tolower(tok$token_words) %in% stop_tokens)
+
+    if (is.na(cls_cand) || tolower(w_cand) %in% stop_tokens || !nzchar(cls_cand)) {
+      valid_mask <- !is.na(tok$token_classes) & nzchar(tok$token_classes) & !(tolower(tok$token_words) %in% stop_tokens)
       if (any(valid_mask)) {
+        dists <- abs(seq_along(tok$token_classes) - t_idx)
         dists[!valid_mask] <- Inf
-        w_cand <- tok$token_words[which.min(dists)]
+        cls_cand <- tok$token_classes[which.min(dists)]
       } else {
-        w_cand <- prompt
+        cls_cand <- if (!is.null(tok$target_classes) && length(tok$target_classes) > 0) tok$target_classes[1] else "object"
       }
     }
-    labels_str[i] <- w_cand
+    labels_str[i] <- cls_cand
+  }
+
+  # Filter nested container boxes if requested
+  if (isTRUE(filter_nested) && num_boxes > 1) {
+    b_areas <- (boxes_px[, 3] - boxes_px[, 1]) * (boxes_px[, 4] - boxes_px[, 2])
+    remove_b <- logical(num_boxes)
+    for (i in seq_len(num_boxes)) {
+      if (b_areas[i] <= 0) next
+      for (j in seq_len(num_boxes)) {
+        if (i == j) next
+        if (identical(labels_str[i], labels_str[j]) && b_areas[i] >= (b_areas[j] * 1.25)) {
+          ix1 <- max(boxes_px[i, 1], boxes_px[j, 1])
+          iy1 <- max(boxes_px[i, 2], boxes_px[j, 2])
+          ix2 <- min(boxes_px[i, 3], boxes_px[j, 3])
+          iy2 <- min(boxes_px[i, 4], boxes_px[j, 4])
+          iw <- max(0, ix2 - ix1)
+          ih <- max(0, iy2 - iy1)
+          if (b_areas[j] > 0 && ((iw * ih) / b_areas[j]) >= 0.80) {
+            remove_b[i] <- TRUE
+            break
+          }
+        }
+      }
+    }
+    if (any(remove_b)) {
+      keep_b <- which(!remove_b)
+      boxes_px <- boxes_px[keep_b, , drop = FALSE]
+      dino_res$scores <- dino_res$scores[keep_b]
+      labels_str <- labels_str[keep_b]
+      num_boxes <- length(keep_b)
+    }
   }
 
   boxes_df <- data.frame(
@@ -3275,10 +4392,42 @@ image_remove_bg_dl <- function(img,
     ))
   }
 
-  # 4. Run SAM 2.1 on all detected boxes
+  # 4. Run SAM 2.1 on all detected boxes.
+  # Device of SAM 2.1 when engine = "gpu", options(pliman.gsam_sam_device =):
+  #   "auto" (default): GPU, except on GPUs with < 6 GB of VRAM, where SAM runs on the CPU
+  #                     and Grounding DINO stays on the GPU;
+  #   "gpu" / "cpu":    force it.
+  # Both models stay cached. The former policy released the DINO session before building
+  # SAM on small GPUs; DINO was then rebuilt on every image while SAM held the VRAM, and
+  # DirectML paged memory. Six calls alternating two images, 4 GB GTX 1650:
+  #   release DINO, all GPU (old)   13.0, 49.7, 48.9, 50.1, 50.4, 53.3 s
+  #   keep both on the GPU          91.5, 45.8, 1.7, 3.5, 1.9, 3.4 s
+  #   DINO GPU + SAM CPU (auto)     16.8, 11.7, 2.6, 3.9, 2.4, 3.3 s
+  #   all CPU                       25.9, 22.5, 12.3, 14.2, 11.6, 13.1 s
+  sam_use_gpu <- use_gpu
+  if (use_gpu) {
+    sam_dev <- if (sam_device != "auto") {
+      sam_device
+    } else if (isTRUE(engine_specified)) {
+      "gpu"
+    } else {
+      tolower(as.character(getOption("pliman.gsam_sam_device", "auto"))[1])
+    }
+    if (identical(sam_dev, "cpu")) {
+      sam_use_gpu <- FALSE
+    } else if (!identical(sam_dev, "gpu")) {
+      gpu_info <- .gpu_info_cached()
+      if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
+        def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
+        if (isTRUE(gpu_info$vram_mb[def_id] < 6000)) sam_use_gpu <- FALSE
+      }
+    }
+  }
+  sam_engine_lbl <- if (sam_use_gpu) "GPU" else "CPU"
+
   if (isTRUE(verbose)) {
     cli::cli_progress_step(
-      msg = "Segmenting {num_boxes} instance{?s} with SAM 2.1 [{toupper(engine)}]...",
+      msg = "Segmenting {num_boxes} instance{?s} with SAM 2.1 [{sam_engine_lbl}]...",
       msg_done = "SAM 2.1 segmented {num_boxes} instance{?s}"
     )
   }
@@ -3289,7 +4438,7 @@ image_remove_bg_dl <- function(img,
                                 letterbox = FALSE)
 
   raw_masks <- run_sam2_instances_cpp(
-    tensor_vec = as.numeric(sam_tensor),
+    tensor_vec = sam_tensor,
     boxes = boxes_px,
     orig_w = as.double(orig_w),
     orig_h = as.double(orig_h),
@@ -3297,7 +4446,7 @@ image_remove_bg_dl <- function(img,
     decoder_path = normalizePath(sam_dec, winslash = "/", mustWork = FALSE),
     lib_path = normalizePath(lib_file, winslash = "/", mustWork = FALSE),
     num_threads = as.integer(threads),
-    use_gpu = use_gpu,
+    use_gpu = sam_use_gpu,
     device_id = as.integer(device_id)
   )
 
@@ -3311,52 +4460,18 @@ image_remove_bg_dl <- function(img,
 
   combined_labels <- matrix(0L, nrow = orig_w, ncol = orig_h)
 
+  # Each instance is processed inside a window around its box instead of on the full
+  # image (see .instance_window_mask(), R/utils_dl_fastpath.R): O(sum of window areas)
+  # instead of O(n_instances x W x H).
   for (k in seq_len(num_boxes)) {
-    prob_crop <- raw_masks[[k]]
-    # Resize continuous float logits to full resolution for silky-smooth sub-pixel boundaries
-    mask_prob <- .bilinear_resize_2d(prob_crop, orig_w, orig_h)
-    m <- mask_prob >= threshold
-
-    bx <- boxes_px[k, ]
-    x1 <- max(1L, floor(bx[1]) - 2L)
-    x2 <- min(orig_w, ceiling(bx[3]) + 2L)
-    y1 <- max(1L, floor(bx[2]) - 2L)
-    y2 <- min(orig_h, ceiling(bx[4]) + 2L)
-
-    if (isTRUE(fill_hull)) {
-      sub_m <- m[x1:x2, y1:y2]
-      m[x1:x2, y1:y2] <- (fill_holes_cpp(sub_m) > 0)
-    }
-    if (filter > 0) {
-      m_arr <- as.array(m)
-      if (length(dim(m_arr)) == 2) dim(m_arr) <- c(orig_w, orig_h, 1L)
-      f_res <- median_filter_binary_cpp(m_arr, orig_w, orig_h, 1L, as.integer(filter))
-      m <- (f_res[, , 1] > 0)
-    }
-    if (erode > 0) {
-      m <- (erode_cpp(m, raio = as.integer(erode)) > 0)
-    }
-    if (dilate > 0) {
-      m <- (dilate_cpp(m, raio = as.integer(dilate)) > 0)
-    }
-    if (opening > 0) {
-      m <- (erode_cpp(m, raio = as.integer(opening)) > 0)
-      m <- (dilate_cpp(m, raio = as.integer(opening)) > 0)
-    }
-    if (closing > 0) {
-      m <- (dilate_cpp(m, raio = as.integer(closing)) > 0)
-      m <- (erode_cpp(m, raio = as.integer(closing)) > 0)
-    }
-    if (min_area > 0) {
-      lbls <- bwlabel_cpp(m)
-      if (max(lbls) > 0) {
-        tbl <- table(lbls[lbls > 0])
-        keep_ids <- as.integer(names(tbl[tbl >= min_area]))
-        m <- matrix(lbls %in% keep_ids, nrow = orig_w, ncol = orig_h)
-      }
-    }
-
-    combined_labels[m] <- as.integer(k)
+    win <- .instance_window_mask(raw_masks[[k]], boxes_px[k, ], orig_w, orig_h, threshold,
+                                 fill_hull = fill_hull, filter = filter, erode = erode,
+                                 dilate = dilate, opening = opening, closing = closing,
+                                 min_area = min_area)
+    if (is.null(win)) next
+    sub_lbl <- combined_labels[win$x, win$y]
+    sub_lbl[win$m] <- as.integer(k)
+    combined_labels[win$x, win$y] <- sub_lbl
   }
 
   labels_img <- as_image(combined_labels, colormode = "Grayscale", storage = "integer")
@@ -3379,6 +4494,292 @@ image_remove_bg_dl <- function(img,
   ))
 }
 
+# Segment multiple bounding boxes using Meta SAM 2.1
+.sam_segment_boxes <- function(img,
+                               boxes,
+                               threshold = 0.5,
+                               fill_hull = TRUE,
+                               filter = 0,
+                               erode = 0,
+                               dilate = 0,
+                               opening = 0,
+                               closing = 0,
+                               min_area = 15,
+                               n_points = 40L,
+                               batch_size = 64L,
+                               box_margin = 0.05,
+                               engine = c("cpu", "gpu"),
+                               device_id = -1,
+                               dir = pliman_model_dir(),
+                               verbose = FALSE) {
+  if (is.null(boxes) || nrow(boxes) == 0L) {
+    return(list(contours = list(), masks = list()))
+  }
+  engine <- match.arg(engine)
+  use_gpu <- (engine == "gpu")
+  mat <- if (inherits(img, c("Image", "image"))) {
+    image_data(img)
+  } else if (is.character(img) && file.exists(img[1])) {
+    image_data(image_import(img[1]))
+  } else {
+    img
+  }
+  dims <- dim(mat)
+  orig_w <- dims[1]
+  orig_h <- dims[2]
+
+  dir <- pliman_model_dir(dir)
+  pliman_download_model("sam2.1", dir = dir)
+  sam_enc <- .resolve_sam_encoder(dir, use_gpu)
+  sam_dec <- file.path(dir, "sam2.1.decoder.onnx")
+  lib_file <- pliman_onnx_lib_path(engine = engine)
+  if (is.null(lib_file) || !file.exists(lib_file)) {
+    lib_file <- onnx_install(engine = engine)
+  }
+
+  num_boxes <- nrow(boxes)
+  boxes_px <- matrix(0.0, nrow = num_boxes, ncol = 4)
+
+  boxes_df <- as.data.frame(boxes)
+  col_names <- tolower(names(boxes_df))
+  x1_col <- which(col_names %in% c("xmin", "x1", "left"))[1]
+  y1_col <- which(col_names %in% c("ymin", "y1", "top"))[1]
+  x2_col <- which(col_names %in% c("xmax", "x2", "right"))[1]
+  y2_col <- which(col_names %in% c("ymax", "y2", "bottom"))[1]
+  if (is.na(x1_col)) x1_col <- 1L
+  if (is.na(y1_col)) y1_col <- 2L
+  if (is.na(x2_col)) x2_col <- 3L
+  if (is.na(y2_col)) y2_col <- 4L
+
+  boxes_px[, 1] <- pmax(1.0, pmin(as.double(orig_w), as.double(boxes_df[[x1_col]])))
+  boxes_px[, 2] <- pmax(1.0, pmin(as.double(orig_h), as.double(boxes_df[[y1_col]])))
+  boxes_px[, 3] <- pmax(1.0, pmin(as.double(orig_w), as.double(boxes_df[[x2_col]])))
+  boxes_px[, 4] <- pmax(1.0, pmin(as.double(orig_h), as.double(boxes_df[[y2_col]])))
+
+  # Swap if coordinates inverted
+  for (i in seq_len(num_boxes)) {
+    if (boxes_px[i, 1] > boxes_px[i, 3]) {
+      tmp <- boxes_px[i, 1]; boxes_px[i, 1] <- boxes_px[i, 3]; boxes_px[i, 3] <- tmp
+    }
+    if (boxes_px[i, 2] > boxes_px[i, 4]) {
+      tmp <- boxes_px[i, 2]; boxes_px[i, 2] <- boxes_px[i, 4]; boxes_px[i, 4] <- tmp
+    }
+  }
+
+  # Apply safety margin (box_margin, e.g. 0.05 = 5% padding around each side)
+  # This prevents masks from being cut off along the bounding box edges
+  bm_x <- 0.05
+  bm_y <- 0.05
+  if (!is.null(box_margin) && is.numeric(box_margin) && length(box_margin) >= 1L && !is.na(box_margin[1])) {
+    bm_x <- as.numeric(box_margin[1])
+    bm_y <- if (length(box_margin) >= 2L && !is.na(box_margin[2])) as.numeric(box_margin[2]) else bm_x
+    if (bm_x > 1.0) bm_x <- bm_x / 100.0
+    if (bm_y > 1.0) bm_y <- bm_y / 100.0
+    if (bm_x < 0.0) bm_x <- 0.0
+    if (bm_y < 0.0) bm_y <- 0.0
+  }
+
+  if (bm_x > 0.0 || bm_y > 0.0) {
+    for (i in seq_len(num_boxes)) {
+      bw_b <- boxes_px[i, 3] - boxes_px[i, 1]
+      bh_b <- boxes_px[i, 4] - boxes_px[i, 2]
+      dx <- bw_b * bm_x
+      dy <- bh_b * bm_y
+      boxes_px[i, 1] <- pmax(1.0, boxes_px[i, 1] - dx)
+      boxes_px[i, 2] <- pmax(1.0, boxes_px[i, 2] - dy)
+      boxes_px[i, 3] <- pmin(as.double(orig_w), boxes_px[i, 3] + dx)
+      boxes_px[i, 4] <- pmin(as.double(orig_h), boxes_px[i, 4] + dy)
+    }
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_progress_step(
+      msg = "Segmenting {num_boxes} bounding box{?es} with Meta SAM 2.1 [{toupper(engine)}]...",
+      msg_done = "SAM 2.1 segmented {num_boxes} bounding box{?es}"
+    )
+  }
+
+  sam_tensor <- .preprocess_nchw(mat, target_size = 1024L,
+                                mean = c(0.485, 0.456, 0.406),
+                                std = c(0.229, 0.224, 0.225),
+                                letterbox = FALSE)
+
+  bs <- if (is.null(batch_size) || is.na(batch_size) || batch_size <= 0) 64L else as.integer(batch_size)
+
+  raw_masks <- run_sam2_instances_cpp(
+    tensor_vec = sam_tensor,
+    boxes = boxes_px,
+    orig_w = as.double(orig_w),
+    orig_h = as.double(orig_h),
+    encoder_path = normalizePath(sam_enc, winslash = "/", mustWork = FALSE),
+    decoder_path = normalizePath(sam_dec, winslash = "/", mustWork = FALSE),
+    lib_path = normalizePath(lib_file, winslash = "/", mustWork = FALSE),
+    num_threads = 0L,
+    use_gpu = use_gpu,
+    device_id = as.integer(device_id),
+    batch_size = bs
+  )
+
+  conts_list <- vector("list", num_boxes)
+  masks_list <- vector("list", num_boxes)
+
+  for (k in seq_len(num_boxes)) {
+    prob_map <- raw_masks[[k]]
+    bx <- boxes_px[k, ]
+    pad_mult_x <- max(0.02, bm_x)
+    pad_mult_y <- max(0.02, bm_y)
+    pad_w <- max(2.0, (bx[3] - bx[1]) * pad_mult_x)
+    pad_h <- max(2.0, (bx[4] - bx[2]) * pad_mult_y)
+    x1 <- max(1L, floor(bx[1] - pad_w))
+    x2 <- min(orig_w, ceiling(bx[3] + pad_w))
+    y1 <- max(1L, floor(bx[2] - pad_h))
+    y2 <- min(orig_h, ceiling(bx[4] + pad_h))
+
+    c1 <- max(1L, min(256L, floor(x1 / orig_w * 256.0)))
+    c2 <- max(1L, min(256L, ceiling(x2 / orig_w * 256.0)))
+    r1 <- max(1L, min(256L, floor(y1 / orig_h * 256.0)))
+    r2 <- min(256L, ceiling(y2 / orig_h * 256.0))
+
+    crop_prob <- prob_map[c1:c2, r1:r2, drop = FALSE]
+    bw_orig <- as.integer(x2 - x1 + 1L)
+    bh_orig <- as.integer(y2 - y1 + 1L)
+    bw <- min(256L, max(32L, bw_orig))
+    bh <- min(256L, max(32L, bh_orig))
+
+    crop_resized <- image_resize_cpp(crop_prob, bw, bh, filter = 1L)
+    m_crop <- crop_resized >= threshold
+
+    if (isTRUE(fill_hull)) {
+      m_crop <- (fill_holes_cpp(m_crop) > 0)
+    }
+    if (filter > 0) {
+      m_arr <- as.array(m_crop)
+      dim(m_arr) <- c(bw, bh, 1L)
+      f_res <- median_filter_binary_cpp(m_arr, bw, bh, 1L, as.integer(filter))
+      m_crop <- (f_res[, , 1] > 0)
+    }
+    if (erode > 0) m_crop <- (erode_cpp(m_crop, raio = as.integer(erode)) > 0)
+    if (dilate > 0) m_crop <- (dilate_cpp(m_crop, raio = as.integer(dilate)) > 0)
+    if (opening > 0) {
+      m_crop <- (erode_cpp(m_crop, raio = as.integer(opening)) > 0)
+      m_crop <- (dilate_cpp(m_crop, raio = as.integer(opening)) > 0)
+    }
+    if (closing > 0) {
+      m_crop <- (dilate_cpp(m_crop, raio = as.integer(closing)) > 0)
+      m_crop <- (erode_cpp(m_crop, raio = as.integer(closing)) > 0)
+    }
+
+    # Extract polygon contour from local crop using fast C++ tracer
+    cnt_found <- NULL
+    lbl_crop <- bwlabel_cpp(m_crop)
+    if (max(lbl_crop) > 0) {
+      if (max(lbl_crop) > 1) {
+        tb <- tabulate(lbl_crop)
+        best_id <- which.max(tb)
+        lbl_crop <- matrix(ifelse(lbl_crop == best_id, 1L, 0L), nrow = bw, ncol = bh)
+      }
+      cnts <- extract_contours_cpp(lbl_crop)
+      if (length(cnts) > 0 && !is.null(cnts[[1]]) && nrow(cnts[[1]]) >= 3L) {
+        cnt <- cnts[[1]]
+        # Rescale local crop coords back to original image coordinates
+        if (bw > 1 && bh > 1) {
+          cnt[, 1] <- (cnt[, 1] - 1) / (bw - 1) * (bw_orig - 1) + x1
+          cnt[, 2] <- (cnt[, 2] - 1) / (bh - 1) * (bh_orig - 1) + y1
+        } else {
+          cnt[, 1] <- cnt[, 1] + x1 - 1
+          cnt[, 2] <- cnt[, 2] + y1 - 1
+        }
+        if (!is.null(n_points) && !is.na(n_points) && n_points > 0L) {
+          n_cur <- nrow(cnt)
+          target_n <- min(as.integer(n_points), n_cur)
+          if (n_cur > target_n && target_n >= 3L) {
+            sampled_idx <- round(seq(1, n_cur, length.out = target_n + 1L)[-(target_n + 1L)])
+            cnt <- cnt[sampled_idx, , drop = FALSE]
+          }
+        }
+        cnt_found <- cnt
+      }
+    }
+
+    # Fallback to box corners if SAM produced no mask above threshold
+    if (is.null(cnt_found) || nrow(cnt_found) < 3L) {
+      cnt_found <- matrix(
+        c(bx[1], bx[2],
+          bx[3], bx[2],
+          bx[3], bx[4],
+          bx[1], bx[4]),
+        ncol = 2, byrow = TRUE
+      )
+    }
+
+    conts_list[[k]] <- cnt_found
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_progress_done()
+  }
+
+  list(
+    contours = conts_list,
+    masks = list()
+  )
+}
+
+# Compact/prune visual prototypes using Farthest-Point Sampling (FPS) by cosine similarity
+.compact_prototypes <- function(proto, max_protos = 8L) {
+  if (is.null(proto) || is.null(proto$semantic)) {
+    return(proto)
+  }
+  sem_list <- proto$semantic
+  n <- length(sem_list)
+  if (n <= max_protos) {
+    return(proto)
+  }
+
+  # Every per-prototype component must be subset with the same indices, otherwise the
+  # semantic vectors, the high-resolution vectors and the dense ZNCC kernels describe
+  # different exemplars.
+  .subset_proto <- function(p, idx) {
+    if (!is.null(p$hr0) && length(p$hr0) >= max(idx)) p$hr0 <- p$hr0[idx]
+    if (!is.null(p$dense) && length(p$dense) >= max(idx)) p$dense <- p$dense[idx]
+    p
+  }
+
+  tryCatch({
+    mat <- do.call(cbind, sem_list)
+    if (!is.matrix(mat) || nrow(mat) != 256L) {
+      keep <- seq_len(min(n, max_protos))
+      proto$semantic <- sem_list[keep]
+      return(.subset_proto(proto, keep))
+    }
+
+    # Cosine similarity matrix between prototypes
+    norms <- sqrt(colSums(mat^2))
+    norms[norms == 0] <- 1
+    mat_norm <- sweep(mat, 2, norms, "/")
+    sim_mat <- crossprod(mat_norm)
+    dist_mat <- 1 - sim_mat
+
+    # Farthest point sampling
+    selected <- integer(max_protos)
+    selected[1] <- 1L
+    min_dists <- dist_mat[1, ]
+
+    for (i in 2:max_protos) {
+      next_idx <- which.max(min_dists)
+      selected[i] <- next_idx
+      min_dists <- pmin(min_dists, dist_mat[next_idx, ])
+    }
+
+    proto$semantic <- sem_list[selected]
+    return(.subset_proto(proto, selected))
+  }, error = function(e) {
+    keep <- seq_len(min(n, max_protos))
+    proto$semantic <- sem_list[keep]
+    return(.subset_proto(proto, keep))
+  })
+}
+
 # PerSAM (Personalize Segment Anything) runner: segments all instances similar to visual exemplar(s)
 .run_persam <- function(mat,
                         exemplar_points = NULL,
@@ -3392,6 +4793,7 @@ image_remove_bg_dl <- function(img,
                         superres_map = FALSE,
                         threads = 0,
                         engine = c("gpu", "cpu"),
+                        sam_device = c("auto", "gpu", "cpu"),
                         device_id = -1,
                         fill_hull = TRUE,
                         filter = 0,
@@ -3428,14 +4830,34 @@ image_remove_bg_dl <- function(img,
   } else {
     feat_res <- 1024L
   }
-  if (engine == "gpu" && .Platform$OS.type == "windows") {
+  # Device policy for the SAM 2.1 backbone:
+  # "auto" (default) follows engine (uses GPU on DirectML when engine = "gpu").
+  # If DirectML fails, tryCatch safely retries on CPU.
+  sam_device <- match.arg(sam_device)
+  want_gpu <- switch(sam_device,
+                     "cpu"  = FALSE,
+                     "gpu"  = TRUE,
+                     "auto" = (engine == "gpu"))
+
+  if (isTRUE(want_gpu) && .Platform$OS.type != "windows") {
     if (isTRUE(verbose)) {
-      cli::cli_alert_info("SAM 2.1 Vision Transformer uses CPU execution (DirectML GPU has known driver limitations with ViT attention layers).")
+      cli::cli_alert_info("GPU execution for SAM 2.1 requires DirectML (Windows); using CPU.")
+    }
+    want_gpu <- FALSE
+  }
+
+  if (isTRUE(want_gpu)) {
+    use_gpu <- TRUE
+    engine <- "gpu"
+    if (isTRUE(verbose)) {
+      cli::cli_alert_info("SAM 2.1 running on GPU (DirectML).")
+    }
+  } else {
+    if (engine == "gpu" && isTRUE(verbose)) {
+      cli::cli_alert_info("SAM 2.1 using CPU execution; pass {.code sam_device = \"gpu\"} to run on DirectML.")
     }
     use_gpu <- FALSE
     engine <- "cpu"
-  } else {
-    use_gpu <- (engine == "gpu")
   }
   c_max_objects <- if (is.null(max_objects) || is.infinite(max_objects) || max_objects <= 0) -1L else as.integer(max_objects)
   dir <- pliman_model_dir(dir)
@@ -3447,18 +4869,39 @@ image_remove_bg_dl <- function(img,
 
   # Ensure SAM 2.1 model is downloaded
   pliman_download_model("sam2.1", dir = dir)
-  sam_enc <- file.path(dir, "sam2.1.encoder.onnx")
+  sam_enc <- .resolve_sam_encoder(dir, use_gpu)
   sam_dec <- file.path(dir, "sam2.1.decoder.onnx")
 
   dims <- dim(mat)
   orig_w <- dims[1]
   orig_h <- dims[2]
 
-  # Interactive picking of exemplar points if not supplied and no precomputed prototypes
-  if (!is.null(precomputed_prototypes)) {
+  # Parse exemplar points or precomputed prototypes
+  if (!is.null(exemplar_points)) {
+    if (is.matrix(exemplar_points) || is.data.frame(exemplar_points)) {
+      ex_x <- as.numeric(exemplar_points[, 1])
+      ex_y <- as.numeric(exemplar_points[, 2])
+      if (length(ex_x) == 0) {
+        cli::cli_abort("No exemplar point provided.")
+      }
+    } else if (is.numeric(exemplar_points)) {
+      if (length(exemplar_points) == 2) {
+        ex_x <- exemplar_points[1]
+        ex_y <- exemplar_points[2]
+      } else if (length(exemplar_points) > 0 && length(exemplar_points) %% 2 == 0) {
+        half <- length(exemplar_points) / 2
+        ex_x <- exemplar_points[seq_len(half)]
+        ex_y <- exemplar_points[(half + 1L):length(exemplar_points)]
+      } else {
+        cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
+      }
+    } else {
+      cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
+    }
+  } else if (!is.null(precomputed_prototypes)) {
     ex_x <- numeric(0)
     ex_y <- numeric(0)
-  } else if (is.null(exemplar_points)) {
+  } else {
     cli::cli_alert_info("Click on 1 or more exemplar object(s) in the plot window. Press <Esc> or right-click when finished.")
     plot(as_image(mat))
     pts <- tryCatch(graphics::locator(n = 512, type = "p", col = "cyan", pch = 19), error = function(e) NULL)
@@ -3468,25 +4911,6 @@ image_remove_bg_dl <- function(img,
     } else {
       cli::cli_abort("No point selected.")
     }
-  } else if (is.matrix(exemplar_points) || is.data.frame(exemplar_points)) {
-    ex_x <- as.numeric(exemplar_points[, 1])
-    ex_y <- as.numeric(exemplar_points[, 2])
-    if (length(ex_x) == 0) {
-      cli::cli_abort("No exemplar point provided.")
-    }
-  } else if (is.numeric(exemplar_points)) {
-    if (length(exemplar_points) == 2) {
-      ex_x <- exemplar_points[1]
-      ex_y <- exemplar_points[2]
-    } else if (length(exemplar_points) > 0 && length(exemplar_points) %% 2 == 0) {
-      half <- length(exemplar_points) / 2
-      ex_x <- exemplar_points[seq_len(half)]
-      ex_y <- exemplar_points[(half + 1L):length(exemplar_points)]
-    } else {
-      cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
-    }
-  } else {
-    cli::cli_abort("Invalid {.arg exemplar_points}. Expected numeric coordinates or a matrix/data.frame.")
   }
 
   # 1. Preprocess for SAM 2.1 (1024x1024, ImageNet norm)
@@ -3512,7 +4936,7 @@ image_remove_bg_dl <- function(img,
 
   persam_res <- tryCatch({
     run_sam2_persam_cpp(
-      tensor_vec = as.numeric(sam_tensor),
+      tensor_vec = sam_tensor,
       exemplar_x = as.numeric(ex_x),
       exemplar_y = as.numeric(ex_y),
       orig_w = as.double(orig_w),
@@ -3536,7 +4960,7 @@ image_remove_bg_dl <- function(img,
         cli::cli_alert_warning("GPU execution failed ({e$message}). Retrying on CPU...")
       }
       run_sam2_persam_cpp(
-        tensor_vec = as.numeric(sam_tensor),
+        tensor_vec = sam_tensor,
         exemplar_x = as.numeric(ex_x),
         exemplar_y = as.numeric(ex_y),
         orig_w = as.double(orig_w),
@@ -3655,6 +5079,7 @@ image_remove_bg_dl <- function(img,
       labels = NULL,
       mask = matrix(FALSE, nrow = orig_w, ncol = orig_h),
       similarity_map = sim_img,
+      prototypes = persam_res$prototypes,
       features = data.frame()
     ))
   }
@@ -3713,51 +5138,16 @@ image_remove_bg_dl <- function(img,
     }
   } else {
     combined_labels <- matrix(0L, nrow = orig_w, ncol = orig_h)
+    # Window-local mask post-processing (see .instance_window_mask()).
     for (k in seq_len(num_inst)) {
-      prob_crop <- persam_res$masks[[k]]
-      mask_prob <- .bilinear_resize_2d(prob_crop, orig_w, orig_h)
-      m <- mask_prob >= threshold
-
-      bx <- raw_boxes[k, ]
-      x1 <- max(1L, floor(bx[1]) - 2L)
-      x2 <- min(orig_w, ceiling(bx[3]) + 2L)
-      y1 <- max(1L, floor(bx[2]) - 2L)
-      y2 <- min(orig_h, ceiling(bx[4]) + 2L)
-
-      if (isTRUE(fill_hull)) {
-        sub_m <- m[x1:x2, y1:y2]
-        m[x1:x2, y1:y2] <- (fill_holes_cpp(sub_m) > 0)
-      }
-      if (filter > 0) {
-        m_arr <- as.array(m)
-        if (length(dim(m_arr)) == 2) dim(m_arr) <- c(orig_w, orig_h, 1L)
-        f_res <- median_filter_binary_cpp(m_arr, orig_w, orig_h, 1L, as.integer(filter))
-        m <- (f_res[, , 1] > 0)
-      }
-      if (erode > 0) {
-        m <- (erode_cpp(m, raio = as.integer(erode)) > 0)
-      }
-      if (dilate > 0) {
-        m <- (dilate_cpp(m, raio = as.integer(dilate)) > 0)
-      }
-      if (opening > 0) {
-        m <- (erode_cpp(m, raio = as.integer(opening)) > 0)
-        m <- (dilate_cpp(m, raio = as.integer(opening)) > 0)
-      }
-      if (closing > 0) {
-        m <- (dilate_cpp(m, raio = as.integer(closing)) > 0)
-        m <- (erode_cpp(m, raio = as.integer(closing)) > 0)
-      }
-      if (min_area > 0) {
-        lbls <- bwlabel_cpp(m)
-        if (max(lbls) > 0) {
-          tbl <- table(lbls[lbls > 0])
-          keep_ids <- as.integer(names(tbl[tbl >= min_area]))
-          m <- matrix(lbls %in% keep_ids, nrow = orig_w, ncol = orig_h)
-        }
-      }
-
-      combined_labels[m] <- as.integer(k)
+      win <- .instance_window_mask(persam_res$masks[[k]], raw_boxes[k, ], orig_w, orig_h, threshold,
+                                   fill_hull = fill_hull, filter = filter, erode = erode,
+                                   dilate = dilate, opening = opening, closing = closing,
+                                   min_area = min_area)
+      if (is.null(win)) next
+      sub_lbl <- combined_labels[win$x, win$y]
+      sub_lbl[win$m] <- as.integer(k)
+      combined_labels[win$x, win$y] <- sub_lbl
     }
   }
 
@@ -3845,7 +5235,180 @@ image_remove_bg_dl <- function(img,
   attr(vec, "gain") <- gain
   attr(vec, "pad_x") <- pad_x
   attr(vec, "pad_y") <- pad_y
+  attr(vec, "orig_w") <- orig_w
+  attr(vec, "orig_h") <- orig_h
+  attr(vec, "target_size") <- as.integer(target_size)
   vec
+}
+
+# Internal helper to run YOLO semantic segmentation (-sem models)
+.run_yolo_sem <- function(mat,
+                          model_file,
+                          target_size = 1024L,
+                          orig_w,
+                          orig_h,
+                          labels = NULL,
+                          threads = 0,
+                          use_gpu = TRUE,
+                          device_id = -1,
+                          lib_path = "",
+                          filter = 0,
+                          erode = 0,
+                          dilate = 0,
+                          opening = 0,
+                          closing = 0,
+                          min_area = 0) {
+  target_size <- as.integer(target_size)
+  tensor_in <- if (is.double(mat) && !is.null(attr(mat, "gain"))) {
+    mat
+  } else {
+    tryCatch(
+      preprocess_yolo_cpp(mat, target_size = target_size),
+      error = function(e) .preprocess_yolo(mat, target_size = target_size)
+    )
+  }
+
+  sem_mat <- run_yolo_sem_cpp(
+    tensor_vec  = tensor_in,
+    in_w        = target_size,
+    in_h        = target_size,
+    orig_w      = as.integer(orig_w),
+    orig_h      = as.integer(orig_h),
+    model_path  = model_file,
+    lib_path    = lib_path,
+    num_threads = as.integer(threads),
+    use_gpu     = isTRUE(use_gpu),
+    device_id   = as.integer(device_id)
+  )
+
+  embedded_classes <- .get_onnx_classes(model_file)
+  class_names <- if (!is.null(labels)) {
+    labels
+  } else if (!is.null(embedded_classes)) {
+    embedded_classes
+  } else {
+    .cityscapes_classes
+  }
+
+  u_cids <- sort(unique(as.vector(sem_mat)))
+  u_cids <- u_cids[!is.na(u_cids) & u_cids >= 0L]
+
+  lbl_mat <- matrix(0L, nrow = orig_w, ncol = orig_h)
+  box_rows <- list()
+  next_id <- 0L
+  eff_min_area <- if (min_area > 0) {
+    as.integer(min_area)
+  } else {
+    max(25L, as.integer(round(orig_w * orig_h * 0.0005)))
+  }
+
+  for (cid in u_cids) {
+    m_cls <- (sem_mat == cid)
+    if (!any(m_cls)) next
+
+    if (filter > 1 || erode > 0 || dilate > 0 || opening > 0 || closing > 0) {
+      m_img <- as_image(m_cls, colormode = "Grayscale")
+      if (filter > 1) m_img <- image_filter(m_img, size = filter, plot = FALSE)
+      if (erode > 0) m_img <- image_erode(m_img, size = erode, plot = FALSE)
+      if (dilate > 0) m_img <- image_dilate(m_img, size = dilate, plot = FALSE)
+      if (opening > 0) m_img <- image_opening(m_img, size = opening, plot = FALSE)
+      if (closing > 0) m_img <- image_closing(m_img, size = closing, plot = FALSE)
+      m_cls <- m_img@.Data > 0
+      if (!any(m_cls)) next
+    }
+
+    cc <- bwlabel_cpp(m_cls)
+    max_cc <- max(cc)
+    if (max_cc <= 0L) next
+
+    tab_cc <- tabulate(cc, nbins = max_cc)
+    keep_cc <- which(tab_cc >= eff_min_area)
+    if (length(keep_cc) == 0L && min_area <= 0) {
+      best_cc <- which.max(tab_cc)
+      if (tab_cc[best_cc] >= 9L) keep_cc <- best_cc
+    }
+    if (length(keep_cc) == 0L) next
+
+    lbl_str <- if ((cid + 1L) <= length(class_names)) {
+      class_names[cid + 1L]
+    } else {
+      paste0("class_", cid)
+    }
+
+    for (comp_id in keep_cc) {
+      idx <- which(cc == comp_id, arr.ind = TRUE)
+      if (nrow(idx) == 0L) next
+      next_id <- next_id + 1L
+      lbl_mat[cc == comp_id] <- next_id
+      box_rows[[next_id]] <- data.frame(
+        id = next_id,
+        xmin = as.numeric(min(idx[, 1])),
+        ymin = as.numeric(min(idx[, 2])),
+        xmax = as.numeric(max(idx[, 1])),
+        ymax = as.numeric(max(idx[, 2])),
+        label = lbl_str,
+        score = 1.0,
+        class_id = as.integer(cid),
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+
+  if (next_id == 0L) {
+    df_boxes <- data.frame(
+      id = integer(0), xmin = numeric(0), ymin = numeric(0),
+      xmax = numeric(0), ymax = numeric(0), label = character(0),
+      score = numeric(0), class_id = integer(0), stringsAsFactors = FALSE
+    )
+    counts_df <- data.frame(class = character(0), count = integer(0), stringsAsFactors = FALSE)
+    return(list(
+      boxes = df_boxes,
+      counts = counts_df,
+      summary = "0 objects",
+      contours = list(),
+      labels = as_image(lbl_mat, colormode = "Grayscale", storage = "integer"),
+      mask = NULL,
+      features = data.frame(),
+      keypoints = list(),
+      raw_keypoints = NULL,
+      semantic_map = sem_mat,
+      is_semantic = TRUE
+    ))
+  }
+
+  df_boxes <- do.call(rbind, box_rows)
+  rownames(df_boxes) <- NULL
+  counts <- table(factor(df_boxes$label, levels = unique(df_boxes$label)))
+  counts_df <- data.frame(
+    class = names(counts),
+    count = as.integer(counts),
+    stringsAsFactors = FALSE
+  )
+  summary_str <- .format_detection_summary(df_boxes$label)
+  labels_img <- as_image(lbl_mat, colormode = "Grayscale", storage = "integer")
+  contornos <- extract_contours_cpp(lbl_mat)
+  feats <- if (length(contornos) > 0L) {
+    tryCatch(poly_measures(contornos), error = function(e) data.frame())
+  } else {
+    data.frame()
+  }
+  if (is.list(contornos)) {
+    contornos <- contornos[!vapply(contornos, is.null, logical(1))]
+  }
+
+  list(
+    boxes = df_boxes,
+    counts = counts_df,
+    summary = summary_str,
+    contours = contornos,
+    labels = labels_img,
+    mask = NULL,
+    features = feats,
+    keypoints = list(),
+    raw_keypoints = NULL,
+    semantic_map = sem_mat,
+    is_semantic = TRUE
+  )
 }
 
 # Internal helper to run YOLO detection, segmentation, or pose estimation
@@ -3867,41 +5430,105 @@ image_remove_bg_dl <- function(img,
                       need_masks = TRUE,
                       return_features = FALSE,
                       txt_feats = NULL,
-                      dir = pliman_model_dir()) {
+                      dir = pliman_model_dir(),
+                      imgsz = NULL,
+                      max_det = 0) {
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
+  lib_path <- pliman_onnx_library_path(engine = engine)
 
   if (file.exists(model)) {
     model_file <- normalizePath(model, winslash = "/")
-  } else if (file.exists(file.path(dir, model))) {
-    model_file <- normalizePath(file.path(dir, model), winslash = "/")
-  } else if (file.exists(file.path(dir, paste0(model, ".onnx")))) {
-    model_file <- normalizePath(file.path(dir, paste0(model, ".onnx")), winslash = "/")
-  } else if (file.exists(file.path("D:/Desktop/models", model))) {
-    model_file <- normalizePath(file.path("D:/Desktop/models", model), winslash = "/")
-  } else if (file.exists(file.path("D:/Desktop/models", paste0(model, ".onnx")))) {
-    model_file <- normalizePath(file.path("D:/Desktop/models", paste0(model, ".onnx")), winslash = "/")
   } else {
-    model_file <- pliman_download_model(model = model, dir = dir)
+    local_hit <- .find_local_model(model, dir = dir)
+    if (!is.null(local_hit)) {
+      model_file <- local_hit
+    } else {
+      model_file <- pliman_download_model(model = model, dir = dir)
+    }
   }
 
   # Detect model type from name
   model_lower <- tolower(model)
   is_obb_model  <- grepl("obb", model_lower)
   is_nas_model  <- grepl("nas", model_lower)
+  is_sem_model  <- grepl("[-_]sem(\\.|$)|semantic", tolower(basename(model_file))) ||
+                   grepl("[-_]sem(\\.|$)|semantic", model_lower)
 
-  tensor <- tryCatch(
-    preprocess_yolo_cpp(mat, target_size = 640L),
-    error = function(e) .preprocess_yolo(mat, target_size = 640L)
+  # Resolve input resolution (imgsz)
+  model_shape_info <- tryCatch(
+    get_onnx_model_io_shape_cpp(model_file, lib_path, as.integer(threads), use_gpu, as.integer(device_id)),
+    error = function(e) list(dynamic = TRUE, expected_w = 640L, expected_h = 640L)
   )
-  orig_w <- attr(tensor, "orig_w")
-  if (is.null(orig_w)) orig_w <- dim(mat)[1]
-  orig_h <- attr(tensor, "orig_h")
-  if (is.null(orig_h)) orig_h <- dim(mat)[2]
+  target_size <- if (!is.null(imgsz)) {
+    as.integer(imgsz[1])
+  } else {
+    model_imgsz <- .get_onnx_imgsz(model_file)
+    if (!is.null(model_imgsz) && length(model_imgsz) > 0L) as.integer(model_imgsz[1]) else model_shape_info$expected_w
+  }
+  if (is.na(target_size) || target_size <= 0L) target_size <- 640L
+
+  if (!isTRUE(model_shape_info$dynamic) && target_size != model_shape_info$expected_w) {
+    cand_pt <- file.path(dirname(model_file), "best.pt")
+    if (!file.exists(cand_pt)) cand_pt <- sub("\\.onnx$", ".pt", model_file)
+    reexported <- FALSE
+    if (file.exists(cand_pt)) {
+      cli::cli_alert_info("Model {.file {basename(model_file)}} has fixed static input shape ({model_shape_info$expected_w}x{model_shape_info$expected_h}). Auto-upgrading to dynamic ONNX via {.file {basename(cand_pt)}}...")
+      tryCatch({
+        new_ox <- yolo_export(cand_pt, output_dir = dirname(model_file), output_name = basename(model_file), dynamic = TRUE, auto_install = FALSE)
+        if (file.exists(new_ox)) {
+          model_file <- new_ox
+          reexported <- TRUE
+          cli::cli_alert_success("Model upgraded to dynamic ONNX: now supports any imgsz (e.g., {target_size})!")
+        }
+      }, error = function(e) NULL)
+    }
+    if (!reexported) {
+      cli::cli_alert_warning(c(
+        "!" = "Model {.file {basename(model_file)}} has fixed static input resolution of {model_shape_info$expected_w}x{model_shape_info$expected_h}.",
+        "i" = "Requested {.code imgsz = {target_size}} cannot be applied to a static model. Automatically using native resolution ({model_shape_info$expected_w}).",
+        ">" = "To enable dynamic multi-resolution inference, export with: {.code yolo_export(model, dynamic = TRUE)}"
+      ))
+      target_size <- model_shape_info$expected_w
+    }
+  }
+
+  dims_mat <- dim(mat)
+  orig_w <- dims_mat[1]
+  orig_h <- dims_mat[2]
+
+  if (isTRUE(is_sem_model)) {
+    return(.run_yolo_sem(
+      mat         = mat,
+      model_file  = model_file,
+      target_size = target_size,
+      orig_w      = orig_w,
+      orig_h      = orig_h,
+      labels      = labels,
+      threads     = threads,
+      use_gpu     = use_gpu,
+      device_id   = device_id,
+      lib_path    = lib_path,
+      filter      = filter,
+      erode       = erode,
+      dilate      = dilate,
+      opening     = opening,
+      closing     = closing,
+      min_area    = min_area
+    ))
+  }
+
+  tensor_in <- if (is.raw(mat) || is.double(mat)) {
+    mat
+  } else {
+    tryCatch(
+      preprocess_yolo_cpp(mat, target_size = target_size),
+      error = function(e) .preprocess_yolo(mat, target_size = target_size)
+    )
+  }
 
   raw_res <- run_yolo_cpp(
-    tensor_vec = tensor,
+    tensor_vec = tensor_in,
     orig_w = orig_w,
     orig_h = orig_h,
     conf_threshold = conf_threshold,
@@ -3913,8 +5540,21 @@ image_remove_bg_dl <- function(img,
     device_id = as.integer(device_id),
     need_masks = isTRUE(need_masks),
     return_features = isTRUE(return_features),
-    txt_feats = txt_feats
+    txt_feats = txt_feats,
+    target_size = as.integer(target_size),
+    max_det = as.integer(max_det)
   )
+
+  if (isTRUE(need_masks) && !isTRUE(raw_res$is_seg) && (is.null(raw_res$labels) || !is.matrix(raw_res$labels) || nrow(raw_res$labels) == 0L || ncol(raw_res$labels) == 0L)) {
+    seg_suggestion <- sub("(\\.(onnx|pt))?$", "-seg\\1", basename(model))
+    if (!grepl("-seg", seg_suggestion)) seg_suggestion <- paste0(sub("\\.(onnx|pt)$", "", basename(model)), "-seg")
+    cli::cli_abort(c(
+      "Model {.val {basename(model)}} is an object detection model, not an instance segmentation model.",
+      "x" = "It detects bounding boxes but does not contain prototype mask outputs.",
+      "i" = "To perform instance segmentation, please use a YOLO segmentation model (e.g., {.val {seg_suggestion}} or {.val 'u2netp'}).",
+      "i" = "To detect bounding boxes using this model, please use {.fn image_detect_dl}."
+    ))
+  }
 
   if (!is.null(labels)) {
     class_names <- labels
@@ -3988,14 +5628,16 @@ image_remove_bg_dl <- function(img,
   }
 
   lbl_mat <- raw_res$labels
-  if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && any(lbl_mat > 0L)) {
+  has_morph_ops <- (filter > 0) || (erode > 0) || (dilate > 0) || (opening > 0) || (closing > 0) || (min_area > 0)
+  if (has_morph_ops && num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && nrow(lbl_mat) == orig_w && ncol(lbl_mat) == orig_h) {
     for (k in seq_len(num_boxes)) {
       bx <- df_boxes[k, ]
       x1 <- max(1L, floor(bx$xmin) - 2L)
       x2 <- min(orig_w, ceiling(bx$xmax) + 2L)
       y1 <- max(1L, floor(bx$ymin) - 2L)
       y2 <- min(orig_h, ceiling(bx$ymax) + 2L)
-      sub_m <- (lbl_mat[x1:x2, y1:y2] == k)
+      sub_lbl <- lbl_mat[x1:x2, y1:y2]
+      sub_m <- (sub_lbl == k)
       if (!any(sub_m)) next
 
       if (isTRUE(fill_hull)) {
@@ -4028,8 +5670,9 @@ image_remove_bg_dl <- function(img,
           sub_m <- matrix(lbls %in% keep_ids, nrow = nrow(sub_m), ncol = ncol(sub_m))
         }
       }
-      lbl_mat[x1:x2, y1:y2][lbl_mat[x1:x2, y1:y2] == k] <- 0L
-      lbl_mat[x1:x2, y1:y2][sub_m] <- as.integer(k)
+      sub_lbl[sub_lbl == k] <- 0L
+      sub_lbl[sub_m] <- as.integer(k)
+      lbl_mat[x1:x2, y1:y2] <- sub_lbl
     }
   }
 
@@ -4037,14 +5680,28 @@ image_remove_bg_dl <- function(img,
     as_image(lbl_mat, colormode = "Grayscale", storage = "integer")
   } else NULL
 
-  contornos <- if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat) && any(lbl_mat > 0L)) contour(labels_img) else list()
-  if (is.list(contornos)) {
-    contornos <- contornos[!vapply(contornos, is.null, logical(1))]
-  }
+  contornos <- if (num_boxes > 0 && !is.null(lbl_mat) && is.matrix(lbl_mat)) {
+    extract_contours_cpp(lbl_mat)
+  } else list()
+
+  # `extract_contours_cpp()` returns one slot per label id, so slot k belongs to
+  # instance k and is NULL when that instance has no pixels left -- which happens when
+  # it is fully overlapped by a higher-scoring instance (overlapping pixels keep the
+  # best-scoring label) or when morphology removed its mask.
+  #
+  # poly_measures() takes each polygon's `id` from its position in the list it is
+  # given, and the per-instance traits are later joined onto the boxes by that id. The
+  # features therefore have to be computed BEFORE the empty slots are dropped:
+  # compacting first renumbers every later instance and silently attaches its traits to
+  # the wrong object.
   feats <- if (length(contornos) > 0) {
     tryCatch(poly_measures(contornos), error = function(e) data.frame())
   } else {
     data.frame()
+  }
+
+  if (is.list(contornos)) {
+    contornos <- contornos[!vapply(contornos, is.null, logical(1))]
   }
 
   has_kpts <- !is.null(raw_res$keypoints) && is.matrix(raw_res$keypoints) && ncol(raw_res$keypoints) == 51 && num_boxes > 0
@@ -4078,7 +5735,7 @@ image_remove_bg_dl <- function(img,
     summary = summary_str,
     contours = contornos,
     labels = labels_img,
-    mask = if (!is.null(lbl_mat) && is.matrix(lbl_mat)) (lbl_mat > 0L) else NULL,
+    mask = NULL,
     features = feats,
     keypoints = kpts_list,
     raw_keypoints = if (has_kpts) raw_res$keypoints else NULL
@@ -4106,7 +5763,7 @@ image_remove_bg_dl <- function(img,
                           dir = pliman_model_dir()) {
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
+  lib_path <- pliman_onnx_library_path(engine = engine)
 
   if (file.exists(model)) {
     model_file <- normalizePath(model, winslash = "/")
@@ -4416,13 +6073,11 @@ image_remove_bg_dl <- function(img,
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return An `Image` object containing the colorized / blended heatmap visualization, invisibly.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("tomatoes.jpg")
 #'   res <- image_segment_dl(img, model = "yolo26n-seg", return_features = TRUE)
 #'   plot_yolo_heatmap(res)
-#' }
 plot_yolo_heatmap <- function(img,
                               heatmap = NULL,
                               col_palette = "inferno",
@@ -4538,6 +6193,131 @@ plot_yolo_heatmap <- function(img,
   invisible(res_img)
 }
 
+.filter_nested_boxes <- function(boxes,
+                                 containment_thresh = 0.80,
+                                 area_ratio_thresh = 1.25) {
+  if (is.null(boxes)) return(NULL)
+  n <- if (is.data.frame(boxes)) nrow(boxes) else if (is.matrix(boxes)) nrow(boxes) else 0L
+  if (n <= 1L) return(boxes)
+
+  is_df <- is.data.frame(boxes)
+  xmin <- if (is_df) boxes$xmin else boxes[, 1]
+  ymin <- if (is_df) boxes$ymin else boxes[, 2]
+  xmax <- if (is_df) boxes$xmax else boxes[, 3]
+  ymax <- if (is_df) boxes$ymax else boxes[, 4]
+  labels <- if (is_df && "label" %in% names(boxes)) as.character(boxes$label) else rep("obj", n)
+
+  areas <- pmax(0, xmax - xmin) * pmax(0, ymax - ymin)
+  remove_idx <- logical(n)
+  inv_ratio <- 1.0 / area_ratio_thresh
+
+  u_lbls <- unique(labels)
+  for (lbl in u_lbls) {
+    idx <- if (length(u_lbls) == 1L) which(areas > 0) else which(labels == lbl & areas > 0)
+    m <- length(idx)
+    if (m <= 1L) next
+    x1 <- xmin[idx]; y1 <- ymin[idx]; x2 <- xmax[idx]; y2 <- ymax[idx]; a <- areas[idx]
+    req_a <- a * containment_thresh
+    min_a_req <- min(a) * area_ratio_thresh
+    cand_i <- which(a >= min_a_req)
+    for (i in cand_i) {
+      bx1 <- x1[i]; bx2 <- x2[i]
+      cj <- which(x2 > bx1 & x1 < bx2)
+      if (length(cj) == 0L) next
+      by1 <- y1[i]; by2 <- y2[i]; max_aj <- a[i] * inv_ratio
+      cj <- cj[y2[cj] > by1 & y1[cj] < by2 & a[cj] <= max_aj]
+      if (length(cj) == 0L) next
+      iw <- pmin(bx2, x2[cj]) - pmax(bx1, x1[cj])
+      ih <- pmin(by2, y2[cj]) - pmax(by1, y1[cj])
+      if (any((iw * ih) >= req_a[cj])) {
+        remove_idx[idx[i]] <- TRUE
+      }
+    }
+  }
+
+  keep_idx <- which(!remove_idx)
+  if (is_df) {
+    res <- boxes[keep_idx, , drop = FALSE]
+    if ("id" %in% names(res)) {
+      res$id <- seq_len(nrow(res))
+    }
+    rownames(res) <- NULL
+    attr(res, "keep_idx") <- keep_idx
+    res
+  } else {
+    res <- boxes[keep_idx, , drop = FALSE]
+    attr(res, "keep_idx") <- keep_idx
+    res
+  }
+}
+
+.filter_nested_res <- function(gs_res,
+                               containment_thresh = 0.80,
+                               area_ratio_thresh = 1.25) {
+  if (is.null(gs_res) || is.null(gs_res$boxes) || nrow(gs_res$boxes) <= 1L) {
+    return(gs_res)
+  }
+  b <- gs_res$boxes
+  filtered_b <- .filter_nested_boxes(b, containment_thresh = containment_thresh, area_ratio_thresh = area_ratio_thresh)
+  keep_idx <- attr(filtered_b, "keep_idx")
+  if (is.null(keep_idx) || length(keep_idx) == nrow(b)) {
+    return(gs_res)
+  }
+
+  n <- nrow(b)
+  gs_res$boxes <- filtered_b
+
+  if (!is.null(gs_res$contours) && length(gs_res$contours) == n) {
+    gs_res$contours <- gs_res$contours[keep_idx]
+  }
+  if (!is.null(gs_res$features) && is.data.frame(gs_res$features) && nrow(gs_res$features) == n) {
+    gs_res$features <- gs_res$features[keep_idx, , drop = FALSE]
+    gs_res$features$id <- seq_len(nrow(gs_res$features))
+    rownames(gs_res$features) <- NULL
+  }
+
+  if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
+    remap_labels_cpp(gs_res$labels, as.integer(keep_idx))
+    if (!is.null(gs_res$mask)) {
+      gs_res$mask <- NULL
+    }
+  }
+
+  if (nrow(filtered_b) > 0) {
+    cnts <- as.data.frame(table(factor(filtered_b$label, levels = unique(filtered_b$label))), stringsAsFactors = FALSE)
+    colnames(cnts) <- c("label", "count")
+    gs_res$counts <- cnts
+    gs_res$summary <- .format_detection_summary(filtered_b$label)
+  } else {
+    gs_res$counts <- data.frame(label = character(0), count = integer(0), stringsAsFactors = FALSE)
+    gs_res$summary <- "0 objects detected"
+  }
+
+  gs_res
+}
+
+.filter_plot_dots <- function(dots) {
+  if (is.null(dots) || length(dots) == 0L) return(list())
+  exclude <- c(
+    "type", "bbox", "show_box", "show_boxes", "mask", "badge", "rainbow", "model",
+    "prompt", "conf_threshold", "box_threshold", "iou_threshold", "text_threshold",
+    "filter_nested", "threshold", "classes", "labels", "label_size", "text_size", "font_scale",
+    "cex_scale", "label_pad", "badge_pad", "pad_scale", "show_labels", "show_scores",
+    "label_box", "marker_size", "point_cex", "marker_col", "marker_pch",
+    "col_background", "col_highlight", "mask_color", "keep_images", "keep_image",
+    "attach_image", "parallel", "workers", "measure", "pixel_size", "show_point",
+    "point_size", "point_pch", "point_col", "save_image", "dir_processed",
+    "prefix", "verbose", "return_features", "feature_model", "plot_features",
+    "threads", "engine", "device_id", "fill_hull", "filter", "erode", "dilate",
+    "opening", "closing", "min_area", "invert", "pick_object", "show_mask",
+    "show_text", "show_conf", "show_class", "show_id", "lwd", "col", "border",
+    "alpha", "pad", "cex", "dir", "exemplar", "sim_threshold", "min_dist",
+    "feat_res", "max_objects", "superres_map", "k_steps", "sam_points", "grid",
+    "sam_device"
+  )
+  dots[setdiff(names(dots), exclude)]
+}
+
 #' Deep Learning Semantic & Instance Segmentation, Object Detection, and Visual Exemplar Counting
 #'
 #' Segments foreground objects (such as leaves, fruits, seeds, grains, roots,
@@ -4563,12 +6343,12 @@ plot_yolo_heatmap <- function(img,
 #'
 #' @inheritParams image_binary_dl
 #' @param type Character specifying the visual and output modality:
-#'   * `"segment"` (default): Returns an `image` object where detected foreground is preserved
+#'   * `"highlight"`(default): Overlays the original image with semi-transparent colored polygons covering
+#'     each detected instance, ideal for visual inspection, quality control, and publication figures.
+#'   * `"segment"`: Returns an `image` object where detected foreground is preserved
 #'     and background is replaced by a solid color specified by `col_background`.
 #'   * `"mask"`: Returns the binary mask (for semantic models) or single multi-label integer instance map
 #'     (for YOLO-seg, StarDist, Grounded-SAM, and PerSAM) as an `image` object (`colormode = "Grayscale"`).
-#'   * `"highlight"`: Overlays the original image with semi-transparent colored polygons covering
-#'     each detected instance, ideal for visual inspection, quality control, and publication figures.
 #'     When `mask = FALSE`, overlays bounding boxes directly.
 #'   * `"boxes"`: Overlays bounding boxes on the original image and returns a data frame of detected boxes.
 #' @param model Model architecture or path to a custom ONNX file. Built-in choices:
@@ -4580,12 +6360,19 @@ plot_yolo_heatmap <- function(img,
 #'   * `"ben2"`: Boundary-aware Enhanced Network (BEN2) for razor-sharp leaf margins, serrations, and roots.
 #'   * `"rmbg-1.4"`, `"rmbg-2.0"`: BRIA state-of-the-art commercial-grade background removal.
 #'   * `"withoutbg"`, `"birefnet-lite"`, `"isnet-general-use"`, `"silueta"`: Specialized salient cutout backends.
+#' @param classes Optional character or numeric vector of target classes to keep/filter.
+#'   When specified, only detected instances matching these classes are kept, segmented, and plotted.
 #' @param col_background Character string or hex code specifying the solid background color when
 #'   `type = "segment"`. Defaults to `"white"`. Accepts any valid R color name (e.g., `"black"`, `"transparent"`)
-#'   or hexadecimal code (e.g., `"#FFFFFF"`).
+#'   or hexadecimal code (e.g., `"#FFFFFF"`). When set to `"transparent"`, `"none"`, or `NA`, returns an image
+#'   with an alpha transparency channel (4 channels, RGBA).
 #' @param col_highlight Fill color for the semi-transparent overlay polygon when `type = "highlight"`.
 #'   Defaults to `"salmon"`. When multiple instances are detected, distinct categorical
 #'   colors are automatically generated from a rainbow palette.
+#' @param mask_color Fill color(s) for the highlight polygon overlay and bounding boxes when `type = "highlight"`.
+#'   Defaults to `NULL` (falling back to `col_highlight`). When `rainbow = FALSE`, allows passing a vector of colors
+#'   with the same length as the classes specified in `prompt` (e.g. `mask_color = c("red", "green")` for
+#'   `prompt = c("red tomato", "green tomato")`), or a named vector matching class names (e.g., `c("red tomato" = "red", "green tomato" = "green")`).
 #' @param alpha Numeric transparency value in `[0, 1]` for the highlight polygon overlay when `type = "highlight"`.
 #'   Default is `0.4` (40% opacity).
 #' @param border Color for the border stroke of the highlight polygon when `type = "highlight"`.
@@ -4599,17 +6386,26 @@ plot_yolo_heatmap <- function(img,
 #' @param show_id Logical. If `TRUE`, overlays object instance IDs in bounding box
 #'   labels or at their center of mass (computed via [poly_mass()]) when `type = "highlight"`
 #'   and `bbox = FALSE`. Defaults to `FALSE`.
-#' @param cex Size factor for bounding box label text (default `1.0`). Use smaller values (e.g., `0.2` or `0.5`)
+#' @param show_point Logical. Whether to show a point at the centroid of each segmented object. Defaults to `FALSE`.
+#' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (drawn if `bbox = TRUE`).
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1`.
+#' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
+#' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
+#' @param cex Size factor for bounding box label text (default `1.5`). Use smaller values (e.g., `0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
-#' @param pad Padding multiplier controlling the background badge size around label text (default `1.0`).
-#'   Can be a single value or a length-2 vector `c(pad_x, pad_y)`. Use `pad = 0` for a badge fitting tightly to the text.
+#' @param pad Padding added to expand bounding boxes around detected instances when `bbox = TRUE` (default `0`).
+#'   Can be an absolute number of pixels (e.g., `pad = 10`), a relative expansion fraction when
+#'   between 0 and 1 (e.g., `pad = 0.05` for 5% margin), or a length-2 vector `c(pad_x, pad_y)`.
+#' @param badge_pad Padding multiplier controlling the background badge size around label text (default `1.0`).
+#'   Use `badge_pad = 0` for a badge fitting tightly to the text.
 #' @param show_text Logical. Whether to display text labels on bounding boxes (default `TRUE`).
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
 #' @param rainbow Logical. If `TRUE`, assigns a distinct, unique color to each segmented object.
-#'   If `FALSE` (the default), objects of the same class share the exact same color. Defaults to `FALSE`.
+#'   If `FALSE`, objects of the same class share the exact same color (using `col_highlight` / `mask_color`).
+#'   Defaults to `TRUE` unless `col_highlight` or `mask_color` is explicitly provided.
 #' @param exemplar Logical. If `TRUE` (or if `model = "persam"`), activates one-shot visual exemplar segmentation (PerSAM)
 #'   using SAM 2.1 embeddings. The user can click on 1 or more representative exemplar objects in the plot window
 #'   (or pass coordinates via `prompt`), and the model will automatically compute visual feature embeddings,
@@ -4646,7 +6442,12 @@ plot_yolo_heatmap <- function(img,
 #'   Options are `"clip-vit-b32"` (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
 #'   `"dinov2"` (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).
 #' @param plot_features Logical. If `TRUE` and `return_features = TRUE`, visualizes the dense spatial PCA feature map. Defaults to `FALSE`.
+#' @param sam_device Execution device for SAM 2.1 inference: `"auto"` (default), `"gpu"`, or `"cpu"`.
+#' @param filter_nested Logical. If `TRUE` (the default), removes larger container bounding boxes
+#'   that enclose smaller boxes of the same class (e.g. discarding an encompassing box around an entire branch of leaves).
 #' @param show_mask Deprecated. If `TRUE`, equivalent to `type = "mask"`.
+#' @param imgsz Target input image resolution for YOLO segmentation inference (e.g., `640`, `960`, or `1024`).
+#'   If `NULL` (default), inferred automatically from the model or defaults to `640`.
 #'
 #' @return
 #'   * If `mask = FALSE` and `bbox = TRUE`: A data frame containing the bounding box coordinates
@@ -4654,7 +6455,7 @@ plot_yolo_heatmap <- function(img,
 #'   * If `type = "segment"`: An `image` object containing the segmented image.
 #'   * If `type = "mask"`: A single multi-label or binary `image` object (`colormode = "Grayscale"`).
 #'   * If `type = "highlight"`: Invisibly returns a list with:
-#'     - `"boxes"`: Data frame of detected bounding boxes and scores.
+#'     - `"results"`: Data frame of detected bounding boxes, scores, and morphometric traits.
 #'     - `"labels"`: Single multi-label integer mask `image` where each pixel value corresponds to instance `id`.
 #'     - `"summary"`: Text summary of detected objects and counts.
 #'     - `"counts"`: Data frame of instance counts per class label.
@@ -4665,8 +6466,7 @@ plot_yolo_heatmap <- function(img,
 #'   * If `img` is a list: A list of the corresponding outputs.
 #' @export
 #'
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'
@@ -4731,25 +6531,31 @@ plot_yolo_heatmap <- function(img,
 #'     type = "highlight",
 #'     bbox = TRUE
 #'   )
-#' }
 image_segment_dl <- function(img,
-                             type = c("segment", "mask", "highlight"),
+                             type = c("highlight", "segment", "mask"),
                              col_background = "white",
                              col_highlight = "salmon",
-                             alpha = 0.4,
+                             mask_color = NULL,
+                             alpha = 0.7,
                              border = NA,
                              lwd = 1,
                              bbox = FALSE,
                              mask = TRUE,
                              cex = 1.0,
-                             pad = 1.0,
+                             pad = 0,
+                             badge_pad = 1.0,
                              show_text = TRUE,
                              show_conf = TRUE,
                              show_class = TRUE,
                              show_id = FALSE,
+                             show_point = FALSE,
+                             show_box = NULL,
+                             point_size = 1,
+                             point_pch = 16,
+                             point_col = NULL,
                              badge = TRUE,
                              rainbow = TRUE,
-                             model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                             model = c("rmbg-1.4", "u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1", "persam",  "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                              threshold = 0.5,
                              box_threshold = 0.25,
                              text_threshold = 0.25,
@@ -4765,6 +6571,7 @@ image_segment_dl <- function(img,
                              plot_features = FALSE,
                              threads = 0,
                              engine = c("gpu", "cpu"),
+                             sam_device = c("auto", "gpu", "cpu"),
                              device_id = -1,
                              fill_hull = TRUE,
                              filter = 0,
@@ -4776,26 +6583,50 @@ image_segment_dl <- function(img,
                              invert = FALSE,
                              pick_object = FALSE,
                              prompt = NULL,
+                             classes = NULL,
+                             filter_nested = TRUE,
                              show_mask = FALSE,
                              verbose = TRUE,
                              plot = TRUE,
                              dir = pliman_model_dir(),
+                             imgsz = NULL,
                              ...) {
+  engine_specified <- !missing(engine)
   engine <- match.arg(engine)
+  mask_specified <- !missing(mask)
+  if (!mask_specified && isTRUE(show_point) && !isTRUE(show_text) && !isTRUE(show_conf) && !isTRUE(show_class) && !isTRUE(bbox)) {
+    mask <- FALSE
+  }
   dots <- list(...)
+  col_highlight_specified <- !missing(col_highlight)
+  if (missing(rainbow) && (col_highlight_specified || !is.null(mask_color) || !is.null(dots$col))) {
+    rainbow <- FALSE
+  }
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
+  if (is.null(classes) && !is.null(dots$classes)) classes <- dots$classes
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
   if ("cex_scale" %in% names(dots)) cex <- dots$cex_scale
-  if ("label_pad" %in% names(dots)) pad <- dots$label_pad
-  if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
-  if ("pad_scale" %in% names(dots)) pad <- dots$pad_scale
+  if ("box_pad" %in% names(dots)) pad <- dots$box_pad
+  if ("label_pad" %in% names(dots)) badge_pad <- dots$label_pad
+  if ("badge_pad" %in% names(dots)) badge_pad <- dots$badge_pad
+  if ("pad_scale" %in% names(dots)) badge_pad <- dots$pad_scale
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if ("show_boxes" %in% names(dots)) show_box <- isTRUE(dots$show_boxes)
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
-    if (missing(pad)) pad <- cex[2]
+    if (missing(badge_pad)) badge_pad <- cex[2]
     cex <- cex[1]
   }
 
@@ -4805,6 +6636,7 @@ image_segment_dl <- function(img,
                        type = type,
                        col_background = col_background,
                        col_highlight = col_highlight,
+                       mask_color = mask_color,
                        alpha = alpha,
                        border = border,
                        lwd = lwd,
@@ -4812,10 +6644,16 @@ image_segment_dl <- function(img,
                        mask = mask,
                        cex = cex,
                        pad = pad,
+                       badge_pad = badge_pad,
                        show_text = show_text,
                        show_conf = show_conf,
                        show_class = show_class,
                        show_id = show_id,
+                       show_point = show_point,
+                       show_box = show_box,
+                       point_size = point_size,
+                       point_pch = point_pch,
+                       point_col = point_col,
                        badge = badge,
                        rainbow = rainbow,
                        model = model,
@@ -4849,6 +6687,7 @@ image_segment_dl <- function(img,
                        verbose = verbose,
                        plot = FALSE,
                        dir = dir,
+                       imgsz = imgsz,
                        ...)
     })
     return(res)
@@ -4870,14 +6709,87 @@ image_segment_dl <- function(img,
   }
 
   is_url <- is.character(model) && grepl("^https?://", model[1])
-  if (!is_url && is.character(model)) {
-    model <- .resolve_model_name(model[1])
+  model_raw <- if (is.character(model)) model[1] else "u2netp"
+  resolved_model <- if (!is_url && is.character(model)) .resolve_model_name(model_raw) else model_raw
+  model_stem <- tolower(sub("\\.(onnx|pt)$", "", basename(model_raw)))
+  resolved_stem <- tolower(sub("\\.(onnx|pt)$", "", basename(resolved_model)))
+
+  non_yolo_models <- c(
+    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
+    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben",
+    "sam2.1", "sam", "grounded-sam", "persam", "stardist", "star-dist",
+    "depth-anything-v2", "dinov2", "realesrgan-compact",
+    "yolov8s-world", "yolo-world", "yoloworld", "yolov8s-worldv2"
+  )
+
+  bg_models <- c(
+    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
+    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben"
+  )
+
+  is_bg_model <- !is_url && (
+    model_raw %in% bg_models ||
+    resolved_model %in% bg_models ||
+    model_stem %in% bg_models ||
+    resolved_stem %in% bg_models
+  )
+
+  is_known_non_yolo <- !is_url && (
+    is_bg_model ||
+    model_raw %in% non_yolo_models ||
+    resolved_model %in% non_yolo_models ||
+    model_stem %in% non_yolo_models ||
+    resolved_stem %in% non_yolo_models
+  )
+
+  if (is_bg_model) {
+    model <- resolved_stem
+  } else if (!is_url && !is_known_non_yolo) {
+    local_m <- .find_local_model(model_raw, dir = dir)
+    if (!is.null(local_m)) {
+      model <- local_m
+    } else {
+      model <- resolved_model
+    }
+  } else if (!is_url) {
+    model <- resolved_stem
+  }
+
+  if (!is_url && grepl("^sam-?3", tolower(model_raw))) {
+    cli::cli_abort(c(
+      "SAM 3 / 3.1 is not supported.",
+      "x" = "SAM 3.1 does not provide an interactive ONNX prompt decoder (point/box prompt mask generator).",
+      "i" = "Please use {.val 'sam2.1'} (or {.val 'persam'} / {.val 'grounded-sam'})."
+    ))
   }
 
   if (!is_url && grepl("[-_]cls", tolower(model))) {
     cli::cli_abort(c(
       "Model {.val {model}} is an image classification model, not an instance segmentation model.",
       "i" = "Please use {.fn image_classify_dl} instead."
+    ))
+  }
+
+  is_yolo_det_name <- !is_url && (
+    model_stem %in% c(
+      "yolo", "yolo26", "yolo11", "yolov8", "yolov5", "yolov7", "yolov9", "yolov10",
+      "yolo26n", "yolo26s", "yolo26m", "yolo26l", "yolo26x",
+      "yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x",
+      "yolov8n", "yolov8s", "yolov8m", "yolov8l", "yolov8x"
+    ) ||
+    grepl("[-_]det", model_stem) ||
+    grepl("[-_]obb", model_stem) ||
+    grepl("[-_]pose", model_stem)
+  )
+
+  if (is_yolo_det_name && !grepl("[-_]seg", model_stem)) {
+    seg_suggestion <- sub("(\\.(onnx|pt))?$", "-seg\\1", model_raw)
+    if (!grepl("-seg", seg_suggestion)) seg_suggestion <- paste0(model_stem, "-seg")
+    cli::cli_abort(c(
+      "Model {.val {model_raw}} is an object detection model, not an instance segmentation model.",
+      "x" = "It detects bounding boxes but does not contain segmentation mask outputs.",
+      "i" = "To perform instance segmentation, please use a segmentation model such as {.val {seg_suggestion}} (e.g., {.val 'yolo26s-seg'} or {.val 'u2netp'}).",
+      "i" = "To detect bounding boxes using {.val {model_raw}}, please use {.fn image_detect_dl}."
     ))
   }
 
@@ -4894,13 +6806,6 @@ image_segment_dl <- function(img,
   is_sam_model <- grepl("sam", model, ignore.case = TRUE)
   use_persam <- isTRUE(exemplar) || (model == "persam") || (is_sam_model && identical(prompt, "exemplar"))
   use_grounded_sam <- !use_persam && ((model == "grounded-sam") || (is_sam_model && is_text_prompt))
-  non_yolo_models <- c(
-    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
-    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben",
-    "sam2.1", "sam3.1", "sam", "grounded-sam", "persam", "stardist", "star-dist",
-    "depth-anything-v2", "dinov2", "realesrgan-compact",
-    "yolov8s-world", "yolo-world", "yoloworld", "yolov8s-worldv2"
-  )
 
   if (grepl("world", tolower(model[1]))) {
     if (isTRUE(bbox) && !isTRUE(mask)) {
@@ -4928,19 +6833,46 @@ image_segment_dl <- function(img,
     }
   }
 
-  is_known_non_yolo <- model %in% non_yolo_models
-
-  is_custom_yolo <- !is_known_non_yolo && (
+  is_custom_yolo <- !is_known_non_yolo && !is_bg_model && (
     grepl("yolo", model, ignore.case = TRUE) ||
     grepl("[-_]seg", model, ignore.case = TRUE) ||
-    grepl("[-_]det", model, ignore.case = TRUE)
+    grepl("[-_]sem", model, ignore.case = TRUE) ||
+    grepl("[-_]det", model, ignore.case = TRUE) ||
+    grepl("\\.(onnx|pt)$", model, ignore.case = TRUE)
   )
-  use_yolo_seg <- !use_persam && !use_grounded_sam && !is_known_non_yolo && (
+  use_yolo_seg <- !use_persam && !use_grounded_sam && !is_known_non_yolo && !is_bg_model && (
     model %in% c("yolo26n-seg", "yolo26s-seg", "yolo26m-seg", "yolo26l-seg", "yolo26x-seg",
-                 "yolo11n-seg", "yolo11s-seg", "yolo11m-seg", "yolo11l-seg", "yolo11x-seg", "yolo-seg") ||
+                 "yolo11n-seg", "yolo11s-seg", "yolo11m-seg", "yolo11l-seg", "yolo11x-seg", "yolo-seg",
+                 "yolo26n-sem", "yolo26s-sem", "yolo26m-sem", "yolo26l-sem", "yolo26x-sem", "yolo-sem") ||
     is_custom_yolo
   )
-  use_stardist <- !use_persam && !use_grounded_sam && !use_yolo_seg && (model %in% c("stardist", "star-dist"))
+  use_stardist <- !use_persam && !use_grounded_sam && !use_yolo_seg && !is_bg_model && (model %in% c("stardist", "star-dist"))
+
+  # Automatic engine selection for the foundation models (Grounded-SAM / PerSAM).
+  # Any dedicated GPU is used, whatever its memory. The former rule forced the CPU below
+  # 6 GB of VRAM ("up to 3x faster"), but on a 4 GB GTX 1650 the GPU is the faster
+  # engine at every stage, cold or warm:
+  #   Grounding DINO   first call 6.9 s vs 12.2 s on CPU; steady state 0.8 s vs 8.6 s
+  #   SAM 2.1 encoder  steady state 0.36 s vs 2.31 s
+  # Memory pressure on small cards is handled by releasing the DINO session before SAM
+  # is built (.run_grounded_sam()), and a GPU session that still fails to build falls
+  # back to the CPU with a warning. Only machines without a dedicated GPU (integrated
+  # graphics sharing system memory, or no DirectX 12 adapter) default to the CPU.
+  if (!engine_specified && (use_grounded_sam || use_persam)) {
+    gpu_info <- .gpu_info_cached()
+    has_dedicated_gpu <- FALSE
+    if (!is.null(gpu_info) && isTRUE(gpu_info$available) && length(gpu_info$vram_mb) > 0) {
+      def_id <- if (!is.null(gpu_info$default_device_id)) gpu_info$default_device_id + 1L else which.max(gpu_info$vram_mb)
+      is_ded <- if (!is.null(gpu_info$is_dedicated)) gpu_info$is_dedicated[def_id] else TRUE
+      has_dedicated_gpu <- isTRUE(is_ded)
+    }
+    if (!has_dedicated_gpu && !tolower(Sys.getenv("PLIMAN_GPU_PROVIDER", "auto")) %in% c("cuda", "tensorrt", "coreml", "openvino")) {
+      engine <- "cpu"
+      if (isTRUE(verbose)) {
+        cli::cli_alert_info("No dedicated GPU found: using {.code engine = 'cpu'} for {if (use_grounded_sam) 'Grounded-SAM' else 'PerSAM'}.")
+      }
+    }
+  }
 
   if (use_persam || use_grounded_sam || use_yolo_seg || use_stardist) {
     if (use_persam) {
@@ -4967,6 +6899,7 @@ image_segment_dl <- function(img,
         superres_map = superres_map,
         threads = threads,
         engine = engine,
+        sam_device = sam_device,
         device_id = device_id,
         fill_hull = fill_hull,
         filter = filter,
@@ -4988,8 +6921,11 @@ image_segment_dl <- function(img,
         box_threshold = box_threshold,
         text_threshold = text_threshold,
         iou_threshold = iou_threshold,
+        filter_nested = filter_nested,
         threads = threads,
         engine = engine,
+        sam_device = sam_device,
+        engine_specified = engine_specified,
         device_id = device_id,
         fill_hull = fill_hull,
         filter = filter,
@@ -5020,9 +6956,10 @@ image_segment_dl <- function(img,
         opening = opening,
         closing = closing,
         min_area = min_area,
-        need_masks = isTRUE(mask) || type == "mask" || type == "highlight",
+        need_masks = isTRUE(mask) || type == "mask" || type == "highlight" || type == "segment",
         return_features = return_features,
-        dir = dir
+        dir = dir,
+        imgsz = imgsz
       )
     } else if (use_stardist) {
       gs_res <- .run_stardist(
@@ -5037,6 +6974,48 @@ image_segment_dl <- function(img,
       )
     }
 
+    if (isTRUE(filter_nested) && !is.null(gs_res) && !isTRUE(gs_res$is_semantic) &&
+        !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 1L) {
+      gs_res <- .filter_nested_res(gs_res)
+    }
+
+    if (!is.null(classes) && !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 0) {
+      c_match <- tolower(trimws(as.character(classes)))
+      idx_keep <- which(tolower(trimws(gs_res$boxes$label)) %in% c_match)
+      if (length(idx_keep) < nrow(gs_res$boxes)) {
+        gs_res$boxes <- gs_res$boxes[idx_keep, , drop = FALSE]
+        if ("id" %in% names(gs_res$boxes)) gs_res$boxes$id <- seq_len(nrow(gs_res$boxes))
+        rownames(gs_res$boxes) <- NULL
+        if (!is.null(gs_res$contours) && length(gs_res$contours) > 0) {
+          gs_res$contours <- gs_res$contours[idx_keep]
+        }
+        if (!is.null(gs_res$features) && is.data.frame(gs_res$features) && nrow(gs_res$features) >= max(idx_keep, 0L)) {
+          gs_res$features <- gs_res$features[idx_keep, , drop = FALSE]
+          if (nrow(gs_res$features) > 0L) gs_res$features$id <- seq_len(nrow(gs_res$features))
+          rownames(gs_res$features) <- NULL
+        }
+        if (!is.null(gs_res$labels) && inherits(gs_res$labels, c("Image", "image"))) {
+          remap_labels_cpp(gs_res$labels, as.integer(idx_keep))
+          if (!is.null(gs_res$mask)) {
+            gs_res$mask <- NULL
+          }
+        }
+        if (nrow(gs_res$boxes) > 0) {
+          cnts <- as.data.frame(table(factor(gs_res$boxes$label, levels = unique(gs_res$boxes$label))), stringsAsFactors = FALSE)
+          colnames(cnts) <- c("label", "count")
+          gs_res$counts <- cnts
+          gs_res$summary <- .format_detection_summary(gs_res$boxes$label)
+        } else {
+          gs_res$counts <- data.frame(label = character(0), count = integer(0), stringsAsFactors = FALSE)
+          gs_res$summary <- "0 objects detected"
+        }
+      }
+    }
+
+    if (!is.null(pad) && any(pad != 0) && !is.null(gs_res$boxes) && nrow(gs_res$boxes) > 0L) {
+      gs_res$boxes <- .apply_box_padding(gs_res$boxes, pad = pad, orig_w = orig_w, orig_h = orig_h)
+    }
+
     sum_title <- if (use_persam) {
       "PerSAM Detection Summary"
     } else if (use_yolo_seg) {
@@ -5047,34 +7026,74 @@ image_segment_dl <- function(img,
       "Grounded-SAM Detection Summary"
     }
 
+    # Resolve target classes from prompt, labels, or classes
+    target_classes <- if (is.character(prompt) && length(prompt) > 1) {
+      trimws(prompt)
+    } else if (is.character(prompt) && length(prompt) == 1 && grepl("\\.", prompt)) {
+      trimws(strsplit(prompt, "\\s*\\.\\s*")[[1]])
+    } else if (is.character(prompt) && length(prompt) == 1 && grepl("[,;]", prompt)) {
+      trimws(strsplit(prompt, "[,;]+")[[1]])
+    } else if (is.character(prompt) && length(prompt) == 1) {
+      trimws(prompt)
+    } else if (!is.null(list(...)$labels)) {
+      list(...)$labels
+    } else if (!is.null(list(...)$classes)) {
+      list(...)$classes
+    } else {
+      NULL
+    }
+    if (!is.null(target_classes)) {
+      target_classes <- target_classes[nzchar(target_classes) & target_classes != "."]
+    }
+
+    # Resolve user highlight/mask colors (mask_color takes priority)
+    user_hl <- if (!is.null(mask_color)) {
+      mask_color
+    } else if (col_highlight_specified) {
+      col_highlight
+    } else if (!is.null(dots$col)) {
+      dots$col
+    } else if (!isTRUE(rainbow)) {
+      col_highlight
+    } else {
+      NULL
+    }
+
     if (nrow(gs_res$boxes) == 0L && isTRUE(verbose)) {
       cli::cli_alert_warning("No objects were detected above the confidence threshold ({.code box_threshold = {box_threshold}}).")
       cli::cli_alert_info("Tip: If the model was trained for few epochs (e.g. 3), try {.code box_threshold = 0.01} or train for 30-50 epochs so the model learns confident scores.")
     }
 
-    if (!isTRUE(mask) && isTRUE(bbox)) {
+    if (!isTRUE(mask) && (isTRUE(bbox) || isTRUE(show_point))) {
       if (isTRUE(plot)) {
-        plot(as_image(mat), ...)
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(as_image(mat)), p_dots))
         num_inst <- nrow(gs_res$boxes)
         if (num_inst > 0) {
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
           .plot_yolo_bboxes(
             boxes = gs_res$boxes,
             palette_colors = palette_colors,
             lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
             cex = cex,
-            pad = pad,
+            pad = 0,
+            badge_pad = badge_pad,
             show_text = show_text,
             show_conf = show_conf,
             show_class = show_class,
             show_id = show_id,
+            show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+            show_point = show_point,
+            point_size = point_size,
+            point_pch = point_pch,
+            point_col = point_col,
             badge = badge
           )
         }
@@ -5084,7 +7103,10 @@ image_segment_dl <- function(img,
       }
       attr(gs_res$boxes, "summary") <- gs_res$summary
       attr(gs_res$boxes, "counts") <- gs_res$counts
-      attr(gs_res$boxes, "image") <- as_image(mat)
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
+      if (isTRUE(attach_im)) {
+        attr(gs_res$boxes, "image") <- as_image(mat)
+      }
       if (!is.null(gs_res$similarity_map)) attr(gs_res$boxes, "similarity_map") <- gs_res$similarity_map
       gs_res$boxes <- .attach_features(gs_res$boxes, mat = mat, boxes = gs_res$boxes,
                                        return_features = return_features, feature_model = feature_model,
@@ -5101,16 +7123,17 @@ image_segment_dl <- function(img,
       }
       out_img <- gs_res$labels
       if (isTRUE(plot)) {
-        plot(out_img, ...)
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(out_img), p_dots))
         if (isTRUE(bbox) && nrow(gs_res$boxes) > 0) {
           num_inst <- nrow(gs_res$boxes)
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
           for (k in seq_len(num_inst)) {
             bx <- gs_res$boxes[k, ]
@@ -5126,7 +7149,10 @@ image_segment_dl <- function(img,
       attr(out_img, "boxes") <- gs_res$boxes
       attr(out_img, "summary") <- gs_res$summary
       attr(out_img, "counts") <- gs_res$counts
-      attr(out_img, "image") <- as_image(mat)
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
+      if (isTRUE(attach_im)) {
+        attr(out_img, "image") <- as_image(mat)
+      }
       if (!is.null(gs_res$similarity_map)) attr(out_img, "similarity_map") <- gs_res$similarity_map
       out_img <- .attach_features(out_img, mat = mat, boxes = gs_res$boxes,
                                   return_features = return_features, feature_model = feature_model,
@@ -5137,43 +7163,75 @@ image_segment_dl <- function(img,
     }
 
     if (type == "segment") {
-      out <- as_image(mat)
-      if (isTRUE(mask) && !is.null(gs_res$mask)) {
-        col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
-        m_bg <- gs_res$mask
-        if (length(dims) == 3) {
-          for (k in seq_len(dims[3])) {
-            fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
-            out[, , k][!m_bg] <- fill_val
+      is_transparent <- !is.null(col_background) && (
+        is.na(col_background[1]) ||
+        tolower(as.character(col_background[1])) %in% c("transparent", "transp", "none") ||
+        tryCatch(grDevices::col2rgb(col_background[1], alpha = TRUE)[4, 1] == 0, error = function(e) FALSE)
+      )
+      if (isTRUE(mask) && (!is.null(gs_res$mask) || !is.null(gs_res$labels))) {
+        m_fg <- if (!is.null(gs_res$mask)) (gs_res$mask > 0) else (image_data(gs_res$labels) > 0L)
+        if (is_transparent) {
+          if (length(dims) == 3 && dims[3] >= 3) {
+            orig_alpha <- if (dims[3] >= 4) {
+              if (is.raw(mat)) as.integer(mat[, , 4]) else mat[, , 4]
+            } else {
+              if (is.raw(mat)) 255L else 1.0
+            }
+            alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, orig_alpha, 0L)) else ifelse(m_fg, orig_alpha, 0.0)
+            arr <- array(c(mat[, , 1], mat[, , 2], mat[, , 3], alpha_layer), dim = c(dims[1:2], 4L))
+            out <- as_image(arr, colormode = "Color")
+          } else {
+            alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, 255L, 0L)) else ifelse(m_fg, 1.0, 0.0)
+            g_mat <- if (length(dims) == 3) mat[, , 1] else mat
+            arr <- array(c(g_mat, g_mat, g_mat, alpha_layer), dim = c(dims[1:2], 4L))
+            out <- as_image(arr, colormode = "Color")
           }
         } else {
-          fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
-          out[!m_bg] <- fill_val
+          out <- as_image(mat)
+          col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
+          if (length(dims) == 3) {
+            for (k in seq_len(dims[3])) {
+              fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
+              out[, , k][!m_fg] <- fill_val
+            }
+          } else {
+            fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
+            out[!m_fg] <- fill_val
+          }
         }
+      } else {
+        out <- as_image(mat)
       }
 
       if (isTRUE(plot)) {
-        plot(out, ...)
-        if ((isTRUE(bbox) || !isTRUE(mask)) && nrow(gs_res$boxes) > 0) {
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(out), p_dots))
+        if ((isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask)) && nrow(gs_res$boxes) > 0) {
           num_inst <- nrow(gs_res$boxes)
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
           .plot_yolo_bboxes(
             boxes = gs_res$boxes,
             palette_colors = palette_colors,
             lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
             cex = cex,
-            pad = pad,
+            pad = 0,
+            badge_pad = badge_pad,
             show_text = show_text,
             show_conf = show_conf,
             show_class = show_class,
             show_id = show_id,
+            show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+            show_point = show_point,
+            point_size = point_size,
+            point_pch = point_pch,
+            point_col = point_col,
             badge = badge
           )
         }
@@ -5185,7 +7243,11 @@ image_segment_dl <- function(img,
       attr(out, "labels") <- gs_res$labels
       attr(out, "summary") <- gs_res$summary
       attr(out, "counts") <- gs_res$counts
-      attr(out, "image") <- as_image(mat)
+      if (!is.null(gs_res$semantic_map)) attr(out, "semantic_map") <- gs_res$semantic_map
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else FALSE
+      if (isTRUE(attach_im)) {
+        attr(out, "image") <- as_image(mat)
+      }
       if (!is.null(gs_res$similarity_map)) attr(out, "similarity_map") <- gs_res$similarity_map
       out <- .attach_features(out, mat = mat, boxes = gs_res$boxes,
                               return_features = return_features, feature_model = feature_model,
@@ -5202,63 +7264,67 @@ image_segment_dl <- function(img,
       has_boxes <- !is.null(gs_res$boxes) && is.data.frame(gs_res$boxes) &&
                    nrow(gs_res$boxes) == num_inst && all(c("xmin", "ymin", "xmax", "ymax") %in% names(gs_res$boxes))
 
-      if (isTRUE(mask) && !is.null(gs_res$labels) && num_inst > 0) {
+      if (!is.null(gs_res$contours) && length(gs_res$contours) == num_inst) {
+        conts_all <- gs_res$contours
+      } else if (isTRUE(mask) && !is.null(gs_res$labels) && num_inst > 0) {
         lbl_mat <- image_data(gs_res$labels)
-        pad <- 2L
-        for (k in seq_len(num_inst)) {
-          if (has_boxes) {
-            bx <- gs_res$boxes[k, ]
-            x1 <- max(1L, floor(bx$xmin) - pad)
-            x2 <- min(orig_w, ceiling(bx$xmax) + pad)
-            y1 <- max(1L, floor(bx$ymin) - pad)
-            y2 <- min(orig_h, ceiling(bx$ymax) + pad)
-            sub_lbl <- lbl_mat[x1:x2, y1:y2, drop = FALSE]
-            sub_m <- (sub_lbl == k)
-            if (!any(sub_m)) next
-            lbls <- bwlabel_cpp(sub_m)
-            conts <- list()
-            if (max(lbls) > 0) {
-              conts <- contour(lbls)
-              for (ci in seq_along(conts)) {
-                if (is.matrix(conts[[ci]])) {
-                  conts[[ci]][, 1] <- conts[[ci]][, 1] + (x1 - 1L)
-                  conts[[ci]][, 2] <- conts[[ci]][, 2] + (y1 - 1L)
-                }
-              }
-            }
-          } else {
-            inst_m <- (lbl_mat == k)
-            if (!any(inst_m)) next
-            lbls <- bwlabel_cpp(inst_m)
-            conts <- if (max(lbls) > 0) contour(lbls) else list()
-          }
-          conts_all[[k]] <- conts
+        if (is.matrix(lbl_mat) && nrow(lbl_mat) == orig_w && ncol(lbl_mat) == orig_h) {
+          conts_all <- extract_contours_cpp(lbl_mat)
         }
       }
 
-      # Compute instance centroids using poly_mass (center of mass)
+      # One slot per label id, so slot k belongs to instance k -- but the list is only
+      # as long as the highest id that still has pixels. An instance fully overlapped
+      # by a higher-scoring one leaves no pixels at all, so when it is the last
+      # detection the list comes back shorter than the number of boxes and indexing it
+      # by k overruns. Pad to num_inst (NULL for the missing ones, which the loops
+      # below resolve to the box corners); the alignment of the remaining slots is
+      # already correct.
+      length(conts_all) <- num_inst
+
+      instance_conts <- vector("list", num_inst)
+      for (k in seq_len(num_inst)) {
+        ck <- conts_all[[k]]
+        if (is.matrix(ck) && nrow(ck) >= 3L) {
+          instance_conts[[k]] <- ck
+        } else if (is.list(ck) && length(ck) > 0L) {
+          pt_counts <- vapply(ck, function(m) if (is.matrix(m)) nrow(m) else 0L, integer(1))
+          instance_conts[[k]] <- ck[[which.max(pt_counts)]]
+        } else if (has_boxes && k <= nrow(gs_res$boxes)) {
+          bx <- gs_res$boxes[k, ]
+          instance_conts[[k]] <- matrix(c(bx$xmin, bx$xmax, bx$xmax, bx$xmin, bx$ymin, bx$ymin, bx$ymax, bx$ymax), ncol = 2)
+        }
+      }
+
+      feats <- if (!is.null(gs_res$features) && is.data.frame(gs_res$features) && nrow(gs_res$features) == num_inst) {
+        gs_res$features
+      } else if (length(instance_conts) > 0) {
+        tryCatch(poly_measures(instance_conts), error = function(e) data.frame())
+      } else {
+        data.frame()
+      }
+      if (is.data.frame(feats) && "pcv" %in% names(feats)) {
+        feats$pcv <- NULL
+      }
+
       cx <- numeric(num_inst)
       cy <- numeric(num_inst)
-      for (k in seq_len(num_inst)) {
-        conts_k <- conts_all[[k]]
-        pm <- NULL
-        if (is.list(conts_k) && length(conts_k) > 0L) {
-          pt_counts <- vapply(conts_k, function(p) if (is.matrix(p)) nrow(p) else 0L, integer(1))
-          if (max(pt_counts) >= 3L) {
-            main_p <- conts_k[[which.max(pt_counts)]]
-            pm <- tryCatch(poly_mass(main_p), error = function(e) NULL)
-          }
-        }
-        if (!is.null(pm) && is.matrix(pm) && nrow(pm) >= 1L && is.finite(pm[1, "x"]) && is.finite(pm[1, "y"])) {
-          cx[k] <- pm[1, "x"]
-          cy[k] <- pm[1, "y"]
-        } else if (has_boxes && k <= nrow(gs_res$boxes)) {
-          cx[k] <- (gs_res$boxes$xmin[k] + gs_res$boxes$xmax[k]) / 2
-          cy[k] <- (gs_res$boxes$ymin[k] + gs_res$boxes$ymax[k]) / 2
-        } else {
-          cx[k] <- 0
-          cy[k] <- 0
-        }
+      if (is.data.frame(feats) && nrow(feats) == num_inst && all(c("mass_x", "mass_y") %in% names(feats))) {
+        cx <- feats$mass_x
+        cy <- feats$mass_y
+      } else if (is.data.frame(feats) && nrow(feats) > 0L && "id" %in% names(feats) && all(c("mass_x", "mass_y") %in% names(feats))) {
+        m_idx <- match(seq_len(num_inst), feats$id)
+        cx <- ifelse(!is.na(m_idx), feats$mass_x[m_idx], if (has_boxes) (gs_res$boxes$xmin + gs_res$boxes$xmax) / 2 else 0)
+        cy <- ifelse(!is.na(m_idx), feats$mass_y[m_idx], if (has_boxes) (gs_res$boxes$ymin + gs_res$boxes$ymax) / 2 else 0)
+      } else if (has_boxes) {
+        cx <- (gs_res$boxes$xmin + gs_res$boxes$xmax) / 2
+        cy <- (gs_res$boxes$ymin + gs_res$boxes$ymax) / 2
+      }
+
+      if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
+        gs_res$boxes$cx <- round(cx, 1)
+        gs_res$boxes$cy <- round(cy, 1)
+        gs_res$boxes <- .add_box_geometry(gs_res$boxes, update_cx = FALSE)
       }
 
       if (isTRUE(plot)) {
@@ -5268,47 +7334,49 @@ image_segment_dl <- function(img,
             msg_done = if (isTRUE(mask)) "Highlight overlay ready" else "Detection overlay ready"
           )
         }
-        plot(as_image(mat), ...)
+        p_dots <- .filter_plot_dots(dots)
+        do.call(graphics::plot, c(list(as_image(mat)), p_dots))
         if (num_inst > 0) {
-          user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
           palette_colors <- .get_class_palette(
             labels = gs_res$boxes$label,
             n = num_inst,
             user_col = user_hl,
-            default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-            rainbow = rainbow
+            default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+            rainbow = rainbow,
+            target_classes = target_classes
           )
 
           if (isTRUE(mask) && !is.null(gs_res$labels)) {
+            flat_conts <- list()
+            flat_pal <- character()
             for (k in seq_len(num_inst)) {
               conts <- conts_all[[k]]
               if (is.null(conts) || length(conts) == 0) next
-
               k_col <- palette_colors[((k - 1) %% length(palette_colors)) + 1]
-              c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
-              poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha)
-              cur_border <- if (is.na(border)) NA else k_col
-
-              for (p in conts) {
-                if (is.matrix(p) && nrow(p) >= 3) {
-                  p_plot <- .decimate_poly(p)
-                  graphics::polygon(p_plot[, 1], p_plot[, 2], col = poly_col, border = cur_border, lwd = lwd)
-                }
-              }
+              p_list <- if (is.matrix(conts)) list(conts) else conts
+              flat_conts <- c(flat_conts, p_list)
+              flat_pal <- c(flat_pal, rep(k_col, length(p_list)))
             }
+            .plot_highlight_polygons(flat_conts, flat_pal, alpha = alpha, border = border, lwd = lwd, bbox = FALSE)
           }
 
-          if (isTRUE(bbox) || !isTRUE(mask)) {
+          if (isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask)) {
             .plot_yolo_bboxes(
               boxes = gs_res$boxes,
               palette_colors = palette_colors,
               lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
               cex = cex,
-              pad = pad,
+              pad = 0,
+              badge_pad = badge_pad,
               show_text = show_text,
               show_conf = show_conf,
               show_class = show_class,
               show_id = show_id,
+              show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+              show_point = show_point,
+              point_size = point_size,
+              point_pch = point_pch,
+              point_col = point_col,
               badge = badge
             )
           } else if (isTRUE(show_id)) {
@@ -5323,19 +7391,70 @@ image_segment_dl <- function(img,
       if (isTRUE(verbose)) {
         .print_detection_summary(gs_res$summary, title = sum_title)
       }
-      flat_conts <- unlist(conts_all, recursive = FALSE)
-      if (is.null(flat_conts)) flat_conts <- list()
-      attr(gs_res, "contours") <- flat_conts
-      attr(gs_res, "centroids") <- data.frame(id = seq_len(num_inst), x = cx, y = cy)
-      if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) == num_inst) {
-        gs_res$boxes$cx <- round(cx, 1)
-        gs_res$boxes$cy <- round(cy, 1)
+      res_df <- if (has_boxes && is.data.frame(gs_res$boxes) && nrow(gs_res$boxes) > 0) {
+        bx <- gs_res$boxes
+        if (!is.null(feats) && is.data.frame(feats) && nrow(feats) > 0 && "id" %in% names(feats)) {
+          if ("area" %in% names(bx) && "area" %in% names(feats)) {
+            names(bx)[names(bx) == "area"] <- "box_area"
+          }
+          feat_cols_to_add <- setdiff(names(feats), c("id", "x", "y"))
+          m_idx <- match(bx$id, feats$id)
+          merged <- cbind(bx, feats[m_idx, feat_cols_to_add, drop = FALSE])
+          if (all(c("area", "box_area") %in% names(merged))) {
+            merged$box_fill <- ifelse(
+              is.finite(merged$box_area) & merged$box_area > 0,
+              round(pmin(1, merged$area / merged$box_area), 4),
+              NA_real_
+            )
+          }
+          merged
+        } else {
+          bx
+        }
+      } else {
+        data.frame()
       }
+      attr(gs_res, "contours") <- instance_conts
+      attr(gs_res, "instance_contours") <- instance_conts
+      attr(gs_res, "centroids") <- data.frame(id = seq_len(num_inst), x = cx, y = cy)
       attr(gs_res, "summary") <- gs_res$summary
       attr(gs_res, "counts") <- gs_res$counts
-      attr(gs_res, "image") <- as_image(mat)
+      attr(gs_res, "results") <- res_df
+      if (!is.null(gs_res$labels)) attr(gs_res, "labels") <- gs_res$labels
+      if (!is.null(gs_res$semantic_map)) attr(gs_res, "semantic_map") <- gs_res$semantic_map
+      attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+      if (isTRUE(attach_im)) {
+        attr(gs_res, "image") <- as_image(mat)
+      }
+      attr(gs_res, "plot_params") <- list(
+        col = user_hl,
+        target_classes = target_classes,
+        rainbow = rainbow,
+        alpha = alpha,
+        border = border,
+        lwd = lwd,
+        cex = cex,
+        bbox = bbox,
+        mask = mask,
+        badge = badge,
+        badge_pad = badge_pad,
+        show_text = show_text,
+        show_conf = show_conf,
+        show_class = show_class,
+        show_id = show_id,
+        show_box = show_box,
+        show_point = show_point,
+        point_size = point_size,
+        point_pch = point_pch,
+        point_col = point_col
+      )
       if (!is.null(gs_res$similarity_map)) attr(gs_res, "similarity_map") <- gs_res$similarity_map
-      gs_res <- .attach_features(gs_res, mat = mat, boxes = gs_res$boxes, conts = flat_conts,
+      gs_res$contours <- instance_conts
+      gs_res$results <- res_df
+      gs_res$boxes <- NULL
+      gs_res$features <- feats
+      class(gs_res) <- c("image_segment_dl", "list")
+      gs_res <- .attach_features(gs_res, mat = mat, boxes = res_df, conts = instance_conts,
                                  return_features = return_features, feature_model = feature_model,
                                  plot_features = plot_features, threads = threads, engine = engine,
                                  device_id = device_id, dir = dir, verbose = verbose,
@@ -5365,51 +7484,66 @@ image_segment_dl <- function(img,
                                verbose = verbose,
                                dir = dir)
 
-  if (!isTRUE(mask) && isTRUE(bbox)) {
+  if (!isTRUE(mask) && (isTRUE(bbox) || isTRUE(show_point))) {
     lbls <- bwlabel_cpp(mask_mat > 0)
     conts <- if (max(lbls) > 0) contour(lbls) else list()
     num_inst <- length(conts)
     if (num_inst > 0) {
       boxes_list <- lapply(seq_along(conts), function(i) {
         p <- conts[[i]]
+        pm <- tryCatch(poly_mass(p), error = function(e) NULL)
+        cx_i <- if (!is.null(pm) && is.matrix(pm) && nrow(pm) >= 1L) pm[1, "x"] else mean(range(p[, 1]))
+        cy_i <- if (!is.null(pm) && is.matrix(pm) && nrow(pm) >= 1L) pm[1, "y"] else mean(range(p[, 2]))
         data.frame(
           id = i,
           xmin = round(min(p[, 1]), 1),
           ymin = round(min(p[, 2]), 1),
           xmax = round(max(p[, 1]), 1),
           ymax = round(max(p[, 2]), 1),
+          cx = round(cx_i, 1),
+          cy = round(cy_i, 1),
           score = 1.0,
           label = "object",
           stringsAsFactors = FALSE
         )
       })
       boxes_df <- do.call(rbind, boxes_list)
+      if (!is.null(pad) && any(pad != 0) && nrow(boxes_df) > 0L) {
+        boxes_df <- .apply_box_padding(boxes_df, pad = pad, orig_w = orig_w, orig_h = orig_h)
+      }
     } else {
       boxes_df <- data.frame(id = integer(0), xmin = numeric(0), ymin = numeric(0),
-                             xmax = numeric(0), ymax = numeric(0), score = numeric(0),
-                             label = character(0), stringsAsFactors = FALSE)
+                             xmax = numeric(0), ymax = numeric(0), cx = numeric(0), cy = numeric(0),
+                             score = numeric(0), label = character(0), stringsAsFactors = FALSE)
     }
     if (isTRUE(plot)) {
-      plot(as_image(mat), ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(as_image(mat)), p_dots))
       if (nrow(boxes_df) > 0) {
-        user_hl <- if (!missing(col_highlight)) col_highlight else if (!is.null(list(...)$col)) list(...)$col else NULL
         palette_colors <- .get_class_palette(
           labels = boxes_df$label,
           n = nrow(boxes_df),
           user_col = user_hl,
-          default_col = if (!is.null(user_hl)) user_hl else "#00CC66",
-          rainbow = rainbow
+          default_col = if (!is.null(user_hl)) user_hl[1] else "#00CC66",
+          rainbow = rainbow,
+          target_classes = target_classes
         )
         .plot_yolo_bboxes(
           boxes = boxes_df,
           palette_colors = palette_colors,
           lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
           cex = cex,
-          pad = pad,
+          pad = 0,
+          badge_pad = badge_pad,
           show_text = show_text,
           show_conf = show_conf,
           show_class = show_class,
           show_id = show_id,
+          show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+          show_point = show_point,
+          point_size = point_size,
+          point_pch = point_pch,
+          point_col = point_col,
           badge = badge
         )
       }
@@ -5425,7 +7559,8 @@ image_segment_dl <- function(img,
   if (type == "mask") {
     mask_img <- as_image(mask_mat, colormode = "Grayscale")
     if (isTRUE(plot)) {
-      plot(mask_img, ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(mask_img), p_dots))
     }
     mask_img <- .attach_features(mask_img, mat = mat, mask_mat = mask_mat,
                                  return_features = return_features, feature_model = feature_model,
@@ -5435,20 +7570,45 @@ image_segment_dl <- function(img,
   }
 
   if (type == "segment") {
-    out <- as_image(mat)
-    col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
-    if (length(dims) == 3) {
-      for (k in seq_len(dims[3])) {
-        fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
-        out[, , k][!mask_mat] <- fill_val
+    is_transparent <- !is.null(col_background) && (
+      is.na(col_background[1]) ||
+      tolower(as.character(col_background[1])) %in% c("transparent", "transp", "none") ||
+      tryCatch(grDevices::col2rgb(col_background[1], alpha = TRUE)[4, 1] == 0, error = function(e) FALSE)
+    )
+    m_fg <- mask_mat > 0
+    if (is_transparent) {
+      if (length(dims) == 3 && dims[3] >= 3) {
+        orig_alpha <- if (dims[3] >= 4) {
+          if (is.raw(mat)) as.integer(mat[, , 4]) else mat[, , 4]
+        } else {
+          if (is.raw(mat)) 255L else 1.0
+        }
+        alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, orig_alpha, 0L)) else ifelse(m_fg, orig_alpha, 0.0)
+        arr <- array(c(mat[, , 1], mat[, , 2], mat[, , 3], alpha_layer), dim = c(dims[1:2], 4L))
+        out <- as_image(arr, colormode = "Color")
+      } else {
+        alpha_layer <- if (is.raw(mat)) as.raw(ifelse(m_fg, 255L, 0L)) else ifelse(m_fg, 1.0, 0.0)
+        g_mat <- if (length(dims) == 3) mat[, , 1] else mat
+        arr <- array(c(g_mat, g_mat, g_mat, alpha_layer), dim = c(dims[1:2], 4L))
+        out <- as_image(arr, colormode = "Color")
       }
     } else {
-      fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
-      out[!mask_mat] <- fill_val
+      out <- as_image(mat)
+      col_rgb <- tryCatch(grDevices::col2rgb(col_background) / 255.0, error = function(e) c(1, 1, 1))
+      if (length(dims) == 3) {
+        for (k in seq_len(dims[3])) {
+          fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[k] * 255)) else col_rgb[k]
+          out[, , k][!m_fg] <- fill_val
+        }
+      } else {
+        fill_val <- if (is.raw(mat)) as.raw(round(col_rgb[1] * 255)) else col_rgb[1]
+        out[!m_fg] <- fill_val
+      }
     }
 
     if (isTRUE(plot)) {
-      plot(out, ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(out), p_dots))
     }
     out <- .attach_features(out, mat = mat, mask_mat = mask_mat,
                             return_features = return_features, feature_model = feature_model,
@@ -5468,7 +7628,8 @@ image_segment_dl <- function(img,
           msg_done = "Highlight overlay ready"
         )
       }
-      plot(as_image(mat), ...)
+      p_dots <- .filter_plot_dots(dots)
+      do.call(graphics::plot, c(list(as_image(mat)), p_dots))
       if (isTRUE(rainbow) && length(conts) > 0) {
         palette_pool <- c(
           "#00CC66", "#0099FF", "#FF9900", "#FF3366", "#9933FF",
@@ -5477,24 +7638,10 @@ image_segment_dl <- function(img,
         )
         pal <- if (length(conts) <= length(palette_pool)) palette_pool[seq_along(conts)] else grDevices::rainbow(length(conts), s = 0.85, v = 0.95)
       } else {
-        pal <- rep(col_highlight, length(conts))
+        cur_hl <- if (!is.null(mask_color)) mask_color else if (col_highlight_specified) col_highlight else if (!is.null(dots$col)) dots$col else col_highlight
+        pal <- rep_len(cur_hl, length(conts))
       }
-      for (ci in seq_along(conts)) {
-        p <- conts[[ci]]
-        k_col <- pal[ci]
-        c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
-        poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha)
-        cur_border <- if (is.na(border)) NA else k_col
-        if (is.matrix(p) && nrow(p) >= 3) {
-          p_plot <- .decimate_poly(p)
-          graphics::polygon(p_plot[, 1], p_plot[, 2], col = poly_col, border = cur_border, lwd = lwd)
-        }
-        if (isTRUE(bbox) && is.matrix(p) && nrow(p) >= 1) {
-          graphics::rect(xleft = min(p[, 1]), ybottom = min(p[, 2]),
-                         xright = max(p[, 1]), ytop = max(p[, 2]),
-                         border = k_col, lwd = lwd)
-        }
-      }
+      .plot_highlight_polygons(conts, pal, alpha = alpha, border = border, lwd = lwd, bbox = bbox)
       if (isTRUE(verbose)) {
         cli::cli_progress_done()
       }
@@ -5519,13 +7666,16 @@ pliman_clear_sessions <- function() {
   if (exists(".pliman_vocab_cache")) {
     rm(list = ls(envir = .pliman_vocab_cache), envir = .pliman_vocab_cache)
   }
+  if (exists(".onnx_meta_cache")) {
+    rm(list = ls(envir = .onnx_meta_cache), envir = .onnx_meta_cache)
+  }
   invisible(NULL)
 }
 
 #' @rdname image_remove_bg_dl
 #' @export
 image_remove_bg <- function(img,
-                            model = c("u2netp", "ben2", "grounded-sam", "sam2.1", "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1", "isnet-general-use", "silueta", "u2net"),
+                            model = c("rmbg-1.4", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam" , "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                             threshold = 0.5,
                             fill_hull = TRUE,
                             filter = 0,
@@ -5592,12 +7742,10 @@ image_remove_bg <- function(img,
 #' @return An `Image` object representing the colorized depth map, with the raw normalized
 #'   depth matrix stored in the `"depth"` attribute (`attr(res, "depth")`).
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'   depth <- image_depth_dl(img)
-#' }
 image_depth_dl <- function(img,
                            model = "depth-anything-v2",
                            col_palette = "magma",
@@ -5732,12 +7880,10 @@ image_depth_dl <- function(img,
 #'   * `num_patches`: Total number of spatial patches.
 #'   * `embed_dim`: Dimensionality of patch embeddings.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'   feats <- image_features_dl(img)
-#' }
 image_features_dl <- function(img,
                               model = "dinov2",
                               patch_size = 14,
@@ -5862,22 +8008,32 @@ image_features_dl <- function(img,
 #' @param model Model name or path to a custom ONNX file. Defaults to `"yolo26n"`.
 #'   Options include `"yolo26n"`, `"yolo26s"`, `"yolo26m"`, `"yolo26l"`, `"yolo26x"`.
 #' @param conf_threshold Minimum confidence score for candidate boxes (default 0.25).
-#' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.45).
+#' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.40).
 #' @param labels Optional character vector of class names (defaults to standard 80 COCO classes).
 #' @param col Optional color or palette for bounding boxes.
 #' @param rainbow Logical. If `TRUE`, assigns a distinct, unique color to each detected object.
 #'   If `FALSE` (the default), objects of the same class share the exact same color. Defaults to `FALSE`.
 #' @param lwd Line width for bounding boxes (default 2).
-#' @param cex Size factor for label text (default `1.0`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
+#' @param cex Size factor for label text (default `1.5`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
 #'   to reduce text size for dense scenes or many objects.
-#' @param pad Padding multiplier controlling the area/background badge size around label text (default `1.0`).
-#'   Can be a single value or a length-2 vector `c(pad_x, pad_y)`. Use `pad = 0` or smaller values for a compact area.
+#' @param pad Padding added to expand bounding boxes around detected objects (default `0`).
+#'   Can be an absolute number of pixels (e.g., `pad = 10`), a relative expansion fraction when
+#'   between 0 and 1 (e.g., `pad = 0.05` for 5% margin), or a length-2 vector `c(pad_x, pad_y)`.
+#' @param bbox Logical. Whether to draw bounding boxes (default `TRUE`).
+#' @param badge_pad Padding multiplier controlling the background badge size around label text (default `1.0`).
+#'   Use `badge_pad = 0` for a badge fitting tightly to the text.
 #' @param show_text Logical. Whether to display text labels on bounding boxes (default `TRUE`).
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
 #' @param show_id Logical. Whether to display object IDs (`#1`, `#2`, ...) in labels (default `FALSE`).
+#' @param show_point Logical. Whether to show a point at the centroid of each detected object. Defaults to `FALSE`.
+#' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (TRUE unless `show_point = TRUE` and all text displays are `FALSE`).
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1`.
+#' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
+#' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
+#' @param classes Optional character or numeric vector of target classes to keep (e.g., `"ship"` or `c("ship", "large vehicle")`). All other detected classes are filtered out. Defaults to `NULL` (keep all).
 #' @param return_features Logical. If `TRUE`, extracts deep feature representations for detected
 #'   bounding boxes and the global image. Attaches `"features"` (an \eqn{N \times D} matrix of per-object
 #'   deep embeddings, 512-D for CLIP or 384-D for DINOv2) and `"feature_map"` (dense spatial 3-component PCA false-color `Image`)
@@ -5886,85 +8042,144 @@ image_features_dl <- function(img,
 #'   Options are `"clip-vit-b32"` (default, OpenAI CLIP ViT-B/32 producing 512-D semantic embeddings) or
 #'   `"dinov2"` (Meta DINOv2-S ViT producing 384-D self-supervised patch embeddings).
 #' @param plot_features Logical. If `TRUE` and `return_features = TRUE`, visualizes the dense spatial PCA feature map. Defaults to `FALSE`.
+#' @param filter_nested Logical. If `TRUE`, removes larger container bounding boxes
+#'   that enclose smaller boxes of the same class. Defaults to `FALSE`.
 #' @param threads Number of CPU threads (default 0 for auto-tuning).
 #' @param engine Execution engine: `"cpu"` or `"gpu"` (DirectML).
 #' @param device_id GPU device ID (default -1 for auto).
 #' @param verbose Logical. Whether to show progress messages.
 #' @param plot Logical. Whether to plot the original image with bounding boxes.
 #' @param dir Model directory (default `pliman_model_dir()`).
+#' @param imgsz Target input image resolution for YOLO inference (e.g., \code{640}, \code{960}, or \code{1024}).
+#'   If \code{NULL} (default), pliman automatically inspects the ONNX model metadata for native training
+#'   resolution and falls back to \code{640} if unspecified. Useful when running models exported with dynamic resolution.
+#' @param max_det Integer. Maximum number of detections kept after non-maximum suppression
+#'   (highest scores first). \code{0} (default) keeps all detections, which is the right
+#'   choice for dense scenes such as seed or grain counting.
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A data frame containing detected bounding boxes (`id`, `xmin`, `ymin`, `xmax`, `ymax`, `label`, `score`),
 #'   with `summary` and `counts` stored as attributes. If `return_features = TRUE`, `features` (an \eqn{N \times D} matrix)
 #'   and `feature_map` (dense spatial PCA `Image`) are also attached as attributes.
+#'   When `img` is a list or a character vector with several file paths, a list of such
+#'   results is returned.
+#' @section Performance:
+#' ONNX sessions are cached for the R session (see [pliman_session_info()]), so only the
+#' first call pays model loading and, on GPU, DirectML compilation. For many images:
+#' \itemize{
+#'   \item use `plot = FALSE` and `verbose = FALSE` (drawing a full-resolution raster
+#'     often costs more than the inference itself);
+#'   \item prefer [image_detect_dl_batch()], which resolves the model once, can run in
+#'     parallel and, with persistent workers from [pliman_daemons()], keeps models loaded
+#'     between calls;
+#'   \item choose `imgsz` deliberately: cost grows roughly with its square;
+#'   \item `engine = "gpu"` gains depend on the GPU. FP16 models ([yolo_export_fp16()])
+#'     are faster only on GPUs with native half-precision throughput (e.g. NVIDIA Tensor
+#'     Cores); on other GPUs and on CPU the casting overhead can make them slower.
+#' }
+#' Use [yolo_benchmark()] to measure inference speed on your hardware.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("objects.png")
 #'   boxes <- image_detect_dl(img)
 #'   # Rainbow coloring per box:
 #'   boxes_rb <- image_detect_dl(img, rainbow = TRUE)
-#' }
 image_detect_dl <- function(img,
                             model = "yolo26n",
                             conf_threshold = 0.25,
-                            iou_threshold = 0.45,
+                            iou_threshold = 0.4,
+                            classes = NULL,
                             labels = NULL,
                             col = NULL,
                             rainbow = TRUE,
                             lwd = 2,
-                            cex = 1.0,
-                            pad = 1.0,
+                            cex = 1.5,
+                            pad = 0,
+                            bbox = TRUE,
                             show_text = TRUE,
                             show_conf = TRUE,
                             show_class = TRUE,
                             show_id = FALSE,
+                            show_point = FALSE,
+                            show_box = NULL,
+                            point_size = 1,
+                            point_pch = 16,
+                            point_col = NULL,
                             badge = TRUE,
+                            badge_pad = 1.0,
                             return_features = FALSE,
                             feature_model = c("yolo", "clip-vit-b32", "dinov2"),
                             plot_features = FALSE,
+                            filter_nested = FALSE,
                             threads = 0,
                             engine = c("gpu", "cpu"),
                             device_id = -1,
                             verbose = TRUE,
                             plot = TRUE,
                             dir = pliman_model_dir(),
+                            imgsz = NULL,
+                            max_det = 0,
                             ...) {
   dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
   if ("cex_scale" %in% names(dots)) cex <- dots$cex_scale
-  if ("label_pad" %in% names(dots)) pad <- dots$label_pad
-  if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
-  if ("pad_scale" %in% names(dots)) pad <- dots$pad_scale
+  if ("box_pad" %in% names(dots)) pad <- dots$box_pad
+  if ("label_pad" %in% names(dots)) badge_pad <- dots$label_pad
+  if ("badge_pad" %in% names(dots)) badge_pad <- dots$badge_pad
+  if ("pad_scale" %in% names(dots)) badge_pad <- dots$pad_scale
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if (is.null(show_box)) {
+    if ("show_boxes" %in% names(dots)) {
+      show_box <- isTRUE(dots$show_boxes)
+    } else {
+      show_box <- isTRUE(bbox)
+    }
+  }
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
-    if (missing(pad)) pad <- cex[2]
+    if (missing(badge_pad)) badge_pad <- cex[2]
     cex <- cex[1]
   }
 
   engine <- match.arg(engine)
+  # A character vector of several image paths is processed like a list (previously only
+  # the first path was used).
+  if (is.character(img) && length(img) > 1L) {
+    img <- as.list(img)
+  }
   if (is.list(img) && !inherits(img, c("Image", "image"))) {
     res <- lapply(img, function(x) {
       image_detect_dl(x, model = model, conf_threshold = conf_threshold, iou_threshold = iou_threshold,
-                      labels = labels, col = col, rainbow = rainbow, lwd = lwd,
-                      cex = cex, pad = pad, show_text = show_text, show_conf = show_conf,
-                      show_class = show_class, show_id = show_id, badge = badge,
+                      classes = classes, labels = labels, col = col, rainbow = rainbow, lwd = lwd,
+                      cex = cex, pad = pad, bbox = bbox, badge_pad = badge_pad, show_text = show_text, show_conf = show_conf,
+                      show_class = show_class, show_id = show_id, show_point = show_point,
+                      show_box = show_box, point_size = point_size, point_pch = point_pch,
+                      point_col = point_col, badge = badge,
                       return_features = return_features, feature_model = feature_model, plot_features = plot_features,
+                      filter_nested = filter_nested,
                       threads = threads, engine = engine, device_id = device_id, verbose = verbose, plot = FALSE,
-                      dir = dir, ...)
+                      dir = dir, imgsz = imgsz, max_det = max_det, ...)
     })
     return(res)
   }
 
-  mat <- if (inherits(img, c("Image", "image"))) image_data(img) else img
+  mat <- if (isS4(img) && methods::.hasSlot(img, ".Data")) methods::slot(img, ".Data") else img
   if (is.character(img) && file.exists(img[1])) {
     img_obj <- image_import(img[1])
-    mat <- image_data(img_obj)
+    mat <- if (isS4(img_obj) && methods::.hasSlot(img_obj, ".Data")) methods::slot(img_obj, ".Data") else img_obj
   }
   dims <- dim(mat)
   if (is.null(dims) || length(dims) < 2) {
@@ -5975,7 +8190,12 @@ image_detect_dl <- function(img,
   model_str <- if (is_url) {
     model[1]
   } else if (is.character(model)) {
-    .resolve_model_name(model[1])
+    local_m <- .find_local_model(model[1], dir = dir)
+    if (!is.null(local_m)) {
+      local_m
+    } else {
+      .resolve_model_name(model[1])
+    }
   } else {
     "yolo26n"
   }
@@ -5984,6 +8204,26 @@ image_detect_dl <- function(img,
     cli::cli_abort(c(
       "Model {.val {model[1]}} is an image classification model, not an object detector.",
       "i" = "Please use {.fn image_classify_dl} instead."
+    ))
+  }
+  if (!is_url && grepl("[-_]sem(\\.|$)", tolower(model_str))) {
+    cli::cli_abort(c(
+      "Model {.val {model[1]}} is a semantic segmentation model, not an object detector.",
+      "i" = "Please use {.fn image_segment_dl} instead."
+    ))
+  }
+
+  bg_models <- c(
+    "u2netp", "u2net", "birefnet-lite", "birefnet", "isnet-general-use", "isnet",
+    "rmbg-1.4", "rmbg-2.0", "rmbg", "silueta", "withoutbg", "ben2", "ben"
+  )
+  raw_m <- if (is.character(model)) model[1] else "yolo26n"
+  stem_m <- tolower(sub("\\.(onnx|pt)$", "", basename(raw_m)))
+  resolved_stem <- tolower(sub("\\.(onnx|pt)$", "", basename(.resolve_model_name(raw_m))))
+  if (!is_url && (raw_m %in% bg_models || stem_m %in% bg_models || resolved_stem %in% bg_models)) {
+    cli::cli_abort(c(
+      "Model {.val {model[1]}} is a background removal / salient object segmentation model, not an object detector.",
+      "i" = "Please use {.fn image_segment_dl} instead."
     ))
   }
 
@@ -6007,6 +8247,11 @@ image_detect_dl <- function(img,
       show_conf = show_conf,
       show_class = show_class,
       show_id = show_id,
+      show_point = show_point,
+      show_box = show_box,
+      point_size = point_size,
+      point_pch = point_pch,
+      point_col = point_col,
       badge = badge,
       return_features = return_features,
       feature_model = feature_model,
@@ -6015,16 +8260,14 @@ image_detect_dl <- function(img,
       verbose = verbose,
       dir = dir,
       model = world_model,
+      imgsz = imgsz,
       ...
     ))
   }
 
-  if (isTRUE(verbose)) {
-    pb <- cli::cli_process_start(
-      "Running YOLO object detection [{toupper(engine)}]...",
-      on_exit = "failed"
-    )
-  }
+  is_seg_model <- grepl("-seg", model_str)
+  wants_mask <- (!is.null(dots$type) && dots$type %in% c("highlight", "mask", "segment")) || isTRUE(dots$mask)
+  need_masks <- is_seg_model && wants_mask
 
   res <- .run_yolo(
     mat = mat,
@@ -6035,24 +8278,59 @@ image_detect_dl <- function(img,
     threads = threads,
     engine = engine,
     device_id = device_id,
-    need_masks = FALSE,
+    need_masks = need_masks,
     return_features = return_features,
-    dir = dir
+    dir = dir,
+    imgsz = imgsz,
+    max_det = max_det
   )
 
-  if (isTRUE(verbose)) {
-    sum_txt <- if (!is.null(res$summary) && nzchar(res$summary) && res$summary != "0 objects") {
-      paste0("pliman detected {.bold ", res$summary, "} in the image.")
-    } else {
-      "No objects detected in the image."
+  if (!is.null(classes) && !is.null(res$boxes) && nrow(res$boxes) > 0) {
+    c_match <- tolower(as.character(classes))
+    idx_keep <- tolower(res$boxes$label) %in% c_match
+    if (is.numeric(classes)) {
+      idx_keep <- idx_keep | res$boxes$class_id %in% classes
     }
-    cli::cli_process_done(id = pb, msg_done = sum_txt)
+    res$boxes <- res$boxes[idx_keep, , drop = FALSE]
+    num_inst <- nrow(res$boxes)
+    if (num_inst > 0) {
+      counts <- table(factor(res$boxes$label, levels = unique(res$boxes$label)))
+      res$counts <- data.frame(class = names(counts), count = as.integer(counts), stringsAsFactors = FALSE)
+      res$summary <- .format_detection_summary(res$boxes$label)
+    } else {
+      res$counts <- data.frame(class = character(0), count = integer(0), stringsAsFactors = FALSE)
+      res$summary <- "0 objects"
+    }
+  }
+
+  if (isTRUE(verbose)) {
+    tick <- cli::col_green(cli::symbol$tick)
+    sum_txt <- if (!is.null(res$summary) && nzchar(res$summary) && res$summary != "0 objects") {
+      paste0(tick, " pliman detected ", cli::style_bold(res$summary), " in the image.")
+    } else {
+      paste0(tick, " No objects detected in the image.")
+    }
+    message(sum_txt)
   }
 
   df_boxes <- res$boxes
+  if (isTRUE(filter_nested) && is.data.frame(df_boxes) && nrow(df_boxes) > 1L) {
+    df_boxes <- .filter_nested_boxes(df_boxes)
+    if (!is.null(res$summary) && nrow(df_boxes) > 0L) {
+      res$summary <- .format_detection_summary(df_boxes$label)
+    }
+  }
+  if (is.data.frame(df_boxes)) {
+    df_boxes <- .add_box_geometry(df_boxes, update_cx = TRUE)
+  }
+
+  if (!is.null(pad) && any(pad != 0) && is.data.frame(df_boxes) && nrow(df_boxes) > 0L) {
+    df_boxes <- .apply_box_padding(df_boxes, pad = pad, orig_w = dims[1], orig_h = dims[2])
+  }
 
   if (isTRUE(plot)) {
-    plot(as_image(mat), ...)
+    p_dots <- .filter_plot_dots(dots)
+    do.call(graphics::plot, c(list(as_image(mat)), p_dots))
     num_inst <- nrow(df_boxes)
     if (num_inst > 0) {
       palette_colors <- .get_class_palette(
@@ -6062,19 +8340,49 @@ image_detect_dl <- function(img,
         default_col = if (!is.null(col)) col else "#00CC66",
         rainbow = rainbow
       )
+      if (need_masks && !is.null(res$contours) && is.list(res$contours) && length(res$contours) > 0) {
+        alpha_val <- if (!is.null(dots$alpha)) dots$alpha else 0.4
+        border_val <- if (!is.null(dots$border)) dots$border else NA
+        for (k in seq_len(min(num_inst, length(res$contours)))) {
+          ck <- res$contours[[k]]
+          if (is.null(ck) || length(ck) == 0L) next
+          k_col <- palette_colors[((k - 1) %% length(palette_colors)) + 1]
+          c_rgb <- tryCatch(grDevices::col2rgb(k_col) / 255.0, error = function(e) c(0, 1, 0))
+          poly_col <- grDevices::rgb(c_rgb[1], c_rgb[2], c_rgb[3], alpha = alpha_val)
+          cur_border <- if (is.na(border_val)) NA else k_col
+          p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+          for (p in p_list) {
+            if (is.matrix(p) && nrow(p) >= 3) {
+              graphics::polygon(p[, 1], p[, 2], col = poly_col, border = cur_border, lwd = lwd)
+            }
+          }
+        }
+      }
       .plot_yolo_bboxes(
         boxes = df_boxes,
         palette_colors = palette_colors,
         lwd = lwd,
         cex = cex,
-        pad = pad,
+        pad = 0,
+        badge_pad = badge_pad,
         show_text = show_text,
         show_conf = show_conf,
         show_class = show_class,
         show_id = show_id,
+        show_box = show_box,
+        show_point = show_point,
+        point_size = point_size,
+        point_pch = point_pch,
+        point_col = point_col,
         badge = badge
       )
     }
+  }
+
+  if (need_masks) {
+    attr(df_boxes, "contours") <- res$contours
+    attr(df_boxes, "labels") <- res$labels
+    attr(df_boxes, "mask") <- res$mask
   }
 
   df_boxes <- .attach_features(
@@ -6094,14 +8402,865 @@ image_detect_dl <- function(img,
 
   attr(df_boxes, "summary") <- res$summary
   attr(df_boxes, "counts") <- res$counts
-  attr(df_boxes, "image") <- as_image(mat)
+  attr(df_boxes, "centroids") <- if (is.data.frame(df_boxes) && "cx" %in% names(df_boxes)) {
+    data.frame(id = seq_len(nrow(df_boxes)), x = df_boxes$cx, y = df_boxes$cy)
+  } else {
+    NULL
+  }
+  attach_im <- if (!is.null(dots$attach_image)) isTRUE(dots$attach_image) else if (!is.null(dots$keep_images)) isTRUE(dots$keep_images) else if (!is.null(dots$keep_image)) isTRUE(dots$keep_image) else TRUE
+  if (isTRUE(attach_im)) {
+    attr(df_boxes, "image") <- as_image(mat)
+  }
+  attr(df_boxes, "plot_params") <- list(
+    col = col,
+    rainbow = rainbow,
+    alpha = if (!is.null(dots$alpha)) dots$alpha else 0.4,
+    border = if (!is.null(dots$border)) dots$border else NA,
+    lwd = lwd,
+    cex = cex,
+    bbox = isTRUE(show_box),
+    mask = isTRUE(need_masks),
+    badge = badge,
+    badge_pad = badge_pad,
+    show_text = show_text,
+    show_conf = show_conf,
+    show_class = show_class,
+    show_id = show_id,
+    show_box = show_box,
+    show_point = show_point,
+    point_size = point_size,
+    point_pch = point_pch,
+    point_col = point_col
+  )
   if (isTRUE(return_features)) {
     attr(df_boxes, "heatmap") <- res$heatmap
     attr(df_boxes, "feature_energy") <- res$feature_energy
     attr(df_boxes, "feature_map") <- res$feature_map
     attr(df_boxes, "embeddings") <- res$embeddings
   }
+  class(df_boxes) <- c("image_detect_dl", "data.frame")
   invisible(df_boxes)
+}
+
+# Internal helper shared by plot.image_segment_dl() and plot.image_detect_dl()
+.render_dl_overlay <- function(img = NULL,
+                               boxes = NULL,
+                               contours = NULL,
+                               col = NULL,
+                               target_classes = NULL,
+                               rainbow = TRUE,
+                               alpha = 0.5,
+                               border = "black",
+                               lwd = 1,
+                               cex = 0.9,
+                               bbox = FALSE,
+                               mask = TRUE,
+                               badge = TRUE,
+                               badge_pad = 4,
+                               show_text = TRUE,
+                               show_conf = TRUE,
+                               show_class = TRUE,
+                               show_id = FALSE,
+                               show_box = NULL,
+                               show_point = FALSE,
+                               point_size = 1,
+                               point_pch = 16,
+                               point_col = NULL,
+                               dots = list()) {
+  if (!is.null(img)) {
+    p_dots <- .filter_plot_dots(dots)
+    do.call(graphics::plot, c(list(as_image(img)), p_dots))
+  } else {
+    xr <- if (!is.null(boxes) && nrow(boxes) > 0) c(0, max(boxes$xmax, na.rm = TRUE) * 1.05) else c(0, 100)
+    yr <- if (!is.null(boxes) && nrow(boxes) > 0) c(max(boxes$ymax, na.rm = TRUE) * 1.05, 0) else c(100, 0)
+    graphics::plot(NA, xlim = xr, ylim = yr, asp = 1, xlab = "", ylab = "", axes = FALSE)
+  }
+
+  num_inst <- if (!is.null(boxes) && is.data.frame(boxes)) nrow(boxes) else 0L
+  if (num_inst == 0L) {
+    return(invisible(NULL))
+  }
+
+  palette_colors <- .get_class_palette(
+    labels = boxes$label,
+    n = num_inst,
+    user_col = col,
+    default_col = if (!is.null(col)) col[1] else "#00CC66",
+    rainbow = rainbow,
+    target_classes = target_classes
+  )
+
+  if (isTRUE(mask) && !is.null(contours) && length(contours) > 0L) {
+    flat_conts <- list()
+    flat_pal <- character()
+    for (k in seq_len(min(num_inst, length(contours)))) {
+      ck <- contours[[k]]
+      if (is.null(ck) || length(ck) == 0L) next
+      k_col <- palette_colors[((k - 1L) %% length(palette_colors)) + 1L]
+      p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+      flat_conts <- c(flat_conts, p_list)
+      flat_pal <- c(flat_pal, rep(k_col, length(p_list)))
+    }
+    if (length(flat_conts) > 0L) {
+      .plot_highlight_polygons(flat_conts, flat_pal, alpha = alpha, border = border, lwd = lwd, bbox = FALSE)
+    }
+  }
+
+  draw_boxes <- isTRUE(bbox) || isTRUE(show_point) || !isTRUE(mask) || (!is.null(show_box) && isTRUE(show_box))
+  if (draw_boxes) {
+    .plot_yolo_bboxes(
+      boxes = boxes,
+      palette_colors = palette_colors,
+      lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+      cex = cex,
+      pad = 0,
+      badge_pad = badge_pad,
+      show_text = show_text,
+      show_conf = show_conf,
+      show_class = show_class,
+      show_id = show_id,
+      show_box = if (!is.null(show_box)) show_box else isTRUE(bbox),
+      show_point = show_point,
+      point_size = point_size,
+      point_pch = point_pch,
+      point_col = point_col,
+      badge = badge
+    )
+  } else if (isTRUE(show_id) && all(c("cx", "cy") %in% names(boxes))) {
+    graphics::points(boxes$cx, boxes$cy, pch = 21, bg = "black", col = "white", cex = 2.2)
+    graphics::text(boxes$cx, boxes$cy, labels = as.character(seq_len(num_inst)), col = "white", font = 2, cex = 0.9)
+  }
+  invisible(NULL)
+}
+
+#' Plot method for \code{image_segment_dl} objects
+#'
+#' Re-renders the segmentation overlay (masks, bounding boxes, and labels)
+#' returned by [image_segment_dl()]. Any visual parameter not explicitly
+#' supplied defaults to the value used during the original call.
+#'
+#' @param x An object of class \code{image_segment_dl} returned by
+#'   [image_segment_dl()].
+#' @param img Optional \code{Image} object to use as background. Defaults to
+#'   \code{attr(x, "image")} when available.
+#' @param col_highlight,alpha,border,lwd,cex,bbox,mask,rainbow,badge,badge_pad,show_text,show_conf,show_class,show_id,show_box,show_point,point_size,point_pch,point_col
+#'   Visual parameters overriding the original [image_segment_dl()] settings.
+#' @param ... Additional graphical arguments passed to [graphics::plot()].
+#'
+#' @return Invisibly returns \code{x}.
+#' @export
+plot.image_segment_dl <- function(x,
+                                  img = NULL,
+                                  col_highlight = NULL,
+                                  alpha = NULL,
+                                  border = NULL,
+                                  lwd = NULL,
+                                  cex = NULL,
+                                  bbox = NULL,
+                                  mask = NULL,
+                                  rainbow = NULL,
+                                  badge = NULL,
+                                  badge_pad = NULL,
+                                  show_text = NULL,
+                                  show_conf = NULL,
+                                  show_class = NULL,
+                                  show_id = NULL,
+                                  show_box = NULL,
+                                  show_point = NULL,
+                                  point_size = NULL,
+                                  point_pch = NULL,
+                                  point_col = NULL,
+                                  ...) {
+  pp <- attr(x, "plot_params")
+  if (is.null(pp)) pp <- list()
+  pick <- function(val, key, default) {
+    if (!is.null(val)) val else if (!is.null(pp[[key]])) pp[[key]] else default
+  }
+  bg_img <- if (!is.null(img)) img else attr(x, "image")
+  boxes <- if (!is.null(x$results) && is.data.frame(x$results)) x$results else attr(x, "results")
+  conts <- if (!is.null(x$contours)) x$contours else attr(x, "contours")
+
+  .render_dl_overlay(
+    img = bg_img,
+    boxes = boxes,
+    contours = conts,
+    col = if (!is.null(col_highlight)) col_highlight else pp$col,
+    target_classes = pp$target_classes,
+    rainbow = pick(rainbow, "rainbow", TRUE),
+    alpha = pick(alpha, "alpha", 0.5),
+    border = if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else "black",
+    lwd = pick(lwd, "lwd", 1),
+    cex = pick(cex, "cex", 0.9),
+    bbox = pick(bbox, "bbox", FALSE),
+    mask = pick(mask, "mask", TRUE),
+    badge = pick(badge, "badge", TRUE),
+    badge_pad = pick(badge_pad, "badge_pad", 4),
+    show_text = pick(show_text, "show_text", TRUE),
+    show_conf = pick(show_conf, "show_conf", TRUE),
+    show_class = pick(show_class, "show_class", TRUE),
+    show_id = pick(show_id, "show_id", FALSE),
+    show_box = if (!is.null(show_box)) show_box else pp$show_box,
+    show_point = pick(show_point, "show_point", FALSE),
+    point_size = pick(point_size, "point_size", 1),
+    point_pch = pick(point_pch, "point_pch", 16),
+    point_col = if (!is.null(point_col)) point_col else pp$point_col,
+    dots = list(...)
+  )
+  invisible(x)
+}
+
+#' Plot method for \code{image_detect_dl} objects
+#'
+#' Re-renders the detection overlay (bounding boxes, optional instance masks,
+#' and labels) returned by [image_detect_dl()]. Any visual parameter not
+#' explicitly supplied defaults to the value used during the original call.
+#'
+#' @param x An object of class \code{image_detect_dl} returned by
+#'   [image_detect_dl()].
+#' @param img Optional \code{Image} object to use as background. Defaults to
+#'   \code{attr(x, "image")} when available.
+#' @param col,alpha,border,lwd,cex,bbox,mask,rainbow,badge,badge_pad,show_text,show_conf,show_class,show_id,show_box,show_point,point_size,point_pch,point_col
+#'   Visual parameters overriding the original [image_detect_dl()] settings.
+#' @param ... Additional graphical arguments passed to [graphics::plot()].
+#'
+#' @return Invisibly returns \code{x}.
+#' @export
+plot.image_detect_dl <- function(x,
+                                 img = NULL,
+                                 col = NULL,
+                                 alpha = NULL,
+                                 border = NULL,
+                                 lwd = NULL,
+                                 cex = NULL,
+                                 bbox = NULL,
+                                 mask = NULL,
+                                 rainbow = NULL,
+                                 badge = NULL,
+                                 badge_pad = NULL,
+                                 show_text = NULL,
+                                 show_conf = NULL,
+                                 show_class = NULL,
+                                 show_id = NULL,
+                                 show_box = NULL,
+                                 show_point = NULL,
+                                 point_size = NULL,
+                                 point_pch = NULL,
+                                 point_col = NULL,
+                                 ...) {
+  pp <- attr(x, "plot_params")
+  if (is.null(pp)) pp <- list()
+  pick <- function(val, key, default) {
+    if (!is.null(val)) val else if (!is.null(pp[[key]])) pp[[key]] else default
+  }
+  bg_img <- if (!is.null(img)) img else attr(x, "image")
+  conts <- attr(x, "contours")
+
+  .render_dl_overlay(
+    img = bg_img,
+    boxes = x,
+    contours = conts,
+    col = if (!is.null(col)) col else pp$col,
+    rainbow = pick(rainbow, "rainbow", TRUE),
+    alpha = pick(alpha, "alpha", 0.4),
+    border = if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else NA,
+    lwd = pick(lwd, "lwd", 2),
+    cex = pick(cex, "cex", 0.9),
+    bbox = pick(bbox, "bbox", TRUE),
+    mask = pick(mask, "mask", !is.null(conts)),
+    badge = pick(badge, "badge", TRUE),
+    badge_pad = pick(badge_pad, "badge_pad", 4),
+    show_text = pick(show_text, "show_text", TRUE),
+    show_conf = pick(show_conf, "show_conf", TRUE),
+    show_class = pick(show_class, "show_class", TRUE),
+    show_id = pick(show_id, "show_id", FALSE),
+    show_box = if (!is.null(show_box)) show_box else pp$show_box,
+    show_point = pick(show_point, "show_point", FALSE),
+    point_size = pick(point_size, "point_size", 1),
+    point_pch = pick(point_pch, "point_pch", 16),
+    point_col = if (!is.null(point_col)) point_col else pp$point_col,
+    dots = list(...)
+  )
+  invisible(x)
+}
+
+# Internal helper to extract boxes, contours, labels, and image from detection/segmentation outputs
+.extract_dl_components <- function(obj) {
+  if (inherits(obj, "image_segment_dl") || (is.list(obj) && !is.data.frame(obj))) {
+    boxes <- if (!is.null(obj$results) && is.data.frame(obj$results)) {
+      obj$results
+    } else if (!is.null(obj$boxes) && is.data.frame(obj$boxes)) {
+      obj$boxes
+    } else if (!is.null(attr(obj, "results")) && is.data.frame(attr(obj, "results"))) {
+      attr(obj, "results")
+    } else {
+      data.frame()
+    }
+    contours <- if (!is.null(obj$contours)) obj$contours else attr(obj, "contours")
+    labels_img <- if (!is.null(obj$labels)) obj$labels else attr(obj, "labels")
+    bg_img <- if (!is.null(attr(obj, "image"))) attr(obj, "image") else obj$image
+    has_mask <- !is.null(contours) && length(contours) > 0L
+  } else if (is.data.frame(obj)) {
+    boxes <- as.data.frame(obj)
+    contours <- attr(obj, "contours")
+    labels_img <- attr(obj, "labels")
+    bg_img <- attr(obj, "image")
+    has_mask <- !is.null(contours) && length(contours) > 0L
+  } else if (inherits(obj, c("Image", "image"))) {
+    boxes <- if (!is.null(attr(obj, "results"))) attr(obj, "results") else if (!is.null(attr(obj, "boxes"))) attr(obj, "boxes") else data.frame()
+    contours <- attr(obj, "contours")
+    labels_img <- attr(obj, "labels")
+    bg_img <- if (!is.null(attr(obj, "image"))) attr(obj, "image") else obj
+    has_mask <- !is.null(contours) && length(contours) > 0L
+  } else {
+    cli::cli_abort("Unsupported object type in {.fn image_compare_dl}. Expected output from {.fn image_detect_dl} or {.fn image_segment_dl}.")
+  }
+  list(
+    boxes = boxes,
+    contours = contours,
+    labels = labels_img,
+    image = bg_img,
+    has_mask = has_mask
+  )
+}
+
+#' Compare Two Deep-Learning Detection or Segmentation Results
+#'
+#' Compares two outputs from [image_detect_dl()] or [image_segment_dl()] by
+#' matching instances via bounding-box Intersection-over-Union (IoU) and
+#' classifying each detection/segment into `"common"` (intersection: matched in
+#' both `x` and `y`), `"only_x"` (present only in `x`), or `"only_y"` (present
+#' only in `y`).
+#'
+#' @param x,y Objects returned by [image_detect_dl()] or [image_segment_dl()].
+#' @param mode Character string specifying which subset of instances to retain
+#'   and plot:
+#'   * `"all"` or `"union"` (default): all instances (`"common"`, `"only_x"`,
+#'     and `"only_y"`).
+#'   * `"intersection"`: only consensus instances matched in both `x` and `y`
+#'     (`"common"`).
+#'   * `"difference"`: symmetric difference — instances exclusive to either `x`
+#'     or `y` (`"only_x"` and `"only_y"`).
+#'   * `"only_x"`: instances present in `x` but absent in `y` (\eqn{x \setminus y}).
+#'   * `"only_y"`: instances present in `y` but absent in `x` (\eqn{y \setminus x}).
+#' @param iou_threshold Numeric IoU threshold in \eqn{(0, 1]} required to pair
+#'   an instance from `x` with an instance from `y`. Defaults to `0.5`.
+#' @param match_class Logical. If `TRUE` (default), only instances with matching
+#'   class labels can be paired.
+#' @param names Optional character vector of length 2 giving human-readable
+#'   labels for `x` and `y` in summaries, badges, and the plot legend. Defaults
+#'   to the deparsed argument expressions.
+#' @param img Optional `Image` object to use as background when plotting.
+#'   Defaults to the image attached to `x` or `y`.
+#' @param col Named or length-3 character vector of colors for `"common"`,
+#'   `"only_x"`, and `"only_y"`. Defaults to
+#'   `c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF")`.
+#' @param alpha,border,lwd,cex,bbox,mask,badge,badge_pad,show_text,show_conf,show_class,show_id
+#'   Visual overlay parameters forwarded to the plot renderer.
+#' @param show_status Logical. If `TRUE` (default), prefixes the class label of
+#'   exclusive detections with `[-name_x]` or `[+name_y]` in the plotted badge.
+#' @param show_legend Logical. If `TRUE` (default), draws a status legend on the
+#'   plot indicating counts for common and exclusive detections.
+#' @param legend_pos Position of the legend (e.g. `"topright"`, `"topleft"`,
+#'   `"bottomright"`, `"bottomleft"`). Defaults to `"topright"`.
+#' @param plot Logical. If `TRUE` (default), renders the comparison overlay.
+#' @param verbose Logical. If `TRUE` (default), prints a comparison summary to
+#'   the console.
+#' @param ... Additional graphical parameters passed to [graphics::plot()].
+#'
+#' @return Invisibly returns an object of class `c("image_compare_dl", "list")`
+#'   with elements:
+#'   * `results`: `data.frame` of instances matching `mode`, including columns
+#'     `status` (`"common"`, `"only_x"`, `"only_y"`), `source`, `id_x`, `id_y`,
+#'     `score_x`, `score_y`, and `iou`.
+#'   * `all_results`: `data.frame` containing all instances across all three
+#'     statuses regardless of `mode`.
+#'   * `counts`: `data.frame` summarizing instance counts per status.
+#'   * `metrics`: list with `n_x`, `n_y`, `n_common`, `n_only_x`, `n_only_y`,
+#'     `jaccard_instances`, `mean_box_iou`, and (when pixel masks are present)
+#'     `mask_iou` and `mask_dice`.
+#'   * `contours`: list of polygon contours aligned with `results`.
+#'   * `summary`: formatted summary string.
+#' @export
+image_compare_dl <- function(x,
+                             y,
+                             mode = c("all", "intersection", "difference", "union", "only_x", "only_y"),
+                             iou_threshold = 0.5,
+                             match_class = TRUE,
+                             names = NULL,
+                             img = NULL,
+                             col = c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF"),
+                             alpha = 0.45,
+                             border = "black",
+                             lwd = 2,
+                             cex = 0.9,
+                             bbox = NULL,
+                             mask = NULL,
+                             badge = TRUE,
+                             badge_pad = 4,
+                             show_text = TRUE,
+                             show_conf = TRUE,
+                             show_class = TRUE,
+                             show_id = FALSE,
+                             show_status = TRUE,
+                             show_legend = TRUE,
+                             legend_pos = "topright",
+                             plot = TRUE,
+                             verbose = TRUE,
+                             ...) {
+  mode <- match.arg(mode)
+  if (mode == "union") mode <- "all"
+
+  if (is.null(names) || length(names) < 2L) {
+    nm_x <- tryCatch(deparse(substitute(x))[1L], error = function(e) "x")
+    nm_y <- tryCatch(deparse(substitute(y))[1L], error = function(e) "y")
+    names <- c(nm_x, nm_y)
+  } else {
+    names <- as.character(names[1:2])
+  }
+
+  cx_obj <- .extract_dl_components(x)
+  cy_obj <- .extract_dl_components(y)
+
+  bx_x <- cx_obj$boxes
+  bx_y <- cy_obj$boxes
+  cont_x <- cx_obj$contours
+  cont_y <- cy_obj$contours
+
+  req_cols <- c("xmin", "ymin", "xmax", "ymax")
+  n_x <- if (is.data.frame(bx_x) && all(req_cols %in% names(bx_x))) nrow(bx_x) else 0L
+  n_y <- if (is.data.frame(bx_y) && all(req_cols %in% names(bx_y))) nrow(bx_y) else 0L
+
+  if (n_x > 0L && !("id" %in% names(bx_x))) bx_x$id <- seq_len(n_x)
+  if (n_y > 0L && !("id" %in% names(bx_y))) bx_y$id <- seq_len(n_y)
+  if (n_x > 0L && !("label" %in% names(bx_x))) bx_x$label <- "object"
+  if (n_y > 0L && !("label" %in% names(bx_y))) bx_y$label <- "object"
+  if (n_x > 0L && !("score" %in% names(bx_x))) bx_x$score <- NA_real_
+  if (n_y > 0L && !("score" %in% names(bx_y))) bx_y$score <- NA_real_
+
+  # Pairwise IoU matrix (n_x x n_y)
+  iou_mat <- matrix(0, nrow = n_x, ncol = n_y)
+  if (n_x > 0L && n_y > 0L) {
+    for (i in seq_len(n_x)) {
+      xx1 <- pmax(bx_x$xmin[i], bx_y$xmin)
+      yy1 <- pmax(bx_x$ymin[i], bx_y$ymin)
+      xx2 <- pmin(bx_x$xmax[i], bx_y$xmax)
+      yy2 <- pmin(bx_x$ymax[i], bx_y$ymax)
+      inter <- pmax(0, xx2 - xx1) * pmax(0, yy2 - yy1)
+      area_i <- pmax(0, bx_x$xmax[i] - bx_x$xmin[i]) * pmax(0, bx_x$ymax[i] - bx_x$ymin[i])
+      area_y <- pmax(0, bx_y$xmax - bx_y$xmin) * pmax(0, bx_y$ymax - bx_y$ymin)
+      union_a <- area_i + area_y - inter
+      iou_mat[i, ] <- ifelse(union_a > 0, inter / union_a, 0)
+    }
+  }
+
+  # Greedy matching subject to iou_threshold and optional class agreement
+  work_iou <- iou_mat
+  if (isTRUE(match_class) && n_x > 0L && n_y > 0L) {
+    lx <- tolower(trimws(as.character(bx_x$label)))
+    ly <- tolower(trimws(as.character(bx_y$label)))
+    same_cls <- outer(lx, ly, "==")
+    work_iou[!same_cls] <- -1
+  }
+
+  matched_x <- integer(0)
+  matched_y <- integer(0)
+  matched_ious <- numeric(0)
+
+  if (n_x > 0L && n_y > 0L) {
+    while (TRUE) {
+      max_val <- max(work_iou, na.rm = TRUE)
+      if (!is.finite(max_val) || max_val < iou_threshold) break
+      pos <- which(work_iou == max_val, arr.ind = TRUE)[1L, ]
+      i_idx <- pos[1L]
+      j_idx <- pos[2L]
+      matched_x <- c(matched_x, i_idx)
+      matched_y <- c(matched_y, j_idx)
+      matched_ious <- c(matched_ious, max_val)
+      work_iou[i_idx, ] <- -1
+      work_iou[, j_idx] <- -1
+    }
+  }
+
+  unmatched_x <- setdiff(seq_len(n_x), matched_x)
+  unmatched_y <- setdiff(seq_len(n_y), matched_y)
+
+  # Harmonize shared geometry/feature columns
+  base_cols <- c("id", "xmin", "ymin", "xmax", "ymax", "label", "score")
+  if (n_x > 0L) bx_x <- .add_box_geometry(bx_x, update_cx = !("cx" %in% names(bx_x)))
+  if (n_y > 0L) bx_y <- .add_box_geometry(bx_y, update_cx = !("cx" %in% names(bx_y)))
+  geom_cols <- intersect(c("id", "xmin", "ymin", "xmax", "ymax", "label", "score", "cx", "cy", "width", "height", "box_area", "area", "box_fill"),
+                         union(names(bx_x), names(bx_y)))
+
+  take_row <- function(df, r, cols) {
+    out <- data.frame(row.names = 1L)
+    for (cn in cols) {
+      out[[cn]] <- if (cn %in% names(df)) df[[cn]][r] else NA
+    }
+    out
+  }
+
+  rows_list <- list()
+  conts_all <- list()
+  idx_out <- 0L
+
+  # 1. Common (intersection)
+  for (k in seq_along(matched_x)) {
+    i <- matched_x[k]
+    j <- matched_y[k]
+    idx_out <- idx_out + 1L
+    r_df <- take_row(bx_x, i, geom_cols)
+    r_df$id <- idx_out
+    r_df$status <- "common"
+    r_df$source <- paste0(names[1L], " & ", names[2L])
+    r_df$id_x <- bx_x$id[i]
+    r_df$id_y <- bx_y$id[j]
+    r_df$score_x <- bx_x$score[i]
+    r_df$score_y <- bx_y$score[j]
+    r_df$iou <- round(matched_ious[k], 4)
+    rows_list[[idx_out]] <- r_df
+    conts_all[[idx_out]] <- if (!is.null(cont_x) && length(cont_x) >= i) cont_x[[i]] else if (!is.null(cont_y) && length(cont_y) >= j) cont_y[[j]] else NULL
+  }
+
+  # 2. Only in x (x \ y)
+  for (i in unmatched_x) {
+    idx_out <- idx_out + 1L
+    r_df <- take_row(bx_x, i, geom_cols)
+    r_df$id <- idx_out
+    r_df$status <- "only_x"
+    r_df$source <- paste0("only ", names[1L])
+    r_df$id_x <- bx_x$id[i]
+    r_df$id_y <- NA_integer_
+    r_df$score_x <- bx_x$score[i]
+    r_df$score_y <- NA_real_
+    r_df$iou <- if (n_y > 0L) round(max(iou_mat[i, ], na.rm = TRUE), 4) else 0
+    rows_list[[idx_out]] <- r_df
+    conts_all[[idx_out]] <- if (!is.null(cont_x) && length(cont_x) >= i) cont_x[[i]] else NULL
+  }
+
+  # 3. Only in y (y \ x)
+  for (j in unmatched_y) {
+    idx_out <- idx_out + 1L
+    r_df <- take_row(bx_y, j, geom_cols)
+    r_df$id <- idx_out
+    r_df$status <- "only_y"
+    r_df$source <- paste0("only ", names[2L])
+    r_df$id_x <- NA_integer_
+    r_df$id_y <- bx_y$id[j]
+    r_df$score_x <- NA_real_
+    r_df$score_y <- bx_y$score[j]
+    r_df$iou <- if (n_x > 0L) round(max(iou_mat[, j], na.rm = TRUE), 4) else 0
+    rows_list[[idx_out]] <- r_df
+    conts_all[[idx_out]] <- if (!is.null(cont_y) && length(cont_y) >= j) cont_y[[j]] else NULL
+  }
+
+  all_df <- if (length(rows_list) > 0L) {
+    df_tmp <- do.call(rbind, rows_list)
+    rownames(df_tmp) <- NULL
+    df_tmp
+  } else {
+    data.frame(
+      id = integer(0), xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
+      label = character(0), score = numeric(0), status = character(0), source = character(0),
+      id_x = integer(0), id_y = integer(0), score_x = numeric(0), score_y = numeric(0), iou = numeric(0),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  keep_statuses <- switch(
+    mode,
+    all = c("common", "only_x", "only_y"),
+    intersection = "common",
+    difference = c("only_x", "only_y"),
+    only_x = "only_x",
+    only_y = "only_y"
+  )
+
+  keep_idx <- which(all_df$status %in% keep_statuses)
+  res_df <- all_df[keep_idx, , drop = FALSE]
+  if (nrow(res_df) > 0L) {
+    res_df$id <- seq_len(nrow(res_df))
+    rownames(res_df) <- NULL
+  }
+  res_conts <- if (length(conts_all) > 0L && length(keep_idx) > 0L) conts_all[keep_idx] else list()
+
+  # Optional pixel-level mask IoU & Dice when both have labels matrices
+  mask_iou <- NA_real_
+  mask_dice <- NA_real_
+  if (!is.null(cx_obj$labels) && !is.null(cy_obj$labels)) {
+    m1 <- image_data(cx_obj$labels) > 0
+    m2 <- image_data(cy_obj$labels) > 0
+    if (identical(dim(m1), dim(m2))) {
+      inter_px <- sum(m1 & m2, na.rm = TRUE)
+      union_px <- sum(m1 | m2, na.rm = TRUE)
+      sum_px <- sum(m1, na.rm = TRUE) + sum(m2, na.rm = TRUE)
+      mask_iou <- if (union_px > 0) round(inter_px / union_px, 4) else 1
+      mask_dice <- if (sum_px > 0) round(2 * inter_px / sum_px, 4) else 1
+    }
+  }
+
+  n_common <- length(matched_x)
+  n_only_x <- length(unmatched_x)
+  n_only_y <- length(unmatched_y)
+  n_union <- n_common + n_only_x + n_only_y
+  jacc_inst <- if (n_union > 0L) round(n_common / n_union, 4) else 1
+  mean_iou <- if (n_common > 0L) round(mean(matched_ious), 4) else NA_real_
+
+  counts_df <- data.frame(
+    status = c("common", "only_x", "only_y"),
+    source = c(paste0(names[1L], " & ", names[2L]), paste0("only ", names[1L]), paste0("only ", names[2L])),
+    count = c(n_common, n_only_x, n_only_y),
+    stringsAsFactors = FALSE
+  )
+
+  summary_str <- sprintf(
+    "%s (%d) vs %s (%d) [IoU >= %.2f]: %d common, %d only in %s, %d only in %s (Jaccard = %.2f%s)",
+    names[1L], n_x, names[2L], n_y, iou_threshold,
+    n_common, n_only_x, names[1L], n_only_y, names[2L], jacc_inst,
+    if (!is.na(mean_iou)) sprintf(", mean IoU = %.3f", mean_iou) else ""
+  )
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_info("{summary_str}")
+  }
+
+  bg_img <- if (!is.null(img)) img else if (!is.null(cx_obj$image)) cx_obj$image else cy_obj$image
+  has_any_mask <- isTRUE(cx_obj$has_mask) || isTRUE(cy_obj$has_mask)
+  use_mask <- if (!is.null(mask)) isTRUE(mask) else has_any_mask
+  use_bbox <- if (!is.null(bbox)) isTRUE(bbox) else !has_any_mask || isTRUE(mode == "difference")
+
+  out_obj <- list(
+    results = res_df,
+    all_results = all_df,
+    counts = counts_df,
+    metrics = list(
+      n_x = n_x,
+      n_y = n_y,
+      n_common = n_common,
+      n_only_x = n_only_x,
+      n_only_y = n_only_y,
+      jaccard_instances = jacc_inst,
+      mean_box_iou = mean_iou,
+      mask_iou = mask_iou,
+      mask_dice = mask_dice
+    ),
+    contours = res_conts,
+    all_contours = conts_all,
+    names = names,
+    mode = mode,
+    iou_threshold = iou_threshold,
+    summary = summary_str
+  )
+  attr(out_obj, "image") <- bg_img
+  attr(out_obj, "results") <- res_df
+  attr(out_obj, "counts") <- counts_df
+  attr(out_obj, "summary") <- summary_str
+  attr(out_obj, "plot_params") <- list(
+    col = col,
+    alpha = alpha,
+    border = border,
+    lwd = lwd,
+    cex = cex,
+    bbox = use_bbox,
+    mask = use_mask,
+    badge = badge,
+    badge_pad = badge_pad,
+    show_text = show_text,
+    show_conf = show_conf,
+    show_class = show_class,
+    show_id = show_id,
+    show_status = show_status,
+    show_legend = show_legend,
+    legend_pos = legend_pos
+  )
+  class(out_obj) <- c("image_compare_dl", "list")
+
+  if (isTRUE(plot)) {
+    plot.image_compare_dl(out_obj, ...)
+  }
+
+  invisible(out_obj)
+}
+
+#' Plot method for \code{image_compare_dl} objects
+#'
+#' Renders the comparison overlay between two deep-learning detection or
+#' segmentation outputs, color-coding instances by status (`"common"`,
+#' `"only_x"`, `"only_y"`).
+#'
+#' @param x An object of class \code{image_compare_dl} returned by
+#'   [image_compare_dl()].
+#' @param img Optional `Image` object to use as background.
+#' @param mode Optional override for `mode` (`"all"`, `"intersection"`,
+#'   `"difference"`, `"only_x"`, `"only_y"`).
+#' @param col,alpha,border,lwd,cex,bbox,mask,badge,badge_pad,show_text,show_conf,show_class,show_id,show_status,show_legend,legend_pos
+#'   Visual parameters overriding the original [image_compare_dl()] settings.
+#' @param ... Additional graphical arguments passed to [graphics::plot()].
+#'
+#' @return Invisibly returns `x`.
+#' @export
+plot.image_compare_dl <- function(x,
+                                  img = NULL,
+                                  mode = NULL,
+                                  col = NULL,
+                                  alpha = NULL,
+                                  border = NULL,
+                                  lwd = NULL,
+                                  cex = NULL,
+                                  bbox = NULL,
+                                  mask = NULL,
+                                  badge = NULL,
+                                  badge_pad = NULL,
+                                  show_text = NULL,
+                                  show_conf = NULL,
+                                  show_class = NULL,
+                                  show_id = NULL,
+                                  show_status = NULL,
+                                  show_legend = NULL,
+                                  legend_pos = NULL,
+                                  ...) {
+  pp <- attr(x, "plot_params")
+  if (is.null(pp)) pp <- list()
+  pick <- function(val, key, default) {
+    if (!is.null(val)) val else if (!is.null(pp[[key]])) pp[[key]] else default
+  }
+
+  cur_mode <- if (!is.null(mode)) {
+    m <- match.arg(mode, c("all", "intersection", "difference", "union", "only_x", "only_y"))
+    if (m == "union") "all" else m
+  } else if (!is.null(x$mode)) {
+    x$mode
+  } else {
+    "all"
+  }
+
+  all_df <- if (!is.null(x$all_results)) x$all_results else x$results
+  all_conts <- if (!is.null(x$all_contours)) x$all_contours else x$contours
+  keep_statuses <- switch(
+    cur_mode,
+    all = c("common", "only_x", "only_y"),
+    intersection = "common",
+    difference = c("only_x", "only_y"),
+    only_x = "only_x",
+    only_y = "only_y"
+  )
+  keep_idx <- which(all_df$status %in% keep_statuses)
+  boxes <- all_df[keep_idx, , drop = FALSE]
+  conts <- if (!is.null(all_conts) && length(all_conts) > 0L && length(keep_idx) > 0L) all_conts[keep_idx] else list()
+
+  col_vec <- if (!is.null(col)) col else if (!is.null(pp$col)) pp$col else c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF")
+  if (is.null(names(col_vec))) {
+    col_vec <- stats::setNames(rep_len(col_vec, 3L), c("common", "only_x", "only_y"))
+  } else {
+    def_cols <- c(common = "#00CC66", only_x = "#FF3B30", only_y = "#007AFF")
+    for (st in names(def_cols)) {
+      if (is.na(col_vec[st]) || is.null(col_vec[st])) col_vec[st] <- def_cols[st]
+    }
+  }
+
+  nm <- if (!is.null(x$names) && length(x$names) >= 2L) x$names else c("x", "y")
+  use_status_lbl <- pick(show_status, "show_status", TRUE)
+  if (nrow(boxes) > 0L && isTRUE(use_status_lbl)) {
+    prefix <- ifelse(
+      boxes$status == "only_x", paste0("[-", nm[1L], "] "),
+      ifelse(boxes$status == "only_y", paste0("[+", nm[2L], "] "), "")
+    )
+    boxes$label <- paste0(prefix, boxes$label)
+  }
+
+  bg_img <- if (!is.null(img)) img else attr(x, "image")
+  dots <- list(...)
+  if (!is.null(bg_img)) {
+    p_dots <- .filter_plot_dots(dots)
+    do.call(graphics::plot, c(list(as_image(bg_img)), p_dots))
+  } else {
+    xr <- if (nrow(boxes) > 0L) c(0, max(boxes$xmax, na.rm = TRUE) * 1.05) else c(0, 100)
+    yr <- if (nrow(boxes) > 0L) c(max(boxes$ymax, na.rm = TRUE) * 1.05, 0) else c(100, 0)
+    graphics::plot(NA, xlim = xr, ylim = yr, asp = 1, xlab = "", ylab = "", axes = FALSE)
+  }
+
+  num_inst <- nrow(boxes)
+  if (num_inst > 0L) {
+    inst_colors <- unname(col_vec[boxes$status])
+    inst_colors[is.na(inst_colors)] <- "#00CC66"
+
+    use_mask <- pick(mask, "mask", length(conts) > 0L)
+    use_bbox <- pick(bbox, "bbox", TRUE)
+    alpha_val <- pick(alpha, "alpha", 0.45)
+    border_val <- if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else "black"
+    lwd_val <- pick(lwd, "lwd", 2)
+
+    if (isTRUE(use_mask) && length(conts) > 0L) {
+      flat_conts <- list()
+      flat_pal <- character()
+      for (k in seq_len(min(num_inst, length(conts)))) {
+        ck <- conts[[k]]
+        if (is.null(ck) || length(ck) == 0L) next
+        p_list <- if (is.matrix(ck)) list(ck) else if (is.list(ck)) ck else list()
+        flat_conts <- c(flat_conts, p_list)
+        flat_pal <- c(flat_pal, rep(inst_colors[k], length(p_list)))
+      }
+      if (length(flat_conts) > 0L) {
+        .plot_highlight_polygons(flat_conts, flat_pal, alpha = alpha_val, border = border_val, lwd = lwd_val, bbox = FALSE)
+      }
+    }
+
+    if (isTRUE(use_bbox) || !isTRUE(use_mask)) {
+      .plot_yolo_bboxes(
+        boxes = boxes,
+        palette_colors = inst_colors,
+        lwd = if (is.null(lwd_val) || is.na(lwd_val) || lwd_val <= 1) 2 else lwd_val,
+        cex = pick(cex, "cex", 0.9),
+        pad = 0,
+        badge_pad = pick(badge_pad, "badge_pad", 4),
+        show_text = pick(show_text, "show_text", TRUE),
+        show_conf = pick(show_conf, "show_conf", TRUE),
+        show_class = pick(show_class, "show_class", TRUE),
+        show_id = pick(show_id, "show_id", FALSE),
+        show_box = TRUE,
+        show_point = FALSE,
+        point_size = 1,
+        point_pch = 16,
+        point_col = NULL,
+        badge = pick(badge, "badge", TRUE)
+      )
+    }
+  }
+
+  if (isTRUE(pick(show_legend, "show_legend", TRUE))) {
+    cnts <- x$counts
+    leg_entries <- c(
+      sprintf("Common (%d)", cnts$count[cnts$status == "common"]),
+      sprintf("Only %s (%d)", nm[1L], cnts$count[cnts$status == "only_x"]),
+      sprintf("Only %s (%d)", nm[2L], cnts$count[cnts$status == "only_y"])
+    )
+    leg_cols <- unname(col_vec[c("common", "only_x", "only_y")])
+    keep_leg <- which(c("common", "only_x", "only_y") %in% keep_statuses)
+    graphics::legend(
+      pick(legend_pos, "legend_pos", "topright"),
+      legend = leg_entries[keep_leg],
+      fill = leg_cols[keep_leg],
+      border = "white",
+      bg = grDevices::rgb(0, 0, 0, 0.65),
+      text.col = "white",
+      cex = 0.85,
+      box.lwd = 0,
+      inset = 0.015
+    )
+  }
+
+  invisible(x)
+}
+
+#' @export
+print.image_compare_dl <- function(x, ...) {
+  cli::cli_h3("Deep-Learning Detection / Segmentation Comparison")
+  if (!is.null(x$summary)) {
+    cli::cli_alert_info("{x$summary}")
+  }
+  if (!is.null(x$counts) && is.data.frame(x$counts)) {
+    print(x$counts, row.names = FALSE)
+  }
+  invisible(x)
 }
 
 #' List Connected Video Cameras
@@ -6113,14 +9272,12 @@ image_detect_dl <- function(img,
 #'   and pixel formats for each device. Default is `FALSE`.
 #' @return A data frame containing camera `id` and friendly `name`, invisibly.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   # List available cameras
 #'   list_cameras()
 #'
 #'   # View detailed resolutions and formats
 #'   list_cameras(details = TRUE)
-#' }
 list_cameras <- function(details = FALSE) {
   if (.Platform$OS.type == "windows" && has_native_camera_cpp()) {
     cams <- tryCatch(list_native_cameras_cpp(), error = function(e) list(id = integer(0), name = character(0)))
@@ -6173,2384 +9330,6 @@ list_cameras <- function(details = FALSE) {
   }
 }
 
-#' Real-Time Video Object Detection with YOLO (ONNX Runtime)
-#'
-#' Performs real-time object detection and tracking on video files (.mp4, .avi, .mov)
-#' or live camera feeds (webcam) using YOLO models via native C++ ONNX Runtime with
-#' zero Python dependencies. When `return_data = TRUE`, it computes an extensive ecological
-#' and temporal community profile (richness, abundance, Shannon diversity, Simpson index,
-#' Pielou evenness, species accumulation curves, and class persistence rates).
-#'
-#' @details
-#' \subsection{Ecological and Analytical Framework}{
-#' In automated phenotyping, precision agriculture, ecological monitoring, and industrial inspection,
-#' a video stream represents a continuous temporal transect composed of \eqn{F} sequential frames
-#' recorded at a frame rate of \eqn{\text{FPS}}{FPS} frames per second. In each frame \eqn{t \in \{1, \dots, F\}},
-#' deep neural network inference detects candidate bounding boxes belonging to \eqn{S_t} recognized classes.
-#'
-#' By aggregating detections over space and time, `video_detect_dl` translates raw computer vision
-#' detections into standardized ecological metrics, quantifying instantaneous community state,
-#' temporal persistence, class dominance, and cumulative discovery rates.
-#' }
-#'
-#' \subsection{Abundance Metrics and Density Dynamics}{
-#' Abundance characterizes the numerical density of detected objects:
-#' \itemize{
-#'   \item \strong{Instantaneous Abundance (\eqn{N_t})}: The total count of object instances detected in frame \eqn{t}:
-#'     \deqn{N_t = \sum_{c=1}^S n_{t, c}}{N_t = \sum_{c=1}^S n_{t, c}}
-#'     where \eqn{n_{t, c}} is the count of detected objects belonging to class \eqn{c} in frame \eqn{t}, and \eqn{S} is the total number of candidate classes.
-#'   \item \strong{Total Video Abundance (\eqn{N})}: The cumulative sum of all detections identified across the processed footage:
-#'     \deqn{N = \sum_{t=1}^F N_t = \sum_{c=1}^S n_c}{N = \sum_{t=1}^F N_t = \sum_{c=1}^S n_c}
-#'     where \eqn{n_c = \sum_{t=1}^F n_{t, c}} is the total detection count for class \eqn{c}.
-#'   \item \strong{Average Abundance per Frame (\eqn{\bar{N}})}: Quantifies the baseline object density per frame:
-#'     \deqn{\bar{N} = \frac{N}{F}}{mean_N = N / F}
-#'   \item \strong{Peak Abundance (\eqn{N_{\text{peak}}})}: The maximum instantaneous count observed in any single frame:
-#'     \deqn{N_{\text{peak}} = \max_{1 \le t \le F} N_t}{N_peak = max(N_t)}
-#'     The exact frame index \eqn{t_{\text{peak}} = \operatorname{argmax}_t N_t} and corresponding timestamp (in seconds)
-#'     \eqn{T_{\text{peak}} = (t_{\text{peak}} - 1) / \text{FPS}} identify the moment of maximum congestion or cluster density.
-#' }
-#' }
-#'
-#' \subsection{Richness and Species Accumulation Dynamics}{
-#' Richness quantifies class variety and categorical complexity over time:
-#' \itemize{
-#'   \item \strong{Instantaneous Richness (\eqn{S_t})}: The number of distinct classes co-occurring simultaneously in frame \eqn{t}:
-#'     \deqn{S_t = \sum_{c=1}^S \mathbb{I}(n_{t, c} > 0)}{S_t = \sum_{c=1}^S I(n_{t, c} > 0)}
-#'     where \eqn{\mathbb{I}(\cdot)} is the indicator function equal to 1 if class \eqn{c} has at least one detection in frame \eqn{t}, and 0 otherwise.
-#'   \item \strong{Total Video Richness (\eqn{S})}: The total count of unique classes recognized across the entire video:
-#'     \deqn{S = |\{c : n_c > 0\}|}{S = count of unique classes detected}
-#'   \item \strong{Cumulative Richness / Species Accumulation Curve (Collector's Curve)}:
-#'     \deqn{S_{\text{cum}}(t) = |\{c : \exists t' \le t \text{ such that } n_{t', c} > 0\}|}{S_cum(t) = count of distinct classes discovered up to frame t}
-#'     The Collector's Curve plots the progressive discovery of novel classes over time. A plateau indicates that sampling effort
-#'     (video duration) is sufficient to capture the full assemblage of classes present in the environment.
-#'   \item \strong{Cumulative Detections (\eqn{N_{\text{cum}}(t)})}:
-#'     \deqn{N_{\text{cum}}(t) = \sum_{t'=1}^t N_{t'}}{N_cum(t) = \sum_{t'=1}^t N_{t'}}
-#'     Tracking the cumulative volume of detections provides insights into detection throughput and arrival rates.
-#' }
-#' }
-#'
-#' \subsection{Per-Class Ecological Metrics and Constancy}{
-#' For each class \eqn{c}, `video_detect_dl` extracts detailed persistence and distribution metrics:
-#' \itemize{
-#'   \item \strong{Total Detections (\eqn{n_c})}: Total bounding box instances identified for class \eqn{c}.
-#'   \item \strong{Relative Abundance (\eqn{p_c})}: The percentage contribution of class \eqn{c} to total video detections:
-#'     \deqn{p_c = \frac{n_c}{N} \times 100\%}{p_c = (n_c / N) * 100\%}
-#'   \item \strong{Frames Present (\eqn{F_c})}: The number of frames in which class \eqn{c} was detected at least once:
-#'     \deqn{F_c = \sum_{t=1}^F \mathbb{I}(n_{t, c} > 0)}{F_c = \sum_{t=1}^F I(n_{t, c} > 0)}
-#'   \item \strong{Occurrence Rate / Constancy (\eqn{O_c})}: The temporal persistence of class \eqn{c} across the video footage:
-#'     \deqn{O_c = \frac{F_c}{F} \times 100\%}{O_c = (F_c / F) * 100\%}
-#'     In ecological literature, species with \eqn{O_c \ge 50\%} are classified as constant, \eqn{25\% \le O_c < 50\%} as accessory, and \eqn{O_c < 25\%} as accidental.
-#'   \item \strong{Mean Abundance When Present}: The expected number of individuals per frame given that the class is present:
-#'     \deqn{\bar{n}_{c, \text{present}} = \frac{n_c}{\max(1, F_c)}}{mean_n_present = n_c / F_c}
-#'   \item \strong{Mean Abundance Overall}: The unconditional expected number of individuals per frame across all processed frames:
-#'     \deqn{\bar{n}_{c, \text{overall}} = \frac{n_c}{F}}{mean_n_overall = n_c / F}
-#'   \item \strong{Maximum per Frame (\eqn{\max_t n_{t, c}})}: Peak instantaneous count of class \eqn{c}.
-#'   \item \strong{Mean Confidence (\eqn{\bar{s}_c})}: The arithmetic mean of detection confidence scores for class \eqn{c}:
-#'     \deqn{\bar{s}_c = \frac{1}{n_c} \sum_{i=1}^{n_c} \text{score}_i}{mean_conf = (1 / n_c) * \sum score_i}
-#'   \item \strong{Temporal Span}: First observed timestamp (\eqn{t_{\text{first}, c}}) and last observed timestamp (\eqn{t_{\text{last}, c}}) in seconds.
-#' }
-#' }
-#'
-#' \subsection{Diversity, Dominance, and Evenness Indices}{
-#' Summary diversity indices synthesize class variety and equitability into scalar coefficients:
-#' \itemize{
-#'   \item \strong{Shannon-Wiener Diversity Index (\eqn{H'})}:
-#'     \deqn{H' = -\sum_{c=1}^S p_c \ln(p_c)}{H' = - \sum_{c=1}^S p_c * ln(p_c)}
-#'     where \eqn{p_c = n_c / N}. \eqn{H'} quantifies the uncertainty in predicting the class identity of a randomly sampled detection.
-#'     Higher values indicate higher diversity and a more equitable distribution across classes.
-#'     In addition to the global video-level index, \eqn{H'_t} is computed dynamically for each frame in the `$temporal` data frame.
-#'   \item \strong{Simpson's Diversity Index (\eqn{1 - D}) and Dominance (\eqn{D})}:
-#'     \deqn{D = \sum_{c=1}^S p_c^2, \qquad 1 - D = 1 - \sum_{c=1}^S p_c^2}{D = \sum_{c=1}^S p_c^2, 1 - D = 1 - \sum_{c=1}^S p_c^2}
-#'     \eqn{D} represents the probability that two randomly chosen detections belong to the same class (dominance),
-#'     while \eqn{1 - D} (Gini-Simpson index) represents the probability that they belong to different classes.
-#'     Values range from 0 (monoculture / single class dominating entirely) to \eqn{1 - 1/S} (maximal diversity).
-#'   \item \strong{Pielou's Evenness Index (\eqn{J'})}:
-#'     \deqn{J' = \frac{H'}{\ln(S)}}{J' = H' / ln(S)}
-#'     for \eqn{S > 1} (with \eqn{J' = 1.0} if \eqn{S = 1}, and \eqn{J' = 0.0} if \eqn{S = 0}).
-#'     \eqn{J'} normalizes Shannon diversity against its theoretical maximum (\eqn{H'_{\text{max}} = \ln(S)}),
-#'     providing an equitability index bounded between 0 and 1. A value of 1.0 indicates that all classes are detected with equal frequency.
-#'   \item \strong{Berger-Parker Dominance Index (\eqn{d})}:
-#'     \deqn{d = \max_{1 \le c \le S} (p_c)}{d = max(p_c)}
-#'     Quantifies the proportional dominance of the most abundant single class in the assemblage.
-#' }
-#' }
-#'
-#' \subsection{Multi-Object Tracking and Unique Entity Counting}{
-#' When `track = TRUE`, a spatial-temporal Kalman filter tracking algorithm (SORT/ByteTrack)
-#' associates detections across consecutive frames using Intersection over Union (IoU) cost matrices:
-#' \itemize{
-#'   \item \strong{Unique Objects (\eqn{U})}: Persistent IDs (\verb{#1}, \verb{#2}, ...) track physical entities over time,
-#'     preventing double-counting when calculating true entity abundance:
-#'     \deqn{U = |\{ \text{distinct persistent IDs} > 0 \}|}{U = count of distinct persistent IDs}
-#'     For each class \eqn{c}, \eqn{U_c} records the unique tracked individuals assigned to that class.
-#'   \item \strong{Cumulative Unique Objects Curve (\eqn{U_{\text{cum}}(t)})}:
-#'     Tracks the progressive entry of novel unique physical entities into the monitored frame.
-#'   \item \strong{Virtual Tripwire Counting (\code{count_line})}:
-#'     When a virtual line is provided as \code{c(x1, y1, x2, y2)} in normalized coordinates \eqn{[0, 1]},
-#'     the trajectory segments between consecutive centroids \eqn{\mathbf{p}_{t-1}} and \eqn{\mathbf{p}_t} of tracked objects
-#'     are evaluated for intersection with the virtual line segment.
-#'     Crossing events are registered precisely when the signed 2D cross-product changes orientation,
-#'     cataloguing the event frame, timestamp, persistent ID, and class label in `$crossings`.
-#' }
-#' }
-#'
-#' \subsection{Visualization and S3 Methods}{
-#' The returned object has class `c("pliman_video_detect", "list")` and provides built-in S3 methods:
-#' \itemize{
-#'   \item `plot(x, type = ...)`: Renders clean, publication-ready graphics. Supported `type` options:
-#'     \itemize{
-#'       \item `"temporal"` (default): Two-panel stacked time series displaying total abundance \eqn{N(t)} and richness \eqn{S(t)}.
-#'       \item `"abundance"`: Multi-class abundance trajectories over time.
-#'       \item `"richness"`: Step-function curve of class richness over time.
-#'       \item `"cumulative"`: Two-panel plot of the Species Accumulation Curve (Collector's Curve) and cumulative detection volume.
-#'       \item `"class"`: Horizontal barplot displaying total detections and relative abundance percentages for each class.
-#'       \item `"all"`: 2x2 multi-panel overview combining abundance, richness, class distribution, and the Collector's Curve.
-#'     }
-#'   \item `summary(x)`: Formats and displays an overview table with video metadata, ecological metrics, and class distribution.
-#'   \item `print(x)`: Displays an informative console summary with key video metrics and class rankings.
-#'   \item `as.data.frame(x)`, `head(x)`, `tail(x)`, `dim(x)`, `nrow(x)`, `ncol(x)`, `x$column`, `x[i, j]`:
-#'     Provide transparent backward compatibility with data frame operations on raw detections.
-#' }
-#' }
-#'
-#' @param video Input video source. Either a camera index (e.g. `0`, `1`), a camera name
-#'   or substring (e.g. `"EMEET"`, `"HD User Facing"`), `"camera"` (default camera `0`),
-#'   or a path to a video file (e.g., `"field_drone.mp4"`).
-#' @param model Model name or path to a custom ONNX file. Defaults to `"yolo26n"`.
-#'   Pre-trained options include `"yolo26n"`, `"yolo26s"`, `"yolov8n"`, `"yolov8s"`,
-#'   `"yolov11n"`, etc., or a full path to a custom user-trained `.onnx` model.
-#' @param conf_threshold Minimum confidence threshold for candidate detections (default 0.25).
-#' @param iou_threshold IoU threshold for Non-Maximum Suppression (default 0.45).
-#' @param labels Optional character vector of class names. If `NULL` (default), labels are
-#'   automatically detected from model metadata or fallback to standard classes.
-#' @param classes Optional character vector of specific class names to filter and retain.
-#'   If specified, only detections matching these classes will be kept.
-#' @param detect Logical. Whether to run object detection model inference. If `FALSE`,
-#'   the camera/video stream runs in pass-through mode without neural network inference, allowing
-#'   fast real-time streaming and recording. Defaults to `TRUE`.
-#' @param output Optional output file path (e.g. `"annotated_video.mp4"`) to save the processed video.
-#' @param save_video Logical. Whether to save the processed video. Automatically `TRUE` if `output` is specified.
-#' @param return_data Logical. Whether to compute and return the detection dataset and ecological summary statistics (default `TRUE`). If `FALSE`, returns `invisible(NULL)`.
-#' @param track Logical. Whether to enable multi-object tracking and assign persistent IDs (`#1`, `#2`, etc.) across frames. Defaults to `FALSE`.
-#' @param trail Logical. Whether to draw historical trajectory motion trail lines behind tracked objects when `track = TRUE`. Defaults to `TRUE`. Set to `FALSE` to maintain persistent IDs while hiding the trail.
-#' @param cex Size factor for label text (default `1.0`). Use smaller values (e.g., `cex = 0.2` or `0.5`)
-#'   to reduce text size for dense scenes or many objects.
-#' @param pad Padding multiplier controlling the area/background badge size around label text (default `1.0`).
-#'   Can be a single value or a length-2 vector `c(pad_x, pad_y)`. Use `pad = 0` or smaller values for a compact area.
-#' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
-#'   If `FALSE`, only the text is drawn directly.
-#' @param text_size Numeric font scale for bounding box text labels and badges (alias for `cex`, default `1.0`).
-#' @param show_text Logical. Whether to display text badges above bounding boxes (default `TRUE`).
-#' @param show_conf Logical. Whether to display confidence scores in badges (default `TRUE`).
-#' @param show_class Logical. Whether to display class label names in badges (default `TRUE`).
-#' @param show_id Logical. Whether to display persistent tracking IDs (`#1`, `#2`) in badges when `track = TRUE` (default `FALSE`).
-#' @param count_line Optional counting tripwire line specified as `c(x1, y1, x2, y2)` in normalized coordinates (`0` to `1`). Objects crossing this virtual line are counted.
-#' @param count_line_label Optional label displayed along the counting line (default `NULL`, no text).
-#' @param roi Optional Region of Interest coordinates `c(xmin, ymin, xmax, ymax)` in normalized coordinates (`0` to `1`).
-#' @param roi_mode Either `"crop"` (infer only inside ROI) or `"filter"` (detect everywhere, retain only detections inside ROI).
-#' @param roi_label Label displayed on the ROI box (default `"ROI / MONITORED ZONE"`).
-#' @param hide_outside_roi Logical. Whether to remove / suppress bounding boxes and visual annotations for objects outside the ROI zone. Defaults to `TRUE` when `roi` is provided.
-#' @param hide_counted Logical. Whether to remove / suppress bounding boxes for objects that have already crossed the virtual counting line. Defaults to `TRUE` when counting / tracking is active.
-#' @param flash_counted Logical. Whether to show a brief neon green confirmation flash (~12 frames) when an object crosses the counting line before removing its bounding box. Defaults to `TRUE`.
-#' @param fullscreen Logical. Whether to display the video feed in full screen mode (default `FALSE`).
-#' @param window_size Optional numeric vector `c(width, height)` for the display window.
-#' @param window_scale Scaling factor for the display window (default 1.0).
-#' @param resolution Optional camera capture resolution as a numeric vector `c(width, height)`,
-#'   e.g. `c(1920, 1080)` or `c(1280, 720)`. Default is `NULL` (uses native sensor resolution).
-#' @param crop Optional frame cropping. Set to `"1:1"`, `"square"`, or `TRUE` for an automatic 1:1 centered square crop (e.g. 1080x1080 or 720x720), or `c(width, height)` for a custom centered rectangular crop. Default is `NULL`.
-#' @param backend Camera and display backend: `"native"` (default, uses native Windows Media Foundation / Win32 GDI with zero external dependencies).
-#' @param skeleton Logical. Whether to render the 17-keypoint anatomical skeleton when running pose estimation models (e.g. `"yolo26n-pose"`). Defaults to `TRUE`.
-#' @param kpt_threshold Minimum confidence threshold for rendering individual keypoints and skeleton limbs (default 0.3).
-#' @param kpt_radius Integer radius of keypoint joint markers in pixels (default 4).
-#' @param bbox Logical. Whether to render bounding boxes around detected objects or people (default `TRUE`).
-#' @param mask Logical. Whether to render semi-transparent instance segmentation masks when using segmentation models (default `TRUE`).
-#' @param alpha Opacity/transparency of instance segmentation masks (default `0.4`, range `0` to `1`).
-#' @param show Logical. Whether to display the video feed with bounding boxes in real time.
-#'   Default is `interactive()`.
-#' @param show_fps Logical. Whether to overlay a real-time FPS and detection counter badge (default `TRUE`).
-#' @param hud_pos Screen position of the telemetry HUD card: `"top-right"` (default, avoids top-left ROI zone),
-#'   `"top-left"`, `"bottom-left"`, `"bottom-right"`, `"top"`, or `"bottom"`.
-#' @param hud_layout Layout style of the telemetry HUD: `"vertical"` (default modern multi-row glassmorphic card)
-#'   or `"horizontal"` (sleek capsule pill bar).
-#' @param infer_every Integer stride for neural network inference (default `1L`, running inference on every frame).
-#'   Setting e.g. `infer_every = 2L` (or using alias `stride = 2` / `skip_frames = 1`) runs the heavy neural network
-#'   on odd frames and smoothly propagates tracks and detections on intermediate frames, cutting compute time in half
-#'   and maximizing real-time video display smoothness up to the camera's physical frame rate.
-#' @param max_frames Optional maximum number of frames to process. Default is `NULL` (all frames).
-#' @param fps Target framerate for video output. If `NULL` (default), matches the source video or camera.
-#' @param col Optional color or palette for bounding boxes. If `NULL`, distinct colors are assigned.
-#' @param lwd Line width for bounding boxes (default 2).
-#' @param rainbow Logical. If `TRUE`, assigns distinct colors per detected instance.
-#' @param engine Execution engine: `"gpu"` (DirectML, default) or `"cpu"`.
-#' @param device_id GPU device ID (default -1 for auto).
-#' @param threads Number of CPU threads (default 0 for auto-tuning).
-#' @param dir Directory where pre-trained models are stored (default `pliman_model_dir()`).
-#' @param verbose Logical. Whether to show progress messages.
-#' @param ... Additional arguments passed to graphics plotting functions or aliases
-#'   (`camera`, `cam`, `device`, `infer`, `inference`, `save`, `return_df`, `return_detections`).
-#' @return If `return_data = TRUE`, an object of class `c("pliman_video_detect", "list")` containing:
-#' \itemize{
-#'   \item `summary`: A `data.frame` of video-level metadata and ecological diversity metrics:
-#'     `video_source`, `model`, `engine`, `total_frames`, `fps`, `duration_sec`,
-#'     `total_detections` (\eqn{N}), `total_richness` (\eqn{S}), `unique_objects` (\eqn{U}),
-#'     `avg_abundance_frame` (\eqn{\bar{N}}), `max_abundance_frame` (\eqn{N_{\text{peak}}}),
-#'     `peak_frame` (\eqn{t_{\text{peak}}}), `peak_time_sec` (\eqn{T_{\text{peak}}}),
-#'     `shannon_index` (\eqn{H'}), `simpson_index` (\eqn{1-D}), `pielou_evenness` (\eqn{J'}),
-#'     and optionally `total_counted` (when `count_line` is used).
-#'   \item `by_class`: A `data.frame` sorted by total detections detailing per-class metrics:
-#'     `class`, `total_detections` (\eqn{n_c}), `relative_abundance` (\eqn{p_c}, \%),
-#'     `unique_objects` (\eqn{U_c}), `n_frames_present` (\eqn{F_c}), `occurrence_rate` (\eqn{O_c}, \%),
-#'     `mean_abundance_when_present` (\eqn{\bar{n}_{c, \text{present}}}), `mean_abundance_overall` (\eqn{\bar{n}_{c, \text{overall}}}),
-#'     `max_per_frame`, `mean_confidence` (\eqn{\bar{s}_c}), `first_seen_sec` (\eqn{t_{\text{first}, c}}),
-#'     `last_seen_sec` (\eqn{t_{\text{last}, c}}), and optionally `total_counted`.
-#'   \item `unique_objects`: A `data.frame` aggregating every unique tracked object across all observed frames:
-#'     `id`, `label`, `n_frames`, `first_frame`, `last_frame`, `duration_sec`, `mean_score`,
-#'     and (when using instance segmentation models) detailed morphological shape features:
-#'     `area` (in pixels), `area_sd`, `perimeter`, `radius_mean`, `length`, `width`, `circularity`, `eccentricity`, and `asp_ratio`.
-#'   \item `temporal`: A `data.frame` of frame-by-frame time series at resolution \eqn{t \in \{1, \dots, F\}}:
-#'     `frame`, `timestamp` (in seconds), instantaneous `abundance` (\eqn{N_t}), instantaneous `richness` (\eqn{S_t}),
-#'     instantaneous `shannon` diversity (\eqn{H'_t}), and individual count columns for every detected class.
-#'   \item `cumulative`: A `data.frame` of cumulative progression:
-#'     `frame`, `timestamp`, `cumulative_detections` (\eqn{N_{\text{cum}}(t)}),
-#'     `cumulative_richness` (Species Accumulation Curve / Collector's Curve, \eqn{S_{\text{cum}}(t)}),
-#'     and optionally `cumulative_unique_objects` (\eqn{U_{\text{cum}}(t)}).
-#'   \item `diversity`: A `list` containing global ecological diversity indices:
-#'     `richness_S` (\eqn{S}), `total_abundance_N` (\eqn{N}), `shannon_H` (\eqn{H'}),
-#'     `simpson_1_minus_D` (\eqn{1 - D}), `simpson_D` (\eqn{D}), `pielou_J` (\eqn{J'}),
-#'     `berger_parker_d` (\eqn{d}), `mean_richness_per_frame`, and `mean_abundance_per_frame`.
-#'   \item `detections`: A `data.frame` of all raw candidate detections across all frames:
-#'     `frame`, `timestamp`, `id`, `xmin`, `ymin`, `xmax`, `ymax`, `label`, `score`, and `class_id`
-#'     (plus shape features when running segmentation models).
-#'   \item `crossings`: (Optional) A `data.frame` of virtual tripwire crossing events when `count_line` is specified.
-#'   \item `keypoints`: (Optional) A `data.frame` of 17 keypoint anatomical landmarks when running pose estimation models.
-#'   \item `roi`, `roi_mode`, `count_line`, `output`: Additional metadata reflecting execution configuration.
-#' }
-#' If `return_data = FALSE`, returns `invisible(NULL)`.
-#' @export
-#' @examples
-#' \dontrun{
-#'   library(pliman)
-#'
-#'   # 1. Video detection and ecological diversity analysis
-#'   dets <- video_detect_dl(
-#'     video = "field_drone.mp4",
-#'     model = "yolo26n",
-#'     conf_threshold = 0.5,
-#'     return_data = TRUE,
-#'     output = "annotated_field.mp4"
-#'   )
-#'
-#'   # Summary table of ecological metrics
-#'   summary(dets)
-#'
-#'   # Plot community temporal dynamics (abundance & richness)
-#'   plot(dets, type = "temporal")
-#'
-#'   # Plot Species Accumulation Curve (Collector's Curve)
-#'   plot(dets, type = "cumulative")
-#'
-#'   # Plot multi-class abundance trajectories
-#'   plot(dets, type = "abundance")
-#'
-#'   # Multi-panel 2x2 diagnostic overview
-#'   plot(dets, type = "all")
-#'
-#'   # Access per-class breakdown
-#'   dets$by_class
-#'
-#'   # 2. Multi-object tracking with virtual tripwire line counting
-#'   tracked_dets <- video_detect_dl(
-#'     video = "conveyor_belt.mp4",
-#'     model = "seed_weights.onnx",
-#'     track = TRUE,
-#'     count_line = c(0.5, 0, 0.5, 1), # vertical counting tripwire
-#'     return_data = TRUE
-#'   )
-#' }
-video_detect_dl <- function(video = 0,
-                            model = "yolo26n",
-                            conf_threshold = 0.25,
-                            iou_threshold = 0.45,
-                            labels = NULL,
-                            classes = NULL,
-                            detect = TRUE,
-                            output = NULL,
-                            save_video = !is.null(output),
-                            return_data = TRUE,
-                            track = FALSE,
-                            trail = TRUE,
-                            cex = 1.0,
-                            pad = 1.0,
-                            badge = TRUE,
-                            show_text = TRUE,
-                            show_conf = TRUE,
-                            show_class = TRUE,
-                            show_id = FALSE,
-                            text_size = 1.0,
-                            count_line = NULL,
-                            count_line_label = NULL,
-                            roi = NULL,
-                            roi_mode = c("crop", "filter"),
-                            roi_label = "ROI / MONITORED ZONE",
-                            hide_outside_roi = TRUE,
-                            hide_counted = TRUE,
-                            flash_counted = TRUE,
-                            fullscreen = FALSE,
-                            window_size = NULL,
-                            window_scale = 1.0,
-                            resolution = NULL,
-                            crop = NULL,
-                            backend = c("native", "auto"),
-                            skeleton = TRUE,
-                            kpt_threshold = 0.3,
-                            kpt_radius = 4,
-                            bbox = TRUE,
-                            mask = TRUE,
-                            alpha = 0.4,
-                            show = NULL,
-                            show_fps = TRUE,
-                            hud_pos = c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom"),
-                            hud_layout = c("vertical", "horizontal"),
-                            infer_every = 1L,
-                            max_frames = NULL,
-                            fps = NULL,
-                            col = NULL,
-                            lwd = 2,
-                            rainbow = TRUE,
-                            engine = c("gpu", "cpu"),
-                            device_id = -1,
-                            threads = 0,
-                            dir = pliman_model_dir(),
-                            verbose = TRUE,
-                            ...) {
-  if (!missing(cex) && missing(text_size)) {
-    text_size <- cex
-  } else if (!missing(text_size) && missing(cex)) {
-    cex <- text_size
-  }
-  dots <- list(...)
-  if ("camera" %in% names(dots)) video <- dots$camera
-  if ("cam" %in% names(dots)) video <- dots$cam
-  if ("device" %in% names(dots)) video <- dots$device
-  if ("square" %in% names(dots) && isTRUE(dots$square)) crop <- "1:1"
-  if ("aspect_ratio" %in% names(dots) && dots$aspect_ratio %in% c("1:1", "square")) crop <- "1:1"
-  if ("trail" %in% names(dots)) trail <- dots$trail
-  if ("draw_trail" %in% names(dots)) trail <- dots$draw_trail
-  if ("remove_counted" %in% names(dots)) hide_counted <- isTRUE(dots$remove_counted)
-  if ("bbox_counted" %in% names(dots)) hide_counted <- !isTRUE(dots$bbox_counted)
-  if ("show_counted" %in% names(dots)) hide_counted <- !isTRUE(dots$show_counted)
-  if ("bbox_outside_roi" %in% names(dots)) hide_outside_roi <- !isTRUE(dots$bbox_outside_roi)
-  if ("show_outside_roi" %in% names(dots)) hide_outside_roi <- !isTRUE(dots$show_outside_roi)
-  if ("remove_outside_roi" %in% names(dots)) hide_outside_roi <- isTRUE(dots$remove_outside_roi)
-  if ("track_trail" %in% names(dots)) trail <- dots$track_trail
-  if ("cex" %in% names(dots)) { text_size <- dots$cex; cex <- dots$cex }
-  if ("text_size" %in% names(dots)) { text_size <- dots$text_size; cex <- dots$text_size }
-  if ("font_scale" %in% names(dots)) { text_size <- dots$font_scale; cex <- dots$font_scale }
-  if ("label_size" %in% names(dots)) { text_size <- dots$label_size; cex <- dots$label_size }
-  if ("cex_scale" %in% names(dots)) { text_size <- dots$cex_scale; cex <- dots$cex_scale }
-  if ("pad" %in% names(dots)) pad <- dots$pad
-  if ("label_pad" %in% names(dots)) pad <- dots$label_pad
-  if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
-  if ("pad_scale" %in% names(dots)) pad <- dots$pad_scale
-  if ("badge" %in% names(dots)) badge <- dots$badge
-  if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
-  if ("labels" %in% names(dots) && is.logical(dots$labels)) show_class <- isTRUE(dots$labels)
-  if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
-  if ("scores" %in% names(dots) && is.logical(dots$scores)) show_conf <- isTRUE(dots$scores)
-  if ("conf" %in% names(dots) && is.logical(dots$conf)) show_conf <- isTRUE(dots$conf)
-  if ("show_text" %in% names(dots)) show_text <- isTRUE(dots$show_text)
-  if ("show_id" %in% names(dots)) show_id <- isTRUE(dots$show_id)
-  if ("mask" %in% names(dots)) mask <- dots$mask
-  if ("masks" %in% names(dots)) mask <- dots$masks
-  if ("draw_mask" %in% names(dots)) mask <- dots$draw_mask
-  if ("draw_masks" %in% names(dots)) mask <- dots$draw_masks
-  if ("alpha" %in% names(dots)) alpha <- dots$alpha
-  if ("mask_alpha" %in% names(dots)) alpha <- dots$mask_alpha
-  if ("infer" %in% names(dots)) detect <- dots$infer
-  if ("inference" %in% names(dots)) detect <- dots$inference
-  if ("save" %in% names(dots)) save_video <- dots$save
-  if ("return_df" %in% names(dots)) return_data <- dots$return_df
-  if ("return_detections" %in% names(dots)) return_data <- dots$return_detections
-
-  detect <- isTRUE(detect)
-  save_video <- isTRUE(save_video)
-  return_data <- isTRUE(return_data)
-  trail <- isTRUE(trail)
-  mask <- isTRUE(mask)
-  alpha <- as.numeric(alpha)
-  if (is.na(alpha) || alpha < 0) alpha <- 0.4
-  if (alpha > 1.0) alpha <- 1.0
-  src_fps <- if (!is.null(fps) && is.numeric(fps) && fps > 0) as.numeric(fps) else 30.0
-
-  if ("hud_pos" %in% names(dots)) hud_pos <- dots$hud_pos
-  if ("pos" %in% names(dots)) hud_pos <- dots$pos
-  if ("position" %in% names(dots)) hud_pos <- dots$position
-  if ("hud_position" %in% names(dots)) hud_pos <- dots$hud_position
-  if ("hud_layout" %in% names(dots)) hud_layout <- dots$hud_layout
-  if ("layout" %in% names(dots)) hud_layout <- dots$layout
-  if ("hud_style" %in% names(dots)) hud_layout <- dots$hud_style
-  if ("style" %in% names(dots)) hud_layout <- dots$style
-
-  valid_pos <- c("top-right", "top-left", "bottom-left", "bottom-right", "top", "bottom")
-  hud_pos <- if (is.character(hud_pos) && length(hud_pos) > 0) {
-    p_match <- match.arg(tolower(hud_pos[1]), valid_pos)
-    p_match
-  } else "top-right"
-
-  valid_layout <- c("vertical", "horizontal")
-  hud_layout <- if (is.character(hud_layout) && length(hud_layout) > 0) {
-    l_match <- match.arg(tolower(hud_layout[1]), valid_layout)
-    l_match
-  } else "vertical"
-
-  if ("infer_every" %in% names(dots)) infer_every <- dots$infer_every
-  if ("infer_each" %in% names(dots)) infer_every <- dots$infer_each
-  if ("infer_step" %in% names(dots)) infer_every <- dots$infer_step
-  if ("step" %in% names(dots)) infer_every <- dots$step
-  if ("stride" %in% names(dots)) infer_every <- dots$stride
-  if ("skip_frames" %in% names(dots)) infer_every <- as.integer(dots$skip_frames) + 1L
-  infer_every <- max(1L, as.integer(infer_every))
-
-  text_size_num <- suppressWarnings(as.numeric(text_size))
-  if (is.na(text_size_num)) text_size_num <- 1.0
-  if (isFALSE(show_text) || text_size_num <= 0.05) {
-    show_text <- FALSE
-    f_scale <- 0.0
-  } else {
-    f_scale <- text_size_num
-  }
-  pad_num <- if (is.numeric(pad) && length(pad) > 0) pad[1] else 1.0
-  pad_num <- max(0.0, as.numeric(pad_num))
-  badge <- isTRUE(badge)
-
-  # For small text (<= 0.3), hide redundant class name and confidence score by default
-  # unless the user explicitly requested them in arguments / dots
-  if (!"show_conf" %in% names(dots) && !"show_scores" %in% names(dots) && !"scores" %in% names(dots) && text_size_num <= 0.3) {
-    show_conf <- FALSE
-  }
-  if (!"show_class" %in% names(dots) && !"show_labels" %in% names(dots) && text_size_num <= 0.3 && (isTRUE(track) || !is.null(count_line))) {
-    show_class <- FALSE
-  }
-  track_max_dist <- if ("max_dist" %in% names(dots)) as.numeric(dots$max_dist) else 150.0
-  track_min_iou <- if ("min_iou" %in% names(dots)) as.numeric(dots$min_iou) else 0.25
-  track_max_lost <- if ("max_lost" %in% names(dots)) as.integer(dots$max_lost) else 15L
-  track_max_history <- if ("max_history" %in% names(dots)) as.integer(dots$max_history) else 30L
-  roi_mode <- match.arg(roi_mode)
-  backend <- match.arg(backend)
-  if (backend == "auto") backend <- "native"
-
-  # Safely wipe any dangling ghost progress bars from previously interrupted sessions
-  try({
-    cli_ns <- asNamespace("cli")
-    if (exists("clienv", envir = cli_ns, inherits = FALSE)) {
-      assign("progress", list(), envir = cli_ns$clienv)
-    }
-  }, silent = TRUE)
-
-  on.exit({
-    try(cli::cli_progress_cleanup(), silent = TRUE)
-    try({
-      cli_ns <- asNamespace("cli")
-      if (exists("clienv", envir = cli_ns, inherits = FALSE)) {
-        assign("progress", list(), envir = cli_ns$clienv)
-      }
-    }, silent = TRUE)
-  }, add = TRUE)
-
-  if (save_video && is.null(output)) {
-    output <- if (detect) "annotated_video.mp4" else "recorded_video.mp4"
-  }
-  if (!save_video) {
-    output <- NULL
-  }
-
-  out_video_file <- if (save_video && !is.null(output)) {
-    normalizePath(output, winslash = "/", mustWork = FALSE)
-  } else {
-    ""
-  }
-
-  engine <- match.arg(engine)
-  use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
-
-  if (detect) {
-    # Model resolution: custom ONNX file or pre-trained download
-    if (file.exists(model[1])) {
-      model_file <- normalizePath(model[1], winslash = "/")
-    } else if (file.exists(file.path(dir, model[1]))) {
-      model_file <- normalizePath(file.path(dir, model[1]), winslash = "/")
-    } else if (file.exists(file.path(dir, paste0(model[1], ".onnx")))) {
-      model_file <- normalizePath(file.path(dir, paste0(model[1], ".onnx")), winslash = "/")
-    } else if (file.exists(file.path("D:/Desktop/models", model[1]))) {
-      model_file <- normalizePath(file.path("D:/Desktop/models", model[1]), winslash = "/")
-    } else if (file.exists(file.path("D:/Desktop/models", paste0(model[1], ".onnx")))) {
-      model_file <- normalizePath(file.path("D:/Desktop/models", paste0(model[1], ".onnx")), winslash = "/")
-    } else {
-      model_file <- pliman_download_model(model = model[1], dir = dir)
-    }
-
-    # Label resolution: custom vector -> ONNX embedded metadata -> COCO fallback
-    if (!is.null(labels)) {
-      class_names <- labels
-    } else {
-      model_classes <- .get_onnx_classes(model_file)
-      if (!is.null(model_classes) && length(model_classes) > 0L) {
-        class_names <- model_classes
-      } else {
-        class_names <- .coco_classes
-      }
-    }
-  } else {
-    model_file <- "None"
-    class_names <- character(0)
-  }
-
-  has_video_ext <- is.character(video) && tolower(tools::file_ext(video[1])) %in% c("mp4", "avi", "mov", "mkv", "wmv", "flv", "webm", "m4v")
-  is_camera <- is.numeric(video) || (is.character(video) && !has_video_ext && (
-    tolower(video[1]) %in% c("0", "1", "2", "3", "4", "5", "camera", "live", "webcam") ||
-    !file.exists(video[1])
-  ))
-  if (is.null(show)) {
-    show <- if (is_camera) interactive() else FALSE
-  }
-  if (!is_camera && isTRUE(show) && isTRUE(verbose)) {
-    cli::cli_alert_info("Interactive frame display enabled (rendering plots to R graphics device reduces throughput).")
-  }
-
-  # Initialize object tracking state
-  track_state <- list(
-    next_id = 1L,
-    total_count = 0L,
-    tracks = list(),
-    counts_by_class = list(),
-    crossing_events = list()
-  )
-  total_count_val <- 0L
-  in_zone_val <- 0L
-
-  # ============================================================================
-  # MODE A: LIVE WEBCAM STREAMING (NATIVE C++ MEDIA FOUNDATION)
-  # ============================================================================
-  if (is_camera) {
-    if (.Platform$OS.type != "windows" || !has_native_camera_cpp()) {
-      cli::cli_abort(c(
-        "x" = "Live camera streaming is currently supported natively on Windows (via Windows Media Foundation).",
-        "i" = "To analyze video on Linux/macOS, please pass a video file path (e.g., {.path 'sample.mp4'})."
-      ))
-    }
-
-    if (isTRUE(verbose)) {
-      if (detect) {
-        cli::cli_alert_info("Starting real-time camera inference with model {.val {basename(model_file)}} [{toupper(engine)} | native C++ engine]")
-      } else {
-        cli::cli_alert_info("Starting real-time camera stream [pass-through mode, inference disabled | native C++ engine]")
-      }
-      if (isTRUE(fullscreen)) {
-        cli::cli_alert_info("Display mode: Fullscreen enabled.")
-      }
-      if (!is.null(roi)) {
-        cli::cli_alert_info("Region of Interest (ROI) active: mode = {.val {roi_mode}}.")
-      }
-      if (isTRUE(track) || !is.null(count_line)) {
-        cli::cli_alert_info("Real-time object tracking and counting tripwire enabled.")
-      }
-      cli::cli_alert_info("Press {.kbd ESC} or close the video window to stop.")
-    }
-
-    if (save_video) {
-      out_video_file <- normalizePath(output, winslash = "/", mustWork = FALSE)
-      cam_dir <- file.path(tempdir(), paste0("cam_yolo_", as.integer(stats::runif(1, 1000, 9999))))
-      if (!dir.exists(cam_dir)) dir.create(cam_dir, recursive = TRUE, showWarnings = FALSE)
-      on.exit(unlink(cam_dir, recursive = TRUE, force = TRUE), add = TRUE)
-      recorded_frames <- list()
-    }
-
-    frame_records <- list()
-    frame_keypoints <- list()
-    frame_count <- 0L
-    t_start <- Sys.time()
-    last_t <- Sys.time()
-    fps_smooth <- 0.0
-
-    cam_id <- 0L
-    cam_name <- "Default Camera"
-      avail_cams <- tryCatch(list_native_cameras_cpp(), error = function(e) list(id = integer(0), name = character(0)))
-      if (length(avail_cams$id) > 0) {
-        if (is.numeric(video)) {
-          idx_req <- as.integer(video[1])
-          match_idx <- which(avail_cams$id == idx_req)
-          if (length(match_idx) > 0) {
-            cam_id <- avail_cams$id[match_idx[1]]
-            cam_name <- avail_cams$name[match_idx[1]]
-          } else {
-            cli::cli_alert_warning("Camera index {idx_req} not found. Available: {paste0('[', avail_cams$id, '] ', avail_cams$name, collapse = ', ')}. Defaulting to [{avail_cams$id[1]}].")
-            cam_id <- avail_cams$id[1]
-            cam_name <- avail_cams$name[1]
-          }
-        } else if (is.character(video)) {
-          v_num <- suppressWarnings(as.integer(video[1]))
-          if (!is.na(v_num) && v_num %in% avail_cams$id) {
-            cam_id <- v_num
-            cam_name <- avail_cams$name[which(avail_cams$id == v_num)[1]]
-          } else {
-            matched <- grep(video[1], avail_cams$name, ignore.case = TRUE)
-            if (length(matched) > 0) {
-              cam_id <- avail_cams$id[matched[1]]
-              cam_name <- avail_cams$name[matched[1]]
-            } else {
-              cli::cli_alert_warning("No camera matching '{video[1]}' found. Available: {paste0('[', avail_cams$id, '] ', avail_cams$name, collapse = ', ')}. Defaulting to [{avail_cams$id[1]}].")
-              cam_id <- avail_cams$id[1]
-              cam_name <- avail_cams$name[1]
-            }
-          }
-        }
-      }
-
-      target_w <- 0L
-      target_h <- 0L
-      if (!is.null(resolution) && length(resolution) >= 2) {
-        target_w <- as.integer(resolution[1])
-        target_h <- as.integer(resolution[2])
-      }
-
-      cam <- tryCatch({
-        open_native_camera_cpp(cam_id, target_w, target_h)
-      }, error = function(e) {
-        cli::cli_abort(c(
-          "x" = "Failed to open native camera {cam_id} ({cam_name}): {e$message}",
-          "i" = "Please check if your webcam is connected and not in use by another application."
-        ))
-      })
-      on.exit(close_native_camera_cpp(cam), add = TRUE)
-
-      cam_dims <- get_camera_dims_cpp(cam)
-      cam_w <- cam_dims$width
-      cam_h <- cam_dims$height
-
-      # Detect if square aspect ratio or custom crop requested
-      is_square <- isTRUE(crop) ||
-                   (is.character(crop) && tolower(crop[1]) %in% c("1:1", "square")) ||
-                   (!is.null(resolution) && length(resolution) == 2 && resolution[1] == resolution[2]) ||
-                   (!is.null(resolution) && length(resolution) == 1 && is.numeric(resolution))
-
-      crop_x <- 0L
-      crop_y <- 0L
-      crop_w <- 0L
-      crop_h <- 0L
-      orig_w <- cam_w
-      orig_h <- cam_h
-
-      if (is_square) {
-        req_size <- if (!is.null(resolution)) as.integer(resolution[1]) else min(cam_w, cam_h)
-        sq_size <- min(req_size, cam_w, cam_h)
-        crop_w <- as.integer(sq_size)
-        crop_h <- as.integer(sq_size)
-        crop_x <- as.integer(round((cam_w - sq_size) / 2))
-        crop_y <- as.integer(round((cam_h - sq_size) / 2))
-        orig_w <- crop_w
-        orig_h <- crop_h
-        if (isTRUE(verbose)) {
-          cli::cli_alert_info("Square frame active: 1:1 aspect ratio ({orig_w}x{orig_h}) centered from {cam_w}x{cam_h} camera feed.")
-        }
-      } else if (is.numeric(crop) && length(crop) >= 2) {
-        req_w <- min(as.integer(crop[1]), cam_w)
-        req_h <- min(as.integer(crop[2]), cam_h)
-        crop_w <- req_w
-        crop_h <- req_h
-        crop_x <- as.integer(round((cam_w - req_w) / 2))
-        crop_y <- as.integer(round((cam_h - req_h) / 2))
-        orig_w <- crop_w
-        orig_h <- crop_h
-        if (isTRUE(verbose)) {
-          cli::cli_alert_info("Custom cropped frame: {orig_w}x{orig_h} centered from {cam_w}x{cam_h} camera feed.")
-        }
-      } else {
-        if (isTRUE(verbose)) {
-          cli::cli_alert_info("Active camera: [{cam_id}] {.strong {cam_name}} ({orig_w}x{orig_h} | {round(orig_w/orig_h, 2)}:1 FOV)")
-        }
-      }
-
-      bm <- raw(3L * orig_w * orig_h)
-      attr(bm, "dim") <- c(3L, orig_w, orig_h)
-
-      win <- NULL
-      if (isTRUE(show)) {
-        w_w <- if (!is.null(window_size)) window_size[1] else round(orig_w * window_scale)
-        w_h <- if (!is.null(window_size)) window_size[2] else round(orig_h * window_scale)
-        win_title <- if (detect) {
-          sprintf("pliman - YOLO [%s | %s] (ESC to exit, Space to pause, F for fullscreen)", toupper(engine), basename(model_file))
-        } else {
-          sprintf("pliman - Camera Stream [%s] (ESC to exit, Space to pause, F for fullscreen)", cam_name)
-        }
-        win <- create_native_window_cpp(title = win_title, width = as.integer(w_w), height = as.integer(w_h), fullscreen = isTRUE(fullscreen))
-        on.exit(close_native_window_cpp(win), add = TRUE)
-      }
-
-      last_df_b <- NULL
-      last_raw_res <- NULL
-      last_has_kpts <- FALSE
-      last_has_masks <- FALSE
-      last_kpt_mat_pass <- NULL
-      last_track_ids_pass <- NULL
-      last_flash_pass <- NULL
-      last_history_x_pass <- NULL
-      last_history_y_pass <- NULL
-      last_total_count_val <- 0L
-      last_in_zone_val <- 0L
-      last_use_crop <- FALSE
-
-      while (TRUE) {
-        if (!is.null(max_frames) && frame_count >= max_frames) {
-          break
-        }
-
-        has_frame <- grab_native_frame_cpp(cam, bm, crop_x1 = crop_x, crop_y1 = crop_y, crop_w = crop_w, crop_h = crop_h)
-        if (!has_frame) {
-          break
-        }
-
-        t_cur <- Sys.time()
-        dt <- as.numeric(t_cur - last_t, units = "secs")
-        last_t <- t_cur
-        cur_fps <- if (dt > 0) (1.0 / dt) else 30.0
-        fps_smooth <- if (fps_smooth == 0) cur_fps else (0.85 * fps_smooth + 0.15 * cur_fps)
-
-        frame_count <- frame_count + 1L
-        t_elapsed <- as.numeric(t_cur - t_start, units = "secs")
-
-        # ROI coordinates calculation
-        roi_coords <- NULL
-        if (!is.null(roi) && length(roi) >= 4) {
-          rx1 <- if (roi[1] <= 1.0) round(roi[1] * orig_w) else round(roi[1])
-          ry1 <- if (roi[2] <= 1.0) round(roi[2] * orig_h) else round(roi[2])
-          rx2 <- if (roi[3] <= 1.0) round(roi[3] * orig_w) else round(roi[3])
-          ry2 <- if (roi[4] <= 1.0) round(roi[4] * orig_h) else round(roi[4])
-          rx1 <- max(0L, min(orig_w - 2L, as.integer(rx1)))
-          ry1 <- max(0L, min(orig_h - 2L, as.integer(ry1)))
-          rx2 <- max(rx1 + 2L, min(orig_w, as.integer(rx2)))
-          ry2 <- max(ry1 + 2L, min(orig_h, as.integer(ry2)))
-          roi_coords <- c(rx1, ry1, rx2, ry2)
-        }
-
-        # Virtual count line coordinates calculation
-        line_coords <- NULL
-        if (!is.null(count_line)) {
-          if (length(count_line) == 1) {
-            pos_x <- if (count_line <= 1.0) round(count_line * orig_w) else round(count_line)
-            line_coords <- c(as.numeric(pos_x), 0.0, as.numeric(pos_x), as.numeric(orig_h))
-          } else if (length(count_line) >= 4) {
-            lx1 <- if (count_line[1] <= 1.0) round(count_line[1] * orig_w) else round(count_line[1])
-            ly1 <- if (count_line[2] <= 1.0) round(count_line[2] * orig_h) else round(count_line[2])
-            lx2 <- if (count_line[3] <= 1.0) round(count_line[3] * orig_w) else round(count_line[3])
-            ly2 <- if (count_line[4] <= 1.0) round(count_line[4] * orig_h) else round(count_line[4])
-            line_coords <- c(as.numeric(lx1), as.numeric(ly1), as.numeric(lx2), as.numeric(ly2))
-          }
-        }
-
-        df_b <- data.frame(
-          frame = integer(0), timestamp = numeric(0), id = integer(0),
-          xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
-          label = character(0), score = numeric(0), class_id = integer(0),
-          stringsAsFactors = FALSE
-        )
-        has_kpts <- FALSE
-        has_masks <- FALSE
-        kpt_mat_pass <- NULL
-        track_ids_pass <- NULL
-        flash_pass <- NULL
-        history_x_pass <- NULL
-        history_y_pass <- NULL
-
-        use_crop <- FALSE
-        should_infer <- (frame_count == 1L || (frame_count %% infer_every == 0L))
-
-        if (detect && should_infer) {
-          use_crop <- (roi_mode == "crop" && !is.null(roi_coords))
-          if (use_crop) {
-            margin_x <- round(0.08 * orig_w)
-            margin_y <- round(0.08 * orig_h)
-            crop_x1 <- max(0L, as.integer(roi_coords[1] - margin_x))
-            crop_y1 <- max(0L, as.integer(roi_coords[2] - margin_y))
-            crop_x2 <- min(orig_w, as.integer(roi_coords[3] + margin_x))
-            crop_y2 <- min(orig_h, as.integer(roi_coords[4] + margin_y))
-            crop_coords <- c(crop_x1, crop_y1, crop_x2, crop_y2)
-            bm_feed <- crop_bgr_cpp(bm, crop_x1, crop_y1, crop_x2, crop_y2)
-          } else {
-            crop_coords <- c(0L, 0L, orig_w, orig_h)
-            bm_feed <- bm
-          }
-          feed_dims <- dim(bm_feed)
-          feed_w <- feed_dims[2]
-          feed_h <- feed_dims[3]
-
-          tensor <- tryCatch(
-            preprocess_yolo_cpp(bm_feed, target_size = 640L),
-            error = function(e) preprocess_yolo_cpp(bm, target_size = 640L)
-          )
-
-          raw_res <- run_yolo_cpp(
-            tensor_vec = tensor,
-            orig_w = feed_w,
-            orig_h = feed_h,
-            conf_threshold = conf_threshold,
-            iou_threshold = iou_threshold,
-            model_path = model_file,
-            lib_path = lib_path,
-            num_threads = as.integer(threads),
-            use_gpu = use_gpu,
-            device_id = as.integer(device_id),
-            need_masks = isTRUE(mask)
-          )
-
-          has_masks <- isTRUE(mask) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && any(raw_res$labels > 0L)
-          num_boxes_orig <- nrow(raw_res$boxes)
-          orig_idx <- seq_len(num_boxes_orig)
-
-          # Shift box coordinates back to full frame if crop was used
-          if (use_crop && nrow(raw_res$boxes) > 0) {
-            raw_res$boxes[, 1] <- raw_res$boxes[, 1] + crop_coords[1]
-            raw_res$boxes[, 2] <- raw_res$boxes[, 2] + crop_coords[2]
-            raw_res$boxes[, 3] <- raw_res$boxes[, 3] + crop_coords[1]
-            raw_res$boxes[, 4] <- raw_res$boxes[, 4] + crop_coords[2]
-            if (!is.null(raw_res$keypoints) && ncol(raw_res$keypoints) >= 51) {
-              raw_res$keypoints[, seq(1, 51, by = 3)] <- raw_res$keypoints[, seq(1, 51, by = 3)] + crop_coords[1]
-              raw_res$keypoints[, seq(2, 51, by = 3)] <- raw_res$keypoints[, seq(2, 51, by = 3)] + crop_coords[2]
-            }
-          } else if (roi_mode == "filter" && is.null(count_line) && !is.null(roi_coords) && nrow(raw_res$boxes) > 0) {
-            cxs <- (raw_res$boxes[, 1] + raw_res$boxes[, 3]) / 2
-            cys <- (raw_res$boxes[, 2] + raw_res$boxes[, 4]) / 2
-            keep_roi <- which(cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4])
-            raw_res$boxes <- raw_res$boxes[keep_roi, , drop = FALSE]
-            raw_res$scores <- raw_res$scores[keep_roi]
-            raw_res$class_ids <- raw_res$class_ids[keep_roi]
-            orig_idx <- orig_idx[keep_roi]
-            if (!is.null(raw_res$keypoints) && nrow(raw_res$keypoints) > 0) {
-              raw_res$keypoints <- raw_res$keypoints[keep_roi, , drop = FALSE]
-            }
-          }
-
-          num_boxes <- nrow(raw_res$boxes)
-          if (num_boxes > 0) {
-            c_ids <- raw_res$class_ids
-            lbls <- ifelse(c_ids >= 0 & c_ids < length(class_names), class_names[c_ids + 1], as.character(c_ids))
-            df_b <- data.frame(
-              frame = frame_count,
-              timestamp = round(t_elapsed, 3),
-              id = seq_len(num_boxes),
-              xmin = raw_res$boxes[, 1],
-              ymin = raw_res$boxes[, 2],
-              xmax = raw_res$boxes[, 3],
-              ymax = raw_res$boxes[, 4],
-              label = lbls,
-              score = round(raw_res$scores, 4),
-              class_id = c_ids,
-              orig_idx = orig_idx,
-              stringsAsFactors = FALSE
-            )
-            if (!is.null(classes)) {
-              keep_cls <- which(df_b$label %in% classes)
-              df_b <- df_b[keep_cls, , drop = FALSE]
-              if (!is.null(raw_res$keypoints) && nrow(raw_res$keypoints) > 0) {
-                raw_res$keypoints <- raw_res$keypoints[keep_cls, , drop = FALSE]
-              }
-            }
-
-            if ((isTRUE(track) || !is.null(count_line))) {
-              if (nrow(df_b) > 0) {
-                track_res <- update_tracker_cpp(
-                  xmin = df_b$xmin,
-                  ymin = df_b$ymin,
-                  xmax = df_b$xmax,
-                  ymax = df_b$ymax,
-                  labels = df_b$label,
-                  scores = df_b$score,
-                  state = track_state,
-                  count_line = line_coords,
-                  roi = roi_coords,
-                  max_dist = track_max_dist,
-                  min_iou = track_min_iou,
-                  max_lost = track_max_lost,
-                  max_history = track_max_history
-                )
-                track_state <- track_res$state
-                df_b$id <- track_res$track_ids
-                df_b$counted <- track_res$counted
-                if (!is.null(track_res$in_zone_vec)) {
-                  df_b$in_zone <- track_res$in_zone_vec
-                } else if (!is.null(roi_coords)) {
-                  cxs <- (df_b$xmin + df_b$xmax) / 2
-                  cys <- (df_b$ymin + df_b$ymax) / 2
-                  df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
-                }
-                track_ids_pass <- track_res$track_ids
-                flash_pass <- track_res$flash
-                history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
-                history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
-                total_count_val <- track_res$total_count
-                in_zone_val <- track_res$in_zone
-              } else if (!is.null(track_state$tracks) && length(track_state$tracks) > 0) {
-                track_res <- update_tracker_cpp(
-                  xmin = numeric(0),
-                  ymin = numeric(0),
-                  xmax = numeric(0),
-                  ymax = numeric(0),
-                  labels = character(0),
-                  scores = numeric(0),
-                  state = track_state,
-                  count_line = line_coords,
-                  roi = roi_coords,
-                  max_dist = track_max_dist,
-                  min_iou = track_min_iou,
-                  max_lost = track_max_lost,
-                  max_history = track_max_history
-                )
-                track_state <- track_res$state
-                total_count_val <- track_res$total_count
-                in_zone_val <- track_res$in_zone
-              }
-            }
-
-            if (!("in_zone" %in% names(df_b)) && !is.null(roi_coords) && nrow(df_b) > 0) {
-              cxs <- (df_b$xmin + df_b$xmax) / 2
-              cys <- (df_b$ymin + df_b$ymax) / 2
-              df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
-            }
-
-            has_masks <- isTRUE(mask) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && any(raw_res$labels > 0L)
-            if (has_masks && nrow(df_b) > 0) {
-              exact_area <- tabulate(raw_res$labels, nbins = num_boxes_orig)
-              conts <- extract_contours_cpp(raw_res$labels)
-              meas <- poly_measures_minimal_cpp(conts)
-              m_idx <- df_b$orig_idx
-              df_b$area <- as.numeric(exact_area[m_idx])
-              df_b$perimeter <- round(as.numeric(meas$perimeter[m_idx]), 1)
-              df_b$radius_mean <- round((as.numeric(meas$maj_axis[m_idx]) + as.numeric(meas$min_axis[m_idx])) / 2, 2)
-              df_b$length <- round(as.numeric(meas$length[m_idx]), 1)
-              df_b$width <- round(as.numeric(meas$width[m_idx]), 1)
-              df_b$circularity <- round(as.numeric(meas$circularity_norm[m_idx]), 4)
-              df_b$eccentricity <- round(as.numeric(meas$eccentricity[m_idx]), 4)
-              df_b$asp_ratio <- round(as.numeric(meas$length[m_idx]) / pmax(0.001, as.numeric(meas$width[m_idx])), 3)
-            }
-
-            has_kpts <- !is.null(raw_res$keypoints) && is.matrix(raw_res$keypoints) && ncol(raw_res$keypoints) == 51 && nrow(raw_res$keypoints) == nrow(df_b)
-            if (has_kpts) {
-              kpt_mat_pass <- raw_res$keypoints
-            }
-          }
-
-          last_df_b <- df_b
-          last_raw_res <- raw_res
-          last_has_kpts <- has_kpts
-          last_has_masks <- has_masks
-          last_kpt_mat_pass <- kpt_mat_pass
-          last_track_ids_pass <- track_ids_pass
-          last_flash_pass <- flash_pass
-          last_history_x_pass <- history_x_pass
-          last_history_y_pass <- history_y_pass
-          last_total_count_val <- total_count_val
-          last_in_zone_val <- in_zone_val
-          last_use_crop <- use_crop
-        } else if (detect && !should_infer && !is.null(last_df_b)) {
-          df_b <- last_df_b
-          raw_res <- last_raw_res
-          has_kpts <- last_has_kpts
-          has_masks <- last_has_masks
-          kpt_mat_pass <- last_kpt_mat_pass
-          track_ids_pass <- last_track_ids_pass
-          flash_pass <- last_flash_pass
-          history_x_pass <- last_history_x_pass
-          history_y_pass <- last_history_y_pass
-          total_count_val <- last_total_count_val
-          in_zone_val <- last_in_zone_val
-          use_crop <- last_use_crop
-          if (nrow(df_b) > 0) {
-            df_b$frame <- frame_count
-            df_b$timestamp <- round(t_elapsed, 3)
-          }
-        }
-
-        palette_colors <- if (detect && nrow(df_b) > 0) {
-          .get_class_palette(
-            labels = df_b$label,
-            n = nrow(df_b),
-            user_col = col,
-            default_col = if (!is.null(col)) col else "#00CC66",
-            rainbow = rainbow,
-            ids = if ("id" %in% names(df_b)) df_b$id else NULL
-          )
-        } else {
-          character(0)
-        }
-
-        if (detect && return_data) {
-          if (nrow(df_b) > 0) df_b$color <- palette_colors
-          frame_records[[frame_count]] <- df_b
-          if (has_kpts) {
-            kpts_list_frame <- lapply(seq_len(nrow(raw_res$keypoints)), function(k) {
-              vals <- raw_res$keypoints[k, ]
-              data.frame(
-                frame = frame_count,
-                id = df_b$id[k],
-                keypoint = .coco_keypoints,
-                x = vals[seq(1, 51, by = 3)],
-                y = vals[seq(2, 51, by = 3)],
-                conf = round(vals[seq(3, 51, by = 3)], 4),
-                stringsAsFactors = FALSE
-              )
-            })
-            frame_keypoints[[frame_count]] <- do.call(rbind, kpts_list_frame)
-          }
-        }
-
-        hud_msg <- if (isTRUE(show_fps)) {
-          if (isTRUE(track) || !is.null(count_line)) {
-            sprintf("%.1f FPS | IN ZONE: %d | COUNT: %d", fps_smooth, in_zone_val, total_count_val)
-          } else if (detect) {
-            sprintf("%.1f FPS | %d Dets", fps_smooth, nrow(df_b))
-          } else {
-            sprintf("%.1f FPS", fps_smooth)
-          }
-        } else ""
-
-        if ((detect && nrow(df_b) > 0) || nzchar(hud_msg) || !is.null(roi_coords) || !is.null(line_coords)) {
-          draw_yolo_detections_bgr_cpp(
-            bm = bm,
-            xmin = if (detect && nrow(df_b) > 0) df_b$xmin else numeric(0),
-            ymin = if (detect && nrow(df_b) > 0) df_b$ymin else numeric(0),
-            xmax = if (detect && nrow(df_b) > 0) df_b$xmax else numeric(0),
-            ymax = if (detect && nrow(df_b) > 0) df_b$ymax else numeric(0),
-            labels = if (detect && nrow(df_b) > 0) df_b$label else character(0),
-            scores = if (detect && nrow(df_b) > 0) df_b$score else numeric(0),
-            colors = palette_colors,
-            lwd = as.integer(lwd),
-            hud_text = hud_msg,
-            font_scale = as.numeric(f_scale),
-            keypoints = kpt_mat_pass,
-            kpt_threshold = as.numeric(kpt_threshold),
-            kpt_radius = as.integer(kpt_radius),
-            draw_skeleton = isTRUE(skeleton),
-            draw_boxes = isTRUE(bbox),
-            track_ids = track_ids_pass,
-            flash = flash_pass,
-            history_x = history_x_pass,
-            history_y = history_y_pass,
-            roi = roi_coords,
-            roi_label = roi_label,
-            count_line = line_coords,
-            count_line_label = if (!is.null(count_line_label)) as.character(count_line_label) else "",
-            counted = if ("counted" %in% names(df_b)) df_b$counted else NULL,
-            hide_outside_roi = isTRUE(hide_outside_roi),
-            hide_counted = isTRUE(hide_counted),
-            flash_counted = isTRUE(flash_counted),
-            show_text = isTRUE(show_text),
-            show_conf = isTRUE(show_conf),
-            show_class = isTRUE(show_class),
-            show_id = isTRUE(show_id),
-            badge = badge,
-            pad_scale = pad_num,
-            mask_labels = if (isTRUE(mask) && has_masks) raw_res$labels else NULL,
-            mask_alpha = as.numeric(alpha),
-            mask_offset_x = if (use_crop) as.integer(crop_coords[1]) else 0L,
-            mask_offset_y = if (use_crop) as.integer(crop_coords[2]) else 0L,
-            draw_masks = isTRUE(mask),
-            mask_ids = if (has_masks && nrow(df_b) > 0) as.integer(df_b$orig_idx) else NULL,
-            hud_pos = as.character(hud_pos),
-            hud_layout = as.character(hud_layout)
-          )
-        }
-
-        if (save_video) {
-          f_rec_path <- file.path(cam_dir, sprintf("rec_%06d.jpg", frame_count))
-          save_frame_bgr_cpp(bm, f_rec_path, quality = 90L)
-          recorded_frames[[frame_count]] <- f_rec_path
-        }
-
-        if (isTRUE(show)) {
-          show_native_frame_cpp(win, bm, preserve_aspect = TRUE)
-          status <- poll_native_window_cpp(win)
-          if (status == 1L) {
-            break
-          }
-          while (status == 2L) {
-            Sys.sleep(0.05)
-            status <- poll_native_window_cpp(win)
-            if (status == 1L) break
-          }
-          if (status == 1L) break
-        }
-      }
-
-    all_dets <- if (length(frame_records) > 0) do.call(rbind, frame_records) else data.frame()
-    all_kpts <- if (length(frame_keypoints) > 0) do.call(rbind, frame_keypoints) else NULL
-    total_time <- as.numeric(Sys.time() - t_start, units = "secs")
-    avg_fps <- if (total_time > 0 && frame_count > 0) (frame_count / total_time) else fps_smooth
-
-    if (save_video && length(recorded_frames) > 0) {
-      if (isTRUE(verbose)) {
-        cli::cli_alert_info("Encoding recorded camera session to {.path {out_video_file}}...")
-      }
-      rec_fps <- if (!is.null(fps)) fps else (if (avg_fps > 0) round(avg_fps, 1) else 24.0)
-      av::av_encode_video(
-        input = unlist(recorded_frames),
-        output = out_video_file,
-        framerate = rec_fps,
-        verbose = FALSE
-      )
-      if (isTRUE(verbose)) cli::cli_alert_success("Camera video saved: {.path {out_video_file}}")
-    }
-
-  # ============================================================================
-  # MODE B: VIDEO FILE PROCESSING (AV / FFMPEG)
-  # ============================================================================
-  } else {
-    if (!file.exists(video)) {
-      cli::cli_abort("Video file not found: {.path {video}}")
-    }
-    ext <- tolower(tools::file_ext(video))
-    if (ext %in% c("jpg", "jpeg", "png", "bmp", "webp", "tif", "tiff")) {
-      cli::cli_abort(c(
-        "x" = "File {.path {video}} is a static image, not a video file.",
-        "i" = "For static image detection or pose estimation, please use {.code image_detect_dl()} or {.code image_pose_dl()}."
-      ))
-    }
-    if (!requireNamespace("av", quietly = TRUE)) {
-      cli::cli_abort(c(
-        "!" = "Package {.pkg av} is required for video file inference.",
-        "i" = "Please install it with: {.code install.packages('av')}"
-      ))
-    }
-
-    v_info <- av::av_video_info(video)
-    src_w <- v_info$video$width
-    src_h <- v_info$video$height
-    orig_fps <- v_info$video$framerate
-    if (is.null(orig_fps) || is.na(orig_fps) || orig_fps <= 0) orig_fps <- 30.0
-    src_fps <- if (!is.null(fps)) fps else orig_fps
-    if (is.null(src_fps) || is.na(src_fps) || src_fps <= 0) src_fps <- 30.0
-
-    # Destination directory for decoded frames
-    run_dir <- file.path(tempdir(), paste0("vid_yolo_", as.integer(stats::runif(1, 1000, 9999))))
-    on.exit(unlink(run_dir, recursive = TRUE, force = TRUE), add = TRUE)
-
-    if (isTRUE(verbose)) {
-      cli::cli_progress_step("Decoding video frames with FFmpeg...", msg_done = "Video frames decoded")
-    }
-    filter_fps <- if (length(fps) && !is.null(fps)) paste0("fps=fps=", fps) else NULL
-    vfilter <- if (length(filter_fps)) filter_fps else "null"
-    if (!is.null(max_frames) && is.numeric(max_frames) && max_frames > 0) {
-      lim_n <- as.integer(max_frames) + 2L
-      sel_filter <- paste0("select=between(n\\,0\\,", lim_n, ")")
-      vfilter <- if (vfilter == "null") sel_filter else paste0(vfilter, ",", sel_filter)
-    }
-    if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
-    output_pattern <- file.path(run_dir, "image_%06d.bmp")
-
-    av::av_encode_video(
-      input = video,
-      output = output_pattern,
-      framerate = orig_fps,
-      codec = "bmp",
-      vfilter = vfilter,
-      verbose = FALSE
-    )
-    if (isTRUE(verbose)) cli::cli_progress_done()
-    frame_paths <- sort(list.files(run_dir, pattern = "^image_\\d+\\.bmp$", full.names = TRUE))
-    num_frames <- length(frame_paths)
-    if (!is.null(fps) && !is.null(v_info$video$duration) && v_info$video$duration > 0) {
-      expected_max <- ceiling(v_info$video$duration * fps) + 5
-      if (num_frames > expected_max) {
-        keep_idx <- round(seq(1, num_frames, length.out = ceiling(v_info$video$duration * fps)))
-        keep_idx <- unique(pmin(num_frames, pmax(1L, keep_idx)))
-        frame_paths <- frame_paths[keep_idx]
-        num_frames <- length(frame_paths)
-      }
-    }
-    if (!is.null(max_frames) && max_frames < num_frames) {
-      frame_paths <- frame_paths[seq_len(max_frames)]
-      num_frames <- length(frame_paths)
-    }
-
-    if (isTRUE(verbose)) {
-      if (detect) {
-        cli::cli_alert_info("Running YOLO inference on {num_frames} frame(s) [{toupper(engine)} | model: {.val {basename(model_file)}}]")
-      } else {
-        cli::cli_alert_info("Processing {num_frames} frame(s) [inference disabled]")
-      }
-      if (is.null(fps) && isTRUE(v_info$video$duration > 60)) {
-        cli::cli_alert_info("Tip: For faster processing of long videos, you can use e.g. {.code fps = 5} or {.code fps = 10}.")
-      }
-    }
-
-    frame_records <- vector("list", num_frames)
-    frame_keypoints <- vector("list", num_frames)
-    t_start <- Sys.time()
-
-    # Pre-render dimensions must be even for H.264
-    out_w <- src_w - (src_w %% 2)
-    out_h <- src_h - (src_h %% 2)
-
-    # ROI coordinates for Mode B
-    roi_coords <- NULL
-    if (!is.null(roi) && length(roi) >= 4) {
-      rx1 <- if (roi[1] <= 1.0) round(roi[1] * src_w) else round(roi[1])
-      ry1 <- if (roi[2] <= 1.0) round(roi[2] * src_h) else round(roi[2])
-      rx2 <- if (roi[3] <= 1.0) round(roi[3] * src_w) else round(roi[3])
-      ry2 <- if (roi[4] <= 1.0) round(roi[4] * src_h) else round(roi[4])
-      rx1 <- max(0L, min(src_w - 2L, as.integer(rx1)))
-      ry1 <- max(0L, min(src_h - 2L, as.integer(ry1)))
-      rx2 <- max(rx1 + 2L, min(src_w, as.integer(rx2)))
-      ry2 <- max(ry1 + 2L, min(src_h, as.integer(ry2)))
-      roi_coords <- c(rx1, ry1, rx2, ry2)
-    }
-
-    line_coords <- NULL
-    if (!is.null(count_line)) {
-      if (length(count_line) == 1) {
-        pos_x <- if (count_line <= 1.0) round(count_line * src_w) else round(count_line)
-        line_coords <- c(as.numeric(pos_x), 0.0, as.numeric(pos_x), as.numeric(src_h))
-      } else if (length(count_line) >= 4) {
-        lx1 <- if (count_line[1] <= 1.0) round(count_line[1] * src_w) else round(count_line[1])
-        ly1 <- if (count_line[2] <= 1.0) round(count_line[2] * src_h) else round(count_line[2])
-        lx2 <- if (count_line[3] <= 1.0) round(count_line[3] * src_w) else round(count_line[3])
-        ly2 <- if (count_line[4] <= 1.0) round(count_line[4] * src_h) else round(count_line[4])
-        line_coords <- c(as.numeric(lx1), as.numeric(ly1), as.numeric(lx2), as.numeric(ly2))
-      }
-    }
-
-    if (save_video) {
-      out_video_file <- normalizePath(output, winslash = "/", mustWork = FALSE)
-    }
-
-    pb <- if (isTRUE(verbose)) {
-      cli::cli_progress_bar(
-        if (detect) "Detecting objects in video" else "Processing video",
-        total = num_frames,
-        extra = list(current_fps = "0.0"),
-        format = "{cli::pb_spin} Processing [{cli::pb_current}/{cli::pb_total}] | {cli::pb_percent} | {cli::pb_extra$current_fps} FPS | ETA: {cli::pb_eta}"
-      )
-    } else NULL
-
-    last_df_b <- NULL
-    last_raw_res <- NULL
-    last_has_kpts <- FALSE
-    last_has_masks <- FALSE
-    last_kpt_mat_pass <- NULL
-    last_track_ids_pass <- NULL
-    last_flash_pass <- NULL
-    last_history_x_pass <- NULL
-    last_history_y_pass <- NULL
-    last_total_count_val <- 0L
-    last_in_zone_val <- 0L
-    last_use_crop <- FALSE
-    last_crop_coords <- NULL
-
-    process_loop <- function() {
-      for (i in seq_len(num_frames)) {
-        f_path <- frame_paths[i]
-        has_kpts <- FALSE
-        has_masks <- FALSE
-        kpt_mat_pass <- NULL
-        track_ids_pass <- NULL
-        flash_pass <- NULL
-        history_x_pass <- NULL
-        history_y_pass <- NULL
-
-        use_crop <- FALSE
-        crop_coords <- c(0L, 0L, src_w, src_h)
-        should_infer <- (i == 1L || (i %% infer_every == 0L))
-
-        # Decode frame once into memory for both YOLO and drawing
-        bm <- load_frame_bgr_cpp(f_path)
-
-        if (detect && should_infer) {
-          use_crop <- (roi_mode == "crop" && !is.null(roi_coords))
-          if (use_crop) {
-            margin_x <- round(0.08 * src_w)
-            margin_y <- round(0.08 * src_h)
-            crop_x1 <- max(0L, as.integer(roi_coords[1] - margin_x))
-            crop_y1 <- max(0L, as.integer(roi_coords[2] - margin_y))
-            crop_x2 <- min(src_w, as.integer(roi_coords[3] + margin_x))
-            crop_y2 <- min(src_h, as.integer(roi_coords[4] + margin_y))
-            crop_coords <- c(crop_x1, crop_y1, crop_x2, crop_y2)
-            bm_feed <- crop_bgr_cpp(bm, crop_x1, crop_y1, crop_x2, crop_y2)
-          } else {
-            crop_coords <- c(0L, 0L, src_w, src_h)
-            bm_feed <- bm
-          }
-          feed_dims <- dim(bm_feed)
-          feed_w <- feed_dims[2]
-          feed_h <- feed_dims[3]
-
-          tensor <- tryCatch(
-            preprocess_yolo_cpp(bm_feed, target_size = 640L),
-            error = function(e) {
-              f_mat <- image_data(image_import(f_path))
-              preprocess_yolo_cpp(f_mat, target_size = 640L)
-            }
-          )
-
-          raw_res <- run_yolo_cpp(
-            tensor_vec = tensor,
-            orig_w = feed_w,
-            orig_h = feed_h,
-            conf_threshold = conf_threshold,
-            iou_threshold = iou_threshold,
-            model_path = model_file,
-            lib_path = lib_path,
-            num_threads = as.integer(threads),
-            use_gpu = use_gpu,
-            device_id = as.integer(device_id),
-            need_masks = isTRUE(mask)
-          )
-
-          has_masks <- isTRUE(mask) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && any(raw_res$labels > 0L)
-          num_boxes_orig <- nrow(raw_res$boxes)
-          orig_idx <- seq_len(num_boxes_orig)
-
-          # Shift box coordinates back to full frame if crop was used
-          if (use_crop && nrow(raw_res$boxes) > 0) {
-            raw_res$boxes[, 1] <- raw_res$boxes[, 1] + crop_coords[1]
-            raw_res$boxes[, 2] <- raw_res$boxes[, 2] + crop_coords[2]
-            raw_res$boxes[, 3] <- raw_res$boxes[, 3] + crop_coords[1]
-            raw_res$boxes[, 4] <- raw_res$boxes[, 4] + crop_coords[2]
-            if (!is.null(raw_res$keypoints) && ncol(raw_res$keypoints) >= 51) {
-              raw_res$keypoints[, seq(1, 51, by = 3)] <- raw_res$keypoints[, seq(1, 51, by = 3)] + crop_coords[1]
-              raw_res$keypoints[, seq(2, 51, by = 3)] <- raw_res$keypoints[, seq(2, 51, by = 3)] + crop_coords[2]
-            }
-          } else if (roi_mode == "filter" && is.null(count_line) && !is.null(roi_coords) && nrow(raw_res$boxes) > 0) {
-            cxs <- (raw_res$boxes[, 1] + raw_res$boxes[, 3]) / 2
-            cys <- (raw_res$boxes[, 2] + raw_res$boxes[, 4]) / 2
-            keep_roi <- which(cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4])
-            raw_res$boxes <- raw_res$boxes[keep_roi, , drop = FALSE]
-            raw_res$scores <- raw_res$scores[keep_roi]
-            raw_res$class_ids <- raw_res$class_ids[keep_roi]
-            orig_idx <- orig_idx[keep_roi]
-            if (!is.null(raw_res$keypoints) && nrow(raw_res$keypoints) > 0) {
-              raw_res$keypoints <- raw_res$keypoints[keep_roi, , drop = FALSE]
-            }
-          }
-
-          num_boxes <- nrow(raw_res$boxes)
-          t_sec <- round((i - 1) / src_fps, 3)
-
-          if (num_boxes > 0) {
-            c_ids <- raw_res$class_ids
-            lbls <- ifelse(c_ids >= 0 & c_ids < length(class_names), class_names[c_ids + 1], as.character(c_ids))
-            df_b <- data.frame(
-              frame = i,
-              timestamp = t_sec,
-              id = seq_len(num_boxes),
-              xmin = raw_res$boxes[, 1],
-              ymin = raw_res$boxes[, 2],
-              xmax = raw_res$boxes[, 3],
-              ymax = raw_res$boxes[, 4],
-              label = lbls,
-              score = round(raw_res$scores, 4),
-              class_id = c_ids,
-              orig_idx = orig_idx,
-              stringsAsFactors = FALSE
-            )
-            if (!is.null(classes)) {
-              keep_cls <- which(df_b$label %in% classes)
-              df_b <- df_b[keep_cls, , drop = FALSE]
-              if (!is.null(raw_res$keypoints) && nrow(raw_res$keypoints) > 0) {
-                raw_res$keypoints <- raw_res$keypoints[keep_cls, , drop = FALSE]
-              }
-            }
-
-            if ((isTRUE(track) || !is.null(count_line))) {
-              if (nrow(df_b) > 0) {
-                track_res <- update_tracker_cpp(
-                  xmin = df_b$xmin,
-                  ymin = df_b$ymin,
-                  xmax = df_b$xmax,
-                  ymax = df_b$ymax,
-                  labels = df_b$label,
-                  scores = df_b$score,
-                  state = track_state,
-                  count_line = line_coords,
-                  roi = roi_coords,
-                  max_dist = track_max_dist,
-                  min_iou = track_min_iou,
-                  max_lost = track_max_lost,
-                  max_history = track_max_history
-                )
-                track_state <<- track_res$state
-                df_b$id <- track_res$track_ids
-                df_b$counted <- track_res$counted
-                if (!is.null(track_res$in_zone_vec)) {
-                  df_b$in_zone <- track_res$in_zone_vec
-                } else if (!is.null(roi_coords)) {
-                  cxs <- (df_b$xmin + df_b$xmax) / 2
-                  cys <- (df_b$ymin + df_b$ymax) / 2
-                  df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
-                }
-                track_ids_pass <- track_res$track_ids
-                flash_pass <- track_res$flash
-                history_x_pass <- if (isTRUE(trail)) track_res$history_x else NULL
-                history_y_pass <- if (isTRUE(trail)) track_res$history_y else NULL
-                total_count_val <<- track_res$total_count
-                in_zone_val <<- track_res$in_zone
-              } else if (!is.null(track_state$tracks) && length(track_state$tracks) > 0) {
-                track_res <- update_tracker_cpp(
-                  xmin = numeric(0),
-                  ymin = numeric(0),
-                  xmax = numeric(0),
-                  ymax = numeric(0),
-                  labels = character(0),
-                  scores = numeric(0),
-                  state = track_state,
-                  count_line = line_coords,
-                  roi = roi_coords,
-                  max_dist = track_max_dist,
-                  min_iou = track_min_iou,
-                  max_lost = track_max_lost,
-                  max_history = track_max_history
-                )
-                track_state <<- track_res$state
-                total_count_val <<- track_res$total_count
-                in_zone_val <<- track_res$in_zone
-              }
-            }
-
-            if (!("in_zone" %in% names(df_b)) && !is.null(roi_coords) && nrow(df_b) > 0) {
-              cxs <- (df_b$xmin + df_b$xmax) / 2
-              cys <- (df_b$ymin + df_b$ymax) / 2
-              df_b$in_zone <- cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4]
-            }
-
-            has_masks <- isTRUE(mask) && !is.null(raw_res$labels) && is.matrix(raw_res$labels) && any(raw_res$labels > 0L)
-            if (has_masks && nrow(df_b) > 0) {
-              exact_area <- tabulate(raw_res$labels, nbins = num_boxes_orig)
-              conts <- extract_contours_cpp(raw_res$labels)
-              meas <- poly_measures_minimal_cpp(conts)
-              m_idx <- df_b$orig_idx
-              df_b$area <- as.numeric(exact_area[m_idx])
-              df_b$perimeter <- round(as.numeric(meas$perimeter[m_idx]), 1)
-              df_b$radius_mean <- round((as.numeric(meas$maj_axis[m_idx]) + as.numeric(meas$min_axis[m_idx])) / 2, 2)
-              df_b$length <- round(as.numeric(meas$length[m_idx]), 1)
-              df_b$width <- round(as.numeric(meas$width[m_idx]), 1)
-              df_b$circularity <- round(as.numeric(meas$circularity_norm[m_idx]), 4)
-              df_b$eccentricity <- round(as.numeric(meas$eccentricity[m_idx]), 4)
-              df_b$asp_ratio <- round(as.numeric(meas$length[m_idx]) / pmax(0.001, as.numeric(meas$width[m_idx])), 3)
-            }
-
-            has_kpts <- !is.null(raw_res$keypoints) && is.matrix(raw_res$keypoints) && ncol(raw_res$keypoints) == 51 && nrow(raw_res$keypoints) == nrow(df_b)
-            if (has_kpts) {
-              kpt_mat_pass <- raw_res$keypoints
-            }
-          } else {
-            df_b <- data.frame(
-              frame = integer(0), timestamp = numeric(0), id = integer(0),
-              xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
-              label = character(0), score = numeric(0), class_id = integer(0),
-              stringsAsFactors = FALSE
-            )
-          }
-
-          last_df_b <<- df_b
-          last_raw_res <<- raw_res
-          last_has_kpts <<- has_kpts
-          last_has_masks <<- has_masks
-          last_kpt_mat_pass <<- kpt_mat_pass
-          last_track_ids_pass <<- track_ids_pass
-          last_flash_pass <<- flash_pass
-          last_history_x_pass <<- history_x_pass
-          last_history_y_pass <<- history_y_pass
-          last_total_count_val <<- total_count_val
-          last_in_zone_val <<- in_zone_val
-          last_use_crop <<- use_crop
-          last_crop_coords <<- crop_coords
-        } else if (detect && !should_infer && !is.null(last_df_b)) {
-          df_b <- last_df_b
-          raw_res <- last_raw_res
-          has_kpts <- last_has_kpts
-          has_masks <- last_has_masks
-          kpt_mat_pass <- last_kpt_mat_pass
-          track_ids_pass <- last_track_ids_pass
-          flash_pass <- last_flash_pass
-          history_x_pass <- last_history_x_pass
-          history_y_pass <- last_history_y_pass
-          total_count_val <<- last_total_count_val
-          in_zone_val <<- last_in_zone_val
-          use_crop <- last_use_crop
-          crop_coords <- last_crop_coords
-
-          # If tracking is active, propagate motion across skipped frames using track velocities
-          if ((isTRUE(track) || !is.null(count_line)) && nrow(df_b) > 0 && !is.null(track_state$tracks) && length(track_state$tracks) > 0) {
-            for (ti in seq_along(track_state$tracks)) {
-              trk <- track_state$tracks[[ti]]
-              tid <- trk$id
-              match_row <- which(df_b$id == tid)
-              if (length(match_row) > 0) {
-                vx <- if (!is.null(trk$vx)) trk$vx else 0.0
-                vy <- if (!is.null(trk$vy)) trk$vy else 0.0
-                if (abs(vx) > 0.1 || abs(vy) > 0.1) {
-                  df_b$xmin[match_row] <- df_b$xmin[match_row] + vx
-                  df_b$xmax[match_row] <- df_b$xmax[match_row] + vx
-                  df_b$ymin[match_row] <- df_b$ymin[match_row] + vy
-                  df_b$ymax[match_row] <- df_b$ymax[match_row] + vy
-                }
-              }
-            }
-            last_df_b <<- df_b
-          }
-
-          if (nrow(df_b) > 0) {
-            df_b$frame <- i
-            df_b$timestamp <- round((i - 1) / src_fps, 3)
-          }
-        } else {
-          df_b <- data.frame(
-            frame = integer(0), timestamp = numeric(0), id = integer(0),
-            xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
-            label = character(0), score = numeric(0), class_id = integer(0),
-            stringsAsFactors = FALSE
-          )
-        }
-
-        palette_colors <- if (detect && nrow(df_b) > 0) {
-          .get_class_palette(
-            labels = df_b$label,
-            n = nrow(df_b),
-            user_col = col,
-            default_col = if (!is.null(col)) col else "#00CC66",
-            rainbow = rainbow,
-            ids = if ("id" %in% names(df_b)) df_b$id else NULL
-          )
-        } else {
-          character(0)
-        }
-
-        if (detect && return_data) {
-          if (nrow(df_b) > 0) df_b$color <- palette_colors
-          frame_records[[i]] <<- df_b
-          if (has_kpts) {
-            kpts_list_frame <- lapply(seq_len(nrow(df_b)), function(k) {
-              vals <- raw_res$keypoints[k, ]
-              data.frame(
-                frame = i,
-                id = df_b$id[k],
-                keypoint = .coco_keypoints,
-                x = vals[seq(1, 51, by = 3)],
-                y = vals[seq(2, 51, by = 3)],
-                conf = round(vals[seq(3, 51, by = 3)], 4),
-                stringsAsFactors = FALSE
-              )
-            })
-            frame_keypoints[[i]] <<- do.call(rbind, kpts_list_frame)
-          }
-        }
-
-        # Render frame with bounding boxes and annotations
-        if (save_video && !isTRUE(show)) {
-          elapsed_now <- as.numeric(Sys.time() - t_start, units = "secs")
-          cur_fps_est <- if (elapsed_now > 0) (i / elapsed_now) else src_fps
-          hud_txt <- if (isTRUE(show_fps)) {
-            if (isTRUE(track) || !is.null(count_line)) {
-              sprintf("Frame %d/%d | %.1f FPS | IN ZONE: %d | COUNT: %d", i, num_frames, cur_fps_est, in_zone_val, total_count_val)
-            } else if (detect) {
-              sprintf("Frame %d/%d | %.1f FPS | %d Dets", i, num_frames, cur_fps_est, nrow(df_b))
-            } else {
-              sprintf("Frame %d/%d | %.1f FPS", i, num_frames, cur_fps_est)
-            }
-          } else ""
-
-          draw_yolo_detections_bgr_cpp(
-            bm = bm,
-            xmin = if (detect && nrow(df_b) > 0) df_b$xmin else numeric(0),
-            ymin = if (detect && nrow(df_b) > 0) df_b$ymin else numeric(0),
-            xmax = if (detect && nrow(df_b) > 0) df_b$xmax else numeric(0),
-            ymax = if (detect && nrow(df_b) > 0) df_b$ymax else numeric(0),
-            labels = if (detect && nrow(df_b) > 0) df_b$label else character(0),
-            scores = if (detect && nrow(df_b) > 0) df_b$score else numeric(0),
-            colors = palette_colors,
-            lwd = as.integer(lwd),
-            hud_text = hud_txt,
-            font_scale = as.numeric(f_scale),
-            keypoints = kpt_mat_pass,
-            kpt_threshold = as.numeric(kpt_threshold),
-            kpt_radius = as.integer(kpt_radius),
-            draw_skeleton = isTRUE(skeleton),
-            draw_boxes = isTRUE(bbox),
-            track_ids = track_ids_pass,
-            flash = flash_pass,
-            history_x = history_x_pass,
-            history_y = history_y_pass,
-            roi = roi_coords,
-            roi_label = roi_label,
-            count_line = line_coords,
-            count_line_label = if (!is.null(count_line_label)) as.character(count_line_label) else "",
-            counted = if ("counted" %in% names(df_b)) df_b$counted else NULL,
-            hide_outside_roi = isTRUE(hide_outside_roi),
-            hide_counted = isTRUE(hide_counted),
-            flash_counted = isTRUE(flash_counted),
-            show_text = isTRUE(show_text),
-            show_conf = isTRUE(show_conf),
-            show_class = isTRUE(show_class),
-            show_id = isTRUE(show_id),
-            badge = badge,
-            pad_scale = pad_num,
-            mask_labels = if (isTRUE(mask) && has_masks) raw_res$labels else NULL,
-            mask_alpha = as.numeric(alpha),
-            mask_offset_x = if (use_crop) as.integer(crop_coords[1]) else 0L,
-            mask_offset_y = if (use_crop) as.integer(crop_coords[2]) else 0L,
-            draw_masks = isTRUE(mask),
-            mask_ids = if (has_masks && nrow(df_b) > 0) as.integer(df_b$orig_idx) else NULL,
-            hud_pos = as.character(hud_pos),
-            hud_layout = as.character(hud_layout)
-          )
-          save_frame_bgr_cpp(bm, f_path, quality = 90L)
-        } else if (isTRUE(show)) {
-          f_mat <- image_data(image_import(f_path))
-          plot(as_image(f_mat), ...)
-          if (!is.null(roi_coords)) {
-            graphics::rect(roi_coords[1], roi_coords[2], roi_coords[3], roi_coords[4],
-                           col = grDevices::adjustcolor("#FA8072", alpha.f = 0.3),
-                           border = "#FA8072", lwd = 1)
-            graphics::text(roi_coords[1] + 5, roi_coords[2] - 5, roi_label, col = "#FA8072", cex = 0.7, font = 2, adj = c(0, 0))
-          }
-          if (!is.null(line_coords)) {
-            graphics::lines(c(line_coords[1], line_coords[3]), c(line_coords[2], line_coords[4]), col = "#00E5FF", lwd = 3)
-            if (!is.null(count_line_label) && nzchar(as.character(count_line_label))) {
-              is_vert <- abs(line_coords[4] - line_coords[2]) >= abs(line_coords[3] - line_coords[1])
-              if (is_vert) {
-                graphics::text(line_coords[1] - 5, min(line_coords[2], line_coords[4]) + 15, count_line_label, col = "#00E5FF", cex = 0.7, font = 2, adj = c(1, 0))
-              } else {
-                graphics::text(min(line_coords[1], line_coords[3]) + 5, line_coords[2] - 5, count_line_label, col = "#00E5FF", cex = 0.7, font = 2, adj = c(0, 0))
-              }
-            }
-          }
-          if (detect && nrow(df_b) > 0) {
-            # Filter bounding boxes to plot based on ROI and counted status
-            keep_plot <- rep(TRUE, nrow(df_b))
-            if (isTRUE(hide_outside_roi) && !is.null(roi_coords)) {
-              cxs <- (df_b$xmin + df_b$xmax) / 2
-              cys <- (df_b$ymin + df_b$ymax) / 2
-              keep_plot <- keep_plot & (cxs >= roi_coords[1] & cxs <= roi_coords[3] & cys >= roi_coords[2] & cys <= roi_coords[4])
-            }
-            if (isTRUE(hide_counted) && "counted" %in% names(df_b)) {
-              is_flashing <- if (!is.null(flash_pass) && length(flash_pass) == nrow(df_b)) (flash_pass > 0) else FALSE
-              if (isTRUE(flash_counted)) {
-                keep_plot <- keep_plot & (!df_b$counted | is_flashing)
-              } else {
-                keep_plot <- keep_plot & !df_b$counted
-              }
-            }
-
-            df_plot <- df_b[keep_plot, , drop = FALSE]
-
-            if (nrow(df_plot) > 0) {
-              plot_colors <- palette_colors[keep_plot]
-
-              if (isTRUE(mask) && has_masks && exists("conts") && length(conts) > 0) {
-                for (kp_idx in which(keep_plot)) {
-                  mid <- df_b$orig_idx[kp_idx]
-                  if (!is.na(mid) && mid <= length(conts) && !is.null(conts[[mid]]) && nrow(conts[[mid]]) >= 3) {
-                    graphics::polygon(conts[[mid]][, 1], conts[[mid]][, 2],
-                                      col = grDevices::adjustcolor(palette_colors[kp_idx], alpha.f = alpha),
-                                      border = NA)
-                  }
-                }
-              }
-
-              if (isTRUE(bbox)) {
-                .plot_yolo_bboxes(
-                  boxes = df_plot,
-                  palette_colors = plot_colors,
-                  lwd = lwd,
-                  cex = text_size_num,
-                  pad = pad,
-                  badge = badge,
-                  show_text = isTRUE(show_text),
-                  show_conf = isTRUE(show_conf),
-                  show_class = isTRUE(show_class),
-                  show_id = isTRUE(show_id)
-                )
-              }
-              if (isTRUE(skeleton) && has_kpts) {
-                kpts_for_plot <- lapply(which(keep_plot), function(k) {
-                  vals <- raw_res$keypoints[k, ]
-                  data.frame(
-                    id = df_b$id[k],
-                    keypoint = .coco_keypoints,
-                    x = vals[seq(1, 51, by = 3)],
-                    y = vals[seq(2, 51, by = 3)],
-                    conf = round(vals[seq(3, 51, by = 3)], 4),
-                    stringsAsFactors = FALSE
-                  )
-                })
-                .plot_yolo_keypoints(
-                  keypoints_list = kpts_for_plot,
-                  palette_colors = plot_colors,
-                  kpt_threshold = kpt_threshold,
-                  lwd = lwd,
-                  kpt_radius = kpt_radius
-                )
-              }
-            }
-          }
-          if (isTRUE(show_fps)) {
-            elapsed_now <- as.numeric(Sys.time() - t_start, units = "secs")
-            cur_fps_est <- if (elapsed_now > 0) (i / elapsed_now) else src_fps
-            hud_items <- if (isTRUE(track) || !is.null(count_line)) {
-              c(sprintf("FRAME: %d/%d", i, num_frames),
-                sprintf("SPEED: %.1f FPS", cur_fps_est),
-                sprintf("IN ZONE: %d", in_zone_val),
-                sprintf("COUNTED: %d", total_count_val))
-            } else if (detect) {
-              c(sprintf("FRAME: %d/%d", i, num_frames),
-                sprintf("SPEED: %.1f FPS", cur_fps_est),
-                sprintf("OBJECTS: %d", nrow(df_b)))
-            } else {
-              c(sprintf("FRAME: %d/%d", i, num_frames),
-                sprintf("SPEED: %.1f FPS", cur_fps_est))
-            }
-            u <- graphics::par("usr")
-            th <- abs(graphics::strheight("Ag", units = "user", cex = 0.65))
-            pad <- 6
-            is_vert <- (hud_layout == "vertical")
-
-            if (is_vert) {
-              all_lines <- c("TELEMETRY", hud_items)
-              max_w <- max(abs(graphics::strwidth(all_lines, units = "user", cex = 0.65, font = 2)))
-              bx_w <- max_w + 2 * pad + 10
-              bx_h <- (length(all_lines) * th * 1.5) + 2 * pad
-            } else {
-              single_line <- paste(hud_items, collapse = "  |  ")
-              bx_w <- abs(graphics::strwidth(single_line, units = "user", cex = 0.65, font = 2)) + 2 * pad
-              bx_h <- th * 1.8 + 2 * pad
-            }
-
-            margin_x <- abs(u[2] - u[1]) * 0.02
-            margin_y <- abs(u[4] - u[3]) * 0.02
-            top_y <- max(u[3], u[4]) - margin_y
-            bot_y <- min(u[3], u[4]) + margin_y
-            left_x <- min(u[1], u[2]) + margin_x
-            right_x <- max(u[1], u[2]) - margin_x
-
-            if (hud_pos %in% c("top-right", "topright")) {
-              x1 <- right_x - bx_w; x2 <- right_x; y2 <- top_y; y1 <- top_y - bx_h
-            } else if (hud_pos %in% c("bottom-right", "bottomright")) {
-              x1 <- right_x - bx_w; x2 <- right_x; y1 <- bot_y; y2 <- bot_y + bx_h
-            } else if (hud_pos %in% c("bottom-left", "bottomleft")) {
-              x1 <- left_x; x2 <- left_x + bx_w; y1 <- bot_y; y2 <- bot_y + bx_h
-            } else if (hud_pos == "top") {
-              mid_x <- (u[1] + u[2]) / 2; x1 <- mid_x - bx_w / 2; x2 <- mid_x + bx_w / 2; y2 <- top_y; y1 <- top_y - bx_h
-            } else if (hud_pos == "bottom") {
-              mid_x <- (u[1] + u[2]) / 2; x1 <- mid_x - bx_w / 2; x2 <- mid_x + bx_w / 2; y1 <- bot_y; y2 <- bot_y + bx_h
-            } else {
-              x1 <- left_x; x2 <- left_x + bx_w; y2 <- top_y; y1 <- top_y - bx_h
-            }
-
-            graphics::rect(xleft = x1, ybottom = y1, xright = x2, ytop = y2,
-                           col = grDevices::adjustcolor("#0E1420", alpha.f = 0.85), border = "#233C55", lwd = 1.2)
-            graphics::rect(xleft = x1, ybottom = y2 - 2, xright = x2, ytop = y2,
-                           col = "#00E5FF", border = NA)
-            if (is_vert) {
-              graphics::points(x1 + pad + 2, y2 - pad - th / 2, pch = 16, col = "#00FF88", cex = 0.8)
-              graphics::text(x = x1 + pad + 10, y = y2 - pad - th / 2, labels = "TELEMETRY", col = "#00E5FF", cex = 0.6, font = 2, adj = c(0, 0.5))
-              for (k in seq_along(hud_items)) {
-                item_y <- y2 - pad - th * 1.5 - (k - 0.5) * th * 1.5
-                parts <- strsplit(hud_items[k], ": ")[[1]]
-                lbl <- parts[1]; val <- if (length(parts) > 1) parts[2] else ""
-                val_col <- if (grepl("COUNT", lbl)) "#00E5FF" else if (grepl("ZONE", lbl)) "#FFBB00" else if (grepl("SPEED", lbl)) "#00FF88" else "#FFFFFF"
-                graphics::text(x = x1 + pad, y = item_y, labels = lbl, col = "#94B0C4", cex = 0.6, font = 2, adj = c(0, 0.5))
-                if (nzchar(val)) {
-                  graphics::text(x = x2 - pad, y = item_y, labels = val, col = val_col, cex = 0.6, font = 2, adj = c(1, 0.5))
-                }
-              }
-            } else {
-              graphics::text(x = x1 + pad, y = (y1 + y2) / 2, labels = single_line, col = "#FFFFFF", cex = 0.65, font = 2, adj = c(0, 0.5))
-            }
-          }
-        }
-
-        if (!is.null(pb)) {
-          elapsed_now <- as.numeric(Sys.time() - t_start, units = "secs")
-          cur_fps_est <- if (elapsed_now > 0) (i / elapsed_now) else src_fps
-          cli::cli_progress_update(id = pb, extra = list(current_fps = sprintf("%.1f", cur_fps_est)))
-        }
-      }
-    }
-
-    process_loop()
-
-    if (save_video) {
-      if (isTRUE(verbose)) {
-        cli::cli_alert_info("Encoding annotated video to MP4 with FFmpeg...")
-      }
-      av::av_encode_video(
-        input = frame_paths,
-        output = out_video_file,
-        framerate = src_fps,
-        verbose = FALSE
-      )
-      if (isTRUE(verbose)) cli::cli_alert_success("Video encoding complete: {.path {out_video_file}}")
-    }
-
-    all_dets <- if (length(frame_records) > 0) do.call(rbind, frame_records) else data.frame()
-    all_kpts <- if (length(frame_keypoints) > 0) do.call(rbind, frame_keypoints) else NULL
-    total_time <- as.numeric(Sys.time() - t_start, units = "secs")
-    avg_fps <- if (total_time > 0 && num_frames > 0) (num_frames / total_time) else src_fps
-  }
-
-  if (!return_data) {
-    if (isTRUE(verbose)) {
-      cli::cli_alert_success("Session complete: {if (is_camera) frame_count else num_frames} frame(s) processed at {round(avg_fps, 1)} FPS average.")
-      if (save_video && !is.null(output) && file.exists(output)) {
-        cli::cli_alert_success("Video saved to: {.path {output}}")
-      }
-    }
-    return(invisible(NULL))
-  }
-
-  # ============================================================================
-  # COMPREHENSIVE DATA & ECOLOGICAL SUMMARY (RICHNESS, ABUNDANCE & DIVERSITY)
-  # ============================================================================
-  tot_frames <- if (is_camera) frame_count else num_frames
-  if (is_camera && avg_fps > 0) src_fps <- avg_fps
-  duration_sec <- if (is_camera) t_elapsed else (tot_frames / src_fps)
-  v_source <- if (is_camera) "Live Webcam" else normalizePath(video, winslash = "/")
-
-  if (is.null(all_dets) || nrow(all_dets) == 0) {
-    all_dets <- data.frame(
-      frame = integer(0), timestamp = numeric(0), id = integer(0),
-      xmin = numeric(0), ymin = numeric(0), xmax = numeric(0), ymax = numeric(0),
-      label = character(0), score = numeric(0), class_id = integer(0),
-      stringsAsFactors = FALSE
-    )
-    all_classes <- character(0)
-    summary_df <- data.frame(
-      video_source = basename(v_source),
-      model = basename(model_file),
-      engine = toupper(engine),
-      total_frames = tot_frames,
-      fps = round(avg_fps, 2),
-      duration_sec = round(duration_sec, 2),
-      total_detections = 0L,
-      total_richness = 0L,
-      unique_objects = if (isTRUE(track)) 0L else NA_integer_,
-      avg_abundance_frame = 0.0,
-      max_abundance_frame = 0L,
-      peak_frame = 1L,
-      peak_time_sec = 0.0,
-      shannon_index = 0.0,
-      simpson_index = 0.0,
-      pielou_evenness = 0.0,
-      stringsAsFactors = FALSE
-    )
-    by_class_df <- data.frame(
-      class = character(0),
-      total_detections = integer(0),
-      relative_abundance = numeric(0),
-      unique_objects = integer(0),
-      n_frames_present = integer(0),
-      occurrence_rate = numeric(0),
-      mean_abundance_when_present = numeric(0),
-      mean_abundance_overall = numeric(0),
-      max_per_frame = integer(0),
-      mean_confidence = numeric(0),
-      first_seen_sec = numeric(0),
-      last_seen_sec = numeric(0),
-      stringsAsFactors = FALSE
-    )
-    temporal_df <- data.frame(
-      frame = seq_len(max(1, tot_frames)),
-      timestamp = round((seq_len(max(1, tot_frames)) - 1) / src_fps, 3),
-      abundance = 0L,
-      richness = 0L,
-      shannon = 0.0,
-      stringsAsFactors = FALSE
-    )
-    cumulative_df <- data.frame(
-      frame = seq_len(max(1, tot_frames)),
-      timestamp = round((seq_len(max(1, tot_frames)) - 1) / src_fps, 3),
-      cumulative_detections = 0L,
-      cumulative_richness = 0L,
-      stringsAsFactors = FALSE
-    )
-    if (isTRUE(track)) cumulative_df$cumulative_unique_objects <- 0L
-    diversity_metrics <- list(
-      richness_S = 0L,
-      total_abundance_N = 0L,
-      shannon_H = 0.0,
-      simpson_1_minus_D = 0.0,
-      simpson_D = 0.0,
-      pielou_J = 0.0,
-      berger_parker_d = 0.0,
-      mean_richness_per_frame = 0.0,
-      mean_abundance_per_frame = 0.0
-    )
-  } else {
-    all_classes <- sort(unique(all_dets$label))
-    total_det <- nrow(all_dets)
-    total_rich <- length(all_classes)
-
-    # Cross-tabulate frame x class
-    mat_counts <- table(
-      factor(all_dets$frame, levels = seq_len(tot_frames)),
-      factor(all_dets$label, levels = all_classes)
-    )
-    abundance_vec <- as.integer(rowSums(mat_counts))
-    richness_vec <- as.integer(rowSums(mat_counts > 0))
-
-    # Shannon index per frame
-    props <- mat_counts / pmax(1, abundance_vec)
-    log_props <- ifelse(props > 0, log(props), 0)
-    shannon_vec <- -rowSums(props * log_props)
-
-    timestamps_vec <- round((seq_len(tot_frames) - 1) / src_fps, 3)
-
-    temporal_df <- data.frame(
-      frame = seq_len(tot_frames),
-      timestamp = timestamps_vec,
-      abundance = abundance_vec,
-      richness = richness_vec,
-      shannon = round(shannon_vec, 3),
-      stringsAsFactors = FALSE
-    )
-    temporal_df <- cbind(temporal_df, as.data.frame.matrix(mat_counts))
-
-    # Cumulative richness and detections (Collector's Curve)
-    first_frames <- tapply(all_dets$frame, all_dets$label, min)
-    first_frame_counts <- tabulate(first_frames, nbins = tot_frames)
-    cum_richness <- cumsum(first_frame_counts)
-    cum_detections <- cumsum(abundance_vec)
-
-    cumulative_df <- data.frame(
-      frame = seq_len(tot_frames),
-      timestamp = timestamps_vec,
-      cumulative_detections = cum_detections,
-      cumulative_richness = cum_richness,
-      stringsAsFactors = FALSE
-    )
-    if (isTRUE(track) && "id" %in% names(all_dets) && any(all_dets$id > 0)) {
-      first_seen_id <- tapply(all_dets$frame, all_dets$id, min)
-      first_seen_counts <- tabulate(first_seen_id, nbins = tot_frames)
-      cumulative_df$cumulative_unique_objects <- cumsum(first_seen_counts)
-    }
-
-    # Summary by class
-    counts_by_cls <- if (isTRUE(track) || !is.null(count_line)) track_state$counts_by_class else NULL
-    by_class_list <- lapply(all_classes, function(cls) {
-      df_c <- all_dets[all_dets$label == cls, , drop = FALSE]
-      n_c <- nrow(df_c)
-      n_present <- sum(mat_counts[, cls] > 0)
-      cnt_val <- if (!is.null(counts_by_cls) && cls %in% names(counts_by_cls)) as.integer(counts_by_cls[[cls]]) else NA_integer_
-      data.frame(
-        class = cls,
-        total_detections = n_c,
-        relative_abundance = round(n_c / total_det * 100, 2),
-        unique_objects = if (isTRUE(track) && any(df_c$id > 0)) length(unique(df_c$id[df_c$id > 0])) else NA_integer_,
-        n_frames_present = n_present,
-        occurrence_rate = round(n_present / tot_frames * 100, 2),
-        mean_abundance_when_present = round(n_c / max(1, n_present), 2),
-        mean_abundance_overall = round(n_c / tot_frames, 2),
-        max_per_frame = max(mat_counts[, cls]),
-        mean_confidence = round(mean(df_c$score), 4),
-        first_seen_sec = round(min(df_c$timestamp), 3),
-        last_seen_sec = round(max(df_c$timestamp), 3),
-        total_counted = cnt_val,
-        stringsAsFactors = FALSE
-      )
-    })
-    by_class_df <- do.call(rbind, by_class_list)
-    by_class_df <- by_class_df[order(-by_class_df$total_detections), ]
-    rownames(by_class_df) <- NULL
-
-    if (is.null(counts_by_cls)) {
-      by_class_df$total_counted <- NULL
-    }
-
-    # Overall Diversity Metrics
-    p_all <- table(all_dets$label) / total_det
-    shannon_total <- -sum(p_all * log(p_all))
-    simpson_d <- sum(p_all^2)
-    simpson_total <- 1.0 - simpson_d
-    pielou_total <- if (total_rich > 1) shannon_total / log(total_rich) else if (total_rich == 1) 1.0 else 0.0
-
-    peak_idx <- which.max(abundance_vec)
-
-    summary_df <- data.frame(
-      video_source = basename(v_source),
-      model = basename(model_file),
-      engine = toupper(engine),
-      total_frames = tot_frames,
-      fps = round(avg_fps, 2),
-      duration_sec = round(duration_sec, 2),
-      total_detections = total_det,
-      total_richness = total_rich,
-      unique_objects = if (isTRUE(track) && any(all_dets$id > 0)) length(unique(all_dets$id[all_dets$id > 0])) else NA_integer_,
-      avg_abundance_frame = round(total_det / max(1, tot_frames), 2),
-      max_abundance_frame = max(abundance_vec),
-      peak_frame = peak_idx,
-      peak_time_sec = timestamps_vec[peak_idx],
-      shannon_index = round(shannon_total, 3),
-      simpson_index = round(simpson_total, 3),
-      pielou_evenness = round(pielou_total, 3),
-      stringsAsFactors = FALSE
-    )
-    if (!is.null(total_count_val)) {
-      summary_df$total_counted <- total_count_val
-    }
-
-    diversity_metrics <- list(
-      richness_S = total_rich,
-      total_abundance_N = total_det,
-      shannon_H = round(shannon_total, 3),
-      simpson_1_minus_D = round(simpson_total, 3),
-      simpson_D = round(simpson_d, 3),
-      pielou_J = round(pielou_total, 3),
-      berger_parker_d = round(max(p_all), 3),
-      mean_richness_per_frame = round(mean(richness_vec), 2),
-      mean_abundance_per_frame = round(mean(abundance_vec), 2)
-    )
-  }
-
-  # Aggregate per-unique-object summary table (tracking / shape features)
-  unique_objects_df <- data.frame()
-  if ((isTRUE(track) || !is.null(count_line)) && !is.null(all_dets) && nrow(all_dets) > 0 && "id" %in% names(all_dets)) {
-    valid_dets <- all_dets[!is.na(all_dets$id) & all_dets$id > 0L, , drop = FALSE]
-    if (nrow(valid_dets) > 0) {
-      split_u <- split(valid_dets, valid_dets$id)
-      has_seg_feat <- "area" %in% names(valid_dets)
-      uo_list <- lapply(split_u, function(sd) {
-        first_f <- min(sd$frame)
-        last_f <- max(sd$frame)
-        n_f <- nrow(sd)
-        dur <- round((last_f - first_f + 1) / src_fps, 2)
-        score_m <- round(mean(sd$score, na.rm = TRUE), 3)
-        col_val <- if ("color" %in% names(sd)) sd$color[1] else "#00CC66"
-        lbl_tbl <- table(sd$label)
-        lbl_val <- names(lbl_tbl)[which.max(lbl_tbl)]
-        row_df <- data.frame(
-          id = sd$id[1],
-          label = lbl_val,
-          n_frames = n_f,
-          first_frame = first_f,
-          last_frame = last_f,
-          duration_sec = dur,
-          mean_score = score_m,
-          stringsAsFactors = FALSE
-        )
-        if (has_seg_feat) {
-          row_df$area <- round(mean(sd$area, na.rm = TRUE), 1)
-          row_df$area_sd <- if (n_f > 1) round(stats::sd(sd$area, na.rm = TRUE), 1) else 0.0
-          row_df$perimeter <- round(mean(sd$perimeter, na.rm = TRUE), 1)
-          row_df$radius_mean <- round(mean(sd$radius_mean, na.rm = TRUE), 2)
-          row_df$length <- round(mean(sd$length, na.rm = TRUE), 1)
-          row_df$width <- round(mean(sd$width, na.rm = TRUE), 1)
-          row_df$circularity <- round(mean(sd$circularity, na.rm = TRUE), 4)
-          row_df$eccentricity <- round(mean(sd$eccentricity, na.rm = TRUE), 4)
-          row_df$asp_ratio <- round(mean(sd$asp_ratio, na.rm = TRUE), 3)
-        } else {
-          row_df$bbox_width <- round(mean(sd$xmax - sd$xmin, na.rm = TRUE), 1)
-          row_df$bbox_height <- round(mean(sd$ymax - sd$ymin, na.rm = TRUE), 1)
-          row_df$bbox_area <- round(mean((sd$xmax - sd$xmin) * (sd$ymax - sd$ymin), na.rm = TRUE), 1)
-          row_df$asp_ratio <- round(mean((sd$xmax - sd$xmin) / pmax(0.001, (sd$ymax - sd$ymin)), na.rm = TRUE), 3)
-        }
-        row_df$color <- col_val
-        row_df
-      })
-      unique_objects_df <- do.call(rbind, uo_list)
-      rownames(unique_objects_df) <- NULL
-    }
-  }
-
-  res <- list(
-    summary = summary_df,
-    by_class = by_class_df,
-    temporal = temporal_df,
-    cumulative = cumulative_df,
-    diversity = diversity_metrics,
-    detections = all_dets,
-    unique_objects = unique_objects_df
-  )
-
-  if (isTRUE(track) || !is.null(count_line)) {
-    if (!is.null(total_count_val)) res$total_counted <- total_count_val
-    if (length(track_state$crossing_events) > 0) {
-      ev_df <- do.call(rbind, lapply(track_state$crossing_events, as.data.frame))
-      res$crossings <- ev_df
-    }
-  }
-  if (!is.null(all_kpts) && nrow(all_kpts) > 0) res$keypoints <- all_kpts
-  if (!is.null(roi)) {
-    res$roi <- roi
-    res$roi_mode <- roi_mode
-  }
-  if (!is.null(count_line)) res$count_line <- count_line
-  if (!is.null(output)) res$output <- normalizePath(output, winslash = "/", mustWork = FALSE)
-
-  class(res) <- c("pliman_video_detect", "list")
-
-  if (isTRUE(verbose)) {
-    cli::cli_alert_success("Inference complete: {tot_frames} frames processed at {round(avg_fps, 1)} FPS average.")
-    if (!is.null(output) && file.exists(output)) {
-      cli::cli_alert_success("Annotated video saved to: {.path {output}}")
-    }
-  }
-
-  return(res)
-}
-
-#' @export
-print.pliman_video_detect <- function(x, ...) {
-  s <- x$summary
-  cli::cli_h2("YOLO Video Detection & Ecological Summary")
-  cli::cli_bullets(c(
-    "*" = sprintf("Source: {.file %s} | Model: {.val %s} [{toupper(s$engine)}]", s$video_source, s$model),
-    "*" = sprintf("Duration: %.1f s (%d frames at %.1f FPS)", s$duration_sec, s$total_frames, s$fps),
-    "*" = sprintf("Total Detections: %s (Avg: %.1f objs/frame | Peak: %d objs at frame %d [%.1fs])",
-                  format(s$total_detections, big.mark = ","), s$avg_abundance_frame, s$max_abundance_frame, s$peak_frame, s$peak_time_sec),
-    "*" = sprintf("Richness (S): %d distinct classes observed", s$total_richness),
-    "*" = sprintf("Diversity Indices: Shannon (H') = %.3f | Simpson (1-D) = %.3f | Pielou (J') = %.3f",
-                  s$shannon_index, s$simpson_index, s$pielou_evenness)
-  ))
-
-  if (!is.na(s$unique_objects)) {
-    cli::cli_bullets(c(
-      "*" = sprintf("Persistent Tracked Objects: %d unique IDs", s$unique_objects)
-    ))
-  }
-  if ("total_counted" %in% names(s)) {
-    cli::cli_bullets(c(
-      "*" = sprintf("Tripwire Counting (Line): %d objects crossed", s$total_counted)
-    ))
-  }
-
-  bc <- x$by_class
-  if (!is.null(bc) && nrow(bc) > 0) {
-    cli::cli_h3("Class Breakdown (Abundance & Occurrence)")
-    show_cols <- c("class", "total_detections", "relative_abundance", "occurrence_rate", "max_per_frame", "mean_confidence")
-    if (!is.na(s$unique_objects) && "unique_objects" %in% names(bc)) {
-      show_cols <- c("class", "total_detections", "relative_abundance", "unique_objects", "occurrence_rate", "max_per_frame", "mean_confidence")
-    }
-    if ("total_counted" %in% names(bc)) {
-      show_cols <- c(show_cols, "total_counted")
-    }
-    print(bc[, show_cols, drop = FALSE], row.names = FALSE)
-  }
-
-  uo <- x$unique_objects
-  if (!is.null(uo) && nrow(uo) > 0) {
-    cli::cli_h3("Unique Tracked Objects Summary")
-    if (nrow(uo) <= 10) {
-      print(uo, row.names = FALSE)
-    } else {
-      print(head(uo, 8), row.names = FALSE)
-      cli::cli_alert_info("... and {nrow(uo) - 8} more objects (access full table with $unique_objects)")
-    }
-  }
-
-  if (!is.null(x$output)) {
-    cli::cli_alert_info("Annotated Video: {.file {x$output}}")
-  }
-
-  cli::cli_text("{.muted List components: $summary, $by_class, $temporal, $cumulative, $diversity, $detections, $unique_objects}")
-  invisible(x)
-}
-
-#' @export
-summary.pliman_video_detect <- function(object, ...) {
-  print(object, ...)
-  invisible(list(summary = object$summary, by_class = object$by_class, diversity = object$diversity, unique_objects = object$unique_objects))
-}
-
-#' @export
-as.data.frame.pliman_video_detect <- function(x, ...) {
-  x$detections
-}
-
-#' @importFrom utils head tail
-#' @export
-head.pliman_video_detect <- function(x, n = 6L, ...) {
-  head(x$detections, n, ...)
-}
-
-#' @export
-tail.pliman_video_detect <- function(x, n = 6L, ...) {
-  tail(x$detections, n, ...)
-}
-
-#' @export
-dim.pliman_video_detect <- function(x) {
-  dim(x$detections)
-}
-
-nrow.pliman_video_detect <- function(x) {
-  nrow(x$detections)
-}
-
-ncol.pliman_video_detect <- function(x) {
-  ncol(x$detections)
-}
-
-#' @export
-`$.pliman_video_detect` <- function(x, name) {
-  if (name %in% names(x)) {
-    return(.subset2(x, name))
-  }
-  if ("detections" %in% names(x) && name %in% names(x$detections)) {
-    return(.subset2(x$detections, name))
-  }
-  NULL
-}
-
-#' @export
-`[[.pliman_video_detect` <- function(x, i, exact = TRUE) {
-  if (is.character(i) && !(i %in% names(x)) && "detections" %in% names(x) && i %in% names(x$detections)) {
-    return(x$detections[[i, exact = exact]])
-  }
-  NextMethod("[[")
-}
-
-#' @export
-`[.pliman_video_detect` <- function(x, i, j, ...) {
-  if (missing(j)) {
-    if (is.character(i) && all(i %in% names(x))) {
-      return(NextMethod("["))
-    }
-    return(x$detections[i, , drop = FALSE])
-  }
-  x$detections[i, j, ...]
-}
-
-#' @export
-plot.pliman_video_detect <- function(x, type = c("temporal", "richness", "abundance", "class", "cumulative", "all"), ...) {
-  type <- match.arg(type)
-  old_par <- graphics::par(no.readonly = TRUE)
-  on.exit(graphics::par(old_par))
-
-  temp <- x$temporal
-  cum <- x$cumulative
-  bcls <- x$by_class
-  if (is.null(temp) || nrow(temp) == 0 || is.null(bcls) || nrow(bcls) == 0) {
-    message("No detections to plot.")
-    return(invisible(NULL))
-  }
-
-  classes <- bcls$class
-  n_cls <- length(classes)
-  colors <- .get_class_palette(classes, n_cls, rainbow = TRUE)
-  names(colors) <- classes
-
-  if (type == "temporal") {
-    graphics::par(mfrow = c(2, 1), mar = c(3.5, 4.5, 2.5, 1), mgp = c(2.2, 0.7, 0))
-    # Panel 1: Abundance over time
-    plot(temp$timestamp, temp$abundance, type = "n",
-         xlab = "", ylab = "Abundance (N)",
-         main = sprintf("Temporal Dynamics of Detections (Abundance & Richness) - %s", x$summary$model),
-         bty = "l", las = 1)
-    graphics::grid(col = "#E0E0E0", lty = 2)
-    graphics::polygon(c(temp$timestamp[1], temp$timestamp, temp$timestamp[nrow(temp)]),
-                      c(0, temp$abundance, 0),
-                      col = grDevices::adjustcolor("#00CC66", alpha.f = 0.25), border = NA)
-    graphics::lines(temp$timestamp, temp$abundance, col = "#00994C", lwd = 2.5)
-
-    # Panel 2: Richness over time
-    max_rich <- max(temp$richness, na.rm = TRUE)
-    plot(temp$timestamp, temp$richness, type = "n",
-         xlab = "Time (seconds)", ylab = "Richness (S)",
-         bty = "l", las = 1, ylim = c(0, max_rich + 1))
-    graphics::grid(col = "#E0E0E0", lty = 2)
-    graphics::polygon(c(temp$timestamp[1], temp$timestamp, temp$timestamp[nrow(temp)]),
-                      c(0, temp$richness, 0),
-                      col = grDevices::adjustcolor("#0072B2", alpha.f = 0.25), border = NA)
-    graphics::lines(temp$timestamp, temp$richness, col = "#0072B2", lwd = 2.5, type = "s")
-
-  } else if (type == "abundance") {
-    graphics::par(mar = c(4, 4.5, 2.5, 1), mgp = c(2.2, 0.7, 0))
-    max_c <- if (length(classes) > 0) max(temp[, classes, drop = FALSE], na.rm = TRUE) else 1
-    plot(NULL, xlim = range(temp$timestamp), ylim = c(0, max_c + 1),
-         xlab = "Time (seconds)", ylab = "Abundance per Class",
-         main = "Class Abundance Over Time",
-         bty = "l", las = 1, ...)
-    graphics::grid(col = "#E0E0E0", lty = 2)
-    for (cls in classes) {
-      graphics::lines(temp$timestamp, temp[[cls]], col = colors[cls], lwd = 2)
-    }
-    graphics::legend("topright", legend = classes, col = colors, lwd = 2, bty = "n", cex = 0.85)
-
-  } else if (type == "richness") {
-    graphics::par(mar = c(4, 4.5, 2.5, 1), mgp = c(2.2, 0.7, 0))
-    max_rich <- max(temp$richness, na.rm = TRUE)
-    plot(temp$timestamp, temp$richness, type = "n",
-         xlab = "Time (seconds)", ylab = "Class Richness (S)",
-         main = "Class Richness Over Time",
-         bty = "l", las = 1, ylim = c(0, max_rich + 1), ...)
-    graphics::grid(col = "#E0E0E0", lty = 2)
-    graphics::polygon(c(temp$timestamp[1], temp$timestamp, temp$timestamp[nrow(temp)]),
-                      c(0, temp$richness, 0),
-                      col = grDevices::adjustcolor("#0072B2", alpha.f = 0.25), border = NA)
-    graphics::lines(temp$timestamp, temp$richness, col = "#0072B2", lwd = 2.5, type = "s")
-
-  } else if (type == "cumulative") {
-    graphics::par(mfrow = c(2, 1), mar = c(3.5, 4.5, 2.5, 1), mgp = c(2.2, 0.7, 0))
-    # Cumulative richness (species accumulation curve / collector's curve)
-    max_cum_r <- max(cum$cumulative_richness, na.rm = TRUE)
-    plot(cum$timestamp, cum$cumulative_richness, type = "n",
-         xlab = "", ylab = "Cumulative Richness (S)",
-         main = "Species Accumulation Curve (Collector's Curve)",
-         bty = "l", las = 1, ylim = c(0, max_cum_r + 1))
-    graphics::grid(col = "#E0E0E0", lty = 2)
-    graphics::lines(cum$timestamp, cum$cumulative_richness, col = "#D55E00", lwd = 2.5, type = "s")
-
-    # Cumulative detections
-    plot(cum$timestamp, cum$cumulative_detections, type = "n",
-         xlab = "Time (seconds)", ylab = "Cumulative Detections",
-         main = "Cumulative Detections Over Time",
-         bty = "l", las = 1)
-    graphics::grid(col = "#E0E0E0", lty = 2)
-    graphics::lines(cum$timestamp, cum$cumulative_detections, col = "#0072B2", lwd = 2.5)
-
-  } else if (type == "class") {
-    graphics::par(mar = c(4.5, 7, 2.5, 2), mgp = c(2.5, 0.7, 0))
-    ord_bcls <- bcls[order(bcls$total_detections), ]
-    bp <- graphics::barplot(ord_bcls$total_detections, horiz = TRUE, names.arg = ord_bcls$class,
-                            col = colors[ord_bcls$class], border = NA, las = 1,
-                            xlab = "Total Detections", main = "Abundance by Class",
-                            xlim = c(0, max(ord_bcls$total_detections) * 1.25), ...)
-    graphics::grid(nx = NULL, ny = NA, col = "#E0E0E0", lty = 2)
-    lbl_txt <- sprintf("%d (%.1f%%)", ord_bcls$total_detections, ord_bcls$relative_abundance)
-    graphics::text(ord_bcls$total_detections, bp, labels = paste0("  ", lbl_txt), pos = 4, cex = 0.85, font = 2)
-
-  } else if (type == "all") {
-    graphics::par(mfrow = c(2, 2), mar = c(3.5, 4, 2.5, 1), mgp = c(2, 0.6, 0))
-    # 1. Abundance over time
-    plot(temp$timestamp, temp$abundance, type = "l", col = "#00994C", lwd = 2,
-         xlab = "Time (s)", ylab = "Abundance (N)", main = "Total Abundance", bty = "l", las = 1)
-    graphics::grid(col = "#E0E0E0", lty = 2)
-
-    # 2. Richness over time
-    max_rich <- max(temp$richness, na.rm = TRUE)
-    plot(temp$timestamp, temp$richness, type = "s", col = "#0072B2", lwd = 2,
-         xlab = "Time (s)", ylab = "Richness (S)", main = "Class Richness", bty = "l", las = 1,
-         ylim = c(0, max_rich + 1))
-    graphics::grid(col = "#E0E0E0", lty = 2)
-
-    # 3. Barplot of classes
-    ord_bcls <- bcls[order(bcls$total_detections), ]
-    bp <- graphics::barplot(ord_bcls$total_detections, horiz = TRUE, names.arg = ord_bcls$class,
-                            col = colors[ord_bcls$class], border = NA, las = 1,
-                            xlab = "Detections", main = "Abundance by Class", cex.names = 0.75)
-    graphics::grid(nx = NULL, ny = NA, col = "#E0E0E0", lty = 2)
-
-    # 4. Cumulative richness
-    max_cum_r <- max(cum$cumulative_richness, na.rm = TRUE)
-    plot(cum$timestamp, cum$cumulative_richness, type = "s", col = "#D55E00", lwd = 2,
-         xlab = "Time (s)", ylab = "Cumulative Richness", main = "Collector's Curve", bty = "l", las = 1,
-         ylim = c(0, max_cum_r + 1))
-    graphics::grid(col = "#E0E0E0", lty = 2)
-  }
-  invisible(x)
-}
-
-#' @rdname video_detect_dl
-#' @export
-video_detect <- video_detect_dl
 
 #' Universal Human Pose Estimation with YOLO26
 #'
@@ -8583,6 +9362,8 @@ video_detect <- video_detect_dl
 #' @param verbose Logical. Whether to show progress messages.
 #' @param plot Logical. Whether to plot the image with pose overlays.
 #' @param dir Model directory (default `pliman_model_dir()`).
+#' @param imgsz Target input image resolution for YOLO pose inference (e.g., `640`, `960`, or `1024`).
+#'   If `NULL` (default), inferred automatically from the model or defaults to `640`.
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A list with class `pliman_pose` containing:
 #'   * `boxes`: Data frame containing detected person bounding boxes (`id`, `xmin`, `ymin`, `xmax`, `ymax`, `label`, `score`).
@@ -8590,14 +9371,12 @@ video_detect <- video_detect_dl
 #'   * `summary`: Human-readable detection summary string.
 #'   * `counts`: Data frame of instance counts.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("person.png")
 #'   res <- image_pose_dl(img)
 #'   res$boxes
 #'   res$keypoints[[1]]
-#' }
 image_pose_dl <- function(img,
                           model = "yolo26n-pose",
                           conf_threshold = 0.25,
@@ -8621,8 +9400,14 @@ image_pose_dl <- function(img,
                           verbose = TRUE,
                           plot = TRUE,
                           dir = pliman_model_dir(),
+                          imgsz = NULL,
                           ...) {
   dots <- list(...)
+  if (is.null(imgsz)) {
+    if ("imgz" %in% names(dots)) imgsz <- dots$imgz
+    if ("img_size" %in% names(dots)) imgsz <- dots$img_size
+    if ("image_size" %in% names(dots)) imgsz <- dots$image_size
+  }
   if ("label_size" %in% names(dots)) cex <- dots$label_size
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
@@ -8647,7 +9432,8 @@ image_pose_dl <- function(img,
                     show_text = show_text, show_conf = show_conf, show_class = show_class,
                     show_id = show_id, badge = badge, kpt_radius = kpt_radius,
                     bbox = bbox, skeleton = skeleton, threads = threads, engine = engine,
-                    device_id = device_id, verbose = verbose, plot = FALSE, dir = dir, ...)
+                    device_id = device_id, verbose = verbose, plot = FALSE, dir = dir,
+                    imgsz = imgsz, ...)
     })
     return(res)
   }
@@ -8662,7 +9448,16 @@ image_pose_dl <- function(img,
     stop("img must be a 2D matrix, 3D array, or an 'image' object.")
   }
 
-  model_str <- if (is.character(model)) .resolve_model_name(model[1]) else "yolo26n-pose"
+  model_str <- if (is.character(model)) {
+    local_m <- .find_local_model(model[1], dir = dir)
+    if (!is.null(local_m)) {
+      local_m
+    } else {
+      .resolve_model_name(model[1])
+    }
+  } else {
+    "yolo26n-pose"
+  }
 
   if (isTRUE(verbose)) {
     pb <- cli::cli_process_start(
@@ -8680,7 +9475,8 @@ image_pose_dl <- function(img,
     threads = threads,
     engine = engine,
     device_id = device_id,
-    dir = dir
+    dir = dir,
+    imgsz = imgsz
   )
 
   if (isTRUE(verbose)) {
@@ -8769,8 +9565,7 @@ image_pose_dl <- function(img,
 #' @param ... Additional arguments passed to [graphics::plot()] or [graphics::barplot()].
 #' @return A data frame containing top predictions.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("sample.png")
 #'   # YOLO classification
@@ -8779,7 +9574,6 @@ image_pose_dl <- function(img,
 #'   # CLIP zero-shot classification
 #'   res <- image_classify_dl(img, candidates = c("healthy leaf", "rust lesion", "insect damage"))
 #'   print(res)
-#' }
 image_classify_dl <- function(img,
                               candidates = NULL,
                               model = NULL,
@@ -8796,7 +9590,7 @@ image_classify_dl <- function(img,
                               ...) {
   engine <- match.arg(engine)
   use_gpu <- (engine == "gpu")
-  lib_path <- pliman_onnx_library_path()
+  lib_path <- pliman_onnx_library_path(engine = engine)
 
   if (is.list(img) && !inherits(img, c("Image", "image"))) {
     res <- lapply(img, function(x) {
@@ -8920,7 +9714,12 @@ image_classify_dl <- function(img,
     model_str <- if (is_url) {
       model[1]
     } else if (is.character(model)) {
-      .resolve_model_name(model[1])
+      local_m <- .find_local_model(model[1], dir = dir)
+      if (!is.null(local_m)) {
+        local_m
+      } else {
+        .resolve_model_name(model[1])
+      }
     } else {
       "yolo26n-cls"
     }
@@ -8928,22 +9727,29 @@ image_classify_dl <- function(img,
     if (file.exists(model_str)) {
       model_file <- normalizePath(model_str, winslash = "/")
     } else {
-      model_file <- pliman_download_model(model = model_str, dir = dir)
+      local_hit <- .find_local_model(model_str, dir = dir)
+      if (!is.null(local_hit)) {
+        model_file <- local_hit
+      } else {
+        model_file <- pliman_download_model(model = model_str, dir = dir)
+      }
     }
 
     # Dynamically detect model input size (default 224 for YOLO-Cls, 640 for detection)
     target_size <- 224L
+    # Cached IO-shape lookup (reuses the inference session) instead of creating a
+    # throw-away session through inspect_onnx_model_cpp() on every call.
     tryCatch({
-      m_info <- inspect_onnx_model_cpp(model_file, lib_path)
-      if (!is.null(m_info$shapes) && length(m_info$shapes) > 0L) {
-        s <- m_info$shapes[[1]]
-        if (length(s) >= 4 && s[3] > 0) {
-          target_size <- as.integer(s[3])
-        }
+      shp <- get_onnx_model_io_shape_cpp(model_file, lib_path, as.integer(threads), use_gpu, as.integer(device_id))
+      if (!isTRUE(shp$dynamic) && !is.null(shp$expected_h) && shp$expected_h > 0) {
+        target_size <- as.integer(shp$expected_h)
       }
     }, error = function(e) NULL)
 
-    tensor <- .preprocess_yolo(mat, target_size = target_size)
+    tensor <- tryCatch(
+      preprocess_yolo_cpp(mat, target_size = target_size),
+      error = function(e) .preprocess_yolo(mat, target_size = target_size)
+    )
 
     if (isTRUE(verbose)) {
       cli::cli_progress_step(
@@ -9029,12 +9835,10 @@ image_classify_dl <- function(img,
 #'   * `labels`: Integer matrix with instance IDs.
 #'   * `mask`: Logical foreground mask.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("grains.png")
 #'   res <- image_stardist_dl(img)
-#' }
 image_stardist_dl <- function(img,
                               model = "stardist",
                               prob_threshold = 0.5,
@@ -9101,7 +9905,13 @@ image_stardist_dl <- function(img,
     } else {
       plot(as_image(mat), ...)
       if (num_inst > 0) {
-        palette_colors <- if (num_inst == 1) col_highlight else grDevices::rainbow(num_inst, s = 0.85, v = 0.95)
+        palette_colors <- if (!missing(col_highlight)) {
+          rep_len(col_highlight, num_inst)
+        } else if (num_inst == 1) {
+          col_highlight
+        } else {
+          grDevices::rainbow(num_inst, s = 0.85, v = 0.95)
+        }
         for (i in seq_len(num_inst)) {
           px <- res$polygons_x[[i]]
           py <- res$polygons_y[[i]]
@@ -9120,34 +9930,43 @@ image_stardist_dl <- function(img,
   invisible(res)
 }
 
-#' 4x Super-Resolution with Real-ESRGAN Compact
+#' Deep Learning Super-Resolution
 #'
-#' Upscales images by 4x using generative convolutional super-resolution with
-#' intelligent tiled overlapping to prevent GPU/CPU memory exhaustion.
+#' Upscales images using state-of-the-art deep convolutional and modulation neural networks
+#' (including Real-ESRGAN, Real-ESRGAN Full, and PureScale SAFMN Spatially-Adaptive Feature Modulation)
+#' with intelligent tiled overlapping to prevent GPU/CPU memory exhaustion.
 #'
 #' @param img An `Image` object, a 2D/3D numeric array, a path to an image file, or a list of images.
-#' @param model Model name or path to a custom ONNX file. Defaults to `"realesrgan-compact"`.
-#' @param scale Upscaling factor (default 4).
+#' @param model Super-resolution model name or path to a custom ONNX file. Built-in options:
+#'   * `"realesrgan_x2_full"` (default): Full Real-ESRGAN perceptual network for 2x super-resolution (RRDBNet, photorealistic quality).
+#'   * `"SAFMN2x"`: PureScale 2x Spatially-Adaptive Feature Modulation Network for lightweight, artifact-free 2x upscaling.
+#'   * `"SAFMN2x_sharper"`: PureScale 2x SAFMN with enhanced high-frequency modulation for crisp boundary and fine texture reconstruction.
+#'   * `"SAFMN4x"`: PureScale 4x SAFMN for high-magnification 4x super-resolution with feature modulation.
+#'   * `"realesrgan_x4_full"`: Full Real-ESRGAN perceptual network for 4x super-resolution (RRDBNet, high-fidelity texture synthesis).
+#'   * `"realesrgan"` (or `"realesrgan-compact"`): Ultra-fast, lightweight 4x generative super-resolution (SRVGG, ~4.9 MB).
+#' @param scale Desired upscaling factor. Defaults to `NULL`, which automatically infers the model's native scale
+#'   (2x for 2x models, 4x for 4x models). If a different scale is provided (e.g., `scale = 3` or `scale = 8`),
+#'   the neural output is resized to the target scale using high-quality Lanczos interpolation.
 #' @param tile_size Processing tile size in pixels (default 256).
-#' @param tile_pad Overlap margin in pixels for seamless blending (default 16).
+#' @param tile_pad Overlap margin in pixels for seamless blending between adjacent tiles (default 16).
 #' @param threads Number of CPU threads (default 0 for auto-tuning).
-#' @param engine Execution engine: `"cpu"` or `"gpu"` (DirectML).
+#' @param engine Execution engine: `"gpu"` (DirectML) or `"cpu"`.
 #' @param device_id GPU device ID (default -1 for auto).
 #' @param verbose Logical. Whether to show progress messages.
 #' @param plot Logical. Whether to plot the super-resolved image.
 #' @param dir Model directory (default `pliman_model_dir()`).
 #' @param ... Additional arguments passed to [graphics::plot()].
-#' @return An `Image` object with dimensions `(orig_w * 4) x (orig_h * 4) x 3`.
+#' @return An `Image` object with dimensions `(orig_w * scale) x (orig_h * scale) x 3`.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("low_res.png")
-#'   img_hr <- image_superres_dl(img)
-#' }
+#'   imgsr <- image_superres_dl(img)
+#'   imgsharper <- image_superres_dl(img, model = "SAFMN2x_sharper")
+#'   image_combine(img, imgsr, imgsharper, ncol = 3)
 image_superres_dl <- function(img,
-                              model = "realesrgan-compact",
-                              scale = 4,
+                              model = "realesrgan_x2_full",
+                              scale = NULL,
                               tile_size = 256,
                               tile_pad = 16,
                               threads = 0,
@@ -9180,9 +9999,10 @@ image_superres_dl <- function(img,
   orig_h <- dims[2]
   nch <- if (length(dims) >= 3) dims[3] else 1
 
-  model_str <- if (is.character(model)) .resolve_model_name(model[1]) else "realesrgan-compact"
-  if (file.exists(model[1])) {
-    model_file <- normalizePath(model[1], winslash = "/")
+  model_raw <- if (is.character(model)) model[1] else "realesrgan_x2_full"
+  model_str <- .resolve_model_name(model_raw)
+  if (file.exists(model_raw)) {
+    model_file <- normalizePath(model_raw, winslash = "/")
   } else {
     model_file <- pliman_download_model(model = model_str, dir = dir)
   }
@@ -9190,11 +10010,29 @@ image_superres_dl <- function(img,
   lib_path <- pliman_onnx_library_path()
   use_gpu <- (engine == "gpu")
 
+  m_stem <- tolower(basename(model_file))
+  model_scale <- if (grepl("2x|_2x|x2|_x2", m_stem)) 2L else 4L
+  if (is.null(scale)) {
+    scale <- model_scale
+  }
+
+  step <- as.integer(tile_size) - 2L * as.integer(tile_pad)
+  if (step < 16L) step <- 16L
+  num_tiles_x <- length(seq(0, orig_w - 1L, by = step))
+  num_tiles_y <- length(seq(0, orig_h - 1L, by = step))
+  total_tiles <- if (orig_w <= tile_size && orig_h <= tile_size) 1L else (num_tiles_x * num_tiles_y)
+
+  is_safmn <- grepl("safmn|purescale", m_stem)
   if (isTRUE(verbose)) {
+    tile_info <- if (total_tiles > 1) paste0(" [", total_tiles, " tiles]") else ""
     cli::cli_progress_step(
-      msg = "Running Real-ESRGAN {scale}x super-resolution [{toupper(engine)}]...",
+      msg = paste0("Running ", basename(model_file), " (", scale, "x) super-resolution [{toupper(engine)}]", tile_info, "..."),
       msg_done = "Super-resolution complete"
     )
+    if (total_tiles > 4 && is_safmn) {
+      cli::cli_alert_info("PureScale SAFMN has high spatial modulation depth. Processing {total_tiles} tiles may take some time.")
+      cli::cli_alert_info("Tip: For faster photorealistic super-resolution on GPU, use {.code model = 'realesrgan_x2_full'} or lightweight {.code model = 'realesrgan'}.")
+    }
   }
 
   if (is.raw(mat)) {
@@ -9217,7 +10055,7 @@ image_superres_dl <- function(img,
     tensor_vec = tensor,
     in_w = orig_w,
     in_h = orig_h,
-    scale = as.integer(scale),
+    scale = model_scale,
     tile_size = as.integer(tile_size),
     tile_pad = as.integer(tile_pad),
     model_path = model_file,
@@ -9227,8 +10065,14 @@ image_superres_dl <- function(img,
     device_id = as.integer(device_id)
   )
 
-  out_w <- orig_w * as.integer(scale)
-  out_h <- orig_h * as.integer(scale)
+  actual_plane <- length(raw_vec) / 3
+  actual_scale <- as.integer(round(sqrt(actual_plane / (orig_w * orig_h))))
+  if (actual_scale > 0L) {
+    model_scale <- actual_scale
+  }
+
+  out_w <- orig_w * model_scale
+  out_h <- orig_h * model_scale
   plane <- out_w * out_h
 
   out_arr <- array(0.0, dim = c(out_w, out_h, 3L))
@@ -9237,6 +10081,13 @@ image_superres_dl <- function(img,
   out_arr[, , 3] <- matrix(raw_vec[(2 * plane + 1):(3 * plane)], nrow = out_w, ncol = out_h)
 
   out_img <- as_image(out_arr)
+
+  # If user requested a custom scale different from actual model scale
+  if (scale != model_scale) {
+    target_w <- as.integer(round(orig_w * scale))
+    target_h <- as.integer(round(orig_h * scale))
+    out_img <- image_resize(out_img, width = target_w, height = target_h, filter = "lanczos", plot = FALSE)
+  }
 
   if (isTRUE(plot)) {
     plot(out_img, ...)
@@ -9356,13 +10207,11 @@ image_superres_dl <- function(img,
 #' @return A numeric vector (if single image) or numeric matrix of dimensions `N x 512`
 #'   containing the L2-normalized image embeddings.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("leaf.png")
 #'   emb <- image_embed_dl(img)
 #'   length(emb) # 512
-#' }
 image_embed_dl <- function(img,
                            model = "clip-vit-b32",
                            threads = 0,
@@ -9445,12 +10294,10 @@ image_embed_dl <- function(img,
 #' @param ... Additional arguments.
 #' @return A numeric matrix of dimensions `length(text) x 512` containing the L2-normalized text embeddings.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   embs <- text_embed_dl(c("healthy soybean leaf", "asian rust lesion", "pest bite"))
 #'   dim(embs) # 3 x 512
-#' }
 text_embed_dl <- function(text,
                           model = "clip-vit-b32",
                           threads = 0,
@@ -9529,11 +10376,18 @@ text_embed_dl <- function(text,
 #' @param col Optional color or palette for bounding boxes.
 #' @param lwd Bounding box line width (default 2).
 #' @param cex Size factor for bounding box label text (default `1.0`).
-#' @param pad Padding multiplier controlling the background badge size around label text (default `1.0`).
+#' @param pad Padding multiplier controlling the box padding around label text (default `0`).
+#' @param bbox Logical. Whether to draw bounding boxes around detected objects (default `TRUE`).
+#' @param badge_pad Padding multiplier controlling the background badge size around label text (default `1.0`).
 #' @param show_text Logical. Whether to display text labels on bounding boxes (default `TRUE`).
 #' @param show_conf Logical. Whether to display confidence scores in labels (default `TRUE`).
 #' @param show_class Logical. Whether to display class names in labels (default `TRUE`).
 #' @param show_id Logical. Whether to display object IDs (`#1`, `#2`, ...) in labels (default `FALSE`).
+#' @param show_point Logical. Whether to show a point at the centroid of each detected object. Defaults to `FALSE`.
+#' @param show_box Logical. Whether to draw bounding boxes. Defaults to `NULL` (TRUE unless `show_point = TRUE` and all text displays are `FALSE`).
+#' @param point_size Numeric. Size (`cex`) of the centroid point when `show_point = TRUE`. Defaults to `1`.
+#' @param point_pch Integer. Plotting symbol (`pch`) for the centroid point. Defaults to `16` (filled circle).
+#' @param point_col Character. Color of the centroid point. Defaults to `NULL` (matches the object color / rainbow).
 #' @param badge Logical. Whether to draw a solid background badge behind label text (default `TRUE`).
 #'   If `FALSE`, only the text is drawn directly.
 #' @param return_features Logical. If `TRUE`, extracts deep feature representations for detected
@@ -9553,12 +10407,10 @@ text_embed_dl <- function(text,
 #'   If `return_features = TRUE`, `features` (an \eqn{N \times D} matrix) and `feature_map` (dense spatial PCA `Image`)
 #'   are attached as attributes.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_import("field.jpg")
 #'   dets <- image_detect_world(img, classes = c("corn plant", "weed", "soil"), rainbow = TRUE)
-#' }
 image_detect_world <- function(img,
                                classes = c("object"),
                                conf_threshold = 0.25,
@@ -9568,11 +10420,18 @@ image_detect_world <- function(img,
                                col = NULL,
                                lwd = 2,
                                cex = 1.0,
-                               pad = 1.0,
+                               pad = 0,
+                               bbox = TRUE,
+                               badge_pad = 1.0,
                                show_text = TRUE,
                                show_conf = TRUE,
                                show_class = TRUE,
                                show_id = FALSE,
+                               show_point = FALSE,
+                               show_box = NULL,
+                               point_size = 1,
+                               point_pch = 16,
+                               point_col = NULL,
                                badge = TRUE,
                                return_features = FALSE,
                                feature_model = c("yolo", "clip-vit-b32", "dinov2"),
@@ -9587,15 +10446,27 @@ image_detect_world <- function(img,
   if ("text_size" %in% names(dots)) cex <- dots$text_size
   if ("font_scale" %in% names(dots)) cex <- dots$font_scale
   if ("cex_scale" %in% names(dots)) cex <- dots$cex_scale
-  if ("label_pad" %in% names(dots)) pad <- dots$label_pad
-  if ("badge_pad" %in% names(dots)) pad <- dots$badge_pad
-  if ("pad_scale" %in% names(dots)) pad <- dots$pad_scale
+  if ("box_pad" %in% names(dots)) pad <- dots$box_pad
+  if ("label_pad" %in% names(dots)) badge_pad <- dots$label_pad
+  if ("badge_pad" %in% names(dots)) badge_pad <- dots$badge_pad
+  if ("pad_scale" %in% names(dots)) badge_pad <- dots$pad_scale
   if ("show_labels" %in% names(dots)) show_class <- isTRUE(dots$show_labels)
   if ("show_scores" %in% names(dots)) show_conf <- isTRUE(dots$show_scores)
   if ("label_box" %in% names(dots)) badge <- isTRUE(dots$label_box)
+  if (is.null(show_box)) {
+    if ("show_boxes" %in% names(dots)) {
+      show_box <- isTRUE(dots$show_boxes)
+    } else {
+      show_box <- isTRUE(bbox)
+    }
+  }
+  if ("marker_size" %in% names(dots)) point_size <- dots$marker_size
+  if ("point_cex" %in% names(dots)) point_size <- dots$point_cex
+  if ("marker_col" %in% names(dots)) point_col <- dots$marker_col
+  if ("marker_pch" %in% names(dots)) point_pch <- dots$marker_pch
 
   if (length(cex) > 1L) {
-    if (missing(pad)) pad <- cex[2]
+    if (missing(badge_pad)) badge_pad <- cex[2]
     cex <- cex[1]
   }
 
@@ -9603,8 +10474,11 @@ image_detect_world <- function(img,
     res <- lapply(img, function(x) {
       image_detect_world(x, classes = classes, conf_threshold = conf_threshold,
                          iou_threshold = iou_threshold, model = model, rainbow = rainbow,
-                         col = col, lwd = lwd, cex = cex, pad = pad, show_text = show_text,
+                         col = col, lwd = lwd, cex = cex, pad = pad, bbox = bbox, badge_pad = badge_pad, show_text = show_text,
                          show_conf = show_conf, show_class = show_class, show_id = show_id,
+                         show_point = show_point, show_box = show_box,
+                         point_size = point_size, point_pch = point_pch,
+                         point_col = point_col,
                          badge = badge, return_features = return_features,
                          feature_model = feature_model, plot_features = plot_features,
                          plot = FALSE, auto_install = auto_install,
@@ -9649,8 +10523,8 @@ image_detect_world <- function(img,
     pliman_download_model(model = model_str, dir = dir)
   }
 
-  py_exec <- .ensure_python(auto_install = auto_install)
-  .setup_python_yolo_env(py_exec, auto_install = auto_install)
+  py_exec <- .python_yolo_env_cached(auto_install = auto_install)
+  # environment verified once per session (see .python_yolo_env_cached)
 
   run_dir <- file.path(tempdir(), "yolow_run")
   if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
@@ -9723,6 +10597,11 @@ image_detect_world <- function(img,
     stringsAsFactors = FALSE
   )
 
+  if (!is.null(pad) && any(pad != 0) && nrow(df_boxes) > 0L) {
+    dims <- dim(mat)
+    df_boxes <- .apply_box_padding(df_boxes, pad = pad, orig_w = dims[1], orig_h = dims[2])
+  }
+
   if (isTRUE(verbose)) {
     sum_txt <- paste0("pliman detected {.bold ", .format_detection_summary(df_boxes$class), "} in the image.")
     cli::cli_process_done(id = pb, msg_done = sum_txt)
@@ -9737,11 +10616,17 @@ image_detect_world <- function(img,
       palette_colors = pal,
       lwd = lwd,
       cex = cex,
-      pad = pad,
+      pad = 0,
+      badge_pad = badge_pad,
       show_text = show_text,
       show_conf = show_conf,
       show_class = show_class,
       show_id = show_id,
+      show_box = show_box,
+      show_point = show_point,
+      point_size = point_size,
+      point_pch = point_pch,
+      point_col = point_col,
       badge = badge
     )
   }
@@ -9779,11 +10664,9 @@ image_detect_world <- function(img,
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A `pliman` `Image` object.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   img <- image_generate_dl("macro photo of a healthy soybean leaf with morning dew")
-#' }
 image_generate_dl <- function(prompt,
                               negative_prompt = NULL,
                               aspect = c("square", "portrait", "landscape"),
@@ -9815,8 +10698,8 @@ image_generate_dl <- function(prompt,
   width <- wh[1]
   height <- wh[2]
 
-  py_exec <- .ensure_python(auto_install = auto_install)
-  .setup_python_yolo_env(py_exec, auto_install = auto_install)
+  py_exec <- .python_yolo_env_cached(auto_install = auto_install)
+  # environment verified once per session (see .python_yolo_env_cached)
 
   run_dir <- file.path(tempdir(), "sd_turbo_run")
   if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
@@ -9943,11 +10826,9 @@ image_generate_dl <- function(prompt,
 #' @param ... Additional arguments passed to [graphics::plot()].
 #' @return A `pliman` `Image` object containing the inpainted result.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #'   library(pliman)
 #'   inpainted <- image_inpaint_dl(img, mask, "a fresh green sprout")
-#' }
 image_inpaint_dl <- function(img,
                              mask,
                              prompt,
@@ -9964,8 +10845,8 @@ image_inpaint_dl <- function(img,
     stop("prompt must be a non-empty character string.")
   }
 
-  py_exec <- .ensure_python(auto_install = auto_install)
-  .setup_python_yolo_env(py_exec, auto_install = auto_install)
+  py_exec <- .python_yolo_env_cached(auto_install = auto_install)
+  # environment verified once per session (see .python_yolo_env_cached)
 
   run_dir <- file.path(tempdir(), "sd_inpaint_run")
   if (!dir.exists(run_dir)) dir.create(run_dir, recursive = TRUE, showWarnings = FALSE)
@@ -10073,4 +10954,149 @@ image_inpaint_dl <- function(img,
   return(res_img)
 }
 
+# ==============================================================================
+# SECTION 10: NEURAL IMAGE RESTORATION AND SUPER-RESOLUTION
+# ==============================================================================
 
+#' Neural Image Restoration and Enhancement
+#'
+#' In-field botanical imagery frequently suffers from adverse optical conditions,
+#' including severe underexposure under dense closed canopies, twilight illumination,
+#' motion blur from drone vibrations, and optical defocus. `image_restore_dl()`
+#' provides deep neural restorers to recover degraded imagery prior to phenotyping:
+#' \itemize{
+#'   \item \strong{Low-Light Enhancement (\code{"lowlight"}, Zero-DCE)}: Zero-Reference
+#'   Deep Curve Estimation enhances underexposed images dynamically without
+#'   over-amplifying noise or distorting color balance.
+#'   \item \strong{Defocus and Motion Deblurring (\code{"deblur"} / \code{"denoise"}, NAFNet)}:
+#'   Nonlinear Activation Free Network removes optical and motion blur.
+#' }
+#'
+#' @references
+#' \itemize{
+#'   \item Guo, C., Li, C., Guo, J., Loy, C. C., Hou, J., Kwong, S., & Cong, R. (2020).
+#'   Zero-reference deep curve estimation for low-light image enhancement.
+#'   \emph{Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)}, 1780--1789.
+#'   \item Chen, L., Chu, X., Zhang, X., & Sun, J. (2022).
+#'   Simple baselines for image restoration.
+#'   \emph{European Conference on Computer Vision (ECCV)}, 17--33.
+#' }
+#'
+#' @param img An `Image` object or character string path to an image file.
+#' @param method Restoration method: `"lowlight"` (Zero-DCE curve enhancement, default),
+#'   `"denoise"`, or `"deblur"` (NAFNet).
+#' @param tile_size Tile dimension in pixels for memory-efficient tiled processing
+#'   of large images (default `512L`).
+#' @param tile_pad Overlap padding between adjacent processing tiles to prevent boundary
+#'   seams (default `16L`).
+#' @param threads Number of CPU execution threads (default `0` for auto-detect).
+#' @param engine Compute engine: `"gpu"` (default) or `"cpu"`.
+#' @param device_id GPU device ID (default `-1` for auto).
+#' @param verbose Logical. Whether to display progress messages (default `TRUE`).
+#' @param plot Logical. Whether to render the visual restoration plot (default `TRUE`).
+#' @param dir Model directory (default `pliman_model_dir()`).
+#' @param ... Additional arguments passed to [graphics::plot()].
+#' @return An `Image` object containing the restored image.
+#' @export
+#' @examplesIf interactive()
+#'   library(pliman)
+#'   subsposed <- image_import("subesposta")
+#'   restored <- image_restore_dl(subsposed, method = "lowlight")
+image_restore_dl <- function(img,
+                             method = c("lowlight", "denoise", "deblur"),
+                             tile_size = 512L,
+                             tile_pad = 16L,
+                             threads = 0,
+                             engine = c("gpu", "cpu"),
+                             device_id = -1,
+                             verbose = TRUE,
+                             plot = TRUE,
+                             dir = pliman_model_dir(),
+                             ...) {
+  method <- match.arg(method)
+  engine <- match.arg(engine)
+
+  if (is.list(img) && !inherits(img, c("Image", "image"))) {
+    res <- lapply(img, function(x) {
+      image_restore_dl(
+        x, method = method, tile_size = tile_size, tile_pad = tile_pad,
+        threads = threads, engine = engine, device_id = device_id,
+        verbose = verbose, plot = FALSE, dir = dir, ...
+      )
+    })
+    return(res)
+  }
+
+  mat <- if (inherits(img, c("Image", "image"))) image_data(img) else img
+  if (is.character(img) && file.exists(img[1])) {
+    img_obj <- image_import(img[1])
+    mat <- image_data(img_obj)
+  }
+  dims <- dim(mat)
+  if (is.null(dims) || length(dims) < 2) {
+    stop("img must be a 2D matrix, 3D array, or an 'image' object.")
+  }
+  orig_w <- dims[1]
+  orig_h <- dims[2]
+  nch <- if (length(dims) >= 3) dims[3] else 1
+
+  model_name <- if (method == "lowlight") "zero_dce" else "nafnet"
+  model_file <- .find_local_model(model_name, dir = dir)
+  if (is.null(model_file)) {
+    model_file <- pliman_download_model(model = model_name, dir = dir, verbose = verbose)
+  }
+
+  lib_path <- pliman_onnx_lib_path(engine = engine)
+  use_gpu <- (engine == "gpu")
+
+  if (isTRUE(verbose)) {
+    method_label <- if (method == "lowlight") "Zero-DCE Low-Light Enhancement" else paste0("NAFNet ", toupper(method))
+    cli::cli_progress_step(
+      msg = paste0("Running ", method_label, " [{toupper(engine)}]..."),
+      msg_done = paste0(method_label, " complete")
+    )
+  }
+
+  if (is.raw(mat)) {
+    val_scale <- 1 / 255.0
+  } else {
+    max_val <- max(mat[1:min(1000, length(mat))], na.rm = TRUE)
+    val_scale <- if (max_val > 1.5) (1 / 255.0) else 1.0
+  }
+
+  if (nch >= 3) {
+    R <- as.numeric(mat[, , 1]) * val_scale
+    G <- as.numeric(mat[, , 2]) * val_scale
+    B <- as.numeric(mat[, , 3]) * val_scale
+  } else {
+    R <- G <- B <- as.numeric(mat) * val_scale
+  }
+  tensor <- c(R, G, B)
+
+  raw_vec <- run_image_restore_cpp(
+    tensor_vec = tensor,
+    in_w = orig_w,
+    in_h = orig_h,
+    model_path = model_file,
+    lib_path = lib_path,
+    num_threads = as.integer(threads),
+    use_gpu = use_gpu,
+    device_id = as.integer(device_id),
+    tile_size = as.integer(tile_size),
+    tile_pad = as.integer(tile_pad)
+  )
+
+  plane <- orig_w * orig_h
+  out_arr <- array(0.0, dim = c(orig_w, orig_h, 3L))
+  out_arr[, , 1] <- matrix(raw_vec[1:plane], nrow = orig_w, ncol = orig_h)
+  out_arr[, , 2] <- matrix(raw_vec[(plane + 1):(2 * plane)], nrow = orig_w, ncol = orig_h)
+  out_arr[, , 3] <- matrix(raw_vec[(2 * plane + 1):(3 * plane)], nrow = orig_w, ncol = orig_h)
+
+  out_img <- as_image(out_arr)
+
+  if (isTRUE(plot)) {
+    plot(out_img, ...)
+  }
+
+  invisible(out_img)
+}

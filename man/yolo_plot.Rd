@@ -27,7 +27,7 @@ See \code{\link[=plot.yolo_train]{plot.yolo_train()}} for full mathematical form
 Precision, Recall, F1-Score, PR Curve, mAP50, and mAP50-95, and plot interpretation guidelines.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Plot full 2x2 vector diagnostic dashboard directly by model name
@@ -39,7 +39,7 @@ yolo_plot("capsulas_det", which = "confusion_matrix_norm")
 yolo_plot("capsulas_det", which = "pr_curve")
 yolo_plot("capsulas_det", which = "f1_curve")
 yolo_plot("capsulas_det", which = "metrics")
-}
+\dontshow{\}) # examplesIf}
 }
 \seealso{
 \code{\link[=plot.yolo_train]{plot.yolo_train()}}, \code{\link[=yolo_results]{yolo_results()}}, \code{\link[=yolo_train]{yolo_train()}}

@@ -75,7 +75,7 @@ Crop or mask a \code{SpatRaster} object (\code{mosaic}) based on user input from
 interactive map or by using a provided shapefile or another raster.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   # Load a sample raster
   mosaic <- mosaic_input(system.file("ex/elev.tif", package = "terra"))
@@ -85,5 +85,5 @@ if (interactive()) {
 
   # View result
   mosaic_view(cropped)
-}
+\dontshow{\}) # examplesIf}
 }

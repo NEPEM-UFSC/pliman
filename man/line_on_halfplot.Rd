@@ -20,14 +20,12 @@ For each polygon in an \code{sf} object, computes the line segment joining
 the midpoints of the longer pair of opposite edges (the “half‐plot line”).
 }
 \examples{
-
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 shp <- shapefile_input( paste0(image_pliman(), "/soy_shape.rds"))
 mosaic <- mosaic_input( paste0(image_pliman(), "/soy_dsm.tif"))
 mosaic_plot(mosaic)
 half <- line_on_halfplot(shp)
 shapefile_plot(half, add = TRUE, col = "blue")
-
-}
+\dontshow{\}) # examplesIf}
 }

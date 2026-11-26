@@ -75,10 +75,9 @@ The resulting object is an object of class \code{image} that can be further
 analyzed.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 mosaic_prepare(mosaic)
-}
-
+\dontshow{\}) # examplesIf}
 }

@@ -6,25 +6,32 @@
 \usage{
 image_segment_dl(
   img,
-  type = c("segment", "mask", "highlight"),
+  type = c("highlight", "segment", "mask"),
   col_background = "white",
   col_highlight = "salmon",
-  alpha = 0.4,
+  mask_color = NULL,
+  alpha = 0.7,
   border = NA,
   lwd = 1,
   bbox = FALSE,
   mask = TRUE,
   cex = 1,
-  pad = 1,
+  pad = 0,
+  badge_pad = 1,
   show_text = TRUE,
   show_conf = TRUE,
   show_class = TRUE,
   show_id = FALSE,
+  show_point = FALSE,
+  show_box = NULL,
+  point_size = 1,
+  point_pch = 16,
+  point_col = NULL,
   badge = TRUE,
   rainbow = TRUE,
-  model = c("u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam", "sam2.1",
-    "persam", "rmbg-1.4", "rmbg-2.0", "withoutbg", "birefnet-lite", "sam3.1",
-    "isnet-general-use", "silueta", "u2net"),
+  model = c("rmbg-1.4", "u2netp", "ben2", "yolo26n-seg", "stardist", "grounded-sam",
+    "sam2.1", "persam", "rmbg-2.0", "withoutbg", "birefnet-lite", "isnet-general-use",
+    "silueta", "u2net"),
   threshold = 0.5,
   box_threshold = 0.25,
   text_threshold = 0.25,
@@ -40,6 +47,7 @@ image_segment_dl(
   plot_features = FALSE,
   threads = 0,
   engine = c("gpu", "cpu"),
+  sam_device = c("auto", "gpu", "cpu"),
   device_id = -1,
   fill_hull = TRUE,
   filter = 0,
@@ -51,10 +59,13 @@ image_segment_dl(
   invert = FALSE,
   pick_object = FALSE,
   prompt = NULL,
+  classes = NULL,
+  filter_nested = TRUE,
   show_mask = FALSE,
   verbose = TRUE,
   plot = TRUE,
   dir = pliman_model_dir(),
+  imgsz = NULL,
   ...
 )
 }
@@ -65,23 +76,29 @@ returning a corresponding list of binary masks.}
 
 \item{type}{Character specifying the visual and output modality:
 \itemize{
-\item \code{"segment"} (default): Returns an \code{image} object where detected foreground is preserved
+\item \code{"highlight"}(default): Overlays the original image with semi-transparent colored polygons covering
+each detected instance, ideal for visual inspection, quality control, and publication figures.
+\item \code{"segment"}: Returns an \code{image} object where detected foreground is preserved
 and background is replaced by a solid color specified by \code{col_background}.
 \item \code{"mask"}: Returns the binary mask (for semantic models) or single multi-label integer instance map
 (for YOLO-seg, StarDist, Grounded-SAM, and PerSAM) as an \code{image} object (\code{colormode = "Grayscale"}).
-\item \code{"highlight"}: Overlays the original image with semi-transparent colored polygons covering
-each detected instance, ideal for visual inspection, quality control, and publication figures.
 When \code{mask = FALSE}, overlays bounding boxes directly.
 \item \code{"boxes"}: Overlays bounding boxes on the original image and returns a data frame of detected boxes.
 }}
 
 \item{col_background}{Character string or hex code specifying the solid background color when
 \code{type = "segment"}. Defaults to \code{"white"}. Accepts any valid R color name (e.g., \code{"black"}, \code{"transparent"})
-or hexadecimal code (e.g., \code{"#FFFFFF"}).}
+or hexadecimal code (e.g., \code{"#FFFFFF"}). When set to \code{"transparent"}, \code{"none"}, or \code{NA}, returns an image
+with an alpha transparency channel (4 channels, RGBA).}
 
 \item{col_highlight}{Fill color for the semi-transparent overlay polygon when \code{type = "highlight"}.
 Defaults to \code{"salmon"}. When multiple instances are detected, distinct categorical
 colors are automatically generated from a rainbow palette.}
+
+\item{mask_color}{Fill color(s) for the highlight polygon overlay and bounding boxes when \code{type = "highlight"}.
+Defaults to \code{NULL} (falling back to \code{col_highlight}). When \code{rainbow = FALSE}, allows passing a vector of colors
+with the same length as the classes specified in \code{prompt} (e.g. \code{mask_color = c("red", "green")} for
+\code{prompt = c("red tomato", "green tomato")}), or a named vector matching class names (e.g., \code{c("red tomato" = "red", "green tomato" = "green")}).}
 
 \item{alpha}{Numeric transparency value in \verb{[0, 1]} for the highlight polygon overlay when \code{type = "highlight"}.
 Default is \code{0.4} (40\% opacity).}
@@ -98,11 +115,15 @@ around detected instances. Defaults to \code{FALSE}.}
 When \code{mask = FALSE} and \code{bbox = TRUE}, skips the mask decoder step and returns only the detected
 bounding box coordinates (fast object detection). Defaults to \code{TRUE}.}
 
-\item{cex}{Size factor for bounding box label text (default \code{1.0}). Use smaller values (e.g., \code{0.2} or \code{0.5})
+\item{cex}{Size factor for bounding box label text (default \code{1.5}). Use smaller values (e.g., \code{0.2} or \code{0.5})
 to reduce text size for dense scenes or many objects.}
 
-\item{pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).
-Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad = 0} for a badge fitting tightly to the text.}
+\item{pad}{Padding added to expand bounding boxes around detected instances when \code{bbox = TRUE} (default \code{0}).
+Can be an absolute number of pixels (e.g., \code{pad = 10}), a relative expansion fraction when
+between 0 and 1 (e.g., \code{pad = 0.05} for 5\% margin), or a length-2 vector \code{c(pad_x, pad_y)}.}
+
+\item{badge_pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).
+Use \code{badge_pad = 0} for a badge fitting tightly to the text.}
 
 \item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
 
@@ -114,11 +135,22 @@ Can be a single value or a length-2 vector \code{c(pad_x, pad_y)}. Use \code{pad
 labels or at their center of mass (computed via \code{\link[=poly_mass]{poly_mass()}}) when \code{type = "highlight"}
 and \code{bbox = FALSE}. Defaults to \code{FALSE}.}
 
+\item{show_point}{Logical. Whether to show a point at the centroid of each segmented object. Defaults to \code{FALSE}.}
+
+\item{show_box}{Logical. Whether to draw bounding boxes. Defaults to \code{NULL} (drawn if \code{bbox = TRUE}).}
+
+\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1}.}
+
+\item{point_pch}{Integer. Plotting symbol (\code{pch}) for the centroid point. Defaults to \code{16} (filled circle).}
+
+\item{point_col}{Character. Color of the centroid point. Defaults to \code{NULL} (matches the object color / rainbow).}
+
 \item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
 If \code{FALSE}, only the text is drawn directly.}
 
 \item{rainbow}{Logical. If \code{TRUE}, assigns a distinct, unique color to each segmented object.
-If \code{FALSE} (the default), objects of the same class share the exact same color. Defaults to \code{FALSE}.}
+If \code{FALSE}, objects of the same class share the exact same color (using \code{col_highlight} / \code{mask_color}).
+Defaults to \code{TRUE} unless \code{col_highlight} or \code{mask_color} is explicitly provided.}
 
 \item{model}{Model architecture or path to a custom ONNX file. Built-in choices:
 \itemize{
@@ -192,7 +224,15 @@ which automatically detects and utilizes all available logical CPU cores on the 
 
 \item{engine}{Character specifying the backend execution engine: \code{"cpu"} (default) or \code{"gpu"}. On Windows,
 \code{"gpu"} utilizes Microsoft DirectML over DirectX 12 hardware (compatible with NVIDIA, AMD, and Intel GPUs
-without requiring CUDA toolkit installation).}
+without requiring CUDA toolkit installation). In \code{\link[=image_segment_dl]{image_segment_dl()}}, when \code{engine} is not given,
+Grounded-SAM and PerSAM use the GPU whenever a dedicated GPU is present (only integrated or absent GPUs
+default to the CPU). With \code{engine = "gpu"}, Grounded-SAM runs Grounding DINO on the GPU and SAM 2.1 on the
+GPU too, except on GPUs with less than 6 GB of memory, where SAM 2.1 runs on the CPU so that both models
+stay loaded (about 4x faster than the CPU alone and much faster than reloading the models for every image
+on a 4 GB card); force the SAM device with \code{options(pliman.gsam_sam_device = "gpu")} or \code{"cpu"}.
+Speed-ups depend on the GPU and driver.}
+
+\item{sam_device}{Execution device for SAM 2.1 inference: \code{"auto"} (default), \code{"gpu"}, or \code{"cpu"}.}
 
 \item{device_id}{Integer GPU device adapter index. Default is \code{-1}, which automatically selects the high-performance
 discrete GPU adapter with the maximum dedicated video memory (VRAM).}
@@ -242,6 +282,12 @@ Press \verb{<Esc>} or right-click when finished. Default is \code{FALSE}.}
 \item \code{"box"}: Uses a bounding box spanning the full image canvas.
 }}
 
+\item{classes}{Optional character or numeric vector of target classes to keep/filter.
+When specified, only detected instances matching these classes are kept, segmented, and plotted.}
+
+\item{filter_nested}{Logical. If \code{TRUE} (the default), removes larger container bounding boxes
+that enclose smaller boxes of the same class (e.g. discarding an encompassing box around an entire branch of leaves).}
+
 \item{show_mask}{Deprecated. If \code{TRUE}, equivalent to \code{type = "mask"}.}
 
 \item{verbose}{Logical. If \code{TRUE} (default), displays step-by-step progress feedback and timing indicators
@@ -251,6 +297,9 @@ via \code{cli::cli_progress_step()}. Set to \code{FALSE} for silent execution in
 
 \item{dir}{Character string specifying the local directory where ONNX model files are stored and cached.
 Defaults to \code{pliman_model_dir()}.}
+
+\item{imgsz}{Target input image resolution for YOLO segmentation inference (e.g., \code{640}, \code{960}, or \code{1024}).
+If \code{NULL} (default), inferred automatically from the model or defaults to \code{640}.}
 
 \item{...}{Additional arguments passed down to internal plotting methods.}
 }
@@ -262,7 +311,7 @@ Defaults to \code{pliman_model_dir()}.}
 \item If \code{type = "mask"}: A single multi-label or binary \code{image} object (\code{colormode = "Grayscale"}).
 \item If \code{type = "highlight"}: Invisibly returns a list with:
 \itemize{
-\item \code{"boxes"}: Data frame of detected bounding boxes and scores.
+\item \code{"results"}: Data frame of detected bounding boxes, scores, and morphometric traits.
 \item \code{"labels"}: Single multi-label integer mask \code{image} where each pixel value corresponds to instance \code{id}.
 \item \code{"summary"}: Text summary of detected objects and counts.
 \item \code{"counts"}: Data frame of instance counts per class label.
@@ -300,7 +349,7 @@ segments, and counts all visually similar objects across the entire image using 
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("leaf.png")
 
@@ -365,5 +414,5 @@ segments, and counts all visually similar objects across the entire image using 
     type = "highlight",
     bbox = TRUE
   )
-}
+\dontshow{\}) # examplesIf}
 }

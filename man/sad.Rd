@@ -56,7 +56,7 @@ will be retrevied from \code{dir_processed} directory. Otherwise, the severity
 will be computed again to generate the images.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 sev <-
 measure_disease(pattern = "sev_leaf",
@@ -69,7 +69,7 @@ measure_disease(pattern = "sev_leaf",
                 dir_original = image_pliman(),
                 dir_processed = tempdir())
 sad(sev, n = 2)
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Del Ponte EM, Pethybridge SJ, Bock CH, et al (2017) Standard area

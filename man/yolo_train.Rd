@@ -5,7 +5,7 @@
 \title{Train and Fine-Tune YOLO Models for Segmentation or Detection}
 \usage{
 yolo_train(
-  data = "yolo_dataset/data.yaml",
+  data = "yolo_dataset",
   model = "yolo26n-seg",
   epochs = 50,
   imgsz = 640,
@@ -15,6 +15,10 @@ yolo_train(
   output_name = NULL,
   results_dir = NULL,
   export_pt = TRUE,
+  resume = FALSE,
+  checkpoint = TRUE,
+  checkpoint_onnx = FALSE,
+  as_job = FALSE,
   patience = 15,
   lr0 = 0.01,
   lrf = 0.01,
@@ -22,13 +26,18 @@ yolo_train(
   close_mosaic = 10,
   amp = NULL,
   plots = FALSE,
+  verbose = TRUE,
+  progress = NULL,
   workers = if (.Platform$OS.type == "windows") 0L else 4L,
   auto_install = TRUE,
   ...
 )
 }
 \arguments{
-\item{data}{Path to the \code{data.yaml} file (e.g. \code{"dataset_cafe/data.yaml"}).}
+\item{data}{Path to the dataset directory (e.g. \code{"yolo_dataset"} or \code{"pasta"}), or to a dataset
+YAML configuration file (e.g. \code{"pasta/data.yaml"} or \code{"pasta/dataset.yaml"}). Can also be a
+\code{yolo_dataset} object returned by \code{\link[=yolo_dataset_export]{yolo_dataset_export()}}, \code{\link[=yolo_dataset_autolabel]{yolo_dataset_autolabel()}}, or
+\code{\link[=yolo_dataset_tiling]{yolo_dataset_tiling()}}. Defaults to \code{"yolo_dataset"}.}
 
 \item{model}{Base pre-trained model architecture to fine-tune. Defaults to \code{"yolo26n-seg"}.
 Can be \code{"yolo26n-seg"}, \code{"yolo26s-seg"}, \code{"yolo11n-seg"}, \code{"yolo26n"}, or path to a \code{.pt} file.}
@@ -55,6 +64,23 @@ inside \code{output_dir}.}
 weights (e.g., \code{model.pt}) alongside the \code{.onnx} model, allowing future
 re-training or fine-tuning on more complex datasets.}
 
+\item{resume}{Logical (\code{TRUE} to automatically resume from the latest checkpoint) or
+character path pointing to an existing \code{last.pt} checkpoint file. Defaults to \code{FALSE}.}
+
+\item{checkpoint}{Logical. If \code{TRUE} (default), continuously saves real-time checkpoints:
+mirrors \code{last.pt} and \code{results.csv} after each epoch, and copies \code{best.pt} directly to
+\code{results_dir} and \code{output_dir} immediately whenever a new \verb{*(best)} epoch is reached.
+This guarantees no progress is lost even if training is interrupted. Defaults to \code{TRUE}.}
+
+\item{checkpoint_onnx}{Logical. If \code{TRUE}, also generates and updates a checkpoint \code{.onnx}
+model in real-time whenever a new \verb{*(best)} epoch is achieved. Defaults to \code{FALSE}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, launches the training
+as an asynchronous RStudio Background Job, immediately freeing up the R console while
+live progress and epoch tables stream in RStudio's "Jobs" tab. Checkpoints continue
+to be saved in real time, and the resulting model object is automatically saved to
+\code{model_res.rds} inside \code{results_dir}. Defaults to \code{FALSE}.}
+
 \item{patience}{Early stopping patience in epochs. Defaults to \code{15}.}
 
 \item{lr0}{Initial learning rate (default \code{0.01}).}
@@ -68,6 +94,10 @@ re-training or fine-tuning on more complex datasets.}
 \item{amp}{Automatic Mixed Precision (AMP). Set to \code{FALSE} to disable AMP if GPU checks fail. Default is \code{NULL} (auto-detected).}
 
 \item{plots}{Logical. If \code{FALSE} (default), suppresses generation of low-resolution matplotlib raster image files from YOLO; native vector plots are generated directly in R from exported CSV data.}
+
+\item{verbose}{Logical. Whether to display informative CLI messages during training and export. Defaults to \code{TRUE}.}
+
+\item{progress}{Optional logical or \code{NULL}. Whether to display a live progress indicator during training (defaults to \code{NULL}, following interactive/verbose defaults).}
 
 \item{workers}{Number of worker threads for data loading. Defaults to \code{0} on Windows and \code{4} on Linux/macOS.}
 
@@ -157,16 +187,19 @@ where \eqn{\eta_0 = \text{lr0}} and \eqn{\eta_{\text{final}} = \text{lr0} \times
 }
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
-# Train a custom coffee grain segmentation model
+# 1. Train a custom coffee grain segmentation model with real-time checkpointing
 model_res <- yolo_train(
-  data = "dataset_cafe/data.yaml",
+  data = "dataset_cafe", # or "dataset_cafe/data.yaml"
   model = "yolo26n-seg",
   epochs = 30,
   output_name = "cafe_seg.onnx"
 )
+
+# 2. Resume training seamlessly from the last saved checkpoint if interrupted:
+yolo_train(data = "dataset_cafe", resume = TRUE, epochs = 50)
 
 # Inspect training summary and plot diagnostic dashboard
 print(model_res)
@@ -180,5 +213,5 @@ plot(model_res, which = "metrics")
 # Run inference with your new model directly in pliman!
 img <- image_import("cafe.jpeg")
 seg <- image_segment_dl(img, model = model_res$model_file, type = "highlight")
-}
+\dontshow{\}) # examplesIf}
 }

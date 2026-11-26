@@ -58,8 +58,8 @@ in 1-2 inference steps using Stability AI's SD-Turbo (or LCM), enhanced to high
 resolution with Real-ESRGAN super-resolution.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_generate_dl("macro photo of a healthy soybean leaf with morning dew")
-}
+\dontshow{\}) # examplesIf}
 }

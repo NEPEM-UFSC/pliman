@@ -147,7 +147,7 @@ from the image.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 
@@ -159,7 +159,7 @@ pick_rgb(img)
 
 # create a palette from point(s)
 pick_palette(img)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

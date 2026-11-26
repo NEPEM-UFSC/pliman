@@ -27,7 +27,7 @@ Computes distances between objects in an \code{anal_obj} object and returns a li
 of distances, coefficient of variation (CV), and means.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 flax <- image_pliman("flax_leaves.jpg", plot =TRUE)
 res <-
@@ -45,7 +45,7 @@ result <- object_map(res)
 result$distances
 result$cvs
 result$means
-}
+\dontshow{\}) # examplesIf}
 }
 \seealso{
 \code{\link{analyze_objects_shp}}

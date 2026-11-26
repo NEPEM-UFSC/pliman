@@ -109,7 +109,7 @@ measure_disease_iter(img, viewer = "mapview")
 
 # Deep Learning & Foundation Models
 
-`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`).
+`pliman` integrates pre-trained Computer Vision and Deep Learning Foundation models running directly in C++ via Microsoft **ONNX Runtime**, with zero Python or PyTorch dependency. Models automatically execute with CPU multi-threading or hardware-accelerated Windows DirectML GPU support (`engine = "gpu"`); see *Inference speed, GPU and video* below.
 
 Models are downloaded automatically on first use or manually via `pliman_download_model()`.
 
@@ -122,7 +122,7 @@ Models are downloaded automatically on first use or manually via `pliman_downloa
 | **Star-Convex Segmentation** | `image_stardist_dl()` | `stardist`, `stardist-dsb2018` | 48-ray star-convex polygon detection for round, convex, or touching grains, seeds, and cells. |
 | **3D Depth Estimation** | `image_depth_dl()` | `depth-anything-v2` | Monocular 3D relative depth estimation (Depth Anything V2 Small, 518×518). |
 | **Semantic Foundation Features** | `image_features_dl()` | `dinov2` | Dense 384-D patch embeddings and top-3 PCA false-color semantic segmentation via DINOv2 (ViT-S/14). |
-| **4x Super-Resolution** | `image_superres_dl()` | `realesrgan-compact` | 4x generative convolutional super-resolution with memory-efficient tiled inference. |
+| **Super-Resolution** | `image_superres_dl()` | `realesrgan_x2_full`, `realesrgan_x4_full`, `realesrgan` | Photorealistic 2x/4x generative super-resolution (RRDBNet full models or ultra-fast compact). |
 | **Text-Prompted Segmentation** | `image_segment_dl()` | `grounded-sam` | Zero-shot open-vocabulary instance segmentation via Grounding DINO + SAM 2.1. |
 | **One-Shot Exemplar Counting** | `image_segment_dl()` | `persam` | One-shot visual exemplar segmentation and counting via SAM 2.1 and Dense Conv ZNCC. |
 | **Salient Background Removal** | `image_remove_bg()` | `ben2`, `u2netp`, `rmbg-2.0` | Ultra-sharp boundary cutouts and transparent background export. |
@@ -187,11 +187,53 @@ grains <- image_import("grains.jpg")
 res_star <- image_stardist_dl(grains, prob_threshold = 0.5)
 ```
 
-### 5. Generative 4x Super-Resolution (Real-ESRGAN Compact)
+### 5. Generative Super-Resolution (Real-ESRGAN Full & Compact)
 
 ```r
-# Upscale low-resolution imagery by 4x with tiled memory-safe inference
-img_4x <- image_superres_dl(img, scale = 4)
+# 2x Photorealistic super-resolution (RRDBNet default)
+img_2x <- image_superres_dl(img)
+
+# 4x Photorealistic super-resolution
+img_4x <- image_superres_dl(img, model = "realesrgan_x4_full")
+
+# 4x Ultra-fast preview with lightweight compact model
+img_fast <- image_superres_dl(img, model = "realesrgan-compact")
+```
+
+### 6. Inference speed, GPU and video
+
+Models run through ONNX Runtime in C++. Sessions are cached for the whole R session, so
+only the first call loads the model (and, on GPU, compiles it). Pre-processing,
+non-maximum suppression, mask decoding, SAHI tiling and video tracking also run in C++.
+
+- `engine = "gpu"` uses DirectML on Windows (DirectX 12). Gains depend on the GPU; small
+  models on integrated GPUs can be slower than a multi-core CPU.
+- `engine = "cpu"` uses `threads` ONNX Runtime threads (`0` = all physical cores).
+- FP16 models (`yolo_export_fp16()`) are faster only on GPUs with native half-precision
+  throughput, such as NVIDIA Tensor Cores (RTX 20xx and newer). On GPUs without fast FP16
+  (e.g. GTX 10xx/16xx) or on CPU the casting overhead can make them slower. Dynamic INT8
+  models (`onnx_quantize()`) target the CPU.
+- For many images use `image_detect_dl_batch()` (and `pliman_daemons()` to keep parallel
+  workers and their models alive). Use `plot = FALSE` inside loops.
+- For video, `infer_every`, `fps`, `imgsz` and `show = FALSE` are the main speed levers.
+
+```r
+# Measure inference speed on this machine
+yolo_benchmark("yolo26n", engine = "gpu")
+yolo_benchmark("yolo26n", engine = "cpu", sahi = TRUE)
+
+# Inspect cached ONNX sessions
+pliman_session_info()
+
+# Video detection with tracking and line counting
+res <- video_detect_dl(
+  "conveyor.mp4",
+  model = "yolo26n",
+  track = TRUE,
+  count_line = c(0.5, 0, 0.5, 1),
+  infer_every = 2,
+  output = "annotated.mp4"
+)
 ```
 
 # Citation

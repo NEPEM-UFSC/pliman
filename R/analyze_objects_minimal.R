@@ -8,14 +8,12 @@
 #' @param r,g,b,re,nir The red, green, blue, red-edge, and near-infrared bands, respectively.
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' obj <- analyze_objects(img)
 #' obj$statistics
 #'
-#' }
 #'
 analyze_objects_minimal <- function(img,
                                     segment_objects = TRUE,
@@ -47,6 +45,7 @@ analyze_objects_minimal <- function(img,
                                     tolerance = NULL,
                                     extension = NULL,
                                     lower_noise = 0.10,
+                                    upper_noise = NULL,
                                     lower_size = NULL,
                                     upper_size = NULL,
                                     topn_lower = NULL,
@@ -101,7 +100,7 @@ analyze_objects_minimal <- function(img,
     function(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
              show_original,  marker, marker_col, marker_size,
              save_image, max_pixels = 4e6, prefix, dir_original, dir_processed, verbose,
-             col_background, col_foreground, lower_noise){
+             col_background, col_foreground, lower_noise, upper_noise){
       if(is.character(img)){
         all_files <- sapply(list.files(diretorio_original), file_name)
         check_names_dir(img, all_files, diretorio_original)
@@ -296,6 +295,9 @@ analyze_objects_minimal <- function(img,
       if(!is.null(upper_size)){
         shape <- shape[shape$area < upper_size, ]
       }
+      if(!is.null(upper_noise) && nrow(shape) > 0){
+        shape <- shape[shape$area < mean(shape$area, na.rm = TRUE) * upper_noise, ]
+      }
       if(!is.null(topn_lower)){
         shape <- shape[order(shape$area),][1:topn_lower,]
       }
@@ -474,7 +476,7 @@ analyze_objects_minimal <- function(img,
     help_count(img, fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension,  plot,
                show_original,  marker, marker_col, marker_size,
                save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
-               col_background, col_foreground, lower_noise)
+               col_background, col_foreground, lower_noise, upper_noise)
   } else{
     if (pattern %in% as.character(0:9)) {
       old_pattern <- pattern
@@ -507,43 +509,107 @@ analyze_objects_minimal <- function(img,
       ))
     }
 
-    if(parallel == TRUE){
+    if (parallel == TRUE) {
       init_time <- Sys.time()
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.3), workers)
-
-      # Inicia workers persistentes do mirai
-      mirai::daemons(nworkers)
-      on.exit(mirai::daemons(0))
-
-      if (verbose) {
-        cli::cli_rule(
-          left  = cli::col_blue("Parallel processing using {nworkers} cores"),
-          right = cli::col_blue("Started on  {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
-        )
-
+      nworkers <- if (is.null(workers)) {
+        max(1L, floor(parallel::detectCores() * 0.6))
+      } else {
+        as.integer(workers)
       }
+      eff_workers <- min(nworkers, length(names_plant))
 
-      # Define a função para processar cada imagem
-      process_image <- function(img) {
-        help_count(
-          img,
-          fill_hull, threshold, opening, closing, filter, erode, dilate, tolerance, extension, plot,
-          show_original, marker, marker_col, marker_size,
-          save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
-          col_background, col_foreground, lower_noise
-        )
+      st <- tryCatch(mirai::status()$daemons, error = function(e) 0L)
+      existing_daemons <- if (is.numeric(st)) st else 0L
+
+      daemon_status <- tryCatch({
+        if (existing_daemons == 0L || (!is.null(workers) && existing_daemons != eff_workers)) {
+          # Protect workers from crashing if current directory has a broken .Rprofile
+          empty_prof <- tempfile()
+          file.create(empty_prof)
+          old_prof <- Sys.getenv("R_PROFILE_USER", unset = NA)
+          Sys.setenv(R_PROFILE_USER = empty_prof)
+
+          mirai::daemons(eff_workers)
+
+          if (is.na(old_prof)) Sys.unsetenv("R_PROFILE_USER") else Sys.setenv(R_PROFILE_USER = old_prof)
+          unlink(empty_prof)
+
+          if (existing_daemons == 0L) {
+            on.exit(mirai::daemons(0), add = TRUE)
+          }
+          mirai::everywhere(
+            {
+              .libPaths(lp)
+              library(pliman)
+            },
+            lp = .libPaths()
+          )
+        }
+        TRUE
+      }, error = function(e) {
+        cli::cli_warn("Failed to initialize parallel daemons: {e$message}. Falling back to sequential execution.")
+        FALSE
+      })
+
+      if (isTRUE(daemon_status)) {
+        if (verbose) {
+          cli::cli_rule(
+            left  = cli::col_blue("Parallel processing using {eff_workers} cores"),
+            right = cli::col_blue("Started on  {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
+          )
+        }
+
+        # Chunking: group images into balanced batches
+        n_imgs <- length(names_plant)
+        n_chunks <- if (n_imgs <= eff_workers) {
+          eff_workers
+        } else {
+          min(n_imgs, eff_workers * 3L)
+        }
+        chunk_size <- ceiling(n_imgs / n_chunks)
+        chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_imgs)
+        chunks <- split(names_plant, chunk_factor)
+
+        results_chunks <- mirai::mirai_map(
+          .x = chunks,
+          .f = function(chunk_imgs, fn, args) {
+            lapply(chunk_imgs, function(im) {
+              do.call(fn, c(list(img = im), args))
+            })
+          },
+          .args = list(
+            fn = help_count,
+            args = list(
+              fill_hull = fill_hull, threshold = threshold, opening = opening, closing = closing, filter = filter,
+              erode = erode, dilate = dilate, tolerance = tolerance, extension = extension, plot = plot,
+              show_original = show_original, marker = marker, marker_col = marker_col, marker_size = marker_size,
+              save_image = save_image, max_pixels = max_pixels, prefix = prefix, dir_original = dir_original,
+              dir_processed = dir_processed, verbose = verbose, col_background = col_background,
+              col_foreground = col_foreground, lower_noise = lower_noise, upper_noise = upper_noise
+            )
+          )
+        )[.progress]
+
+        failed_chunks <- sapply(results_chunks, function(res) inherits(res, "errorValue") || !is.list(res))
+        if (any(failed_chunks)) {
+          err_msg <- paste(sapply(which(failed_chunks), function(idx) {
+            if (inherits(results_chunks[[idx]], "errorValue")) as.character(results_chunks[[idx]]) else "Worker failed to return results"
+          }), collapse = "; ")
+          cli::cli_abort("Parallel processing failed: {err_msg}")
+        }
+
+        results <- do.call(c, results_chunks)
+
+        if (verbose) {
+          cli::cli_progress_step(
+            msg       = "Processing {.val {length(names_plant)}} images found on {.path {imgpath}}. Please, wait.",
+            msg_done  = "Batch processing finished",
+            msg_failed = "Oops, something went wrong."
+          )
+        }
+      } else {
+        parallel <- FALSE
       }
-
-      # Executa paralelamente com barra de progresso
-      results <- mirai::mirai_map(
-        .x = names_plant,
-        .f = process_image
-      )[.progress]
-      cli::cli_progress_step(
-        msg       = "Processing {.val {length(names_plant)}} images found on {.path {imgpath}}. Please, wait.",
-        msg_done  = "Batch processing finished",
-        msg_failed = "Oops, something went wrong."
-      )
     } else{
       cli::cli_rule(
         left = cli::col_blue("Analyzing {length(names_plant)} images"),
@@ -565,7 +631,7 @@ analyze_objects_minimal <- function(img,
           fill_hull, threshold, opening, closing, filter, erode, dilate,
           tolerance, extension,  plot, show_original,  marker, marker_col, marker_size,
           save_image, max_pixels, prefix, dir_original, dir_processed, verbose,
-          col_background, col_foreground, lower_noise
+          col_background, col_foreground, lower_noise, upper_noise
         )
       }
       cli::cli_progress_done()
@@ -707,8 +773,7 @@ analyze_objects_minimal <- function(img,
 #' @method plot anal_obj_minimal
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' img <- image_pliman("soy_green.jpg")
@@ -721,7 +786,6 @@ analyze_objects_minimal <- function(img,
 #'
 #' # histogram of area
 #' plot(rgb, type = "histogram") # or 'hist'
-#' }
 plot.anal_obj_minimal <- function(x,
                                   which = "measure",
                                   measure = "area",

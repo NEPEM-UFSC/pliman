@@ -1044,3 +1044,148 @@ SEXP compute_single_index_cpp(SEXP img_sexp, std::string ind, int r = 1, int g =
   res.attr("colormode") = "Grayscale";
   return res;
 }
+
+// -----------------------------------------------------------------------------
+// object_index_means_cpp: média por objeto de índices definidos por fórmula,
+// avaliados somente nos pixels rotulados (sem materializar a imagem inteira).
+//
+// - Semântica IEEE idêntica à aritmética do R (x/0 = Inf, sqrt(-1) = NaN,
+//   log(0) = -Inf), ao contrário de eval_rpn(), que retorna 0 nesses casos.
+// - Pixels de cada objeto são somados em ordem crescente de índice linear,
+//   a mesma ordem usada por compute_index_means_cpp(), garantindo resultados
+//   numericamente iguais ao caminho em R.
+// - `bare_band[j] = TRUE` indica que a fórmula j é apenas uma banda (ex.: "R");
+//   em imagens raw o R retorna essa banda na escala 0-255 (sem /255), e esse
+//   comportamento é preservado aqui.
+// -----------------------------------------------------------------------------
+static inline double eval_rpn_ieee(const std::vector<RPNToken>& rpn, double r, double g, double b) {
+  double st[64];
+  int top = 0;
+  for (size_t k = 0; k < rpn.size(); ++k) {
+    const RPNToken& tok = rpn[k];
+    switch (tok.type) {
+      case TOK_NUM: st[top++] = tok.val; break;
+      case TOK_VAR_R: st[top++] = r; break;
+      case TOK_VAR_G: st[top++] = g; break;
+      case TOK_VAR_B: st[top++] = b; break;
+      case TOK_VAR_RE: case TOK_VAR_NIR: case TOK_VAR_SWIR: st[top++] = NA_REAL; break;
+      case TOK_ADD: { double v2 = st[--top]; st[top - 1] = st[top - 1] + v2; break; }
+      case TOK_SUB: { double v2 = st[--top]; st[top - 1] = st[top - 1] - v2; break; }
+      case TOK_MUL: { double v2 = st[--top]; st[top - 1] = st[top - 1] * v2; break; }
+      case TOK_DIV: { double v2 = st[--top]; st[top - 1] = st[top - 1] / v2; break; }
+      case TOK_POW: {
+        double v2 = st[--top]; double v1 = st[top - 1];
+        st[top - 1] = (v2 == 2.0) ? v1 * v1 : R_pow(v1, v2);
+        break;
+      }
+      case TOK_NEG: st[top - 1] = -st[top - 1]; break;
+      case TOK_ABS: st[top - 1] = std::fabs(st[top - 1]); break;
+      case TOK_SQRT: st[top - 1] = std::sqrt(st[top - 1]); break;
+      case TOK_EXP: st[top - 1] = std::exp(st[top - 1]); break;
+      case TOK_LOG: st[top - 1] = std::log(st[top - 1]); break;
+      case TOK_SIN: st[top - 1] = std::sin(st[top - 1]); break;
+      case TOK_COS: st[top - 1] = std::cos(st[top - 1]); break;
+      case TOK_TAN: st[top - 1] = std::tan(st[top - 1]); break;
+    }
+  }
+  return (top > 0) ? st[0] : NA_REAL;
+}
+
+// [[Rcpp::export]]
+SEXP object_index_means_cpp(SEXP img_sexp, SEXP labels_sexp, CharacterVector formulas,
+                            IntegerVector valid_ids, LogicalVector bare_band) {
+  SEXP dims = Rf_getAttrib(img_sexp, R_DimSymbol);
+  if (Rf_isNull(dims) || Rf_length(dims) < 3 || INTEGER(dims)[2] < 3) return R_NilValue;
+  if (TYPEOF(img_sexp) != RAWSXP && TYPEOF(img_sexp) != REALSXP) return R_NilValue;
+  if (TYPEOF(labels_sexp) != INTSXP) return R_NilValue;
+
+  const int npix = INTEGER(dims)[0] * INTEGER(dims)[1];
+  if (Rf_xlength(labels_sexp) != npix) return R_NilValue;
+  const int* lab = INTEGER(labels_sexp);
+  const int n_obj = valid_ids.size();
+  const int n_f = formulas.size();
+
+  std::vector<std::vector<RPNToken>> rpn(n_f);
+  for (int j = 0; j < n_f; j++) {
+    try {
+      rpn[j] = parse_to_rpn(Rcpp::as<std::string>(formulas[j]));
+    } catch (...) {
+      return R_NilValue;
+    }
+    if (rpn[j].empty()) return R_NilValue;
+    // valida a profundidade da pilha (protege st[64] e detecta expressões malformadas)
+    int depth = 0, max_depth = 0;
+    for (const auto& t : rpn[j]) {
+      if (t.type <= TOK_VAR_SWIR) depth++;
+      else if (t.type >= TOK_ADD && t.type <= TOK_POW) depth--;
+      if (depth < 1) return R_NilValue;
+      if (depth > max_depth) max_depth = depth;
+    }
+    if (depth != 1 || max_depth >= 64) return R_NilValue;
+  }
+
+  int max_id = 0;
+  for (int i = 0; i < n_obj; i++) if (valid_ids[i] > max_id) max_id = valid_ids[i];
+  std::vector<int> id_map(max_id + 1, -1);
+  for (int i = 0; i < n_obj; i++) if (valid_ids[i] > 0) id_map[valid_ids[i]] = i;
+
+  // Counting sort dos pixels por objeto (mantém a ordem crescente de índice)
+  std::vector<int> offs(n_obj + 1, 0);
+  for (int k = 0; k < npix; k++) {
+    int l = lab[k];
+    if (l > 0 && l <= max_id && id_map[l] >= 0) offs[id_map[l] + 1]++;
+  }
+  for (int i = 0; i < n_obj; i++) offs[i + 1] += offs[i];
+  std::vector<int> pix(offs[n_obj]);
+  {
+    std::vector<int> pos(offs.begin(), offs.end() - 1);
+    for (int k = 0; k < npix; k++) {
+      int l = lab[k];
+      if (l > 0 && l <= max_id) {
+        int p = id_map[l];
+        if (p >= 0) pix[pos[p]++] = k;
+      }
+    }
+  }
+
+  const bool is_raw = (TYPEOF(img_sexp) == RAWSXP);
+  const uint8_t* praw = is_raw ? RAW(img_sexp) : nullptr;
+  const double* pdbl = is_raw ? nullptr : REAL(img_sexp);
+  std::vector<int> bare(n_f, 0);
+  for (int j = 0; j < n_f; j++) bare[j] = (j < bare_band.size() && bare_band[j] == TRUE) ? 1 : 0;
+
+  NumericMatrix out(n_obj, n_f);
+  double* po = REAL(out);
+
+  // Avaliação paralela por pixel em um buffer; a soma por objeto é feita em
+  // ordem crescente de pixel (determinística e idêntica ao caminho em R),
+  // mantendo o paralelismo mesmo quando há poucos objetos grandes.
+  const int n_fg = offs[n_obj];
+  std::vector<double> vals(n_fg);
+  for (int j = 0; j < n_f; j++) {
+    const double scale = (is_raw && !bare[j]) ? 255.0 : 1.0;
+    const auto& tk = rpn[j];
+    #pragma omp parallel for schedule(static) if(n_fg > 50000)
+    for (int q = 0; q < n_fg; q++) {
+      const int k = pix[q];
+      double rv, gv, bv;
+      if (is_raw) {
+        rv = (double)praw[k] / scale;
+        gv = (double)praw[k + npix] / scale;
+        bv = (double)praw[k + 2 * (size_t)npix] / scale;
+      } else {
+        rv = pdbl[k]; gv = pdbl[k + npix]; bv = pdbl[k + 2 * (size_t)npix];
+      }
+      vals[q] = eval_rpn_ieee(tk, rv, gv, bv);
+    }
+    #pragma omp parallel for schedule(dynamic, 64) if(n_obj > 64)
+    for (int i = 0; i < n_obj; i++) {
+      const int a = offs[i], z = offs[i + 1];
+      if (z == a) { po[i + (size_t)j * n_obj] = NA_REAL; continue; }
+      double s = 0.0;
+      for (int q = a; q < z; q++) s += vals[q];
+      po[i + (size_t)j * n_obj] = s / (z - a);
+    }
+  }
+  return out;
+}

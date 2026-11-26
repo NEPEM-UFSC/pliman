@@ -83,7 +83,7 @@ on the plotting device may vary. Use \code{xy_ratio} to adjust vertical scaling.
 }
 
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 img <- image_pliman("potato_leaves.jpg")
 plot(img)
 res <- object_scatter(
@@ -98,6 +98,5 @@ res$plot
 
 # remove cached data
 clear_pliman_cache()
-}
-
+\dontshow{\}) # examplesIf}
 }

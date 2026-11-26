@@ -14,11 +14,18 @@ image_detect_world(
   col = NULL,
   lwd = 2,
   cex = 1,
-  pad = 1,
+  pad = 0,
+  bbox = TRUE,
+  badge_pad = 1,
   show_text = TRUE,
   show_conf = TRUE,
   show_class = TRUE,
   show_id = FALSE,
+  show_point = FALSE,
+  show_box = NULL,
+  point_size = 1,
+  point_pch = 16,
+  point_col = NULL,
   badge = TRUE,
   return_features = FALSE,
   feature_model = c("yolo", "clip-vit-b32", "dinov2"),
@@ -50,7 +57,11 @@ If \code{FALSE} (default), objects of the same class share the exact same color.
 
 \item{cex}{Size factor for bounding box label text (default \code{1.0}).}
 
-\item{pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).}
+\item{pad}{Padding multiplier controlling the box padding around label text (default \code{0}).}
+
+\item{bbox}{Logical. Whether to draw bounding boxes around detected objects (default \code{TRUE}).}
+
+\item{badge_pad}{Padding multiplier controlling the background badge size around label text (default \code{1.0}).}
 
 \item{show_text}{Logical. Whether to display text labels on bounding boxes (default \code{TRUE}).}
 
@@ -59,6 +70,16 @@ If \code{FALSE} (default), objects of the same class share the exact same color.
 \item{show_class}{Logical. Whether to display class names in labels (default \code{TRUE}).}
 
 \item{show_id}{Logical. Whether to display object IDs (\verb{#1}, \verb{#2}, ...) in labels (default \code{FALSE}).}
+
+\item{show_point}{Logical. Whether to show a point at the centroid of each detected object. Defaults to \code{FALSE}.}
+
+\item{show_box}{Logical. Whether to draw bounding boxes. Defaults to \code{NULL} (TRUE unless \code{show_point = TRUE} and all text displays are \code{FALSE}).}
+
+\item{point_size}{Numeric. Size (\code{cex}) of the centroid point when \code{show_point = TRUE}. Defaults to \code{1}.}
+
+\item{point_pch}{Integer. Plotting symbol (\code{pch}) for the centroid point. Defaults to \code{16} (filled circle).}
+
+\item{point_col}{Character. Color of the centroid point. Defaults to \code{NULL} (matches the object color / rainbow).}
 
 \item{badge}{Logical. Whether to draw a solid background badge behind label text (default \code{TRUE}).
 If \code{FALSE}, only the text is drawn directly.}
@@ -94,9 +115,9 @@ Detects arbitrary objects described in natural language without any model retrai
 powered by YOLO-World (v8s) and Ultralytics.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   img <- image_import("field.jpg")
   dets <- image_detect_world(img, classes = c("corn plant", "weed", "soil"), rainbow = TRUE)
-}
+\dontshow{\}) # examplesIf}
 }

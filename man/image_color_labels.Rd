@@ -17,11 +17,11 @@ Colorizes a labeled image by allocating a different color to each object.
 Background pixels (value 0) are colorized with black.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
   bin <- image_pliman("soybean_touch.jpg") |> image_binary(index = "B")
   lbl <- image_bwlabel(bin$B)
   color_lbl <- image_color_labels(lbl)
   plot(color_lbl)
-}
+\dontshow{\}) # examplesIf}
 }

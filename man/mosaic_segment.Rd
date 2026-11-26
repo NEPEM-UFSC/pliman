@@ -55,7 +55,7 @@ Segment a \code{SpatRaster} using a computed image index. By default, values
 greater than \code{threshold} are kept in the mask.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 mosaic <- mosaic_input(system.file("ex/elev.tif", package="terra"))
 seg <-
@@ -63,5 +63,5 @@ mosaic_segment(mosaic,
                index = "elevation",
                threshold = 350)
 mosaic_plot(seg)
-}
+\dontshow{\}) # examplesIf}
 }

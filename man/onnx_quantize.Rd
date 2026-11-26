@@ -15,7 +15,7 @@ onnx_quantize(
 \item{model_path}{Character string. File path to the input FP32 \code{.onnx} model.}
 
 \item{output_path}{Optional file path for the quantized INT8 model. If \code{NULL} (default),
-appends \code{"_int8.onnx"} to the original model name.}
+saves the model in \code{\link[=pliman_model_dir]{pliman_model_dir()}} appending \code{"_int8.onnx"} to the original model name.}
 
 \item{weight_type}{Precision type: \code{"QUInt8"} (unsigned 8-bit, default) or \code{"QInt8"} (signed 8-bit).}
 
@@ -29,9 +29,14 @@ The normalized file path to the quantized \code{.onnx} model.
 to 8-bit integer (INT8) precision. Dynamic quantization reduces model file sizes
 by up to 75\% (e.g. from 24 MB to 6 MB) and accelerates CPU inference throughput
 by 2–3x with negligible accuracy trade-off.
+
+The speed-up is hardware dependent: dynamic INT8 kernels target CPUs (best on CPUs
+with VNNI/AVX-512 or ARM dot-product instructions). With \code{engine = "gpu"}
+(DirectML), quantized operators may fall back to slower kernels or the CPU, so INT8
+models can be slower than FP32 on the GPU. Measure with \code{\link[=yolo_benchmark]{yolo_benchmark()}}.
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # Quantize classification model
@@ -39,5 +44,5 @@ q_model <- onnx_quantize("dataset_flores_yolo_cls.onnx")
 
 # Run inference with 3x speedup on CPU
 res <- image_classify_dl("rose.jpg", model = q_model)
-}
+\dontshow{\}) # examplesIf}
 }

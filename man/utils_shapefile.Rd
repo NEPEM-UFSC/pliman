@@ -5,7 +5,7 @@
 \alias{shapefile_input}
 \alias{shapefile_export}
 \alias{shapefile_view}
-\title{Import/export shapefiles.}
+\title{Import/export shapefiles}
 \usage{
 shapefile_input(
   shapefile,
@@ -79,11 +79,10 @@ to \code{MULTILINESTRING} if required.
 }
 }
 \examples{
-if(interactive()){
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 shp <- system.file("ex/lux.shp", package="terra")
 shp_file <- shapefile_input(shp, as_sf = FALSE)
 shapefile_view(shp_file)
-}
-
+\dontshow{\}) # examplesIf}
 }

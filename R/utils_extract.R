@@ -9,15 +9,13 @@
 #'
 #' @return A numeric value representing available system physical memory in the specified unit.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' # Get free RAM in GB
 #' get_free_ram()
 #'
 #' # Get free RAM in MB
 #' get_free_ram("MB")
-#' }
 get_free_ram <- function(unit = c("GB", "MB", "KB", "B")) {
   unit <- match.arg(unit)
   ram_bytes <- tryCatch(get_free_ram_cpp(), error = function(e) -1.0)
@@ -65,8 +63,7 @@ get_free_ram <- function(unit = c("GB", "MB", "KB", "B")) {
 #' * If `fun` is specified and `return = "df"` (default), returns a `data.frame` of summary statistics (including `covered_area`, `plot_area`, `coverage` if `coverage_area = TRUE`).
 #'
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' shp <- shapefile_input( paste0(image_pliman(), "/soy_shape.rds"))
 #' mosaic <- mosaic_input( paste0(image_pliman(), "/soy_ortho.tif"))
@@ -76,7 +73,6 @@ get_free_ram <- function(unit = c("GB", "MB", "KB", "B")) {
 #'
 #' # Extract mean and quantiles with plot area coverage metrics
 #' mosaic_extract(mosaic, shp, fun = c("mean", "quantiles"), coverage_area = TRUE)
-#' }
 mosaic_extract <- function(mosaic,
                            shapefile,
                            fun = NULL,
@@ -189,6 +185,8 @@ mosaic_extract <- function(mosaic,
     }
   }
 
+  # callers such as mosaic_analyze() pass NULL when no quantile was requested
+  if (is.null(summarize_quantiles)) summarize_quantiles <- c(0.05, 0.975)
   if (!is.numeric(summarize_quantiles) || any(summarize_quantiles < 0 | summarize_quantiles > 1)) {
     cli::cli_abort("Argument {.arg summarize_quantiles} must be a numeric vector with values between 0 and 1.")
   }

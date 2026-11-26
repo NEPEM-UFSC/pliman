@@ -1,3 +1,44 @@
+# Concatenate two images side by side (along = 1, x / width) or on top of each
+# other (along = 2, y / height), as EBImage::combine(..., along =) did. Used
+# internally; image_combine() only arranges images in a plot grid. Both images
+# are brought to the same storage (raw 0..255 if both are raw, else 0..1
+# double) and number of channels.
+.image_bind <- function(a, b, along = 1) {
+  as_arr <- function(x, raw) {
+    d <- if (raw) unclass(image_data(x, type = "raw")) else unclass(image_data(x, type = "normalized"))
+    if (length(dim(d)) == 2) dim(d) <- c(dim(d), 1L)
+    d
+  }
+  both_raw <- is.raw(unclass(image_data(a))) && is.raw(unclass(image_data(b)))
+  da <- as_arr(a, both_raw)
+  db <- as_arr(b, both_raw)
+  ch <- max(dim(da)[3], dim(db)[3])
+  widen <- function(d) {
+    if (dim(d)[3] == ch) return(d)
+    out <- d[, , rep(1, ch), drop = FALSE]
+    if (dim(d)[3] > 1) out[, , seq_len(dim(d)[3])] <- d
+    out
+  }
+  da <- widen(da)
+  db <- widen(db)
+  other <- if (along == 1) 2 else 1
+  if (dim(da)[other] != dim(db)[other]) {
+    cli::cli_abort("Images must have the same {ifelse(along == 1, 'height', 'width')} to be combined along dimension {along}.")
+  }
+  dims <- dim(da)
+  dims[along] <- dim(da)[along] + dim(db)[along]
+  out <- array(if (both_raw) as.raw(0) else 0, dim = dims)
+  if (along == 1) {
+    out[seq_len(dim(da)[1]), , ] <- da
+    out[dim(da)[1] + seq_len(dim(db)[1]), , ] <- db
+  } else {
+    out[, seq_len(dim(da)[2]), ] <- da
+    out[, dim(da)[2] + seq_len(dim(db)[2]), ] <- db
+  }
+  if (dim(out)[3] == 1) out <- out[, , 1]
+  as_image(out)
+}
+
 #'Combines images to a grid
 #'
 #'Combines several images to a grid
@@ -7,20 +48,36 @@
 #'   objects in `...` to indicate the plot labels.
 #' @param nrow,ncol The number of rows or columns in the plot grid. Defaults to
 #'   `NULL`, i.e., a square grid is produced.
-#' @param col The color for the plot labels. Defaults to `col = "black"`.
+#' @param col The color for the plot labels. Defaults to `"white"` when `badge = TRUE` and `"black"` otherwise.
+#' @param col_bg The background color for the label badge. Defaults to `"forestgreen"`.
+#' @param badge Logical. Whether to draw a background badge for the labels. Defaults to `TRUE`.
+#' @param border The border color for the badge. Defaults to `NA` (no border).
+#' @param cex The character expansion factor for the labels. Defaults to `0.75`.
+#' @param font An integer which specifies which font to use for text. Defaults to `2` (bold).
 #' @param verbose Shows the name of objects declared in `...` or a numeric
 #'   sequence if a list with no names is provided. Set to `FALSE` to supress the
 #'   text.
 #' @param mar,oma Margins for each panel and outer margins for the combined plot.
-#'   Defaults to `mar = c(1.5, 1.5, 1.5, 1.5)` and `oma = c(0, 0, 0, 0)`. Set
+#'   Defaults to `mar = c(0.2, 0.2, 0.2, 0.2)` and `oma = c(0, 0, 0, 0)`. Set
 #'   `mar = 0` or `mar = c(0, 0, 0, 0)` to eliminate margins and maximize the
 #'   plotting area.
+#' @param row_labels,col_labels Optional character vectors of labels to display as
+#'   full-height left strips (`row_labels`, length `nrow`) and full-width top
+#'   strips (`col_labels`, length `ncol`). Useful for publication comparison grids.
+#' @param strip_col,strip_bg Text color and background fill color for `row_labels`
+#'   and `col_labels` strips. When `NULL` (default), `strip_col` inherits `col`
+#'   and `strip_bg` inherits `col_bg`.
+#' @param strip_cex Character expansion factor for strip labels. Defaults to `0.95`.
+#' @param strip_size Relative width/height of the row and column label strips
+#'   compared to an image panel (`1`). Defaults to `NULL`, which automatically
+#'   computes strip dimensions from the current graphics device aspect ratio so
+#'   panels align edge-to-edge without gaps. Can also be set explicitly as a
+#'   scalar or length-2 vector `c(row_width, col_height)`.
 #' @importFrom stats reshape IQR quantile
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A grid with the images in `...`
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img1 <- image_pliman("sev_leaf.jpg")
 #' img2 <- image_pliman("sev_leaf_nb.jpg")
@@ -28,15 +85,28 @@
 #'
 #' # Remove margins to optimize plotting area:
 #' image_combine(img1, img2, mar = 0)
-#' }
 image_combine <- function(...,
                           labels = NULL,
                           nrow = NULL,
                           ncol = NULL,
-                          col = "black",
+                          col = "white",
+                          col_bg = "forestgreen",
+                          badge = TRUE,
+                          border = NA,
+                          cex = 0.75,
+                          font = 2,
                           verbose = TRUE,
-                          mar = c(1.5, 1.5, 1.5, 1.5),
-                          oma = c(0, 0, 0, 0)) {
+                          mar = c(0.2, 0.2, 0.2, 0.2),
+                          oma = c(0, 0, 0, 0),
+                          row_labels = NULL,
+                          col_labels = NULL,
+                          strip_col = NULL,
+                          strip_bg = NULL,
+                          strip_cex = 0.95,
+                          strip_size = NULL) {
+  if (missing(col)) {
+    col <- if (isTRUE(badge)) "white" else "black"
+  }
   dots <- list(...)
   call_args <- match.call(expand.dots = FALSE)$...
 
@@ -95,24 +165,615 @@ image_combine <- function(...,
     oma <- rep(oma, 4L)
   }
 
-  op <- par(mfrow = c(nrow, ncol), mar = mar, oma = oma)
-  on.exit(par(op), add = TRUE)
+  has_row_lbl <- !is.null(row_labels) && length(row_labels) > 0L
+  has_col_lbl <- !is.null(col_labels) && length(col_labels) > 0L
+
+  if (has_row_lbl || has_col_lbl) {
+    s_col <- if (is.null(strip_col)) if (isTRUE(badge)) col else "white" else strip_col
+    s_bg  <- if (is.null(strip_bg)) col_bg else strip_bg
+
+    n_grid_r <- nrow + if (has_col_lbl) 1L else 0L
+    n_grid_c <- ncol + if (has_row_lbl) 1L else 0L
+    l_mat <- matrix(0L, nrow = n_grid_r, ncol = n_grid_c)
+    next_id <- 1L
+
+    r_off <- if (has_col_lbl) 1L else 0L
+    c_off <- if (has_row_lbl) 1L else 0L
+
+    if (has_col_lbl) {
+      col_labels <- rep_len(as.character(col_labels), ncol)
+      for (cc in seq_len(ncol)) {
+        l_mat[1L, c_off + cc] <- next_id
+        next_id <- next_id + 1L
+      }
+    }
+    if (has_row_lbl) {
+      row_labels <- rep_len(as.character(row_labels), nrow)
+      for (rr in seq_len(nrow)) {
+        l_mat[r_off + rr, 1L] <- next_id
+        next_id <- next_id + 1L
+      }
+    }
+    for (rr in seq_len(nrow)) {
+      for (cc in seq_len(ncol)) {
+        idx_p <- (rr - 1L) * ncol + cc
+        if (idx_p <= num_plots) {
+          l_mat[r_off + rr, c_off + cc] <- next_id
+          next_id <- next_id + 1L
+        }
+      }
+    }
+
+    col_asps <- rep(1, ncol)
+    for (cc in seq_len(ncol)) {
+      col_idx <- ((seq_len(nrow) - 1L) * ncol) + cc
+      col_idx <- col_idx[col_idx <= num_plots]
+      if (length(col_idx) > 0L) {
+        asps <- vapply(col_idx, function(k) {
+          pk <- plots[[k]]
+          d <- if (!is.null(attr(pk, "image"))) dim(attr(pk, "image")) else dim(pk)
+          if (!is.null(d) && length(d) >= 2L && d[2L] > 0) d[1L] / d[2L] else 1
+        }, numeric(1))
+        col_asps[cc] <- max(asps, na.rm = TRUE)
+      }
+    }
+    mean_asp <- mean(col_asps)
+    col_widths <- col_asps / mean_asp
+    row_h_unit <- 1 / mean_asp
+
+    if (is.null(strip_size)) {
+      dev_din <- tryCatch(grDevices::dev.size("in"), error = function(e) c(7, 5))
+      r_dev <- if (length(dev_din) >= 2L && dev_din[2L] > 0) dev_din[1L] / dev_din[2L] else (ncol / nrow)
+      w_imgs <- sum(col_widths)
+      h_imgs <- nrow * row_h_unit
+      s_w <- if (has_row_lbl) 0.14 else 0
+      s_h <- if (has_col_lbl) 0.14 else 0
+
+      if (has_row_lbl && has_col_lbl) {
+        r_nat <- (s_w + w_imgs) / (s_h + h_imgs)
+        if (r_dev >= r_nat) {
+          s_w <- min(0.8, max(0.06, r_dev * (s_h + h_imgs) - w_imgs))
+        } else {
+          s_h <- min(0.8, max(0.06, (s_w + w_imgs) / r_dev - h_imgs))
+        }
+      } else if (has_col_lbl) {
+        s_h <- min(0.8, max(0.06, w_imgs / r_dev - h_imgs))
+      } else if (has_row_lbl) {
+        s_w <- min(0.8, max(0.06, r_dev * h_imgs - w_imgs))
+      }
+    } else {
+      s_w <- if (length(strip_size) >= 1L) strip_size[1L] else 0.14
+      s_h <- if (length(strip_size) >= 2L) strip_size[2L] else s_w
+    }
+
+    w_vec <- if (has_row_lbl) c(s_w, col_widths) else col_widths
+    h_vec <- if (has_col_lbl) c(s_h, rep(row_h_unit, nrow)) else rep(row_h_unit, nrow)
+
+    op <- par(oma = oma)
+    on.exit({
+      try(par(op), silent = TRUE)
+      try(graphics::layout(1), silent = TRUE)
+    }, add = TRUE)
+    graphics::layout(l_mat, widths = w_vec, heights = h_vec)
+
+    draw_strip <- function(txt, s_mar, srt = 0) {
+      par(mar = s_mar)
+      graphics::plot.new()
+      graphics::plot.window(xlim = c(0, 1), ylim = c(0, 1), xaxs = "i", yaxs = "i")
+      graphics::rect(0, 0, 1, 1, col = s_bg, border = border)
+      graphics::text(0.5, 0.5, labels = txt, col = s_col, cex = strip_cex, font = font, srt = srt)
+    }
+
+    if (has_col_lbl) {
+      for (cc in seq_len(ncol)) {
+        draw_strip(col_labels[cc], c(mar[1L], mar[2L], mar[3L], mar[4L]), srt = 0)
+      }
+    }
+    if (has_row_lbl) {
+      for (rr in seq_len(nrow)) {
+        draw_strip(row_labels[rr], c(mar[1L], mar[2L], mar[3L], mar[4L]), srt = 90)
+      }
+    }
+    par(mar = mar)
+  } else {
+    op <- par(mfrow = c(nrow, ncol), mar = mar, oma = oma)
+    on.exit(par(op), add = TRUE)
+  }
 
   idx_names <- if (is.null(names(plots))) as.character(seq_len(num_plots)) else names(plots)
 
   for (i in seq_len(num_plots)) {
     img <- plots[[i]]
-    plot(img)
+    plot(img, mar = mar)
     if (isTRUE(verbose)) {
       lbl <- idx_names[i]
       if (nzchar(lbl)) {
         d <- dim(img)
+        w <- if (!is.null(d) && length(d) >= 1L) d[1L] else 100
         h <- if (!is.null(d) && length(d) >= 2L) d[2L] else 100
-        text(0, h * 0.075, lbl, pos = 4, col = col, cex = 1.1, font = 2)
+
+        tw <- abs(graphics::strwidth(lbl, cex = cex, font = font))
+        th <- abs(graphics::strheight(lbl, cex = cex, font = font))
+        pad_x <- abs(graphics::strwidth("M", cex = cex, font = font)) * 0.45
+        pad_y <- abs(graphics::strheight("M", cex = cex, font = font)) * 0.35
+
+        x1 <- 0.5
+        y1 <- 0.5
+        x2 <- x1 + tw + 2 * pad_x
+        y2 <- y1 + th + 2 * pad_y
+
+        if (isTRUE(badge)) {
+          graphics::polygon(c(x1, x2, x2, x1), c(y1, y1, y2, y2), col = col_bg, border = border)
+          graphics::text(x1 + pad_x, (y1 + y2) / 2, lbl, adj = c(0, 0.5), col = col, cex = cex, font = font)
+        } else {
+          graphics::text(x1 + pad_x, (y1 + y2) / 2, lbl, adj = c(0, 0.5), col = col, cex = cex, font = font)
+        }
       }
     }
   }
-  return(plots)
+  invisible(plots)
+}
+
+#' Create a 4-Image Mosaic Composite
+#'
+#' @description
+#' `image_mosaic()` creates a 4-image mosaic composite (2x2 grid) by cropping
+#' a quadrant from 4 input images and stitching them together onto a single
+#' canvas with an adjustable overlap (defaults to 20%). It seamlessly handles
+#' coordinate alignment, feathering or overlay blending in the overlap zones,
+#' and translation/clipping of YOLO bounding box or polygon annotations.
+#'
+#' @param ... Image objects, character paths to image files, or a list of images.
+#' @param images An optional list of `Image` objects or character vector of file paths.
+#' @param pattern An optional regular expression pattern to select image files from `path`.
+#' @param path An optional directory path where image files are located.
+#' @param labels Optional YOLO annotations corresponding to the 4 input images.
+#'   Can be a character vector of 4 `.txt` label file paths, or a list of 4 character
+#'   vectors where each element contains lines of YOLO formatted annotations
+#'   (`class x_center y_center width height` or `class x1 y1 x2 y2 ...`).
+#' @param width,height Target dimensions (width and height in pixels) of the output
+#'   mosaic canvas. Defaults to the dimensions of the first input image.
+#' @param overlap Fraction of overlap between adjacent tiles (default `0.20`, i.e., 20%).
+#'   Can be a single numeric value or a vector of two values `c(overlap_x, overlap_y)`.
+#' @param crop_region Region to crop from each input image:
+#'   * `"quadrant"` (default): Image 1 crops top-left, Image 2 crops top-right,
+#'     Image 3 crops bottom-left, Image 4 crops bottom-right.
+#'   * `"random"`: Random crop of size `(1 + overlap) / 2` from each image.
+#'   * `"center"`: Center crop of size `(1 + overlap) / 2` from each image.
+#' @param min_area_ratio Minimum visible area fraction (between 0 and 1) required
+#'   to retain an object cut by mosaic quadrant seams. Default is `0.10` (10 percent).
+#' @param blend Blending mode for the overlapping regions:
+#'   * `"feather"` (default): Linear alpha cross-fading across the overlap seam.
+#'   * `"overlay"`: Sequential overlay where subsequent tiles cover previous ones.
+#'   * `"none"`: Hard cut at the canvas midpoint.
+#' @param sample Logical. If more than 4 images are provided, whether to randomly
+#'   sample 4 images (`TRUE`) or use the first 4 (`FALSE`, default).
+#' @param return_list Logical. If `TRUE`, returns a named list with `image` and `labels`.
+#'   If `FALSE` (default), returns the composite `Image` object with the transformed
+#'   annotations attached as an attribute `attr(out, "labels")`.
+#' @param plot Logical. Whether to display the resulting mosaic. Defaults to `TRUE`.
+#' @param verbose Logical. Whether to display informative progress/messages. Defaults to `TRUE`.
+#'
+#' @return An `Image` object of class `c("pliman_mosaic", "Image")` (with `attr(out, "labels")`
+#'   containing transformed annotations if `labels` were provided), or a list containing
+#'   `$image` and `$labels` if `return_list = TRUE`.
+#'
+#' @export
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#'
+#' @examples
+#' \dontrun{
+#' library(pliman)
+#'
+#' # Mosaic from 4 sample images with 20% overlap
+#' im1 <- image_pliman("sev_leaf.jpg")
+#' im2 <- image_pliman("sev_leaf_nb.jpg")
+#' im3 <- image_pliman("sev_healthy.jpg")
+#' im4 <- image_pliman("sev_sympt.jpg")
+#'
+#' mos <- image_mosaic(im1, im2, im3, im4, overlap = 0.20)
+#' }
+image_mosaic <- function(...,
+                         images = NULL,
+                         pattern = NULL,
+                         path = NULL,
+                         labels = NULL,
+                         width = NULL,
+                         height = NULL,
+                         overlap = 0.20,
+                         min_area_ratio = 0.10,
+                         crop_region = c("quadrant", "random", "center"),
+                         blend = c("none", "feather", "overlay"),
+                         sample = FALSE,
+                         return_list = FALSE,
+                         plot = TRUE,
+                         verbose = TRUE) {
+  crop_region <- match.arg(crop_region)
+  blend <- match.arg(blend)
+
+  # 1. Resolve image list
+  dots <- list(...)
+  input_list <- list()
+
+  if (!is.null(pattern)) {
+    path_dir <- if (is.null(path)) getwd() else path
+    fls <- list.files(path_dir, pattern = pattern, full.names = TRUE, ignore.case = TRUE)
+    if (length(fls) == 0L) {
+      cli::cli_abort("No image files matching pattern {.val {pattern}} found in {.path {path_dir}}.")
+    }
+    input_list <- as.list(fls)
+  } else if (!is.null(path) && is.null(images) && length(dots) == 0L) {
+    fls <- list.files(path, pattern = "\\.(jpg|jpeg|png|bmp|webp|tif|tiff)$", full.names = TRUE, ignore.case = TRUE)
+    if (length(fls) == 0L) {
+      cli::cli_abort("No valid image files found in directory {.path {path}}.")
+    }
+    input_list <- as.list(fls)
+  } else if (!is.null(images)) {
+    if (is.character(images)) {
+      input_list <- as.list(images)
+    } else if (is.list(images)) {
+      input_list <- images
+    } else {
+      input_list <- list(images)
+    }
+  } else if (length(dots) > 0L) {
+    if (length(dots) == 1L && is.list(dots[[1L]]) && !inherits(dots[[1L]], c("Image", "image"))) {
+      input_list <- dots[[1L]]
+    } else {
+      input_list <- dots
+    }
+  }
+
+  if (length(input_list) == 0L) {
+    cli::cli_abort("No images provided to {.fn image_mosaic}.")
+  }
+
+  # If more than 4 images:
+  if (length(input_list) > 4L) {
+    if (isTRUE(sample)) {
+      sel_idx <- base::sample(seq_along(input_list), 4L, replace = FALSE)
+      input_list <- input_list[sel_idx]
+      if (!is.null(labels) && length(labels) >= length(input_list)) {
+        labels <- labels[sel_idx]
+      }
+    } else {
+      input_list <- input_list[1:4]
+      if (!is.null(labels) && length(labels) >= 4L) {
+        labels <- labels[1:4]
+      }
+    }
+  } else if (length(input_list) < 4L) {
+    orig_len <- length(input_list)
+    rec_idx <- rep(seq_len(orig_len), length.out = 4L)
+    input_list <- input_list[rec_idx]
+    if (!is.null(labels) && length(labels) > 0L) {
+      labels <- labels[rep(seq_along(labels), length.out = 4L)]
+    }
+  }
+
+  # Load images if paths
+  raw_imgs <- lapply(input_list, function(x) {
+    if (is.character(x)) {
+      image_import(x, plot = FALSE)
+    } else if (is.list(x) && !is.null(x$img)) {
+      x$img
+    } else {
+      x
+    }
+  })
+
+  # Parse labels if provided
+  lbl_lines_list <- vector("list", 4L)
+  if (!is.null(labels)) {
+    for (k in 1:4) {
+      lk <- labels[[k]]
+      if (is.character(lk) && length(lk) == 1L && file.exists(lk)) {
+        lines_k <- readLines(lk, warn = FALSE)
+      } else if (is.character(lk)) {
+        lines_k <- lk
+      } else {
+        lines_k <- character(0)
+      }
+      lbl_lines_list[[k]] <- lines_k[nzchar(trimws(lines_k))]
+    }
+  }
+
+  # Canvas dimensions
+  d1 <- dim(raw_imgs[[1L]])
+  W_mos <- if (!is.null(width)) as.integer(width[1L]) else d1[1L]
+  H_mos <- if (!is.null(height)) as.integer(height[1L]) else d1[2L]
+
+  # Overlap
+  ov <- as.numeric(overlap)
+  ov_x <- max(0.0, min(0.49, ov[1L]))
+  ov_y <- max(0.0, min(0.49, if (length(ov) > 1L) ov[2L] else ov[1L]))
+
+  # Target tile sizes on canvas
+  tw <- as.integer(round(W_mos / 2.0 * (1.0 + ov_x)))
+  th <- as.integer(round(H_mos / 2.0 * (1.0 + ov_y)))
+  tw <- min(tw, W_mos)
+  th <- min(th, H_mos)
+
+  # Placement coordinates on canvas (1-indexed)
+  # Tile 1: Top-Left
+  # Tile 2: Top-Right
+  # Tile 3: Bottom-Left
+  # Tile 4: Bottom-Right
+  can_x1 <- c(1L, W_mos - tw + 1L, 1L, W_mos - tw + 1L)
+  can_x2 <- c(tw, W_mos, tw, W_mos)
+  can_y1 <- c(1L, 1L, H_mos - th + 1L, H_mos - th + 1L)
+  can_y2 <- c(th, th, H_mos, H_mos)
+
+  # Check channels
+  max_ch <- max(vapply(raw_imgs, function(x) {
+    d <- dim(x)
+    if (length(d) >= 3L) d[3L] else 1L
+  }, integer(1L)))
+  if (max_ch < 3L && any(vapply(raw_imgs, function(x) inherits(x, "Image") && (attr(x, "colormode") %||% "") == "Color", logical(1L)))) {
+    max_ch <- 3L
+  }
+
+  canvas_arr <- array(0.0, dim = c(W_mos, H_mos, max_ch))
+  weight_arr <- array(0.0, dim = c(W_mos, H_mos))
+  mosaic_labels <- character(0)
+
+  # Process each tile
+  for (k in 1:4) {
+    im_k <- raw_imgs[[k]]
+    d_k <- dim(im_k)
+    W_k <- d_k[1L]
+    H_k <- d_k[2L]
+
+    cw_k <- min(W_k, as.integer(round(W_k / 2.0 * (1.0 + ov_x))))
+    ch_k <- min(H_k, as.integer(round(H_k / 2.0 * (1.0 + ov_y))))
+
+    # Determine crop coordinates in image k
+    if (crop_region == "quadrant") {
+      if (k == 1L) { # TL
+        cx1 <- 1L; cx2 <- cw_k
+        cy1 <- 1L; cy2 <- ch_k
+      } else if (k == 2L) { # TR
+        cx1 <- W_k - cw_k + 1L; cx2 <- W_k
+        cy1 <- 1L; cy2 <- ch_k
+      } else if (k == 3L) { # BL
+        cx1 <- 1L; cx2 <- cw_k
+        cy1 <- H_k - ch_k + 1L; cy2 <- H_k
+      } else { # BR
+        cx1 <- W_k - cw_k + 1L; cx2 <- W_k
+        cy1 <- H_k - ch_k + 1L; cy2 <- H_k
+      }
+    } else if (crop_region == "center") {
+      cx1 <- max(1L, as.integer(round((W_k - cw_k) / 2.0 + 1L)))
+      cx2 <- cx1 + cw_k - 1L
+      cy1 <- max(1L, as.integer(round((H_k - ch_k) / 2.0 + 1L)))
+      cy2 <- cy1 + ch_k - 1L
+    } else { # random
+      cx1 <- sample(1L:max(1L, W_k - cw_k + 1L), 1L)
+      cx2 <- cx1 + cw_k - 1L
+      cy1 <- sample(1L:max(1L, H_k - ch_k + 1L), 1L)
+      cy2 <- cy1 + ch_k - 1L
+    }
+
+    # Extract cropped patch
+    patch_k <- im_k[cx1:cx2, cy1:cy2, , drop = FALSE]
+    dp <- dim(patch_k)
+
+    # Resize patch to (tw, th) if needed
+    if (dp[1L] != tw || dp[2L] != th) {
+      patch_k <- image_resize(patch_k, width = tw, height = th, plot = FALSE)
+    }
+
+    # Convert patch to float [0, 1]
+    u <- unclass(patch_k)
+    p_arr <- if (is.raw(u)) as.numeric(u) / 255.0 else as.numeric(u)
+    dim(p_arr) <- dim(patch_k)
+    if (length(dim(p_arr)) == 2L) {
+      dim(p_arr) <- c(dim(p_arr), 1L)
+    }
+    if (dim(p_arr)[3L] == 1L && max_ch == 3L) {
+      p_arr <- array(rep(p_arr[, , 1L], 3L), dim = c(tw, th, 3L))
+    }
+
+    # Canvas target region
+    tx1 <- can_x1[k]; tx2 <- can_x2[k]
+    ty1 <- can_y1[k]; ty2 <- can_y2[k]
+
+    # Blending
+    mid_x <- as.integer(round(W_mos / 2.0))
+    mid_y <- as.integer(round(H_mos / 2.0))
+
+    sub_x1 <- if (k %in% c(1L, 3L)) 1L else mid_x + 1L
+    sub_x2 <- if (k %in% c(1L, 3L)) mid_x else W_mos
+    sub_y1 <- if (k %in% c(1L, 2L)) 1L else mid_y + 1L
+    sub_y2 <- if (k %in% c(1L, 2L)) mid_y else H_mos
+
+    if (blend %in% c("none", "overlay")) {
+      px_idx <- sub_x1:sub_x2 - tx1 + 1L
+      py_idx <- sub_y1:sub_y2 - ty1 + 1L
+
+      canvas_arr[sub_x1:sub_x2, sub_y1:sub_y2, ] <- p_arr[px_idx, py_idx, , drop = FALSE]
+      weight_arr[sub_x1:sub_x2, sub_y1:sub_y2] <- 1.0
+    } else { # "feather"
+      ov_w <- 2L * tw - W_mos
+      ov_h <- 2L * th - H_mos
+
+      wx <- rep(1.0, tw)
+      if (ov_w > 0L) {
+        if (k %in% c(1L, 3L)) { # left tiles
+          ramp_idx <- (tw - ov_w + 1L):tw
+          wx[ramp_idx] <- seq(1.0, 0.0, length.out = ov_w)
+        } else { # right tiles
+          ramp_idx <- 1L:ov_w
+          wx[ramp_idx] <- seq(0.0, 1.0, length.out = ov_w)
+        }
+      }
+
+      wy <- rep(1.0, th)
+      if (ov_h > 0L) {
+        if (k %in% c(1L, 2L)) { # top tiles
+          ramp_idx <- (th - ov_h + 1L):th
+          wy[ramp_idx] <- seq(1.0, 0.0, length.out = ov_h)
+        } else { # bottom tiles
+          ramp_idx <- 1L:ov_h
+          wy[ramp_idx] <- seq(0.0, 1.0, length.out = ov_h)
+        }
+      }
+
+      W_tile <- outer(wx, wy)
+
+      for (ch in seq_len(max_ch)) {
+        canvas_arr[tx1:tx2, ty1:ty2, ch] <- canvas_arr[tx1:tx2, ty1:ty2, ch] + p_arr[, , ch] * W_tile
+      }
+      weight_arr[tx1:tx2, ty1:ty2] <- weight_arr[tx1:tx2, ty1:ty2] + W_tile
+    }
+
+    # Transform YOLO annotations if present
+    k_lines <- lbl_lines_list[[k]]
+    if (length(k_lines) > 0L) {
+      sx <- (tx2 - tx1 + 1.0) / (cx2 - cx1 + 1.0)
+      sy <- (ty2 - ty1 + 1.0) / (cy2 - cy1 + 1.0)
+
+      # Visible canvas quadrant bounds for tile k
+      vx1 <- as.numeric(sub_x1)
+      vx2 <- as.numeric(sub_x2)
+      vy1 <- as.numeric(sub_y1)
+      vy2 <- as.numeric(sub_y2)
+
+      for (ln in k_lines) {
+        vals <- as.numeric(strsplit(trimws(ln), "\\s+")[[1L]])
+        if (length(vals) < 5L) next
+        cid <- as.integer(vals[1L])
+
+        if (length(vals) == 5L) {
+          # Box: xc, yc, w, h
+          bx_xc <- vals[2L] * W_k
+          bx_yc <- vals[3L] * H_k
+          bx_w  <- vals[4L] * W_k
+          bx_h  <- vals[5L] * H_k
+
+          b_xmin <- bx_xc - bx_w / 2.0
+          b_xmax <- bx_xc + bx_w / 2.0
+          b_ymin <- bx_yc - bx_h / 2.0
+          b_ymax <- bx_yc + bx_h / 2.0
+
+          # 1. Map full object bounding box from Image k onto canvas coordinates
+          mx1 <- tx1 + (b_xmin - cx1) * sx
+          mx2 <- tx1 + (b_xmax - cx1) * sx
+          my1 <- ty1 + (b_ymin - cy1) * sy
+          my2 <- ty1 + (b_ymax - cy1) * sy
+          full_area <- max(1e-6, (mx2 - mx1) * (my2 - my1))
+
+          # 2. Clip bounding box to the tile's visible quadrant on the canvas
+          final_mx1 <- max(vx1, mx1)
+          final_mx2 <- min(vx2, mx2)
+          final_my1 <- max(vy1, my1)
+          final_my2 <- min(vy2, my2)
+
+          # If object has no overlap with the visible quadrant of this tile, skip
+          if (final_mx2 <= final_mx1 || final_my2 <= final_my1) next
+
+          vis_w <- final_mx2 - final_mx1
+          vis_h <- final_my2 - final_my1
+          if (vis_w < 2.0 || vis_h < 2.0) next
+
+          vis_area <- vis_w * vis_h
+          # Retain cut objects if at least min_area_ratio of the object is visible
+          if ((vis_area / full_area) < min_area_ratio) next
+
+          # 3. Re-normalize to mosaic canvas dimensions [0, 1]
+          n_xc <- (final_mx1 + final_mx2) / (2.0 * W_mos)
+          n_yc <- (final_my1 + final_my2) / (2.0 * H_mos)
+          n_w  <- vis_w / W_mos
+          n_h  <- vis_h / H_mos
+
+          n_xc <- max(0.0, min(1.0, n_xc))
+          n_yc <- max(0.0, min(1.0, n_yc))
+          n_w  <- max(0.0, min(1.0, n_w))
+          n_h  <- max(0.0, min(1.0, n_h))
+
+          if (n_w * W_mos >= 2.0 && n_h * H_mos >= 2.0) {
+            mosaic_labels <- c(mosaic_labels, sprintf("%d %.6f %.6f %.6f %.6f", cid, n_xc, n_yc, n_w, n_h))
+          }
+        } else {
+          # Polygon: class x1 y1 x2 y2 ...
+          coords <- vals[-1L]
+          xs <- coords[seq(1L, length(coords), by = 2L)] * W_k
+          ys <- coords[seq(2L, length(coords), by = 2L)] * H_k
+
+          # Map to canvas coordinates
+          mx <- tx1 + (xs - cx1) * sx
+          my <- ty1 + (ys - cy1) * sy
+
+          # Clip polygon points to tile's visible quadrant
+          c_mx <- pmax(vx1, pmin(vx2, mx))
+          c_my <- pmax(vy1, pmin(vy2, my))
+
+          poly_w <- max(c_mx) - min(c_mx)
+          poly_h <- max(c_my) - min(c_my)
+
+          if (poly_w < 2.0 || poly_h < 2.0) next
+
+          orig_poly_w <- max(mx) - min(mx)
+          orig_poly_h <- max(my) - min(my)
+          orig_poly_area <- max(1e-6, orig_poly_w * orig_poly_h)
+          vis_poly_area <- poly_w * poly_h
+          if ((vis_poly_area / orig_poly_area) < min_area_ratio) next
+
+          norm_x <- pmax(0.0, pmin(1.0, c_mx / W_mos))
+          norm_y <- pmax(0.0, pmin(1.0, c_my / H_mos))
+
+          interleaved <- as.vector(rbind(norm_x, norm_y))
+          mosaic_labels <- c(mosaic_labels, paste(c(cid, sprintf("%.6f", interleaved)), collapse = " "))
+        }
+      }
+    }
+  }
+
+  if (blend == "feather") {
+    weight_arr[weight_arr < 1e-6] <- 1.0
+    for (ch in seq_len(max_ch)) {
+      canvas_arr[, , ch] <- canvas_arr[, , ch] / weight_arr
+    }
+  }
+
+  canvas_arr[canvas_arr < 0.0] <- 0.0
+  canvas_arr[canvas_arr > 1.0] <- 1.0
+
+  # Build Image object
+  colmode <- if (max_ch == 3L) "Color" else "Grayscale"
+  res_img <- as_image(canvas_arr, colormode = colmode)
+  class(res_img) <- unique(c("pliman_mosaic", class(res_img)))
+  attr(res_img, "labels") <- mosaic_labels
+  attr(res_img, "mosaic_info") <- list(
+    width = W_mos,
+    height = H_mos,
+    overlap = c(ov_x, ov_y),
+    crop_region = crop_region,
+    blend = blend,
+    tiles = data.frame(
+      tile = 1:4,
+      position = c("top_left", "top_right", "bottom_left", "bottom_right"),
+      can_x1 = can_x1, can_x2 = can_x2,
+      can_y1 = can_y1, can_y2 = can_y2
+    )
+  )
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_success("Mosaic composite created ({W_mos}x{H_mos}, overlap: {round(ov_x * 100)}% x {round(ov_y * 100)}%).")
+    if (length(mosaic_labels) > 0L) {
+      cli::cli_alert_info("Transformed {length(mosaic_labels)} YOLO annotation(s).")
+    }
+  }
+
+  if (isTRUE(plot)) {
+    plot(res_img)
+  }
+
+  if (isTRUE(return_list)) {
+    return(list(image = res_img, labels = mosaic_labels))
+  }
+
+  res_img
 }
 
 # Internal helper function to read a single image file (Zero-dependency C++ engine)
@@ -148,21 +809,62 @@ image_combine <- function(...,
     }
   }
 
-  # 2. WebP (.webp)
-  if (ext == "webp") {
+  # Helper to decode webp array
+  .decode_webp_file <- function(f, ...) {
     if (requireNamespace("webp", quietly = TRUE)) {
-      img_arr <- webp::read_webp(file, ...)
+      img_arr <- tryCatch(webp::read_webp(f, ...), error = function(e) NULL)
+      if (is.null(img_arr)) return(NULL)
       if (length(dim(img_arr)) == 3L && dim(img_arr)[3L] == 4L) {
         img_arr <- img_arr[, , 1:3, drop = FALSE]
       }
+      if (length(dim(img_arr)) == 3L) {
+        img_arr <- aperm(img_arr, c(2L, 1L, 3L))
+      } else if (length(dim(img_arr)) == 2L) {
+        img_arr <- t(img_arr)
+      }
       raw_data <- float_to_raw_cpp(img_arr)
       return(as_image(raw_data, colormode = if (length(dim(raw_data)) == 3L) "Color" else "Grayscale"))
-    } else {
+    }
+    NULL
+  }
+
+  # Helper to decode via magick if available
+  .decode_magick_file <- function(f) {
+    if (requireNamespace("magick", quietly = TRUE)) {
+      m <- tryCatch(magick::image_read(f), error = function(e) NULL)
+      if (!is.null(m)) {
+        d <- magick::image_data(m, "rgb")
+        d <- aperm(d, c(2L, 3L, 1L))
+        return(as_image(d, colormode = "Color"))
+      }
+    }
+    NULL
+  }
+
+  # 2. Check for WebP: true WebP has RIFF...WEBP magic bytes
+  is_riff_webp <- FALSE
+  if (file.size(file) >= 12L) {
+    magic <- tryCatch(readBin(file, "raw", n = 12L), error = function(e) raw(0))
+    if (length(magic) >= 12L &&
+        identical(magic[1:4], as.raw(c(0x52, 0x49, 0x46, 0x46))) &&
+        identical(magic[9:12], as.raw(c(0x57, 0x45, 0x42, 0x50)))) {
+      is_riff_webp <- TRUE
+    }
+  }
+
+  if (is_riff_webp || ext == "webp") {
+    w_out <- .decode_webp_file(file, ...)
+    if (!is.null(w_out)) return(w_out)
+    m_out <- .decode_magick_file(file)
+    if (!is.null(m_out)) return(m_out)
+    if (is_riff_webp) {
       cli::cli_abort(c(
-        "!" = "Package {.pkg webp} is required to import {.val .webp} image files.",
+        "!" = "Package {.pkg webp} is required to import WebP image files ({.val {basename(file)}}).",
         "i" = "Please install it with: {.code install.packages('webp')}"
       ))
     }
+    # If file had .webp extension but is not RIFF...WEBP (e.g. JPEG/PNG renamed to .webp),
+    # let it fall through to native C++ engine below.
   }
 
   # 3. Native C++ Engine (JPEG, PNG, TIFF, BMP, TGA, GIF, etc.) with Fallback for Complex TIFFs
@@ -199,6 +901,15 @@ image_combine <- function(...,
         ))
       }
     }
+
+    # Fallback 1: Attempt webp decoder
+    w_out <- tryCatch(.decode_webp_file(file, ...), error = function(err) NULL)
+    if (!is.null(w_out)) return(w_out)
+
+    # Fallback 2: Attempt magick decoder (handles non-standard JPEG, CMYK, progressive, AVIF, HEIC, etc.)
+    m_out <- tryCatch(.decode_magick_file(file), error = function(err) NULL)
+    if (!is.null(m_out)) return(m_out)
+
     cli::cli_abort(c(
       "!" = "Failed to import image {.val {basename(file)}}.",
       "x" = conditionMessage(e)
@@ -228,7 +939,9 @@ image_combine <- function(...,
     if (requireNamespace("webp", quietly = TRUE)) {
       img_d <- image_data(img)
       float_data <- if (is.raw(img_d)) raw_to_float_cpp(img_d) else img_d
-      webp::write_webp(float_data, target = file, quality = round(quality * 100))
+      q_val <- if (quality <= 1.0) round(quality * 100) else round(quality)
+      q_val <- max(0L, min(100L, as.integer(q_val)))
+      webp::write_webp(float_data, target = file, quality = q_val)
       return(return(file))
     } else {
       cli::cli_abort(c(
@@ -301,8 +1014,7 @@ image_combine <- function(...,
 #' * `image_pliman()` returns a new `image` object with the example image
 #' required. If an empty call is used, the path to the `tmp_images` directory
 #' installed with the package is returned.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' folder <- image_pliman()
 #' full_path <- paste0(folder, "/sev_leaf.jpg")
@@ -310,7 +1022,6 @@ image_combine <- function(...,
 #' (file <- basename(full_path))
 #' image_import(img = full_path)
 #' image_import(img = file, path = path)
-#' }
 
 image_import <- function(img,
                          ...,
@@ -532,6 +1243,240 @@ image_export <- function(img,
   }
 }
 
+#' Convert Images to JPEG Format
+#'
+#' Converts images in a directory (or a vector of image file paths) to `.jpg` /
+#' `.jpeg` format. This is particularly useful for preparing datasets for YOLO
+#' object detection and segmentation training, where WebP, PNG, BMP, or TIFF files
+#' need to be unified into standard JPEG format.
+#'
+#' @param path Character string or vector. A directory containing images to
+#'   convert, or a character vector of image file paths. Defaults to `"."`
+#'   (current working directory).
+#' @param from Character vector of file extensions to convert (case-insensitive).
+#'   Defaults to `c("webp", "png", "bmp", "tif", "tiff", "jpeg")`.
+#' @param pattern Optional regular expression to filter image filenames.
+#' @param dest_dir Optional destination directory. If `NULL` (default), the `.jpg`
+#'   images are written in the same directory as the source images.
+#' @param quality Integer between 1 and 100 specifying the JPEG compression
+#'   quality. Default is `95L`.
+#' @param delete_original Logical. If `TRUE`, deletes the original unconverted
+#'   image file after successful conversion. Default is `FALSE`.
+#' @param overwrite Logical. If `TRUE`, overwrites existing `.jpg` files with
+#'   the same stem name. Defaults to `FALSE` (skips conversion if target exists).
+#' @param recursive Logical. Should subdirectories be searched recursively?
+#'   Default is `FALSE`.
+#' @param parallel Logical or integer. If `TRUE` or integer > 1, converts images
+#'   in parallel using multiple worker daemons. Defaults to `FALSE`.
+#' @param verbose Logical. If `TRUE` (default), prints progress and summary
+#'   messages to the console.
+#'
+#' @return A character vector of paths to the created `.jpg` files (invisibly).
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#' @export
+#' @rdname image_to_jpg
+#'
+#' @examples
+#' \dontrun{
+#' # Convert all WebP files in a folder to JPG
+#' image_to_jpg("path/to/folder", from = "webp")
+#'
+#' # Convert and delete original WebP files
+#' image_to_jpg("path/to/folder", from = "webp", delete_original = TRUE)
+#'
+#' # Convert specific files
+#' image_to_jpg(c("img1.webp", "img2.png"))
+#' }
+image_to_jpg <- function(path = ".",
+                         from = c("webp", "png", "bmp", "tif", "tiff", "jpeg"),
+                         pattern = NULL,
+                         dest_dir = NULL,
+                         quality = 95L,
+                         delete_original = FALSE,
+                         overwrite = FALSE,
+                         recursive = FALSE,
+                         parallel = FALSE,
+                         verbose = TRUE) {
+  quality <- as.integer(quality)[1]
+  if (is.na(quality) || quality < 1L || quality > 100L) quality <- 95L
+
+  # 1. Resolve files to convert
+  target_files <- character(0)
+
+  if (length(path) == 1L && dir.exists(path)) {
+    ext_pattern <- if (!is.null(from) && length(from) > 0L) {
+      from_clean <- gsub("^\\.", "", tolower(from))
+      sprintf("\\.(%s)$", paste(from_clean, collapse = "|"))
+    } else {
+      "\\.(webp|png|bmp|tif|tiff|jpeg)$"
+    }
+
+    fls <- list.files(
+      path = path,
+      pattern = ext_pattern,
+      full.names = TRUE,
+      recursive = recursive,
+      ignore.case = TRUE
+    )
+    if (!is.null(pattern) && nzchar(pattern)) {
+      fls <- fls[grepl(pattern, basename(fls), ignore.case = TRUE)]
+    }
+    target_files <- fls
+  } else {
+    for (p in path) {
+      if (dir.exists(p)) {
+        ext_pattern <- if (!is.null(from) && length(from) > 0L) {
+          from_clean <- gsub("^\\.", "", tolower(from))
+          sprintf("\\.(%s)$", paste(from_clean, collapse = "|"))
+        } else {
+          "\\.(webp|png|bmp|tif|tiff|jpeg)$"
+        }
+        fls <- list.files(p, pattern = ext_pattern, full.names = TRUE, recursive = recursive, ignore.case = TRUE)
+        target_files <- c(target_files, fls)
+      } else if (file.exists(p)) {
+        ext_p <- tolower(tools::file_ext(p))
+        if (is.null(from) || ext_p %in% tolower(gsub("^\\.", "", from))) {
+          target_files <- c(target_files, p)
+        }
+      }
+    }
+    if (!is.null(pattern) && nzchar(pattern)) {
+      target_files <- target_files[grepl(pattern, basename(target_files), ignore.case = TRUE)]
+    }
+  }
+
+  target_files <- unique(target_files)
+  n_files <- length(target_files)
+
+  if (n_files == 0L) {
+    if (isTRUE(verbose)) {
+      from_str <- if (!is.null(from)) paste(from, collapse = ", ") else "non-jpg"
+      cli::cli_alert_warning("No matching image files found to convert (searched: {.val {from_str}}).")
+    }
+    return(invisible(character(0)))
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_info("Found {.val {n_files}} image{?s} to convert to {.val *.jpg}.")
+  }
+
+  if (!is.null(dest_dir)) {
+    if (!dir.exists(dest_dir)) {
+      dir.create(dest_dir, recursive = TRUE)
+    }
+  }
+
+  convert_single <- function(f) {
+    stem <- tools::file_path_sans_ext(basename(f))
+    out_dir <- if (!is.null(dest_dir)) dest_dir else dirname(f)
+    out_file <- file.path(out_dir, paste0(stem, ".jpg"))
+    out_file <- normalizePath(out_file, winslash = "/", mustWork = FALSE)
+    src_norm <- normalizePath(f, winslash = "/", mustWork = FALSE)
+
+    if (!isTRUE(overwrite) && file.exists(out_file)) {
+      return(list(status = "skipped", file = out_file, src = f))
+    }
+
+    if (identical(tolower(src_norm), tolower(out_file))) {
+      return(list(status = "skipped", file = out_file, src = f))
+    }
+
+    im <- tryCatch(image_import(f, verbose = FALSE), error = function(e) NULL)
+    if (is.null(im) || !is_image(im)) {
+      return(list(status = "error", file = out_file, src = f))
+    }
+
+    ok <- tryCatch({
+      .write_image_file(im, out_file, quality = quality)
+      TRUE
+    }, error = function(e) FALSE)
+
+    if (isTRUE(ok) && file.exists(out_file) && file.size(out_file) > 0L) {
+      del_ok <- FALSE
+      if (isTRUE(delete_original) && !identical(tolower(src_norm), tolower(out_file))) {
+        del_ok <- tryCatch({
+          unlink(f)
+          TRUE
+        }, error = function(e) FALSE)
+      }
+      return(list(status = "converted", file = out_file, src = f, deleted = del_ok))
+    } else {
+      return(list(status = "error", file = out_file, src = f))
+    }
+  }
+
+  created_files <- character(0)
+  n_converted <- 0L
+  n_skipped <- 0L
+  n_deleted <- 0L
+  n_error <- 0L
+
+  if (isTRUE(parallel) && n_files > 4L && requireNamespace("mirai", quietly = TRUE)) {
+    res_list <- tryCatch({
+      d_info <- .ensure_daemons(n_items = n_files, verbose = FALSE)
+      if (isTRUE(d_info$active)) {
+        if (isTRUE(d_info$auto_cleanup)) on.exit(mirai::daemons(0), add = TRUE)
+        mirai::mirai_map(target_files, function(f) {
+          stem <- tools::file_path_sans_ext(basename(f))
+          out_dir <- if (!is.null(dest_dir)) dest_dir else dirname(f)
+          out_file <- file.path(out_dir, paste0(stem, ".jpg"))
+          im <- tryCatch(pliman::image_import(f, verbose = FALSE), error = function(e) NULL)
+          if (!is.null(im)) {
+            utils::getFromNamespace("write_image_cpp", "pliman")(im, out_file, quality = quality)
+            if (isTRUE(delete_original) && tolower(f) != tolower(out_file)) unlink(f)
+            out_file
+          } else NULL
+        })[]
+      } else NULL
+    }, error = function(e) NULL)
+
+    if (!is.null(res_list)) {
+      created_files <- unlist(res_list)
+      n_converted <- length(created_files)
+    } else {
+      res_list <- NULL
+    }
+  } else {
+    res_list <- NULL
+  }
+
+  if (is.null(res_list)) {
+    if (isTRUE(verbose)) {
+      pb <- cli::cli_progress_bar("Converting images to JPEG", total = n_files)
+    }
+
+    for (k in seq_along(target_files)) {
+      res_k <- convert_single(target_files[k])
+      if (identical(res_k$status, "converted")) {
+        created_files <- c(created_files, res_k$file)
+        n_converted <- n_converted + 1L
+        if (isTRUE(res_k$deleted)) n_deleted <- n_deleted + 1L
+      } else if (identical(res_k$status, "skipped")) {
+        n_skipped <- n_skipped + 1L
+      } else {
+        n_error <- n_error + 1L
+      }
+      if (isTRUE(verbose)) cli::cli_progress_update(id = pb)
+    }
+    if (isTRUE(verbose)) cli::cli_progress_done(id = pb)
+  }
+
+  if (isTRUE(verbose)) {
+    cli::cli_alert_success(
+      "Converted {.val {n_converted}} image{?s} to {.val *.jpg} (quality = {quality}%){if (n_deleted > 0) sprintf(', removed %d original file(s)', n_deleted) else ''}{if (n_skipped > 0) sprintf(', skipped %d already existing', n_skipped) else ''}."
+    )
+    if (n_error > 0L) {
+      cli::cli_alert_warning("Failed to convert {.val {n_error}} file{?s}.")
+    }
+  }
+
+  invisible(created_files)
+}
+
+#' @export
+#' @rdname image_to_jpg
+image_to_jpeg <- image_to_jpg
+
 #' @export
 #' @name utils_image
 image_input <- function(img, ...){
@@ -686,8 +1631,7 @@ image_pliman <- function(img, plot = FALSE){
 #' * All other functions returns a  modified version of `image` depending on the
 #' `image_*()` function used.
 #' * If `image` is a list, a list of the same length will be returned.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("sev_leaf.jpg")
 #'plot(img)
@@ -697,7 +1641,6 @@ image_pliman <- function(img, plot = FALSE){
 #'img3 <- image_vreflect(img)
 #'img4 <- image_vertical(img)
 #'image_combine(img1, img2, img3, img4)
-#' }
 image_autocrop <- function(img,
                            index = "NB",
                            edge = 5,
@@ -896,7 +1839,21 @@ image_crop <- function(img,
 image_dimension <- function(img,
                             parallel = FALSE,
                             workers = NULL,
-                            verbose = TRUE){
+                            verbose = TRUE) {
+  if (is.character(img)) {
+    if (length(img) == 1L) {
+      im <- tryCatch(image_import(img, plot = FALSE), error = function(e) NULL)
+      if (is.null(im)) {
+        cli::cli_abort("Failed to read image at {.path {img}}.")
+      }
+      return(image_dimension(im, verbose = verbose))
+    } else {
+      imgs <- lapply(img, function(x) tryCatch(image_import(x, plot = FALSE), error = function(e) NULL))
+      names(imgs) <- basename(img)
+      return(image_dimension(imgs, parallel = parallel, workers = workers, verbose = verbose))
+    }
+  }
+
   if (is.list(img)) {
     if (inherits(img, c("binary_list", "segment_list", "index_list",
                         "img_mat_list", "palette_list"))) {
@@ -1058,6 +2015,136 @@ image_rotate <- function(img,
     }
 
     return(rotated)
+  }
+}
+
+
+#' @name utils_transform
+#' @title 3D Image Perspective Transformation and Homography Warp
+#' @description
+#' `image_perspective()` applies a 3D perspective projection and homography warp
+#' to an image or list of images. It simulates realistic camera perspective tilts
+#' around the X (pitch), Y (yaw), and Z (roll) axes in 3D space with bilinear
+#' interpolation powered by an OpenMP C++ kernel.
+#'
+#' @param img An `Image` object or list of `Image` objects.
+#' @param x Numeric. Tilt angle around the horizontal X-axis (pitch) in degrees (default: `0`).
+#' @param y Numeric. Tilt angle around the vertical Y-axis (yaw) in degrees (default: `0`).
+#' @param z Numeric. Rotation angle around the optical Z-axis (roll) in degrees (default: `0`).
+#' @param scale Numeric. Scale / zoom factor applied to the projected image (default: `1.0`).
+#' @param focal_distance Numeric or `NULL`. Camera focal distance factor (default: `NULL`, using image max dimension).
+#' @param keep_size Logical. If `TRUE` (default), preserves original image dimensions.
+#'   If `FALSE`, the output canvas expands to enclose all transformed corners.
+#' @param parallel Logical. Process multiple images in parallel (default: `FALSE`).
+#' @param workers Number of parallel workers.
+#' @param verbose Logical. Show progress messages.
+#' @param plot Logical. Plot the transformed image(s) (default: `TRUE`).
+#' @return An `Image` object (or list of `Image` objects) with the attribute `"homography"`
+#'   containing the 3x3 projective transformation matrix `M`.
+#' @export
+image_perspective <- function(img,
+                              x = 0,
+                              y = 0,
+                              z = 0,
+                              scale = 1.0,
+                              focal_distance = NULL,
+                              bg_col = "white",
+                              keep_size = TRUE,
+                              parallel = FALSE,
+                              workers = NULL,
+                              verbose = TRUE,
+                              plot = TRUE) {
+
+  focal_fac <- if (is.null(focal_distance) || focal_distance <= 0) 1.0 else focal_distance
+
+  .one <- function(im) {
+    cm    <- attr(im, "colormode") %||% "Color"
+    nch   <- if (length(dim(im)) == 3) dim(im)[3] else 1L
+    bg_v  <- if (is.numeric(bg_col)) {
+      bg_col
+    } else {
+      tryCatch(
+        grDevices::col2rgb(bg_col)[, 1] / 255,
+        error = function(e) rep(1, nch)
+      )
+    }
+    arr <- image_perspective_cpp(image_data(im),
+                                 theta_x = as.numeric(x),
+                                 theta_y = as.numeric(y),
+                                 theta_z = as.numeric(z),
+                                 scale = as.numeric(scale),
+                                 focal_fac = as.numeric(focal_fac),
+                                 bg_color = bg_v,
+                                 keep_size = isTRUE(keep_size))
+    out <- as_image(arr, colormode = cm)
+    attr(out, "homography") <- attr(arr, "homography")
+    out
+  }
+
+  if (is.list(img) && !is_image(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+    if (!all(sapply(img, is_image))) {
+      cli::cli_abort("All images must be of class {.cls image}.")
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Applying perspective to {length(img)} images in parallel"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) pliman::image_perspective(im, x, y, z, scale, focal_distance, bg_col, keep_size, plot = FALSE)
+      )[.progress]
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images in parallel...",
+          msg_done   = "Batch processing finished",
+          msg_failed = "Oops, something went wrong."
+        )
+      }
+    } else {
+      if (verbose) {
+        cli::cli_rule(
+          left  = cli::col_blue("Applying perspective to {length(img)} images sequentially"),
+          right = cli::col_blue("Started at {format(Sys.time(), '%H:%M:%OS0')}")
+        )
+        cli::cli_progress_step(
+          msg        = "Processing {.val {length(img)}} images sequentially...",
+          msg_done   = "Processing complete",
+          msg_failed = "Sequential processing failed"
+        )
+      }
+
+      res <- lapply(img, .one)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) {
+        plot(r)
+      }
+    }
+
+    return(res)
+  } else {
+    transformed <- .one(img)
+
+    if (isTRUE(plot)) {
+      plot(transformed)
+    }
+
+    return(transformed)
   }
 }
 
@@ -1420,8 +2507,7 @@ image_vreflect <- function(img,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Load example image
@@ -1436,7 +2522,6 @@ image_vreflect <- function(img,
 #' # Resize a list of images
 #' img_list <- list(img, img)
 #' resized_list <- image_resize(img_list, rel_size = 25, parallel = FALSE)
-#' }
 image_resize <- function(img,
                          rel_size = 100,
                          width,
@@ -1653,6 +2738,124 @@ image_trim <- function(img,
     return(img)
   }
 }
+
+#' Scramble or Shuffle an Image
+#'
+#' @description
+#' `image_scramble()` (and its alias `image_shuffle()`) decomposes an image into
+#' a grid of tiles (or jigsaw puzzle pieces) or pixels and randomly permutes them, optionally
+#' applying random 90-degree rotations and horizontal/vertical flips to individual tiles.
+#'
+#' This technique destroys coherent object contours, semantics, and global geometry
+#' while strictly preserving the authentic color palette, luminance, sensor noise,
+#' texture distribution, and illumination of the original scene. It is especially
+#' powerful for synthesizing realistic negative background images for object detection
+#' models like YOLO.
+#'
+#' Three scrambling modes are supported via the `mode` parameter:
+#' - `"grid"` (default): Divides the image into a grid of `grid_r x grid_c` tiles and performs
+#'   a complete Fisher-Yates jigsaw puzzle permutation across all positions.
+#' - `"block_swap"`: Performs random pairwise swaps between neighboring tiles, preserving
+#'   local continuous background structures and gradients while disrupting object integrity.
+#' - `"pixel"`: Shuffles all individual pixel coordinates globally, synthesizing an exact
+#'   spectral/color noise image that retains 100% of the original histogram and sensor palette.
+#'
+#' @param img An image object of class `image`, `Image`, a numeric array, raw array, or a list of images.
+#' @param grid An integer vector of length 1 or 2 specifying the number of rows and columns
+#'   in the scrambling grid (default: `c(8, 8)`). If a single integer is provided,
+#'   a square grid `c(grid, grid)` is used. Ignored when `mode = "pixel"`.
+#' @param mode Character specifying the scrambling strategy: `"grid"` (default jigsaw tile shuffle),
+#'   `"block_swap"` (local block swapping preserving partial continuity), or `"pixel"` (global pixel shuffle).
+#' @param swap_prob Numeric between 0 and 1. Fraction of tiles swapped when `mode = "block_swap"` (default: `0.5`).
+#' @param shuffle_pixels Logical. Whether to randomize/shuffle all pixels internally within
+#'   each individual tile (default: `TRUE`). Combining tile permutation with intra-tile pixel
+#'   randomization completely dissolves any recognizable sub-objects (e.g. wood logs) while
+#'   strictly conserving the local background color and textural palette of each region!
+#' @param rotate_tiles Logical. Whether to apply random 90-degree rotations (0°, 90°, 180°, 270°)
+#'   to individual scrambled tiles (default: `TRUE`). Ignored when `mode = "pixel"`.
+#' @param flip_tiles Logical. Whether to apply random horizontal/vertical flips to individual
+#'   scrambled tiles (default: `TRUE`). Ignored when `mode = "pixel"`.
+#' @param seed Optional integer seed for reproducibility (default: `NULL`).
+#' @param plot Logical. If `TRUE`, plots the scrambled image(s) (default: `FALSE`).
+#'
+#' @return An scrambled image of the same class and dimensions as `img` (or a list of images).
+#' @export
+#' @aliases image_shuffle
+#' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
+#' @examplesIf interactive()
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#'
+#' # 1. Tile permutation with intra-tile pixel randomization (default)
+#' scr_blocks_pix <- image_scramble(img, grid = c(8, 8), shuffle_pixels = TRUE, plot = TRUE)
+#'
+#' # 2. Local block swap preserving partial background continuity
+#' scr_swap <- image_scramble(img, grid = c(10, 10), mode = "block_swap", plot = TRUE)
+#'
+#' # 3. Complete global pixel shuffle (exact spectral color noise)
+#' scr_pixel <- image_scramble(img, mode = "pixel", plot = TRUE)
+image_scramble <- function(img,
+                           grid = c(8, 8),
+                           mode = c("grid", "block_swap", "pixel"),
+                           swap_prob = 0.5,
+                           shuffle_pixels = TRUE,
+                           rotate_tiles = TRUE,
+                           flip_tiles = TRUE,
+                           seed = NULL,
+                           plot = FALSE) {
+  mode <- match.arg(mode)
+  if (length(grid) == 1L) {
+    grid_r <- as.integer(grid[1L])
+    grid_c <- grid_r
+  } else {
+    grid_r <- as.integer(grid[1L])
+    grid_c <- as.integer(grid[2L])
+  }
+  grid_r <- max(1L, grid_r)
+  grid_c <- max(1L, grid_c)
+
+  int_seed <- if (!is.null(seed)) as.integer(seed) else as.integer(sample.int(2147483647L, 1L))
+
+  scramble_single <- function(x, s) {
+    if (!inherits(x, c("image", "Image")) && !is.array(x) && !is.matrix(x)) {
+      cli::cli_abort("Each image must be of class {.cls image}, {.cls Image}, matrix, or array.")
+    }
+    res <- image_scramble_cpp(
+      img_sexp = x,
+      grid_r = grid_r,
+      grid_c = grid_c,
+      rotate_tiles = isTRUE(rotate_tiles),
+      flip_tiles = isTRUE(flip_tiles),
+      mode = mode,
+      swap_prob = as.numeric(swap_prob),
+      shuffle_pixels = isTRUE(shuffle_pixels),
+      seed = s
+    )
+    res
+  }
+
+  if (is.list(img) && !inherits(img, c("image", "Image"))) {
+    out <- vector("list", length(img))
+    for (i in seq_along(img)) {
+      cur_s <- (int_seed + i * 997L) %% 2147483647L
+      out[[i]] <- scramble_single(img[[i]], cur_s)
+    }
+    names(out) <- names(img)
+    if (isTRUE(plot)) {
+      for (im in out) plot(im)
+    }
+    return(out)
+  }
+
+  res <- scramble_single(img, int_seed)
+  if (isTRUE(plot)) {
+    plot(res)
+  }
+  return(res)
+}
+
+#' @export
+image_shuffle <- image_scramble
 
 
 #' @name utils_transform
@@ -1903,12 +3106,10 @@ image_thinning <- function(img,
 #'   function returns a list containing the thinned binary images.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("potato_leaves.jpg", plot = TRUE)
 #' image_thinning_guo_hall(img, index = "R", plot = TRUE)
-#' }
 #'
 image_thinning_guo_hall <- function(img,
                                     parallel = FALSE,
@@ -2026,12 +3227,10 @@ image_thinning_guo_hall <- function(img,
 #'
 #' @return A binary `Image` object (or list of `Image` objects) with values 0 and 1.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_import(image_pliman("root.jpg"))
 #' skel <- image_skeleton_mat(img, plot = TRUE)
-#' }
 image_skeleton_mat <- function(img,
                                index = "GRAY",
                                closing = 1,
@@ -2379,6 +3578,211 @@ image_contrast <- function(img,
   }
 }
 
+#' @rdname utils_transform
+#' @export
+image_blurr <- image_blur
+
+#' @title Adjust Image Brightness
+#' @name image_brightness
+#' @description
+#' `image_brightness()` scales and shifts pixel intensities of an image, clamping
+#' the resulting values to `[0, 1]`.
+#'
+#' @param img An `Image` object, a list of `Image` objects, or a numeric matrix/array.
+#' @param factor Multiplicative scaling factor for brightness (default: `1.0`).
+#'   Values `> 1.0` brighten the image, while values `< 1.0` darken it.
+#' @param offset Additive brightness adjustment in `[-1, 1]` (default: `0.0`).
+#' @param parallel Logical. Process in parallel for lists of images? Defaults to `FALSE`.
+#' @param workers Number of workers for parallel execution.
+#' @param verbose Logical. Show progress? Defaults to `TRUE`.
+#' @param plot Logical. Plot the transformed image? Defaults to `FALSE`.
+#'
+#' @return An `Image` object or a list of `Image` objects.
+#' @export
+#' @examplesIf interactive()
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#' # 20% brighter
+#' image_brightness(img, factor = 1.2, plot = TRUE)
+#' # 30% darker
+#' image_brightness(img, factor = 0.7, plot = TRUE)
+image_brightness <- function(img,
+                             factor = 1.0,
+                             offset = 0.0,
+                             parallel = FALSE,
+                             workers = NULL,
+                             verbose = TRUE,
+                             plot = FALSE) {
+  .one <- function(im) {
+    arr <- image_data(im, type = "normalized")
+    cm <- attr(im, "colormode") %||% "Color"
+    res_arr <- image_brightness_cpp(arr, factor = as.numeric(factor[1]), offset = as.numeric(offset[1]))
+    as_image(res_arr, colormode = cm)
+  }
+
+  if (is.list(img) && !is_image(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+    if (!all(sapply(img, is_image))) {
+      cli::cli_abort("All elements in the list must be of class {.cls image} or {.cls Image}.")
+    }
+
+    if (verbose) {
+      cli::cli_rule(
+        left = cli::col_blue("Brightness adjustment"),
+        right = cli::col_blue("Processing {length(img)} images")
+      )
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Running brightness adjustment in parallel...",
+          msg_done   = "Brightness adjustment complete.",
+          msg_failed = "Brightness adjustment failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) pliman::image_brightness(im, factor = factor, offset = offset, verbose = FALSE, plot = FALSE)
+      )[.progress]
+    } else {
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Brightness adjustment complete.",
+          msg_failed = "Brightness adjustment failed."
+        )
+      }
+      res <- lapply(img, .one)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+    return(res)
+  } else {
+    out <- .one(img)
+    if (isTRUE(plot)) {
+      plot(out)
+    }
+    return(out)
+  }
+}
+
+#' @title Add Noise to Images
+#' @name image_noise
+#' @description
+#' `image_noise()` injects artificial noise (Gaussian, Salt & Pepper, or Speckle)
+#' into an image, with automatic clamping to `[0, 1]`.
+#'
+#' @param img An `Image` object, a list of `Image` objects, or a numeric matrix/array.
+#' @param type Noise type: `"gaussian"` (default), `"salt_pepper"` (or `"snp"`), or `"speckle"`.
+#' @param mean Numeric. Mean of Gaussian/speckle noise distribution (default: `0.0`).
+#' @param sd Numeric. Standard deviation of Gaussian/speckle noise (default: `0.02`).
+#' @param p Numeric. Proportion of corrupted pixels for Salt & Pepper noise (default: `0.02`).
+#' @param seed Optional integer seed for reproducibility.
+#' @param parallel Logical. Process in parallel for lists of images? Defaults to `FALSE`.
+#' @param workers Number of workers for parallel execution.
+#' @param verbose Logical. Show progress? Defaults to `TRUE`.
+#' @param plot Logical. Plot the transformed image? Defaults to `FALSE`.
+#'
+#' @return An `Image` object or a list of `Image` objects.
+#' @export
+#' @examplesIf interactive()
+#' library(pliman)
+#' img <- image_pliman("sev_leaf.jpg")
+#' # Add subtle Gaussian noise
+#' image_noise(img, sd = 0.03, plot = TRUE)
+#' # Salt and pepper noise
+#' image_noise(img, type = "salt_pepper", p = 0.05, plot = TRUE)
+image_noise <- function(img,
+                        type = c("gaussian", "salt_pepper", "speckle"),
+                        mean = 0.0,
+                        sd = 0.02,
+                        p = 0.02,
+                        seed = NULL,
+                        parallel = FALSE,
+                        workers = NULL,
+                        verbose = TRUE,
+                        plot = FALSE) {
+  type <- match.arg(type)
+  type_int <- if (type == "gaussian") 1L else if (type == "salt_pepper") 2L else 3L
+  i_seed <- if (!is.null(seed)) as.integer(seed[1]) else 0L
+
+  .one <- function(im) {
+    arr <- image_data(im, type = "normalized")
+    cm <- attr(im, "colormode") %||% "Color"
+    res_arr <- image_noise_cpp(arr, type = type_int, mean = as.numeric(mean[1]),
+                               sd = as.numeric(sd[1]), p = as.numeric(p[1]), seed = i_seed)
+    as_image(res_arr, colormode = cm)
+  }
+
+  if (is.list(img) && !is_image(img)) {
+    if (inherits(img, c("binary_list", "segment_list", "index_list",
+                        "img_mat_list", "palette_list"))) {
+      img <- lapply(img, function(x) x[[1]])
+    }
+    if (!all(sapply(img, is_image))) {
+      cli::cli_abort("All elements in the list must be of class {.cls image} or {.cls Image}.")
+    }
+
+    if (verbose) {
+      cli::cli_rule(
+        left = cli::col_blue("Noise injection"),
+        right = cli::col_blue("Processing {length(img)} images")
+      )
+    }
+
+    if (parallel) {
+      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.4), workers)
+      mirai::daemons(nworkers)
+      on.exit(mirai::daemons(0), add = TRUE)
+
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Running noise injection in parallel...",
+          msg_done   = "Noise injection complete.",
+          msg_failed = "Noise injection failed."
+        )
+      }
+
+      res <- mirai::mirai_map(
+        .x = img,
+        .f = function(im) pliman::image_noise(im, type = type, mean = mean, sd = sd, p = p,
+                                              seed = seed, verbose = FALSE, plot = FALSE)
+      )[.progress]
+    } else {
+      if (verbose) {
+        cli::cli_progress_step(
+          msg        = "Processing...",
+          msg_done   = "Noise injection complete.",
+          msg_failed = "Noise injection failed."
+        )
+      }
+      res <- lapply(img, .one)
+    }
+
+    if (isTRUE(plot)) {
+      for (r in res) plot(r)
+    }
+    return(res)
+  } else {
+    out <- .one(img)
+    if (isTRUE(plot)) {
+      plot(out)
+    }
+    return(out)
+  }
+}
+
 #' Create an `image` object of a given color
 #'
 #' image_create() can be used to create an `image` object with a desired color and size.
@@ -2391,11 +3795,9 @@ image_contrast <- function(img,
 #' @return An object of class `image`.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' image_create("red")
 #' image_create("#009E73", width = 300, heigth = 100)
-#' }
 
 image_create <- function(color,
                          width = 200,
@@ -2503,12 +3905,10 @@ image_create <- function(color,
 #' @return A list containing binary images. The length will depend on the number
 #'   of indexes used.
 #' @importFrom utils read.csv
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_binary(img, index = c("R, G"))
-#' }
 #'
 image_binary <- function(img,
                          index = "R",
@@ -2762,12 +4162,10 @@ image_binary <- function(img,
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A list containing Grayscale images. The length will depend on the
 #'   number of indexes used.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg")
 #'image_index(img, index = c("R, NR"))
-#' }
 image_index <- function(img,
                         index = NULL,
                         r = 1,
@@ -2946,8 +4344,7 @@ image_index <- function(img,
 #' @export
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A `NULL` object
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' # Example for S3 method plot()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
@@ -2957,7 +4354,6 @@ image_index <- function(img,
 #'
 #' # density plot
 #' plot(ind, type = "density")
-#' }
 #'
 #
 plot.image_index <- function(x,
@@ -3070,12 +4466,10 @@ plot.image_index <- function(x,
 #' proportion of pixels in the segmented images and (2) the segmented images.
 #'
 
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("soybean_touch.jpg", plot = TRUE)
 #'image_segment(img, index = c("R, G, B"))
-#' }
 #'
 #'
 image_segment <- function(img,
@@ -3511,12 +4905,10 @@ image_segment_iter <- function(img,
 #'   K-means clustering algorithm. Applied Statistics, 28, 100-108.
 #'   \doi{10.2307/2346830}
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("la_leaves.jpg", plot = TRUE)
 #' seg <- image_segment_kmeans(img)
 #' seg <- image_segment_kmeans(img, fill_hull = TRUE, invert = TRUE, filter = 10)
-#' }
 
 image_segment_kmeans <-   function (img,
                                     bands = 1:3,
@@ -3627,13 +5019,11 @@ image_segment_kmeans <-   function (img,
 #' @return A list with the segmented image and the mask used for segmentation.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("la_leaves.jpg")
 #' seg <- image_segment_manual(img)
 #' plot(seg$mask)
 #'
-#' }
 image_segment_manual <-  function(img,
                                   shape = c("free", "circle", "rectangle"),
                                   type = c("select", "remove"),
@@ -3798,14 +5188,12 @@ image_segment_manual <-  function(img,
 #' @return A list containing three matrices (R, G, and B), and a data frame
 #'   containing four columns: the name of the image in `image` and the R, G, B
 #'   values.
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' dim(img)
 #' mat <- image_to_mat(img)
 #' dim(mat[[1]])
-#' }
 image_to_mat <- function(img,
                          parallel = FALSE,
                          workers = NULL,
@@ -3849,6 +5237,13 @@ image_to_mat <- function(img,
     }
     return(structure(res, class = "img_mat_list"))
   } else{
+    # 8-bit images are stored as raw bytes since pliman 4.0.0: return the
+    # 0-1 numeric scale (as before), which is what k-means & co. expect
+    if (inherits(img, "image")) {
+      img <- image_data(img, type = "normalized")
+    } else if (is.raw(img)) {
+      img <- array(as.numeric(img) / 255, dim = dim(img))
+    }
     mat <- cbind(expand.grid(Row = 1:dim(img)[1], Col = 1:dim(img)[2]))
     if(length(dim(img)) == 3){
       for (i in 1:dim(img)[3]) {
@@ -3892,12 +5287,10 @@ image_to_mat <- function(img,
 #' @name palettes
 #' @export
 #' @importFrom stats na.omit
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'img <- image_pliman("sev_leaf.jpg")
 #'pal <- image_palette(img, npal = 5)
-#'}
 #'
 #'
 
@@ -4088,7 +5481,7 @@ image_palette <- function (img,
       im2[1:1, 1:ncol(im2), ] <- 0
       im2[1:nrow(im2), ncol(im2):(ncol(im2)-1), ] <- 0
       im2[nrow(im2):(nrow(im2)-1), 1:ncol(im2), ] <- 0
-      im2 <- image_combine(img, im2, along = 1)
+      im2 <- .image_bind(img, im2, along = 1)
       if (plot == TRUE) {
         plot(im2)
       }
@@ -4272,13 +5665,11 @@ image_palette <- function (img,
 #' @return An `image` object
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' image_expand(img, left = 200)
 #' image_expand(img, right = 150, bottom = 250, filter = 5)
-#' }
 #'
 image_expand <- function(img,
                          left = NULL,
@@ -4329,7 +5720,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       left_img <- image_filter(left_img, size = filter)
     }
-    img <- image_combine(left_img, img, along = 1)
+    img <- .image_bind(left_img, img, along = 1)
   }
   if(!is.null(top)){
     top_img <- as_image(img[,1:sample_top,])
@@ -4343,7 +5734,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       top_img <- image_filter(top_img, size = filter)
     }
-    img <- image_combine(top_img, img, along = 2)
+    img <- .image_bind(top_img, img, along = 2)
   }
   if(!is.null(right)){
     dimx <- dim(img)[1]
@@ -4358,7 +5749,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       right_img <- image_filter(right_img, size = filter)
     }
-    img <- image_combine(img, right_img, along = 1)
+    img <- .image_bind(img, right_img, along = 1)
   }
   if(!is.null(bottom)){
     dimy <- dim(img)[2]
@@ -4373,7 +5764,7 @@ image_expand <- function(img,
     if(!is.null(filter)){
       bot_img <- image_filter(bot_img, size = filter)
     }
-    img <- image_combine(img, bot_img, along = 2)
+    img <- .image_bind(img, bot_img, along = 2)
   }
   if(isTRUE(plot)){
     plot(img)
@@ -4393,14 +5784,12 @@ image_expand <- function(img,
 #' @param ... Further arguments passed on to [image_expand()].
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' dim(img)
 #' square <- image_square(img)
 #' dim(square)
-#' }
 image_square <- function(img, plot = TRUE, ...){
   len <- dim(img)
   n <- max(len[1], len[2])
@@ -4490,7 +5879,7 @@ image_square <- function(img, plot = TRUE, ...){
 #' # Convert number of pixels to cm with resolution of 96 dpi.
 #' pixels_to_cm(c(1, 2, 3), 96)
 #'
-#' if(isTRUE(interactive())){
+#' @examplesIf interactive()
 #' #### compute the dpi (dots per inch) resolution ####
 #' # only works in an interactive section
 #' # objects_300dpi.jpg has a known resolution of 300 dpi
@@ -4506,7 +5895,6 @@ image_square <- function(img, plot = TRUE, ...){
 #' img2 <- image_pliman("la_leaves.jpg")
 #' # square leaf sample (2 x 2 cm)
 #' dpi(img2)
-#' }
 dpi_to_cm <- function(dpi){
   2.54 / dpi
 }
@@ -4611,8 +5999,7 @@ distance <- function(img,
 #' @name utils_colorspace
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
 #' @return A data frame with the columns of the converted color space
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' rgb_to_lab(img)
@@ -4620,7 +6007,6 @@ distance <- function(img,
 #' # analyze the object and convert the pixels
 #' anal <- analyze_objects(img, object_index = "B", pixel_level_index = TRUE)
 #' rgb_to_lab(anal)
-#' }
 rgb_to_hsb <- function(object){
   if (any(class(object) %in%  c("data.frame", "matrix"))){
     hsb <-
@@ -5020,11 +6406,9 @@ help_imageindex <- function(img,
 #' @return An aligned and cropped `image` object.
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' img <- image_pliman("flax_leaves.jpg")
 #' prepare_to_shp(img)
-#' }
 prepare_to_shp <- function(img,
                            align = "vertical"){
 
@@ -5046,8 +6430,7 @@ prepare_to_shp <- function(img,
 #'
 #' @return An `image` object with an added alpha layer, maintaining the RGBA format.
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Load a sample RGB image
@@ -5061,7 +6444,6 @@ prepare_to_shp <- function(img,
 #' img_tb <- image_alpha(img, mask)
 #' plot(img_tb)
 #'
-#' }
 #'
 #' @export
 #'
@@ -5112,8 +6494,7 @@ image_alpha <- function(img, mask) {
 #'   connected component is assigned a unique integer label.
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- matrix(c(
 #'   1, 1, 0, 0, 0, 1, 1, 1, 0,
@@ -5125,50 +6506,33 @@ image_alpha <- function(img, mask) {
 #' image_label(img, max_gap = 1) |> plot()
 #' image_label(img, max_gap = 2)
 #' image_label(img, max_gap = 3)
-#' }
 image_label <- function(img, max_gap = 0){
   help_label(img, max_gap = max_gap) |> as_image()
 }
 
 
 
-#' Smooth Contour Line Detection
+#' Smooth Contour Line Detection (defunct)
 #'
+#' @description
+#' `image_contour_line()` is defunct since pliman 4.0.0. It relied on the
+#' sub-pixel contour detector of Grompone von Gioi (2016), distributed under the
+#' GNU Affero General Public License, which was removed from pliman to keep the
+#' package under GPL (>= 3). Use [image_canny_edge()] to detect edges, or
+#' [object_contour()] to extract object contours.
 #'
 #' @param img An `image` object.
 #' @param index A character string with the index to be used. Defaults to `"GRAY"`.
 #' @param Q numeric value with the pixel quantization step
-#' @return A list with the contour lines.
-#' @importFrom utils tail
+#' @return Nothing; the function throws an error.
+#' @seealso [image_canny_edge()], [object_contour()]
 #' @export
-#' @examples
-#' if(interactive()){
-#' library(pliman)
-#' img <- image_pliman("sev_leaf.jpg")
-#' conts <- image_contour_line(img, index = "B")
-#' plot(img)
-#' plot_contour(conts, col = "black")
-#' }
-#'
 image_contour_line <- function(img, index = "GRAY", Q = 2.0){
-  ind <- image_index(img, index, plot = FALSE)[[1]]
-  mat <- as.numeric(image_data(ind)) * 255
-  contourlines <- utils_contours(mat,
-                                 X = nrow(mat),
-                                 Y = ncol(mat),
-                                 Q = Q)
-  names(contourlines) <- c("x", "y", "curvelimits", "curves", "contourpoints")
-  contourlines$curvelimits <- contourlines$curvelimits+1L
-  from <- contourlines$curvelimits
-  to <- c(tail(contourlines$curvelimits, contourlines$curves-1L)-1L, contourlines$contourpoints)
-  curve <- unlist(mapply(seq_along(from), from, to, FUN=function(contourid, from, to) rep(contourid, to-from+1L), SIMPLIFY = FALSE))
-  contourlines$data <- data.frame(x = contourlines$x, y = contourlines$y, curve = curve)
-  res <- split(contourlines$data, contourlines$data$curve)
-  res <-
-    lapply(res, function(x){
-      as.matrix(x[, 1:2])
-    })
-  return(res)
+  cli::cli_abort(c(
+    "{.fn image_contour_line} is defunct since pliman 4.0.0.",
+    "i" = "The AGPL-licensed sub-pixel contour detector it used was removed so that pliman stays under GPL (>= 3).",
+    "i" = "Use {.fn image_canny_edge} for edges or {.fn object_contour} for object contours."
+  ), class = "pliman_defunct")
 }
 
 
@@ -5182,13 +6546,11 @@ image_contour_line <- function(img, index = "GRAY", Q = 2.0){
 #' @return a list with an `image` object with values 0 or 255, and the number of
 #'   pixels which have value 255 (pixels_nonzero).
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("sev_leaf.jpg")
 #' conts <- image_canny_edge(img, index = "B")
 #' image_combine(img, conts$edges)
-#' }
 image_canny_edge <- function(img,
                              index = "GRAY",
                              s = 5,
@@ -5204,11 +6566,13 @@ image_canny_edge <- function(img,
   return(res[1:2])
 }
 
-#' @title Line Segment Detection in an Image
-#' @description Detects line segments in a digital image using the Line Segment
-#'   Detector (LSD), a linear-time method that controls false detections and
-#'   requires no parameter tuning. Based on Burns, Hanson, and Riseman's method
-#'   with an a-contrario validation approach.
+#' @title Line Segment Detection in an Image (defunct)
+#' @description
+#' `image_line_segment()` is defunct since pliman 4.0.0. It wrapped the Line
+#' Segment Detector (LSD) of Grompone von Gioi et al. (2010), whose reference
+#' implementation is distributed under the GNU Affero General Public License;
+#' the code was removed so that pliman stays under GPL (>= 3). Use
+#' [image_canny_edge()] to detect edges instead.
 #'
 #' @param img An `image` object.
 #' @param index A character string with the index to be used. Defaults to `"GRAY"`.
@@ -5228,21 +6592,14 @@ image_canny_edge <- function(img,
 #' @param union_use_NFA Logical. If TRUE, uses NFA in merging. Default is FALSE.
 #' @param union_log_eps Numeric. Detection threshold for merging. Default is 0.0.
 #'
-#' @return A list of class `lsd` containing:
-#' \itemize{
-#'   \item `n` - Number of detected line segments.
-#'   \item `lines` - A matrix with detected segments (columns: x1, y1, x2, y2, width, p, -log_nfa).
-#'   \item `pixels` - A matrix assigning each pixel to a detected segment (0 = unused pixels).
-#' }
-#'
+#' @return Nothing; the function throws an error.
+#' @seealso [image_canny_edge()]
 #' @references
 #' Grompone von Gioi, R., Jakubowicz, J., Morel, J.-M., & Randall, G. (2010).
 #' LSD: A Fast Line Segment Detector with a False Detection Control.
 #' IEEE Transactions on Pattern Analysis and Machine Intelligence, 32(4), 722-732.\doi{10.5201/ipol.2012.gjmr-lsd}
 #'
 #' @export
-#' @examples
-#' library(pliman)
 image_line_segment <- function(img,
                                index = "GRAY",
                                scale = 0.8,
@@ -5258,41 +6615,29 @@ image_line_segment <- function(img,
                                union_ang_th = 7,
                                union_use_NFA = FALSE,
                                union_log_eps = 0.0) {
-  ind <- image_index(image_hreflect(image_transpose(img)), index, plot = FALSE)[[1]]
-  x <- as.numeric(image_data(ind)) * 255
-  lines <- detect_line_segments(as.numeric(x),
-                                X = nrow(x),
-                                Y = ncol(x),
-                                scale = as.numeric(scale),
-                                sigma_scale = as.numeric(sigma_scale),
-                                quant = as.numeric(quant),
-                                ang_th = as.numeric(ang_th),
-                                log_eps = as.numeric(log_eps),
-                                need_to_union = as.logical(union),
-                                union_use_NFA = as.logical(union_use_NFA),
-                                union_ang_th = as.numeric(union_ang_th),
-                                union_log_eps = as.numeric(union_log_eps),
-                                length_threshold = as.numeric(union_min_length),
-                                dist_threshold = as.numeric(union_max_distance))
-
-  names(lines) <- c("lines", "pixels")
-  colnames(lines$lines) <- c("x1", "y1", "x2", "y2", "width", "p", "-log_nfa")
-  lines$n <- nrow(lines$lines)
-
-  return(lines)
+  cli::cli_abort(c(
+    "{.fn image_line_segment} is defunct since pliman 4.0.0.",
+    "i" = "The Line Segment Detector (LSD) code is AGPL-licensed and was removed so that pliman stays under GPL (>= 3).",
+    "i" = "Use {.fn image_canny_edge} to detect edges."
+  ), class = "pliman_defunct")
 }
 
 #' @title Plot Detected Line Segments
-#' @description Plots the detected line segments from the output of [image_line_segment()].
-#' Each segment is drawn as a red line on the existing plot.
+#' @description Plots line segments on the existing plot. Each segment is
+#'   drawn as a line between `(x1, y1)` and `(x2, y2)`.
 #'
-#' @param x A list returned by [image_line_segment()], containing detected line segments.
+#' @param x A list with elements `n` (number of segments) and `lines` (a matrix
+#'   with columns `x1`, `y1`, `x2`, `y2`), e.g. created by the user from another
+#'   line detector. ([image_line_segment()] is defunct since pliman 4.0.0.)
 #' @param col The color of lines
 #' @param lwd The width of lines. Defaults to 1
 #' @return No return value. The function adds line segments to an existing plot.
 #'
 #' @examples
 #' library(pliman)
+#' seg <- list(n = 2, lines = cbind(x1 = c(0, 0), y1 = c(0, 1), x2 = c(1, 1), y2 = c(1, 0)))
+#' plot(0:1, 0:1, type = "n")
+#' plot_line_segment(seg)
 #'
 #' @export
 plot_line_segment <- function(x, col = "red", lwd = 1){
@@ -5455,8 +6800,7 @@ order_quad_corners <- function(pts) {
 #' }
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("colorcheck.jpg")
 #'
@@ -5466,7 +6810,6 @@ order_quad_corners <- function(pts) {
 #'
 #' # View patch overlay
 #' plot(card)
-#' }
 get_card_colors <- function(img,
                             reference = "colorchecker24",
                             nrow = NULL,
@@ -6148,8 +7491,7 @@ summary.pliman_card_colors <- function(object, ...) {
 #' If only `img` and a pre-calculated `k_mat` are supplied, returns the corrected `image` directly.
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("colorcheck.jpg")
 #'
@@ -6161,7 +7503,6 @@ summary.pliman_card_colors <- function(object, ...) {
 #'
 #' # 3. Or using polynomial models
 #' calib_poly <- image_correction(img, card, model = "root_polynomial")
-#' }
 image_correction <- function(img,
                              card_colors = NULL,
                              known_colors = NULL,
@@ -6343,8 +7684,7 @@ image_correction <- function(img,
 #' @return An `image` object with corrected colors.
 #'
 #' @export
-#' @examples
-#' if(interactive()){
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Sample 4 known chips (e.g. blue, red, yellow, white)
@@ -6357,7 +7697,6 @@ image_correction <- function(img,
 #' img <- image_pliman("colorcheck.jpg")
 #' img_cor <- image_correction_pick(img, known_colors, color_chips = 4)
 #' image_combine(img, img_cor)
-#' }
 image_correction_pick <- function(img,
                                   known_colors = NULL,
                                   color_chips = 24,

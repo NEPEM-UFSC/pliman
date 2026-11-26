@@ -9,10 +9,21 @@ image_combine(
   labels = NULL,
   nrow = NULL,
   ncol = NULL,
-  col = "black",
+  col = "white",
+  col_bg = "forestgreen",
+  badge = TRUE,
+  border = NA,
+  cex = 0.75,
+  font = 2,
   verbose = TRUE,
-  mar = c(1.5, 1.5, 1.5, 1.5),
-  oma = c(0, 0, 0, 0)
+  mar = c(0.2, 0.2, 0.2, 0.2),
+  oma = c(0, 0, 0, 0),
+  row_labels = NULL,
+  col_labels = NULL,
+  strip_col = NULL,
+  strip_bg = NULL,
+  strip_cex = 0.95,
+  strip_size = NULL
 )
 }
 \arguments{
@@ -25,16 +36,42 @@ objects in \code{...} to indicate the plot labels.}
 \item{nrow, ncol}{The number of rows or columns in the plot grid. Defaults to
 \code{NULL}, i.e., a square grid is produced.}
 
-\item{col}{The color for the plot labels. Defaults to \code{col = "black"}.}
+\item{col}{The color for the plot labels. Defaults to \code{"white"} when \code{badge = TRUE} and \code{"black"} otherwise.}
+
+\item{col_bg}{The background color for the label badge. Defaults to \code{"forestgreen"}.}
+
+\item{badge}{Logical. Whether to draw a background badge for the labels. Defaults to \code{TRUE}.}
+
+\item{border}{The border color for the badge. Defaults to \code{NA} (no border).}
+
+\item{cex}{The character expansion factor for the labels. Defaults to \code{0.75}.}
+
+\item{font}{An integer which specifies which font to use for text. Defaults to \code{2} (bold).}
 
 \item{verbose}{Shows the name of objects declared in \code{...} or a numeric
 sequence if a list with no names is provided. Set to \code{FALSE} to supress the
 text.}
 
 \item{mar, oma}{Margins for each panel and outer margins for the combined plot.
-Defaults to \code{mar = c(1.5, 1.5, 1.5, 1.5)} and \code{oma = c(0, 0, 0, 0)}. Set
+Defaults to \code{mar = c(0.2, 0.2, 0.2, 0.2)} and \code{oma = c(0, 0, 0, 0)}. Set
 \code{mar = 0} or \code{mar = c(0, 0, 0, 0)} to eliminate margins and maximize the
 plotting area.}
+
+\item{row_labels, col_labels}{Optional character vectors of labels to display as
+full-height left strips (\code{row_labels}, length \code{nrow}) and full-width top
+strips (\code{col_labels}, length \code{ncol}). Useful for publication comparison grids.}
+
+\item{strip_col, strip_bg}{Text color and background fill color for \code{row_labels}
+and \code{col_labels} strips. When \code{NULL} (default), \code{strip_col} inherits \code{col}
+and \code{strip_bg} inherits \code{col_bg}.}
+
+\item{strip_cex}{Character expansion factor for strip labels. Defaults to \code{0.95}.}
+
+\item{strip_size}{Relative width/height of the row and column label strips
+compared to an image panel (\code{1}). Defaults to \code{NULL}, which automatically
+computes strip dimensions from the current graphics device aspect ratio so
+panels align edge-to-edge without gaps. Can also be set explicitly as a
+scalar or length-2 vector \code{c(row_width, col_height)}.}
 }
 \value{
 A grid with the images in \code{...}
@@ -43,7 +80,7 @@ A grid with the images in \code{...}
 Combines several images to a grid
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img1 <- image_pliman("sev_leaf.jpg")
 img2 <- image_pliman("sev_leaf_nb.jpg")
@@ -51,7 +88,7 @@ image_combine(img1, img2)
 
 # Remove margins to optimize plotting area:
 image_combine(img1, img2, mar = 0)
-}
+\dontshow{\}) # examplesIf}
 }
 \author{
 Tiago Olivoto \email{tiagoolivoto@gmail.com}

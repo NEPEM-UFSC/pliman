@@ -53,7 +53,7 @@ All functions ensure that the coordinate reference systems (CRS) of both shapefi
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 shp1 <- shapefile_input(paste0(image_pliman(), "/shp1.rds"))
@@ -69,5 +69,5 @@ shapefile_crosses(shp1, shp2)
 shapefile_intersection(shp1, shp2)
 shapefile_difference(shp1, shp2)
 shapefile_union(shp1, shp2)
-}
+\dontshow{\}) # examplesIf}
 }

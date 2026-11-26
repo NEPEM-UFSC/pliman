@@ -13,7 +13,14 @@ yolo_fewshot_predict(
   engine = "gpu",
   device_id = -1,
   plot = FALSE,
-  rainbow = TRUE
+  rainbow = TRUE,
+  show_class = if (!is.null(model$show_class)) model$show_class else TRUE,
+  show_conf = if (!is.null(model$show_conf)) model$show_conf else TRUE,
+  badge = if (!is.null(model$badge)) model$badge else TRUE,
+  lower_size = NULL,
+  upper_size = NULL,
+  size_mode = c("relative", "absolute"),
+  ...
 )
 }
 \arguments{
@@ -34,6 +41,23 @@ yolo_fewshot_predict(
 \item{plot}{Logical. Display detection results. Defaults to \code{FALSE}.}
 
 \item{rainbow}{Logical. If \code{TRUE}, plots instances in distinct rainbow colors. Defaults to \code{FALSE}.}
+
+\item{show_class}{Logical. Whether to display class name on labels/badges. Defaults to \code{TRUE}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges. Defaults to \code{TRUE}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels. Defaults to \code{TRUE}.}
+
+\item{lower_size}{Numeric scalar or \code{NULL}. Minimum bounding-box area threshold for keeping detections.
+Interpreted according to \code{size_mode}. Defaults to \code{NULL} (no lower filter).}
+
+\item{upper_size}{Numeric scalar or \code{NULL}. Maximum bounding-box area threshold for keeping detections.
+Interpreted according to \code{size_mode}. Defaults to \code{NULL} (no upper filter).}
+
+\item{size_mode}{Character string. Controls how \code{lower_size} and \code{upper_size} are interpreted:
+\code{"relative"} (default, multiplier of mean detected bounding-box area) or \code{"absolute"} (pixel area).}
+
+\item{...}{Additional arguments passed to plotting methods or aliases (e.g. \code{show_labels}, \code{show_scores}, \code{label_box}).}
 }
 \value{
 A \code{list} containing \code{boxes} (bounding boxes data.frame) and \code{polygons} (list of normalized coordinates).

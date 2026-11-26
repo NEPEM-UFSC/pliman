@@ -148,6 +148,9 @@ get_cached_indexes_df <- function() {
 #' @param tolerance Minimum height for watershed segmentation.
 #' @param extension Neighborhood radius for watershed segmentation.
 #' @param lower_noise Objects with area less than `lower_noise` * mean area are removed.
+#'   Defaults to `0.10` (i.e., 10% of the mean area).
+#' @param upper_noise Objects with area greater than `upper_noise` * mean area are removed.
+#'   Defaults to `NULL` (no upper noise filter).
 #' @param lower_size,upper_size Lower and upper size limits for object filtering.
 #' @param topn_lower,topn_upper Select top `n` objects based on area.
 #' @param lower_eccent,upper_eccent,lower_circ,upper_circ Eccentricity and circularity limits.
@@ -192,8 +195,7 @@ get_cached_indexes_df <- function() {
 #' @importFrom utils menu
 #' @md
 #' @author Tiago Olivoto \email{tiagoolivoto@@gmail.com}
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' img <- image_pliman("soybean_touch.jpg")
 #' obj <- analyze_objects(img)
@@ -211,7 +213,6 @@ get_cached_indexes_df <- function() {
 #'                        reference_area = 6,
 #'                        reference_larger = TRUE,
 #'                        lower_noise = 0.3)
-#' }
 #'
 analyze_objects <- function(img,
                             foreground = NULL,
@@ -277,6 +278,7 @@ analyze_objects <- function(img,
                             tolerance = NULL,
                             extension = NULL,
                             lower_noise = 0.10,
+                            upper_noise = NULL,
                             rel_size = NULL,
                             lower_size = NULL,
                             upper_size = NULL,
@@ -397,6 +399,7 @@ analyze_objects <- function(img,
                          col_background = NULL,
                          col_foreground = NULL,
                          lower_noise = 0.1,
+                         upper_noise = NULL,
                          lower_size = NULL,
                          upper_size = NULL,
                          topn_lower = NULL,
@@ -824,6 +827,7 @@ analyze_objects <- function(img,
         shape <- shape[which(shape$area > mean(shape$area, na.rm = TRUE) * lower_noise), , drop = FALSE]
       }
       if (!is.null(upper_size) && nrow(shape) > 0) shape <- shape[which(shape$area < upper_size), , drop = FALSE]
+      if (!is.null(upper_noise) && nrow(shape) > 0) shape <- shape[which(shape$area < mean(shape$area, na.rm = TRUE) * upper_noise), , drop = FALSE]
       if (!is.null(topn_lower) && nrow(shape) > 0) shape <- shape[order(shape$area), , drop = FALSE][1:min(nrow(shape), topn_lower), , drop = FALSE]
       if (!is.null(topn_upper) && nrow(shape) > 0) shape <- shape[order(shape$area, decreasing = TRUE), , drop = FALSE][1:min(nrow(shape), topn_upper), , drop = FALSE]
       if (!is.null(lower_eccent) && nrow(shape) > 0) shape <- shape[which(shape$eccentricity > lower_eccent), , drop = FALSE]
@@ -892,28 +896,42 @@ analyze_objects <- function(img,
       object_index_used <- object_index[1]
       ind_df <- get_cached_indexes_df()
       ind_formula <- ifelse(object_index %in% ind_df$Index, ind_df[match(object_index, ind_df$Index), 2], object_index)
-      R_ch <- img[,,1]; G_ch <- img[,,2]; B_ch <- img[,,3]
-      hsb_arrays <- rgb_to_hsb_cpp(R_ch, G_ch, B_ch)
-      eval_env <- list(
-        R = R_ch, G = G_ch, B = B_ch,
-        h = hsb_arrays$H, s = hsb_arrays$S, b = hsb_arrays$B,
-        H = hsb_arrays$H, S = hsb_arrays$S
-      )
       parsed <- lapply(ind_formula, function(f) parse(text = f)[[1]])
-      idx_mat <- do.call(cbind, lapply(parsed, function(expr) {
-        as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
-      }))
       valid_ids <- as.integer(shape$id)
-      means_mat <- compute_index_means_cpp(idx_mat, as.vector(nmask), valid_ids)
+
+      # Fast path: fórmulas apenas em R, G, B são avaliadas em C++ somente nos
+      # pixels rotulados (sem materializar a imagem inteira em R nem HSB).
+      means_mat <- NULL
+      if (!isTRUE(pixel_level_index) && all(vapply(parsed, is_rgb_only_formula, logical(1)))) {
+        means_mat <- object_index_means_cpp(
+          image_data(img), nmask, vapply(parsed, rgb_formula_to_infix, character(1)), valid_ids,
+          vapply(parsed, is_bare_band_formula, logical(1))
+        )
+      }
+
+      if (is.null(means_mat)) {
+        R_ch <- img[,,1]; G_ch <- img[,,2]; B_ch <- img[,,3]
+        eval_env <- list(R = R_ch, G = G_ch, B = B_ch)
+        # HSB só é calculado quando alguma fórmula o utiliza
+        if (any(c("h", "s", "b", "H", "S") %in% unlist(lapply(parsed, all.vars)))) {
+          hsb_arrays <- rgb_to_hsb_cpp(R_ch, G_ch, B_ch)
+          eval_env <- c(eval_env, list(
+            h = hsb_arrays$H, s = hsb_arrays$S, b = hsb_arrays$B,
+            H = hsb_arrays$H, S = hsb_arrays$S
+          ))
+        }
+        idx_mat <- do.call(cbind, lapply(parsed, function(expr) {
+          as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
+        }))
+        means_mat <- compute_index_means_cpp(idx_mat, as.vector(nmask), valid_ids)
+      }
       colnames(means_mat) <- object_index
       indexes <- data.frame(id = valid_ids, means_mat, check.names = FALSE)
       if (isTRUE(pixel_level_index)) {
         obj_rgb <- object_rgb(img, nmask)
         obj_rgb <- subset(obj_rgb, id %in% shape$id)
         obj_rgb <- cbind(obj_rgb, rgb_to_hsb(obj_rgb[, 2:4]))
-        pixel_idx <- do.call(cbind, lapply(parsed, function(expr) {
-          as.vector(eval(expr, envir = list2env(eval_env, parent = baseenv())))
-        }))
+        pixel_idx <- idx_mat
         mask_flat <- as.vector(nmask)
         pixel_keep <- mask_flat %in% valid_ids
         obj_rgb <- cbind(obj_rgb, as.data.frame(pixel_idx[pixel_keep, , drop = FALSE], col.names = object_index))
@@ -979,46 +997,60 @@ analyze_objects <- function(img,
       } else {
         col_fg <- col_foreground
       }
-      img_max <- max(as.numeric(image_data(img)))
-      if (max(col_bg) > 1 && img_max <= 1) col_bg <- col_bg / 255
-      if (max(col_fg) > 1 && img_max <= 1) col_fg <- col_fg / 255
-
       ID <- which(nmask != 0)
       ID2 <- which(nmask == 0)
 
+      is_raw_img <- is.raw(image_data(img))
+      if (is_raw_img) {
+        col_bg_val <- as.raw(round(pmin(pmax(col_bg, 0), 255)))
+        col_fg_val <- as.raw(round(pmin(pmax(col_fg, 0), 255)))
+      } else {
+        col_bg_val <- if (max(col_bg) > 1) col_bg / 255 else col_bg
+        col_fg_val <- if (max(col_fg) > 1) col_fg / 255 else col_fg
+      }
+
       if (show_original == TRUE && show_segmentation == FALSE) {
-        im2 <- img[,,1:3]
+        im2 <- img[, , 1:3]
         if (backg) {
-          im3 <- image_color_labels(nmask)
-          im2[,,1][which(im3[,,1] == 0)] <- col_bg[1]
-          im2[,,2][which(im3[,,2] == 0)] <- col_bg[2]
-          im2[,,3][which(im3[,,3] == 0)] <- col_bg[3]
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         }
       } else if (show_original == TRUE && show_segmentation == TRUE) {
         im2 <- image_color_labels(nmask)
+        if (is_raw_img && !is.raw(image_data(im2))) {
+          im2 <- as_image(im2, storage = "raw")
+        } else if (!is_raw_img && !is.double(image_data(im2))) {
+          im2 <- as_image(im2, storage = "double")
+        }
         if (backg) {
-          im2[,,1][which(im2[,,1] == 0)] <- col_bg[1]
-          im2[,,2][which(im2[,,2] == 0)] <- col_bg[2]
-          im2[,,3][which(im2[,,3] == 0)] <- col_bg[3]
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         } else {
-          im2[,,1][which(im2[,,1] == 0)] <- as.numeric(img[,,1])[which(im2[,,1] == 0)]
-          im2[,,2][which(im2[,,2] == 0)] <- as.numeric(img[,,2])[which(im2[,,2] == 0)]
-          im2[,,3][which(im2[,,3] == 0)] <- as.numeric(img[,,3])[which(im2[,,3] == 0)]
+          im2[, , 1][ID2] <- img[, , 1][ID2]
+          im2[, , 2][ID2] <- img[, , 2][ID2]
+          im2[, , 3][ID2] <- img[, , 3][ID2]
         }
       } else {
         if (show_segmentation == TRUE) {
           im2 <- image_color_labels(nmask)
-          im2[,,1][which(im2[,,1] == 0)] <- col_bg[1]
-          im2[,,2][which(im2[,,2] == 0)] <- col_bg[2]
-          im2[,,3][which(im2[,,3] == 0)] <- col_bg[3]
+          if (is_raw_img && !is.raw(image_data(im2))) {
+            im2 <- as_image(im2, storage = "raw")
+          } else if (!is_raw_img && !is.double(image_data(im2))) {
+            im2 <- as_image(im2, storage = "double")
+          }
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         } else {
-          im2 <- img[,,1:3]
-          im2[,,1][ID] <- col_fg[1]
-          im2[,,2][ID] <- col_fg[2]
-          im2[,,3][ID] <- col_fg[3]
-          im2[,,1][ID2] <- col_bg[1]
-          im2[,,2][ID2] <- col_bg[2]
-          im2[,,3][ID2] <- col_bg[3]
+          im2 <- img[, , 1:3]
+          im2[, , 1][ID] <- col_fg_val[1]
+          im2[, , 2][ID] <- col_fg_val[2]
+          im2[, , 3][ID] <- col_fg_val[3]
+          im2[, , 1][ID2] <- col_bg_val[1]
+          im2[, , 2][ID2] <- col_bg_val[2]
+          im2[, , 3][ID2] <- col_bg_val[3]
         }
       }
 
@@ -1103,7 +1135,7 @@ analyze_objects <- function(img,
       show_contour = show_contour, show_bbox = show_bbox, contour_col = contour_col, contour_size = contour_size, show_lw = show_lw,
       show_background = show_background, show_segmentation = show_segmentation, marker = marker, marker_col = marker_col, marker_size = marker_size, save_image = save_image,
       prefix = prefix, dir_original = dir_original, dir_processed = dir_processed, verbose = verbose, col_background = col_background,
-      col_foreground = col_foreground, lower_noise = lower_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
+      col_foreground = col_foreground, lower_noise = lower_noise, upper_noise = upper_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
       lower_eccent = lower_eccent, upper_eccent = upper_eccent, lower_circ = lower_circ, upper_circ = upper_circ,
       ab_angles = ab_angles, ab_angles_percentiles = ab_angles_percentiles, width_at = width_at, width_at_percentiles = width_at_percentiles,
       return_mask = return_mask, pcv = pcv, pcv_niter = pcv_niter, object_index = object_index, max_pixels = max_pixels, return_exact = return_exact, area_mode = area_mode,
@@ -1145,7 +1177,7 @@ analyze_objects <- function(img,
       show_contour = show_contour, show_bbox = show_bbox, contour_col = contour_col, contour_size = contour_size, show_lw = show_lw,
       show_background = show_background, show_segmentation = show_segmentation, marker = marker, marker_col = marker_col, marker_size = marker_size, save_image = save_image,
       prefix = prefix, dir_original = dir_original, dir_processed = dir_processed, verbose = verbose, col_background = col_background,
-      col_foreground = col_foreground, lower_noise = lower_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
+      col_foreground = col_foreground, lower_noise = lower_noise, upper_noise = upper_noise, lower_size = lower_size, upper_size = upper_size, topn_lower = topn_lower, topn_upper = topn_upper,
       lower_eccent = lower_eccent, upper_eccent = upper_eccent, lower_circ = lower_circ, upper_circ = upper_circ,
       ab_angles = ab_angles, ab_angles_percentiles = ab_angles_percentiles, width_at = width_at, width_at_percentiles = width_at_percentiles,
       return_mask = return_mask, pcv = pcv, pcv_niter = pcv_niter, object_index = object_index, max_pixels = max_pixels, return_exact = return_exact, area_mode = area_mode,
@@ -1161,22 +1193,32 @@ analyze_objects <- function(img,
       if (!requireNamespace("mirai", quietly = TRUE)) {
         cli::cli_abort("Package {.val mirai} is required for parallel processing. Please install it with {.code install.packages('mirai')}.")
       }
-      nworkers <- ifelse(is.null(workers), trunc(parallel::detectCores() * 0.3), workers)
-      pkg_root <- tryCatch(rprojroot::find_package_root_file(), error = function(e) getwd())
-      is_dev_mode <- file.exists(file.path(pkg_root, "DESCRIPTION")) && requireNamespace("pkgload", quietly = TRUE)
+      nworkers <- if (is.null(workers)) {
+        max(1L, floor(parallel::detectCores() * 0.6))
+      } else {
+        as.integer(workers)
+      }
+      eff_workers <- min(nworkers, length(names_plant))
+
+      st <- tryCatch(mirai::status()$daemons, error = function(e) 0L)
+      existing_daemons <- if (is.numeric(st)) st else 0L
 
       daemon_status <- tryCatch({
-        mirai::daemons(nworkers)
-        if (is_dev_mode) {
-          mirai::everywhere(
-            {
-              .libPaths(lp)
-              pkgload::load_all(p_dir, quiet = TRUE, helpers = FALSE)
-            },
-            lp = .libPaths(),
-            p_dir = pkg_root
-          )
-        } else {
+        if (existing_daemons == 0L || (!is.null(workers) && existing_daemons != eff_workers)) {
+          # Protect workers from crashing if current directory has a broken .Rprofile
+          empty_prof <- tempfile()
+          file.create(empty_prof)
+          old_prof <- Sys.getenv("R_PROFILE_USER", unset = NA)
+          Sys.setenv(R_PROFILE_USER = empty_prof)
+
+          mirai::daemons(eff_workers)
+
+          if (is.na(old_prof)) Sys.unsetenv("R_PROFILE_USER") else Sys.setenv(R_PROFILE_USER = old_prof)
+          unlink(empty_prof)
+
+          if (existing_daemons == 0L) {
+            on.exit(mirai::daemons(0), add = TRUE)
+          }
           mirai::everywhere(
             {
               .libPaths(lp)
@@ -1192,19 +1234,44 @@ analyze_objects <- function(img,
       })
 
       if (isTRUE(daemon_status)) {
-        on.exit(mirai::daemons(0), add = TRUE)
         if (verbose) {
           cli::cli_rule(
-            left = cli::col_blue("Parallel processing using {nworkers} cores"),
+            left = cli::col_blue("Parallel processing using {eff_workers} cores"),
             right = cli::col_blue("Started on {format(Sys.time(), format = '%Y-%m-%d | %H:%M:%OS0')}")
           )
         }
 
-        results <- mirai::mirai_map(
-          .x = names_plant,
-          .f = help_count,
-          .args = args_list
+        # Chunking: group images into balanced batches to minimize IPC overhead
+        n_imgs <- length(names_plant)
+        n_chunks <- if (n_imgs <= eff_workers) {
+          eff_workers
+        } else {
+          min(n_imgs, eff_workers * 3L)
+        }
+        chunk_size <- ceiling(n_imgs / n_chunks)
+        chunk_factor <- rep(seq_len(n_chunks), each = chunk_size, length.out = n_imgs)
+        chunks <- split(names_plant, chunk_factor)
+
+        results_chunks <- mirai::mirai_map(
+          .x = chunks,
+          .f = function(chunk_imgs, fn, args) {
+            lapply(chunk_imgs, function(im) {
+              do.call(fn, c(list(img = im), args))
+            })
+          },
+          .args = list(fn = help_count, args = args_list)
         )[.progress]
+
+        # Check for chunk-level worker errors
+        failed_chunks <- sapply(results_chunks, function(res) inherits(res, "errorValue") || !is.list(res))
+        if (any(failed_chunks)) {
+          err_msg <- paste(sapply(which(failed_chunks), function(idx) {
+            if (inherits(results_chunks[[idx]], "errorValue")) as.character(results_chunks[[idx]]) else "Worker failed to return results"
+          }), collapse = "; ")
+          cli::cli_abort("Parallel processing failed: {err_msg}")
+        }
+
+        results <- do.call(c, results_chunks)
 
         failed_imgs <- sapply(results, function(res) inherits(res, "errorValue") || !is.list(res) || is.null(res[["statistics"]]))
         if (any(failed_imgs)) {
@@ -1491,8 +1558,7 @@ analyze_objects2 <- analyze_objects
 #' @method plot anal_obj
 #' @export
 #'
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' img <- image_pliman("soy_green.jpg")
@@ -1508,7 +1574,6 @@ analyze_objects2 <- analyze_objects
 #'
 #' # density of the blue (B) index
 #' plot(rgb, which = "index")
-#' }
 plot.anal_obj <- function(x,
                           which = "measure",
                           measure = "area",
@@ -1640,4 +1705,50 @@ analyze_objects_iter <- function(pattern,
     }
     do.call(rbind, lapply(measures, function(x){x}))
   }
+}
+
+# Helpers do fast path de `object_index` em analyze_objects()
+# TRUE quando a expressão usa apenas R, G, B, constantes e operadores/funções
+# suportados pelo avaliador RPN em C++ (object_index_means_cpp()).
+is_rgb_only_formula <- function(expr) {
+  allowed <- c("R", "G", "B", "+", "-", "*", "/", "^", "(",
+               "abs", "sqrt", "exp", "log", "sin", "cos", "tan")
+  ok_names <- all(all.names(expr) %in% allowed)
+  if (!ok_names) return(FALSE)
+  # funções devem ter exatamente um argumento (ex.: log(x, base) não é suportado)
+  check_calls <- function(e) {
+    if (is.call(e)) {
+      fn <- as.character(e[[1]])
+      if (fn %in% c("abs", "sqrt", "exp", "log", "sin", "cos", "tan", "(") && length(e) != 2) return(FALSE)
+      for (a in as.list(e)[-1]) if (!check_calls(a)) return(FALSE)
+    } else if (!is.name(e) && !(is.numeric(e) && is.double(e) && length(e) == 1 && is.finite(e))) {
+      return(FALSE)
+    }
+    TRUE
+  }
+  check_calls(expr)
+}
+
+# TRUE quando a expressão é apenas uma banda (ex.: `R` ou `(G)`); nesse caso o
+# caminho em R retorna a banda raw na escala 0-255, comportamento preservado.
+is_bare_band_formula <- function(expr) {
+  while (is.call(expr) && identical(expr[[1]], as.name("("))) expr <- expr[[2]]
+  is.name(expr) && as.character(expr) %in% c("R", "G", "B")
+}
+
+# Reescreve a expressão (já interpretada pelo parser do R) em notação infixa
+# totalmente parentizada, para que o parser RPN em C++ não dependa de regras de
+# precedência/associatividade (ex.: `-G^2` é `-(G^2)` no R).
+rgb_formula_to_infix <- function(expr) {
+  if (is.name(expr)) return(as.character(expr))
+  if (is.numeric(expr)) return(sprintf("%.17g", expr))
+  fn <- as.character(expr[[1]])
+  if (fn == "(") return(rgb_formula_to_infix(expr[[2]]))
+  if (length(expr) == 2) {
+    inner <- rgb_formula_to_infix(expr[[2]])
+    if (fn == "+") return(paste0("(", inner, ")"))
+    if (fn == "-") return(paste0("(-(", inner, "))"))
+    return(paste0(fn, "(", inner, ")"))
+  }
+  paste0("(", rgb_formula_to_infix(expr[[2]]), fn, rgb_formula_to_infix(expr[[3]]), ")")
 }

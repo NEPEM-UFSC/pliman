@@ -35,8 +35,7 @@
 #'
 #' @return An S3 object of class `c("dl_phenotypes", "data.frame")` containing per-object phenotypic traits.
 #' @export
-#' @examples
-#' \dontrun{
+#' @examplesIf interactive()
 #' library(pliman)
 #'
 #' # Segment leaves and lesions
@@ -45,7 +44,6 @@
 #' # Extract comprehensive phenotypes & disease severity
 #' pheno <- dl_extract_phenotypes(res, pixel_size = 0.02, severity = TRUE)
 #' head(pheno)
-#' }
 dl_extract_phenotypes <- function(data,
                                   img = NULL,
                                   pixel_size = NULL,
@@ -58,6 +56,12 @@ dl_extract_phenotypes <- function(data,
   # Resolve bounding boxes and labels
   df_boxes <- if (is.data.frame(data)) {
     data
+  } else if (!is.null(data$results)) {
+    data$results
+  } else if (!is.null(data$boxes)) {
+    data$boxes
+  } else if (!is.null(attr(data, "results"))) {
+    attr(data, "results")
   } else if (!is.null(attr(data, "boxes"))) {
     attr(data, "boxes")
   } else {

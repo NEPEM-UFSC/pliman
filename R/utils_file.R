@@ -41,8 +41,7 @@
 #' printed indicating which operation succeeded (or not) for each of the files
 #' attempted.
 #' @export
-#' @examples
-#' if (interactive()) {
+#' @examplesIf interactive()
 #' library(pliman)
 #' # get file name, directory and extension
 #' file <- "E:/my_folder/my_subfolder/image1.png"
@@ -61,7 +60,6 @@
 #'                 save_to = paste0(dir, "\\"),
 #'                 overwrite = TRUE)
 #' list.files(dir)
-#' }
 file_extension <- function(file){
   tools::file_ext(file)
 }

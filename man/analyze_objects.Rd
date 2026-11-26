@@ -73,6 +73,7 @@ analyze_objects(
   tolerance = NULL,
   extension = NULL,
   lower_noise = 0.1,
+  upper_noise = NULL,
   rel_size = NULL,
   lower_size = NULL,
   upper_size = NULL,
@@ -172,6 +173,7 @@ analyze_objects2(
   tolerance = NULL,
   extension = NULL,
   lower_noise = 0.1,
+  upper_noise = NULL,
   rel_size = NULL,
   lower_size = NULL,
   upper_size = NULL,
@@ -340,7 +342,11 @@ Defaults to \code{"medium"}.}
 
 \item{extension}{Neighborhood radius for watershed segmentation.}
 
-\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.}
+\item{lower_noise}{Objects with area less than \code{lower_noise} * mean area are removed.
+Defaults to \code{0.10} (i.e., 10\% of the mean area).}
+
+\item{upper_noise}{Objects with area greater than \code{upper_noise} * mean area are removed.
+Defaults to \code{NULL} (no upper noise filter).}
 
 \item{rel_size}{Relative size threshold as a fraction of mean object area.}
 
@@ -485,7 +491,7 @@ computed with \code{\link[=poly_apex_base_angle]{poly_apex_base_angle()}}.
 }
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 img <- image_pliman("soybean_touch.jpg")
 obj <- analyze_objects(img)
@@ -503,9 +509,8 @@ res <- analyze_objects(img,
                        reference_area = 6,
                        reference_larger = TRUE,
                        lower_noise = 0.3)
-}
-
-if (interactive()) {
+\dontshow{\}) # examplesIf}
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 img <- image_pliman("soy_green.jpg")
@@ -521,7 +526,7 @@ plot(rgb, measure = "perimeter", type = "histogram")
 
 # density of the blue (B) index
 plot(rgb, which = "index")
-}
+\dontshow{\}) # examplesIf}
 }
 \references{
 Haralick, R.M., K. Shanmugam, and I. Dinstein. 1973. Textural Features for Image

@@ -12,7 +12,8 @@ the result of \code{\link[=image_watershed]{image_watershed()}} or similar segme
 }
 \value{
 A list where each element is a matrix of (x, y) coordinates for the
-contour of the respective object.
+contour of the respective object, named by the object label (\code{"1"},
+\code{"2"}, ...).
 }
 \description{
 Extracts the external contour of each object in a labeled matrix (e.g., from

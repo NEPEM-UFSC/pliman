@@ -8,14 +8,14 @@ yolo_dataset_export(
   img,
   model = NULL,
   annotations = "auto",
-  dir = "yolo_dataset",
+  dir = NULL,
   task = c("detect", "segment"),
   class_names = c("object"),
-  class_id = 0L,
+  class_id = NULL,
   prompt = NULL,
-  prompt_mode = c("each", "first"),
-  interactive = is.null(prompt) && !is.null(model) && identical(tolower(model), "persam")
-    && interactive(),
+  prompt_mode = c("first", "each"),
+  interactive = is.null(prompt) && !is.null(model) && is.character(model) &&
+    identical(tolower(model[1]), "persam") && base::interactive(),
   sim_threshold = 0.5,
   min_dist = 20,
   box_threshold = 0.25,
@@ -23,15 +23,47 @@ yolo_dataset_export(
   iou_threshold = 0.5,
   feat_res = 256,
   max_objects = NULL,
-  train_prop = 0.8,
+  split_ratio = c(0.7, 0.2, 0.1),
   n_points = 40L,
   min_area = 15,
-  filter_edge = TRUE,
+  filter_edge = FALSE,
+  crop_to_objects = FALSE,
+  crop_margin = 0.05,
+  box_margin = 0.05,
+  sahi = FALSE,
+  slice_height = 640,
+  slice_width = 640,
+  overlap_height_ratio = 0.2,
+  overlap_width_ratio = 0.2,
+  match_metric = c("IOS", "IOU"),
+  match_threshold = 0.5,
+  full_image_inference = TRUE,
+  sahi_if = NULL,
+  sahi_metric = c("mean", "median", "min"),
+  sahi_if_empty = TRUE,
+  lower_size = NULL,
+  upper_size = NULL,
+  size_mode = c("relative", "absolute"),
   show_similarity = FALSE,
   superres_map = FALSE,
+  review = TRUE,
+  rainbow = TRUE,
+  show_bbox = TRUE,
+  show_polygon = TRUE,
+  show_points = FALSE,
+  show_labels = TRUE,
+  show_conf = TRUE,
+  bbox = show_bbox,
+  polygon = show_polygon,
+  points = show_points,
+  labels = show_labels,
+  badge = TRUE,
   engine = c("gpu", "cpu"),
+  sam_device = c("auto", "gpu", "cpu"),
   device_id = -1,
+  move = TRUE,
   overwrite = TRUE,
+  as_job = FALSE,
   verbose = TRUE,
   ...
 )
@@ -40,8 +72,9 @@ yolo_dataset_export(
 \item{img}{An \code{image} object, a list of \code{image} objects, a file path, or a directory path
 containing images to annotate.}
 
-\item{model}{Deep learning model to use for automated or semi-automated labeling:
+\item{model}{Model to use for dataset annotation:
 \itemize{
+\item \code{"manual"} (or \code{"box"}, \code{"boxes"}, \code{"draw"}): Pure manual bounding box labeling. Click 2 opposite corners per box with zero AI models, zero downloads, and instant response.
 \item \code{"persam"}: One-shot visual exemplar segmentation and detection (Roboflow-style 1-click auto-labeling).
 \item \code{"grounded-sam"}: Zero-shot text-prompted instance segmentation & detection.
 \item Path to a trained YOLO \code{.onnx} model (e.g. \code{"capsulas_det.onnx"}): Assisted labeling / pseudo-labeling.
@@ -56,7 +89,9 @@ containing images to annotate.}
 \item A custom list of contour matrices or bounding boxes.
 }}
 
-\item{dir}{Output directory path for the YOLO dataset. Defaults to \code{"yolo_dataset"}.}
+\item{dir}{Output directory path for the YOLO dataset. If \code{NULL} (default when \code{img} is a directory path),
+the dataset structure (\verb{images/}, \verb{labels/}, \code{data.yaml}) is generated directly inside \code{img}.
+Specify a directory name only if you wish to create a separate dataset folder.}
 
 \item{task}{Task type: \code{"detect"} (default) for bounding-box detection or \code{"segment"}
 for polygon instance segmentation.}
@@ -64,7 +99,8 @@ for polygon instance segmentation.}
 \item{class_names}{Character vector of class names (e.g. \code{c("capsula")} or \code{c("grain", "defect")}).
 Defaults to \code{c("object")}.}
 
-\item{class_id}{Numeric class ID assigned to the annotations. Defaults to \code{0L}.}
+\item{class_id}{Numeric class ID or vector of IDs. Defaults to \code{NULL}, which automatically
+assigns sequential IDs (0, 1, ...) matching \code{class_names}.}
 
 \item{prompt}{Prompt specification for deep learning models:
 \itemize{
@@ -98,8 +134,9 @@ Defaults to \code{TRUE} if \code{model = "persam"}, \code{prompt = NULL}, and R 
 
 \item{max_objects}{Maximum number of objects detected per image. Defaults to \code{300}.}
 
-\item{train_prop}{Proportion of images assigned to the training split (default \code{0.8}).
-The remaining images are assigned to the validation split (\code{val}).}
+\item{split_ratio}{Numeric vector of length 3 for \code{c(train, val, test)} split.
+Defaults to \code{c(0.70, 0.20, 0.10)}. If a vector of length 2 is provided,
+\code{c(train, val)} is assumed. If a single number is given, it is treated as the training proportion.}
 
 \item{n_points}{Target number of polygon vertices per object for segmentation
 (default \code{40}). Points are sampled evenly along the contour to keep label files
@@ -107,7 +144,50 @@ compact and clean.}
 
 \item{min_area}{Minimum object area (in pixels) to include in the dataset. Defaults to \code{15}.}
 
-\item{filter_edge}{Logical. If \code{TRUE} (default), filters out spurious border-cut artifacts touching image edges.}
+\item{filter_edge}{Logical. Whether to automatically filter out spurious border-cut artifacts touching image edges (default: \code{FALSE}).}
+
+\item{crop_to_objects}{Logical. If \code{TRUE}, crops the image to the bounding box containing all detected objects plus a margin (default: \code{FALSE}).}
+
+\item{crop_margin}{Numeric. Margin fraction added around the object bounding box when \code{crop_to_objects = TRUE} (default: \code{0.05}, i.e., 5\%).}
+
+\item{box_margin}{Safety margin (padding proportion) added around detected bounding boxes before segmenting with Meta SAM 2.1 (e.g. \code{0.05} expands 5\% on each side). Prevents masks from cutting off object borders. Defaults to \code{0.05} (5\%).}
+
+\item{sahi}{Logical. If \code{TRUE}, applies Slicing-Aided Hyper Inference (SAHI) during YOLO pre-labeling,
+dividing high-resolution images into overlapping slices to detect small and crowded objects with high precision. Defaults to \code{FALSE}.}
+
+\item{slice_height, slice_width}{Integer dimensions (in pixels) for SAHI slices. Defaults to \code{640}.}
+
+\item{overlap_height_ratio, overlap_width_ratio}{Overlap ratio between adjacent slices along height and width. Defaults to \code{0.20} (20\%).}
+
+\item{match_metric}{Match metric used for merging slice predictions across boundaries: \code{"IOS"} (Intersection over Smaller, default) or \code{"IOU"}.}
+
+\item{match_threshold}{Threshold for match metric to merge overlapping slice predictions. Defaults to \code{0.50}.}
+
+\item{full_image_inference}{Logical. If \code{TRUE} (default), runs an additional full-image inference pass alongside slice predictions to ensure large objects spanning across multiple slices are captured.}
+
+\item{sahi_if}{Conditional SAHI trigger. Can be \code{NULL} (default, disabled), \code{TRUE} (activates SAHI if average relative box area <= 1\% of total image area), or a numeric threshold in \verb{(0, 1]} (e.g. \code{0.005} for 0.5\% or \code{0.02} for 2\%). When specified, standard inference runs first; if the objects are small relative to the canvas (or if no objects are detected when \code{sahi_if_empty = TRUE}), SAHI is automatically triggered to recover fine details and small instances.}
+
+\item{sahi_metric}{Character metric to aggregate relative bounding box areas when checking \code{sahi_if}. One of \code{"mean"} (default), \code{"median"}, or \code{"min"}.}
+
+\item{sahi_if_empty}{Logical. If \code{TRUE} (default), automatically triggers SAHI when standard inference finds 0 objects on an image larger than the slice dimensions.}
+
+\item{lower_size}{Optional numeric value to filter out small detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+less than \code{lower_size} times the mean area of all candidate boxes in that image are removed
+(e.g., \code{lower_size = 0.2} removes small debris, dust, or grains smaller than 20\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) below \code{lower_size} are removed.
+Defaults to \code{NULL} (no lower size filter).}
+
+\item{upper_size}{Optional numeric value to filter out abnormally large detected objects.
+When \code{size_mode = "relative"} (default), objects with a bounding box area
+greater than \code{upper_size} times the mean area of all candidate boxes in that image are removed
+(e.g., \code{upper_size = 2.0} removes objects larger than 200\% of the average object size).
+When \code{size_mode = "absolute"}, objects with an area (in pixels) above \code{upper_size} are removed.
+Defaults to \code{NULL} (no upper size filter).}
+
+\item{size_mode}{Character string specifying how \code{lower_size} and \code{upper_size} are interpreted.
+\code{"relative"} (default) treats values as proportions/multiples of the mean bounding box area.
+\code{"absolute"} treats values as area in pixels.}
 
 \item{show_similarity}{Logical. If \code{TRUE}, displays a side-by-side 2-panel preview showing the detected
 objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidencia") on the right. Defaults to \code{FALSE}.}
@@ -115,11 +195,37 @@ objects on the left and the PerSAM Cosine Similarity Map ("Matriz de Coincidenci
 \item{superres_map}{Logical. If \code{TRUE}, applies Real-ESRGAN 4x super-resolution on the PerSAM similarity map
 with bilateral semantic background gating. Default is \code{FALSE}.}
 
+\item{review}{Logical or integer. If \code{TRUE} (default), writes annotated review images to a \verb{review/} subfolder. An integer can be provided (e.g. \code{review = 100}) to randomly sample that number of images across the dataset for review previews. Defaults to \code{TRUE}.
+subfolder in \code{dir} for visual inspection of all images. An integer can be provided (e.g. \code{review = 30})
+to limit the number of review images generated.}
+
+\item{rainbow}{Logical. If \code{TRUE} (default), plots instances in distinct rainbow colors during interactive review.}
+
+\item{show_bbox}{Logical. Whether to draw bounding boxes on review previews. Defaults to \code{TRUE}. Supported alias: \code{bbox}.}
+
+\item{show_polygon}{Logical. Whether to draw segmentation polygons on review previews. Defaults to \code{TRUE}. Supported alias: \code{polygon}.}
+
+\item{show_points}{Logical. If \code{TRUE}, draws points at the centroid of each object using the same color as the box. Defaults to \code{FALSE}. Supported alias: \code{points}.}
+
+\item{show_labels}{Logical. Whether to display class name on labels/badges during review previews. Defaults to \code{TRUE}. Supported aliases: \code{show_class}, \code{labels}.}
+
+\item{show_conf}{Logical. Whether to display confidence score on labels/badges during review previews. Defaults to \code{TRUE}. Supported alias: \code{show_scores}.}
+
+\item{bbox, polygon, points, labels}{Backward-compatible aliases for \code{show_bbox}, \code{show_polygon}, \code{show_points}, and \code{show_labels}.}
+
+\item{badge}{Logical. Whether to draw a filled background badge behind labels during interactive review. Defaults to \code{TRUE}.}
+
 \item{engine}{Computing device engine: \code{"cpu"} (default) or \code{"gpu"}.}
+
+\item{sam_device}{Execution device for SAM 2.1 inference: \code{"auto"} (default), \code{"gpu"}, or \code{"cpu"}.}
 
 \item{device_id}{GPU device ID (default \code{-1}).}
 
+\item{move}{Logical. If \code{TRUE} (default), moves the source images directly into the dataset's \verb{images/} split directories instead of copying them.}
+
 \item{overwrite}{Logical. If \code{TRUE} (default), overwrites existing dataset files in \code{dir}.}
+
+\item{as_job}{Logical. If \code{TRUE} and running inside RStudio, runs the dataset export as an RStudio Background Job in the Jobs tab, keeping the current R session free. Defaults to \code{FALSE}.}
 
 \item{verbose}{Logical. If \code{TRUE} (default), displays live progress information.}
 
@@ -133,6 +239,8 @@ An invisible list containing:
 \item \code{yaml_file}: Full path to the generated \code{data.yaml}.
 \item \code{train_images}: Vector of paths to training images.
 \item \code{val_images}: Vector of paths to validation images.
+\item \code{test_images}: Vector of paths to test images (if test split was generated).
+\item \code{review_dir}: Path to the review directory containing visual previews (if \code{review = TRUE}).
 \item \code{n_objects}: Total number of annotated objects across the dataset.
 }
 }
@@ -142,6 +250,7 @@ and \code{data.yaml}) for object detection (\code{task = "detect"}) or instance
 segmentation (\code{task = "segment"}). Annotations can be produced automatically
 via deep learning foundation models:
 \itemize{
+\item \strong{Manual interactive annotation} with \code{model = "manual"} (draw bounding boxes directly with 2 clicks per box: zero AI models or GPU required).
 \item \strong{One-shot visual exemplar auto-labeling} with \code{model = "persam"} (Roboflow-style 1-click annotation).
 \item \strong{Zero-shot text prompt detection} with \code{model = "grounded-sam"} (e.g. \code{prompt = "people"}).
 \item \strong{Assisted labeling / pseudo-labeling} with pre-trained or fine-tuned YOLO models (\code{model = "custom.onnx"}).
@@ -162,7 +271,9 @@ Accepts natural language text descriptions (e.g. \code{prompt = "people"}, \code
 or \code{class_names = c("person", "bicycle")}) to locate and segment all matching objects.
 \item \strong{YOLO Pre-Labeling / Active Learning (\code{model = "<model>.onnx"}):}
 Applies an existing trained YOLO model to unannotated images to produce draft labels
-for rapid dataset expansion.
+for rapid dataset expansion. If a YOLO detection model is passed with \code{task = "segment"},
+\code{pliman} automatically pairs the detected bounding boxes with Meta SAM 2.1 to extract
+precise sub-pixel instance segmentation polygons.
 \item \strong{Classical Image Analysis (\code{model = NULL}):}
 Extracts contours via \code{\link[=analyze_objects]{analyze_objects()}} using thresholding, color indexes, and watershed algorithms.
 }
@@ -181,7 +292,7 @@ The exported directory adheres to the standard structure expected by YOLOv8, YOL
 }\if{html}{\out{</div>}}
 }
 \examples{
-\dontrun{
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 
 # 1. Semi-Automated 1-Click Labeling with PerSAM:
@@ -212,5 +323,5 @@ yolo_dataset_export(
   index = "B",
   watershed = TRUE
 )
-}
+\dontshow{\}) # examplesIf}
 }

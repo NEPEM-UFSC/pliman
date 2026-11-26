@@ -635,7 +635,8 @@ image_closing <- function(img,
 #'   the result of [image_watershed()] or similar segmentation.
 #'
 #' @return A list where each element is a matrix of (x, y) coordinates for the
-#'   contour of the respective object.
+#'   contour of the respective object, named by the object label (`"1"`,
+#'   `"2"`, ...).
 #' @name contour
 #' @export
 #' @examples
@@ -662,5 +663,8 @@ contour <- function(labels) {
     cli::cli_abort("The input must be a labeled matrix or Image object.")
   }
   res <- extract_contours_cpp(labels)
+  # element i holds the contour of label i: name the list by object id, as
+  # EBImage::ocontour() did (code such as `names(cont)` relies on it)
+  names(res) <- as.character(seq_along(res))
   return(res)
 }

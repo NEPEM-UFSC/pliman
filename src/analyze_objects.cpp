@@ -124,7 +124,8 @@ List analyze_objects_cpp(SEXP img_sexp,
 
     // Ultra-fast fused path for Otsu on raw uint8 RGB
     if (TYPEOF(img_sexp) == RAWSXP && threshold_method == "Otsu" && (index_str == "NB" || index_str == "NR" || index_str == "NG" || index_str == "GRAY" || index_str == "R" || index_str == "G" || index_str == "B")) {
-      bin_mat = LogicalMatrix(nrow, ncol);
+      // sem preenchimento inicial: todos os pixels são escritos pelos laços abaixo
+      bin_mat = LogicalMatrix(Rf_allocMatrix(LGLSXP, nrow, ncol));
       int* p_out = LOGICAL(bin_mat);
       const uint8_t* ptr = RAW(img_sexp);
       const uint8_t* pR = ptr + (r - 1) * N;

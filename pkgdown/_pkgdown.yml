@@ -83,6 +83,20 @@ reference:
       - image_square
       - image_thinning_guo_hall
       - image_alpha
+      - image_brightness
+      - image_noise
+      - image_resize
+      - image_transpose
+      - image_to_jpg
+      - image_mosaic
+      - image_scramble
+      - image_stitch
+      - focus_stack
+      - image_remove_reflection
+      - rgb_image
+      - image_rename
+      - image_rename_ocr
+      - image_rename_undo
 
   - title: "Image transformation"
     desc: "Performs spatial transformations such as rotation, reflection, and resizing"
@@ -176,6 +190,7 @@ reference:
       - shapefile_operations
       - shapefile_surface
       - plot_id
+      - shapefile_transform
 
 
   - title: "Utilities for image points"
@@ -197,7 +212,6 @@ reference:
       - utils_indexes
       - palettes
       - dist_transform
-      - dist_transform
       - image_segment
       - image_segment_kmeans
       - image_segment_manual
@@ -209,8 +223,13 @@ reference:
       - plot_index
       - plot_index_shp
       - pixel_index
-      - watershed2
+      - image_watershed
       - plot.image_index
+      - image_bwlabel
+      - image_color_labels
+      - image_skeleton_mat
+      - predict_binary_glm
+      - contour
 
 
 
@@ -232,6 +251,7 @@ reference:
     - landmarks_regradi
     - calibrate
     - contours
+    - gpa
 
 
   - title: "Analyze objects"
@@ -257,6 +277,8 @@ reference:
       - object_rgb
       - object_scatter
       - pixel_index
+      - object_haralick
+      - object_veins
 
 
   - title: "Symptomatic area"
@@ -297,5 +319,245 @@ reference:
       - image_view
       - pliman_viewer
 
+  - title: "Deep learning: image inference"
+    desc: "ONNX Runtime models (YOLO, SAM 2.1, Grounding DINO, U2Net/RMBG, StarDist, CLIP, DINOv2, ...) running in C++ on CPU or DirectML GPU."
+    contents:
+      - image_detect_dl
+      - image_segment_dl
+      - image_pose_dl
+      - image_classify_dl
+      - image_stardist_dl
+      - image_binary_dl
+      - image_remove_bg_dl
+      - image_depth_dl
+      - image_features_dl
+      - image_embed_dl
+      - image_superres_dl
+      - image_restore_dl
+      - image_inpaint_dl
+      - image_generate_dl
+      - image_ocr_dl
+      - image_detect_world
+      - image_compare_dl
+      - text_embed_dl
+      - dl_extract_phenotypes
+      - utils_neural
+      - plot.image_detect_dl
+      - plot.image_segment_dl
+      - plot.image_compare_dl
 
+  - title: "Deep learning: tiling, batch and video"
+    desc: "High-resolution tiled inference (SAHI), parallel batch processing and real-time video/camera inference with tracking."
+    contents:
+      - image_detect_sahi
+      - image_segment_sahi
+      - image_detect_dl_batch
+      - image_detect_sahi_batch
+      - image_segment_dl_batch
+      - pliman_daemons
+      - video_detect_dl
+      - frame_to_img
+      - video_split
+      - list_cameras
+      - print.pliman_video_frames
+
+  - title: "Deep learning: runtime, speed and model optimisation"
+    desc: "Benchmarking, ONNX session management and model compression (FP16, INT8, TensorRT). Speed-ups from FP16/TensorRT depend on GPUs with native half-precision support (e.g. Tensor Cores)."
+    contents:
+      - yolo_benchmark
+      - pliman_session_info
+      - pliman_clear_sessions
+      - pliman_gpu_provider
+      - onnx_available_providers
+      - pliman_onnx_profiling
+      - pliman_onnx_graph_cache
+      - pliman_build_model_variant
+      - yolo_export_fp16
+      - yolo_export_engine
+      - onnx_quantize
+      - model_to_fp16
+      - model_to_int8
+      - has_dedicated_gpu
+      - pliman_gpu_info
+      - get_free_ram
+
+  - title: "The image class"
+    desc: "Storage, conversion and methods of the `image` class (8-bit raw or double, width x height)."
+    contents:
+      - image_data
+      - to_numeric
+      - as.numeric.image
+      - as.raster.image
+      - hist.image
+      - mean.image
+      - Ops.image
+      - Summary.image
+      - "[.image"
+      - print.image
+      - plot.image
+      - view
+      - view.image
+
+  - title: "Color correction"
+    desc: "Color-checker detection and color correction models."
+    contents:
+      - get_card_colors
+      - image_correction
+      - image_correction_pick
+      - colorchecker_ref
+      - order_quad_corners
+
+  - title: "Root analysis"
+    desc: "Root system architecture."
+    contents:
+      - root_analyze
+      - plot.root_analysis
+      - print.root_analysis
+
+  - title: "3D reconstruction and Gaussian splatting"
+    desc: "Structure from Motion (COLMAP), 3D Gaussian splatting optimisation, rendering, measurement and the interactive 3D viewer."
+    contents:
+      - colmap_sfm
+      - colmap_dense
+      - colmap_mesh
+      - install_colmap
+      - find_colmap
+      - plot.colmap_sfm
+      - plot.colmap_mesh
+      - print.colmap_sfm
+      - print.colmap_mesh
+      - gs_from_photos
+      - gs_create
+      - gs_fit
+      - gs_densify
+      - gs_filter_outliers
+      - gs_crop
+      - gs_render
+      - gs_camera
+      - gs_measure
+      - gs_segment_sam
+      - gs_viewer
+      - gs_export_ply
+      - gs_import_colmap
+      - gs_import_cameras_colmap
+      - gs_import_metashape
+      - print.gaussian_splat
+
+  - title: "YOLO: datasets"
+    desc: "Create, curate, augment, convert and review YOLO datasets."
+    contents:
+      - yolo_dataset_add_background
+      - yolo_dataset_add_background_undo
+      - yolo_dataset_anonymize
+      - yolo_dataset_audit
+      - yolo_dataset_augment
+      - yolo_dataset_augment_clean
+      - yolo_dataset_autolabel
+      - yolo_dataset_backup_delete
+      - yolo_dataset_balance
+      - yolo_dataset_classify
+      - yolo_dataset_convert
+      - yolo_dataset_copypaste
+      - yolo_dataset_copypaste_clean
+      - yolo_dataset_dedup
+      - yolo_dataset_describe
+      - yolo_dataset_export
+      - yolo_dataset_filter
+      - yolo_dataset_from_ndjson
+      - yolo_dataset_label_pose
+      - yolo_dataset_merge
+      - yolo_dataset_permute
+      - yolo_dataset_permute_clean
+      - yolo_dataset_pose_preview
+      - yolo_dataset_preview
+      - yolo_dataset_report
+      - yolo_dataset_resize
+      - yolo_dataset_review
+      - yolo_dataset_scramble
+      - yolo_dataset_scramble_undo
+      - yolo_dataset_split
+      - yolo_dataset_stats
+      - yolo_dataset_tiling
+      - yolo_dataset_tiling_clean
+      - yolo_dataset_to_segment
+      - yolo_dataset_undo
+      - yolo_dataset_unzip
+      - yolo_dataset_zip
+      - yolo_background_synth
+      - yolo_background_synth_clean
+      - plot.yolo_dataset
+
+  - title: "YOLO: training, evaluation and few-shot"
+    desc: "Train, evaluate, explain and export YOLO models; few-shot (PerSAM) detection."
+    contents:
+      - yolo_train
+      - yolo_train_workflow
+      - yolo_checkpoint_recover
+      - yolo_model_test
+      - yolo_model_details
+      - yolo_results
+      - yolo_plot
+      - yolo_error_analysis
+      - yolo_explain
+      - plot_yolo_heatmap
+      - yolo_export
+      - yolo_fewshot_fit
+      - yolo_fewshot_predict
+      - c.yolo_fewshot_model
+      - plot.yolo_fewshot_model
+      - plot.yolo_train
+      - plot.yolo_test
+      - plot.yolo_error_analysis
+      - plot.yolo_saliency
+      - print.yolo_train
+
+  - title: "Model management"
+    desc: "Download, register, share and remove deep-learning models and the ONNX Runtime."
+    contents:
+      - pliman_available_models
+      - pliman_download_model
+      - pliman_download_onnx
+      - pliman_model_dir
+      - pliman_model_share
+      - pliman_models_base_url
+      - pliman_onnx_dir
+      - pliman_onnx_lib_path
+      - pliman_remove_model
+      - onnx_install
+      - onnx_setup
+
+  - title: "Encoding and hashing"
+    desc: "Base64 and SHA-256 utilities."
+    contents:
+      - base64_encode
+      - base64_decode
+      - sha256
+      - utils_crypto
+
+  - title: "Low-level C++ routines"
+    desc: "Native routines used internally; most users do not need to call them directly."
+    contents:
+      - align_stack_cpp
+      - cpp_extract_raster
+      - cpp_gs_densify
+      - cpp_gs_filter_outliers
+      - cpp_gs_knn
+      - cpp_gs_measure
+      - cpp_gs_read_ply
+      - cpp_gs_render
+      - cpp_gs_segment_sam
+      - cpp_gs_train_step
+      - dilate_cpp
+      - erode_cpp
+      - erode_external_cpp
+      - erosao_conservativa
+      - fill_holes_cpp
+      - fuse_laplacian_cpp
+      - get_free_ram_cpp
+      - rcpp_base64_decode
+      - rcpp_base64_encode
+      - rcpp_base64_encode_file
+      - rcpp_sha256
+      - rcpp_sha256_file
+      - remove_reflection_cpp
 

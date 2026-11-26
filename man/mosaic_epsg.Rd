@@ -26,7 +26,7 @@ the hemisphere based on the centroid's latitude. The EPSG code is then
 constructed accordingly.
 }
 \examples{
-if (interactive()) {
+\dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
 library(pliman)
 library(terra)
 
@@ -35,6 +35,5 @@ mosaic <- rast(nrow=10, ncol=10, xmin=-120, xmax=-60, ymin=30, ymax=60)
 
 # Get the EPSG code for the mosaic
 mosaic_epsg(mosaic)
-}
-
+\dontshow{\}) # examplesIf}
 }
