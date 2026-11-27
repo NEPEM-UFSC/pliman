@@ -700,7 +700,8 @@ image_detect_sahi <- function(img,
 #' @param col_highlight Base color for highlighted instances when `rainbow = FALSE`. Defaults to `"salmon"`.
 #' @param alpha Numeric transparency factor (0 = fully transparent, 1 = fully opaque) for highlight fill. Defaults to `0.40`.
 #' @param border Color for instance polygon borders. Defaults to `NA` (no border).
-#' @param lwd Numeric border line width. Defaults to `1`.
+#' @param lwd Numeric border line width. Defaults to `1`. When `lwd` is not given, bounding
+#'   boxes are drawn with width `2`; when it is given, the same width is used for both.
 #' @param classes Optional character or integer vector of class names or IDs to keep (e.g., `"car"` or `c("car", "truck")`).
 #'   Detections belonging to other classes are discarded before post-processing. Defaults to `NULL` (all classes kept).
 #' @param agnostic_nms Logical. If `TRUE`, bounding boxes and masks from different classes compete during post-processing suppression. Defaults to `FALSE`.
@@ -763,6 +764,9 @@ image_segment_sahi <- function(img,
                                verbose = TRUE,
                                imgsz = NULL,
                                ...) {
+  # Box outline width: `lwd` when given; otherwise 2 (the default lwd = 1 is meant for
+  # mask contours and would draw very thin boxes)
+  box_lwd <- if (missing(lwd) || is.null(lwd) || all(is.na(lwd))) 2 else lwd
   dots <- list(...)
   if (is.null(imgsz)) {
     if ("imgz" %in% names(dots)) imgsz <- dots$imgz
@@ -1135,7 +1139,7 @@ image_segment_sahi <- function(img,
       .plot_yolo_bboxes(
         boxes = final_df,
         palette_colors = palette_cols,
-        lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+        lwd = box_lwd,
         cex = cex,
         pad = pad,
         show_text = show_text,

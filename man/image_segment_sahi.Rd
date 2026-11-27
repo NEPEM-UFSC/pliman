@@ -98,7 +98,8 @@ resized full canvas to capture objects larger than individual slices.}
 
 \item{border}{Color for instance polygon borders. Defaults to \code{NA} (no border).}
 
-\item{lwd}{Numeric border line width. Defaults to \code{1}.}
+\item{lwd}{Numeric border line width. Defaults to \code{1}. When \code{lwd} is not given, bounding
+boxes are drawn with width \code{2}; when it is given, the same width is used for both.}
 
 \item{bbox}{Logical. If \code{TRUE}, draws bounding boxes and class badges around segmented instances. Defaults to \code{FALSE}.}
 

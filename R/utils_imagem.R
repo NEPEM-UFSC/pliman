@@ -43,7 +43,11 @@
 #'
 #'Combines several images to a grid
 #' @param ... a comma-separated name of image objects or a list containing image
-#'   objects.
+#'   objects. Objects with a `plot()` method, such as the results of
+#'   [image_detect_dl()] and [image_segment_dl()], can also be given. To change how
+#'   one of them is drawn, write the `plot()` call directly, e.g.
+#'   `image_combine(img, plot(det, cex = 0.8, lwd = 0.5))`: the call is run inside its
+#'   own panel with all the arguments given, instead of being drawn beforehand.
 #' @param labels A character vector with the same length of the number of
 #'   objects in `...` to indicate the plot labels.
 #' @param nrow,ncol The number of rows or columns in the plot grid. Defaults to
@@ -85,6 +89,11 @@
 #'
 #' # Remove margins to optimize plotting area:
 #' image_combine(img1, img2, mar = 0)
+#'
+#' # Combine an image with a deep learning result drawn with custom arguments
+#' farm <- image_pliman("farm.jpg")
+#' det <- image_detect_dl(farm, model = "yolo26n", plot = FALSE)
+#' image_combine(farm, plot(det, cex = 0.8, lwd = 0.5), mar = 0, labels = c("a", "b"), ncol = 1)
 image_combine <- function(...,
                           labels = NULL,
                           nrow = NULL,
@@ -107,8 +116,36 @@ image_combine <- function(...,
   if (missing(col)) {
     col <- if (isTRUE(badge)) "white" else "black"
   }
-  dots <- list(...)
   call_args <- match.call(expand.dots = FALSE)$...
+  penv <- parent.frame()
+
+  # Arguments written as plot(x, ...) calls (e.g. plot(det, cex = 0.8, lwd = 0.2)) are
+  # not evaluated here: they would draw on the current device before the grid exists
+  # and only return `x`, losing the plotting arguments. They are run later, inside their
+  # own panel, so every argument given to plot() is honoured.
+  is_plot_call <- function(e) {
+    is.call(e) && (identical(e[[1L]], as.name("plot")) ||
+                     identical(e[[1L]], quote(graphics::plot)) ||
+                     identical(e[[1L]], quote(base::plot)))
+  }
+  deferred <- if (length(call_args) > 0L) vapply(call_args, is_plot_call, logical(1)) else logical(0)
+  if (any(deferred)) {
+    dots <- lapply(seq_along(call_args), function(i) {
+      e <- call_args[[i]]
+      if (deferred[i]) {
+        # object being plotted: argument `x` or the first unnamed argument
+        args <- as.list(e)[-1L]
+        nms <- names(args)
+        obj <- if (!is.null(nms) && "x" %in% nms) args[["x"]] else args[[if (is.null(nms)) 1L else which(!nzchar(nms))[1L]]]
+        eval(obj, penv)
+      } else {
+        eval(e, penv)
+      }
+    })
+    names(dots) <- names(call_args)
+  } else {
+    dots <- list(...)
+  }
 
   get_img <- function(x) {
     if (inherits(x, c("image", "Image")) || is.matrix(x) || is.array(x)) {
@@ -284,7 +321,14 @@ image_combine <- function(...,
 
   for (i in seq_len(num_plots)) {
     img <- plots[[i]]
-    plot(img, mar = mar)
+    if (length(deferred) == num_plots && isTRUE(deferred[i])) {
+      # run the user's plot(...) call in this panel; add the panel margins unless given
+      e <- call_args[[i]]
+      if (is.null(e$mar)) e$mar <- mar
+      eval(e, penv)
+    } else {
+      plot(img, mar = mar)
+    }
     if (isTRUE(verbose)) {
       lbl <- idx_names[i]
       if (nzchar(lbl)) {

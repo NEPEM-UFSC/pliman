@@ -28,7 +28,11 @@ image_combine(
 }
 \arguments{
 \item{...}{a comma-separated name of image objects or a list containing image
-objects.}
+objects. Objects with a \code{plot()} method, such as the results of
+\code{\link[=image_detect_dl]{image_detect_dl()}} and \code{\link[=image_segment_dl]{image_segment_dl()}}, can also be given. To change how
+one of them is drawn, write the \code{plot()} call directly, e.g.
+\code{image_combine(img, plot(det, cex = 0.8, lwd = 0.5))}: the call is run inside its
+own panel with all the arguments given, instead of being drawn beforehand.}
 
 \item{labels}{A character vector with the same length of the number of
 objects in \code{...} to indicate the plot labels.}
@@ -88,6 +92,11 @@ image_combine(img1, img2)
 
 # Remove margins to optimize plotting area:
 image_combine(img1, img2, mar = 0)
+
+# Combine an image with a deep learning result drawn with custom arguments
+farm <- image_pliman("farm.jpg")
+det <- image_detect_dl(farm, model = "yolo26n", plot = FALSE)
+image_combine(farm, plot(det, cex = 0.8, lwd = 0.5), mar = 0, labels = c("a", "b"), ncol = 1)
 \dontshow{\}) # examplesIf}
 }
 \author{

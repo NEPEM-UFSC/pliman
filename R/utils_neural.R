@@ -3885,8 +3885,19 @@ image_remove_bg_dl <- function(img,
   cex_val <- max(0.01, base_cex * cex)
   draw_text <- isTRUE(show_text) && cex_val > 0.005
 
-  num_inst <- nrow(boxes)
-  for (i in seq_len(num_inst)) {
+  # Half of the box line width, in user units (1 lwd = 1/96 inch). Labels are placed
+  # against the outer edge of the line, so thick lines do not cover them.
+  half_lwd_y <- 0
+  half_lwd_x <- 0
+  if (isTRUE(show_box) && is.numeric(lwd) && length(lwd) == 1L && is.finite(lwd) && lwd > 0) {
+    pin <- graphics::par("pin")
+    if (all(pin > 0)) {
+      half_lwd_x <- (lwd / 96 / 2) * abs(u[2] - u[1]) / pin[1]
+      half_lwd_y <- (lwd / 96 / 2) * abs(u[4] - u[3]) / pin[2]
+    }
+  }
+
+  box_info <- function(i) {
     bx <- boxes[i, ]
     k_col <- if ("color" %in% names(bx) && !is.null(bx$color) && !is.na(bx$color) && nzchar(as.character(bx$color))) {
       as.character(bx$color)
@@ -3895,10 +3906,8 @@ image_remove_bg_dl <- function(img,
     } else {
       "#00CC66"
     }
-    x1 <- bx$xmin; y1 <- bx$ymin; x2 <- bx$xmax; y2 <- bx$ymax
-
-    # Determine centroid for point plotting
     is_obb <- all(c("x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4") %in% names(bx))
+    x1 <- bx$xmin; y1 <- bx$ymin; x2 <- bx$xmax; y2 <- bx$ymax
     cx <- if ("cx" %in% names(bx) && !is.na(bx$cx)) {
       as.numeric(bx$cx)
     } else if (is_obb) {
@@ -3913,23 +3922,39 @@ image_remove_bg_dl <- function(img,
     } else {
       (y1 + y2) / 2
     }
+    list(bx = bx, k_col = k_col, is_obb = is_obb, x1 = x1, y1 = y1, x2 = x2, y2 = y2, cx = cx, cy = cy)
+  }
+
+  num_inst <- nrow(boxes)
+
+  # Pass 1: all box outlines and centroid points
+  for (i in seq_len(num_inst)) {
+    bi <- box_info(i)
+    bx <- bi$bx; k_col <- bi$k_col
 
     # Draw box outline (rotated polygon for OBB, rectangle for standard)
     if (isTRUE(show_box)) {
-      if (is_obb) {
+      if (bi$is_obb) {
         graphics::polygon(x = c(bx$x1, bx$x2, bx$x3, bx$x4), y = c(bx$y1, bx$y2, bx$y3, bx$y4), border = k_col, lwd = lwd)
       } else {
-        graphics::rect(xleft = x1, ybottom = y1, xright = x2, ytop = y2, border = k_col, lwd = lwd)
+        graphics::rect(xleft = bi$x1, ybottom = bi$y1, xright = bi$x2, ytop = bi$y2, border = k_col, lwd = lwd)
       }
     }
 
     # Draw centroid point
-    if (isTRUE(show_point) && is.finite(cx) && is.finite(cy)) {
+    if (isTRUE(show_point) && is.finite(bi$cx) && is.finite(bi$cy)) {
       col_pt <- if (!is.null(point_col)) point_col else k_col
-      graphics::points(cx, cy, col = col_pt, pch = point_pch, cex = point_size)
+      graphics::points(bi$cx, bi$cy, col = col_pt, pch = point_pch, cex = point_size)
     }
+  }
 
-    if (!draw_text) next
+  if (!draw_text) return(invisible(NULL))
+
+  # Pass 2: labels on top of every box, so no outline is drawn over a label
+  for (i in seq_len(num_inst)) {
+    bi <- box_info(i)
+    bx <- bi$bx; k_col <- bi$k_col; is_obb <- bi$is_obb
+    x1 <- bi$x1; y1 <- bi$y1; x2 <- bi$x2; y2 <- bi$y2
 
     # Label text formatting
     lbl_parts <- character(0)
@@ -4017,11 +4042,14 @@ image_remove_bg_dl <- function(img,
         graphics::text(t_pos[1], t_pos[2], labels = lbl_txt, col = k_col, font = 2, srt = srt_val, adj = c(0, 0.5), cex = cex_val)
       }
     } else {
-      outside <- (y1 - badge_h) >= min(u[3], u[4])
-      by0 <- if (outside) y1 - badge_h else y1
-      by1 <- if (outside) y1 else y1 + badge_h
-      bx0 <- x1
-      bx1 <- x1 + badge_w
+      # Place the badge against the outer edge of the box line (above the box when it
+      # fits, otherwise just inside it)
+      edge_top <- y1 - half_lwd_y
+      outside <- (edge_top - badge_h) >= min(u[3], u[4])
+      by0 <- if (outside) edge_top - badge_h else y1 + half_lwd_y
+      by1 <- if (outside) edge_top else y1 + half_lwd_y + badge_h
+      bx0 <- x1 - half_lwd_x
+      bx1 <- bx0 + badge_w
 
       # Ensure badge does not overflow right canvas boundary
       x_max_plot <- max(u[1], u[2])
@@ -6308,7 +6336,7 @@ plot_yolo_heatmap <- function(img,
     "prefix", "verbose", "return_features", "feature_model", "plot_features",
     "threads", "engine", "device_id", "fill_hull", "filter", "erode", "dilate",
     "opening", "closing", "min_area", "invert", "pick_object", "show_mask",
-    "show_text", "show_conf", "show_class", "show_id", "lwd", "col", "border",
+    "show_text", "show_conf", "show_class", "show_id", "lwd", "box_lwd", "col", "border",
     "alpha", "pad", "cex", "dir", "exemplar", "sim_threshold", "min_dist",
     "feat_res", "max_objects", "superres_map", "k_steps", "sam_points", "grid",
     "sam_device"
@@ -6375,7 +6403,9 @@ plot_yolo_heatmap <- function(img,
 #'   Default is `0.4` (40% opacity).
 #' @param border Color for the border stroke of the highlight polygon when `type = "highlight"`.
 #'   Default is `NA` (no border stroke).
-#' @param lwd Numeric line width for the bounding boxes and highlight polygon contours. Default is `1`.
+#' @param lwd Numeric line width for the bounding boxes and highlight polygon contours. Default is `1`
+#'   for the contours. When `lwd` is not given, bounding boxes are drawn with width `2`;
+#'   when it is given, the same width is used for both. Values below 1 draw thinner lines.
 #' @param bbox Logical. If `TRUE`, draws YOLO-style bounding boxes with class labels and confidence scores
 #'   around detected instances. Defaults to `FALSE`.
 #' @param mask Logical. If `TRUE` (default), computes pixel-accurate instance or semantic masks.
@@ -6612,6 +6642,16 @@ image_segment_dl <- function(img,
                              imgsz = NULL,
                              ...) {
   engine_specified <- !missing(engine)
+  # Box outline width: `lwd` when given; otherwise 2 (the default lwd = 1 is meant for
+  # mask contours and would draw very thin boxes)
+  # (`box_lwd` in `...` is used internally to keep this choice in recursive calls)
+  box_lwd <- if (!is.null(list(...)$box_lwd)) {
+    list(...)$box_lwd
+  } else if (missing(lwd) || is.null(lwd) || all(is.na(lwd))) {
+    2
+  } else {
+    lwd
+  }
   engine <- match.arg(engine)
   mask_specified <- !missing(mask)
   if (!mask_specified && isTRUE(show_point) && !isTRUE(show_text) && !isTRUE(show_conf) && !isTRUE(show_class) && !isTRUE(bbox)) {
@@ -6660,6 +6700,7 @@ image_segment_dl <- function(img,
                        alpha = alpha,
                        border = border,
                        lwd = lwd,
+                       box_lwd = box_lwd,
                        bbox = bbox,
                        mask = mask,
                        cex = cex,
@@ -7101,7 +7142,7 @@ image_segment_dl <- function(img,
           .plot_yolo_bboxes(
             boxes = gs_res$boxes,
             palette_colors = palette_colors,
-            lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+            lwd = box_lwd,
             cex = cex,
             pad = 0,
             badge_pad = badge_pad,
@@ -7239,7 +7280,7 @@ image_segment_dl <- function(img,
           .plot_yolo_bboxes(
             boxes = gs_res$boxes,
             palette_colors = palette_colors,
-            lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+            lwd = box_lwd,
             cex = cex,
             pad = 0,
             badge_pad = badge_pad,
@@ -7384,7 +7425,7 @@ image_segment_dl <- function(img,
             .plot_yolo_bboxes(
               boxes = gs_res$boxes,
               palette_colors = palette_colors,
-              lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+              lwd = box_lwd,
               cex = cex,
               pad = 0,
               badge_pad = badge_pad,
@@ -7453,6 +7494,7 @@ image_segment_dl <- function(img,
         alpha = alpha,
         border = border,
         lwd = lwd,
+        box_lwd = box_lwd,
         cex = cex,
         bbox = bbox,
         mask = mask,
@@ -7551,7 +7593,7 @@ image_segment_dl <- function(img,
         .plot_yolo_bboxes(
           boxes = boxes_df,
           palette_colors = palette_colors,
-          lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+          lwd = box_lwd,
           cex = cex,
           pad = 0,
           badge_pad = badge_pad,
@@ -8473,6 +8515,18 @@ image_detect_dl <- function(img,
   invisible(df_boxes)
 }
 
+# Store the non-NULL plotting arguments of a plot() call in the "plot_params"
+# attribute of a detection/segmentation result.
+.update_plot_params <- function(x, given) {
+  given <- given[!vapply(given, is.null, logical(1))]
+  if (length(given) == 0L) return(x)
+  pp <- attr(x, "plot_params")
+  if (is.null(pp)) pp <- list()
+  pp[names(given)] <- given
+  attr(x, "plot_params") <- pp
+  x
+}
+
 # Internal helper shared by plot.image_segment_dl() and plot.image_detect_dl()
 .render_dl_overlay <- function(img = NULL,
                                boxes = NULL,
@@ -8483,6 +8537,7 @@ image_detect_dl <- function(img,
                                alpha = 0.5,
                                border = "black",
                                lwd = 1,
+                               box_lwd = NULL,
                                cex = 0.9,
                                bbox = FALSE,
                                mask = TRUE,
@@ -8542,7 +8597,7 @@ image_detect_dl <- function(img,
     .plot_yolo_bboxes(
       boxes = boxes,
       palette_colors = palette_colors,
-      lwd = if (is.null(lwd) || is.na(lwd) || lwd <= 1) 2 else lwd,
+      lwd = if (!is.null(box_lwd) && !all(is.na(box_lwd))) box_lwd else if (is.null(lwd) || all(is.na(lwd))) 2 else lwd,
       cex = cex,
       pad = 0,
       badge_pad = badge_pad,
@@ -8621,6 +8676,7 @@ plot.image_segment_dl <- function(x,
     alpha = pick(alpha, "alpha", 0.5),
     border = if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else "black",
     lwd = pick(lwd, "lwd", 1),
+    box_lwd = if (!is.null(lwd)) lwd else if (!is.null(pp$box_lwd)) pp$box_lwd else 2,
     cex = pick(cex, "cex", 0.9),
     bbox = pick(bbox, "bbox", FALSE),
     mask = pick(mask, "mask", TRUE),
@@ -8637,7 +8693,16 @@ plot.image_segment_dl <- function(x,
     point_col = if (!is.null(point_col)) point_col else pp$point_col,
     dots = list(...)
   )
-  invisible(x)
+  # Return `x` with the plotting arguments given here stored in its plot parameters,
+  # so later re-plots (e.g. by image_combine()) look the same.
+  invisible(.update_plot_params(x, list(
+    col = col_highlight, alpha = alpha, border = border, lwd = lwd, box_lwd = lwd,
+    cex = cex, bbox = bbox, mask = mask, rainbow = rainbow, badge = badge,
+    badge_pad = badge_pad, show_text = show_text, show_conf = show_conf,
+    show_class = show_class, show_id = show_id, show_box = show_box,
+    show_point = show_point, point_size = point_size, point_pch = point_pch,
+    point_col = point_col
+  )))
 }
 
 #' Plot method for \code{image_detect_dl} objects
@@ -8695,6 +8760,7 @@ plot.image_detect_dl <- function(x,
     alpha = pick(alpha, "alpha", 0.4),
     border = if (!missing(border) && !is.null(border)) border else if ("border" %in% names(pp)) pp$border else NA,
     lwd = pick(lwd, "lwd", 2),
+    box_lwd = pick(lwd, "lwd", 2),
     cex = pick(cex, "cex", 0.9),
     bbox = pick(bbox, "bbox", TRUE),
     mask = pick(mask, "mask", !is.null(conts)),
@@ -8711,7 +8777,16 @@ plot.image_detect_dl <- function(x,
     point_col = if (!is.null(point_col)) point_col else pp$point_col,
     dots = list(...)
   )
-  invisible(x)
+  # Return `x` with the plotting arguments given here stored in its plot parameters,
+  # so later re-plots (e.g. by image_combine()) look the same.
+  invisible(.update_plot_params(x, list(
+    col = col, alpha = alpha, border = border, lwd = lwd, box_lwd = lwd,
+    cex = cex, bbox = bbox, mask = mask, rainbow = rainbow, badge = badge,
+    badge_pad = badge_pad, show_text = show_text, show_conf = show_conf,
+    show_class = show_class, show_id = show_id, show_box = show_box,
+    show_point = show_point, point_size = point_size, point_pch = point_pch,
+    point_col = point_col
+  )))
 }
 
 # Internal helper to extract boxes, contours, labels, and image from detection/segmentation outputs

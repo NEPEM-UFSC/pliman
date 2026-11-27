@@ -106,7 +106,9 @@ Default is \code{0.4} (40\% opacity).}
 \item{border}{Color for the border stroke of the highlight polygon when \code{type = "highlight"}.
 Default is \code{NA} (no border stroke).}
 
-\item{lwd}{Numeric line width for the bounding boxes and highlight polygon contours. Default is \code{1}.}
+\item{lwd}{Numeric line width for the bounding boxes and highlight polygon contours. Default is \code{1}
+for the contours. When \code{lwd} is not given, bounding boxes are drawn with width \code{2};
+when it is given, the same width is used for both. Values below 1 draw thinner lines.}
 
 \item{bbox}{Logical. If \code{TRUE}, draws YOLO-style bounding boxes with class labels and confidence scores
 around detected instances. Defaults to \code{FALSE}.}
