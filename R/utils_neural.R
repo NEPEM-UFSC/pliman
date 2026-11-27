@@ -1568,6 +1568,15 @@ pliman_available_models <- function(dir = pliman_model_dir(), refresh = FALSE) {
 #'
 #'   # Download all models at once
 #'   pliman_download_model("all")
+#'
+#' @section License notice:
+#' The pre-trained models are **not** distributed with `pliman`: they are downloaded
+#' from third-party sources and each one keeps its own license. Several models forbid
+#' commercial use (e.g. `"rmbg-1.4"`, `"rmbg-2.0"`, `"yolo_nas_s"` and `"yolo_nas_l"`) and
+#' others are released under the AGPL-3.0 (the `"yolo26*"` and `"yolov8*-worldv2"` families).
+#' The models available through `pliman` are therefore provided for research and
+#' **non-commercial use only**. The license of each model is listed in
+#' `system.file("MODEL_LICENSES.md", package = "pliman")`.
 pliman_download_model <- function(model = "u2netp",
                                   dir = pliman_model_dir(),
                                   force = FALSE,
@@ -3470,6 +3479,11 @@ image_binary_dl <- function(img,
 #'   # without the hand that holds them
 #'   img_flowers <- image_remove_bg_dl(flower, model = "grounded-sam", prompt = "flower")
 #'
+#' @section License notice:
+#' The default model (`"rmbg-1.4"`) and `"rmbg-2.0"`, both from BRIA AI, are licensed for
+#' **non-commercial use only**. In general, the pre-trained models available through
+#' `pliman` are provided for research and non-commercial use; see
+#' `system.file("MODEL_LICENSES.md", package = "pliman")` for the license of each model.
 image_remove_bg_dl <- function(img,
                                model = c("rmbg-1.4", "rmbg-2.0", "u2netp", "ben2", "grounded-sam", "sam2.1", "persam",  "withoutbg", "birefnet-lite", "isnet-general-use", "silueta", "u2net"),
                                threshold = 0.5,

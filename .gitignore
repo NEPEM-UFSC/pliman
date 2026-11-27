@@ -26,3 +26,6 @@ inst/doc
 # Python bytecode (inst/python)
 __pycache__/
 *.pyc
+
+# pkgdown site (built and deployed by GitHub Actions)
+docs/
