@@ -190,6 +190,14 @@ Removes the background of an image using pre-trained Deep Learning models,
 producing a 4-channel \strong{RGBA} image with a transparent background by default,
 or replacing the background with a solid color.
 }
+\section{License notice}{
+
+The default model (\code{"rmbg-1.4"}) and \code{"rmbg-2.0"}, both from BRIA AI, are licensed for
+\strong{non-commercial use only}. In general, the pre-trained models available through
+\code{pliman} are provided for research and non-commercial use; see
+\code{system.file("MODEL_LICENSES.md", package = "pliman")} for the license of each model.
+}
+
 \examples{
 \dontshow{if (interactive()) withAutoprint(\{ # examplesIf}
   library(pliman)
